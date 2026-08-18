@@ -8,6 +8,8 @@ namespace Emi.Qms.Api.ProductionPlanning;
 
 public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider connectionStringProvider)
 {
+    private const string ActivePlanItemNameUniqueConstraint = "ux_project_production_plan_items_active_name";
+
     internal static async Task EnsureSetPlanScopeAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -808,15 +810,29 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
 
         if (currentPlan is not null)
         {
-            return await UpdateLinkedProjectPlanAsync(
-                connection,
-                transaction,
-                project,
-                currentPlan,
-                request,
-                changedByUserId,
-                correlationId,
-                cancellationToken);
+            try
+            {
+                return await UpdateLinkedProjectPlanAsync(
+                    connection,
+                    transaction,
+                    project,
+                    currentPlan,
+                    request,
+                    changedByUserId,
+                    correlationId,
+                    cancellationToken);
+            }
+            catch (PostgresException exception) when (
+                exception.SqlState == PostgresErrorCodes.UniqueViolation
+                && exception.ConstraintName == ActivePlanItemNameUniqueConstraint)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ProductionPlanningMutationResult<ProductionPlanningResponse>.Validation(
+                    new Dictionary<string, string[]>
+                    {
+                        ["items"] = ["같은 생산계획 안에서 동일한 항목명을 중복 사용할 수 없습니다. 항목명을 확인해 주세요."]
+                    });
+            }
         }
 
         var planId = currentPlan?.PlanId ?? Guid.NewGuid();
@@ -1704,6 +1720,10 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             connection,
             transaction,
             cancellationToken);
+        var materialCategoryDefinitionKeys = await ReadMaterialCategoryDefinitionKeysAsync(
+            connection,
+            transaction,
+            cancellationToken);
         var lqcOperational = await WorkflowStageOperations.IsStageOperationalForProjectAsync(
             connection,
             transaction,
@@ -1750,6 +1770,14 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                         errors[field] = ["현재 품질 양식의 검사 항목을 다시 선택해 주세요."];
                     }
                 }
+                else if (ProductionControlSourceCodes.SupportsMaterialCategoryDefinition(source.SourceCode))
+                {
+                    if (source.SourceDefinitionKey is not null
+                        && !materialCategoryDefinitionKeys.Contains(source.SourceDefinitionKey.Value))
+                    {
+                        errors[field] = ["현재 사용 중인 구매품 구분을 다시 선택해 주세요."];
+                    }
+                }
                 else if (source.SourceDefinitionKey is not null)
                 {
                     errors[field] = ["이 실적 연결값에는 세부 항목을 지정할 수 없습니다."];
@@ -1786,17 +1814,30 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 currentPlan.PlanId,
                 existing.Select(item => item.SequenceNumber).ToArray(),
                 cancellationToken);
-            await using var shiftCommand = connection.CreateCommand();
-            shiftCommand.Transaction = transaction;
-            shiftCommand.CommandText = """
+            await using var stageCommand = connection.CreateCommand();
+            stageCommand.Transaction = transaction;
+            stageCommand.CommandText = """
                 update project_production_plan_items
-                set sequence_number = sequence_number + @sequence_shift
+                set sequence_number = sequence_number + @sequence_shift,
+                    step_name_snapshot = case
+                        when id = any(@rewrite_item_ids)
+                            then @temporary_name_prefix || replace(id::text, '-', '')
+                        else step_name_snapshot
+                    end
                 where production_plan_id = @plan_id
                   and is_active = true;
                 """;
-            shiftCommand.Parameters.AddWithValue("plan_id", currentPlan.PlanId);
-            shiftCommand.Parameters.AddWithValue("sequence_shift", sequenceShift);
-            await shiftCommand.ExecuteNonQueryAsync(cancellationToken);
+            stageCommand.Parameters.AddWithValue("plan_id", currentPlan.PlanId);
+            stageCommand.Parameters.AddWithValue("sequence_shift", sequenceShift);
+            stageCommand.Parameters.Add(new NpgsqlParameter<Guid[]>(
+                "rewrite_item_ids",
+                requestedItems
+                    .Where(item => item.ItemId is not null && existingById.ContainsKey(item.ItemId.Value))
+                    .Select(item => item.ItemId!.Value)
+                    .Distinct()
+                    .ToArray()));
+            stageCommand.Parameters.AddWithValue("temporary_name_prefix", new string('~', 121));
+            await stageCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
         var nextSequence = 1;
@@ -1812,11 +1853,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                     deleteCommand.CommandText = """
                         update project_production_plan_items
                         set is_active = false,
+                            step_name_snapshot = @step_name,
                             row_version = row_version + 1,
                             updated_at_utc = now()
                         where id = @item_id;
                         """;
                     deleteCommand.Parameters.AddWithValue("item_id", existingItem.ItemId!.Value);
+                    deleteCommand.Parameters.AddWithValue("step_name", existingItem.StepName);
                     await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
                 }
                 continue;
@@ -2181,22 +2224,53 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         string modelVersion,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = modelVersion == ProductionControlModelVersions.LinkedV1
-            ? """
+        var result = new HashSet<Guid>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
                 select definition_key
                 from project_manufacturing_step_snapshots
                 where project_id = @project_id and is_active;
-                """
-            : """
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                result.Add(reader.GetGuid(0));
+            }
+        }
+        if (result.Count > 0 || modelVersion == ProductionControlModelVersions.LinkedV1)
+        {
+            return result;
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
                 select item.id
                 from manufacturing_step_template_items item
                 join manufacturing_step_template_versions version on version.id = item.template_version_id
                 join manufacturing_step_templates template on template.id = version.template_id
                 where template.template_code = 'PANEL_MANUFACTURING';
                 """;
-        command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                result.Add(reader.GetGuid(0));
+            }
+        }
+        return result;
+    }
+
+    private static async Task<HashSet<Guid>> ReadMaterialCategoryDefinitionKeysAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select id from material_categories where is_active;";
         var result = new HashSet<Guid>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -2236,16 +2310,32 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         string modelVersion,
         CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = modelVersion == ProductionControlModelVersions.LinkedV1
-            ? """
+        var result = new List<ProjectManufacturingStepResponse>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
                 select definition_key, sequence_number, step_name_snapshot
                 from project_manufacturing_step_snapshots
                 where project_id = @project_id and is_active
                 order by sequence_number;
-                """
-            : """
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                result.Add(new ProjectManufacturingStepResponse(
+                    reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2)));
+            }
+        }
+        if (result.Count > 0 || modelVersion == ProductionControlModelVersions.LinkedV1)
+        {
+            return result;
+        }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
                 select item.id, item.display_order, item.label
                 from manufacturing_step_template_items item
                 join manufacturing_step_template_versions version on version.id = item.template_version_id
@@ -2266,15 +2356,13 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                   )
                 order by item.display_order;
                 """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        var result = new List<ProjectManufacturingStepResponse>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            result.Add(new ProjectManufacturingStepResponse(
-                reader.GetGuid(0),
-                reader.GetInt32(1),
-                reader.GetString(2)));
+            command.Parameters.AddWithValue("project_id", projectId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                result.Add(new ProjectManufacturingStepResponse(
+                    reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2)));
+            }
         }
         return result;
     }
@@ -3825,6 +3913,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                        item.order_date is not null
                 from project_procurement_items item
                 where item.project_id = @project_id and item.status = 'Active'
+                  and (@source_definition_key is null or item.material_category_id=@source_definition_key)
                 order by item.sequence_number
                 """,
             ProductionControlSourceCodes.MaterialReceiptConfirmed => """
@@ -3837,6 +3926,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 from project_procurement_items item
                 left join material_receipts receipt on receipt.procurement_item_id = item.id and receipt.status <> 'Cancelled'
                 where item.project_id = @project_id and item.status = 'Active'
+                  and (@source_definition_key is null or item.material_category_id=@source_definition_key)
                 group by item.id
                 order by item.sequence_number
                 """,
@@ -3956,15 +4046,26 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         {
             command.Parameters.AddWithValue("source_definition_key", source.SourceDefinitionKey.Value);
         }
+        else if (ProductionControlSourceCodes.SupportsMaterialCategoryDefinition(source.SourceCode))
+        {
+            command.Parameters.Add("source_definition_key", NpgsqlDbType.Uuid).Value = DBNull.Value;
+        }
         if (source.SourceCode == ProductionControlSourceCodes.LqcPassed)
         {
             command.Parameters.AddWithValue("lqc_operational", lqcOperational);
         }
 
         var rows = new List<ProductionPlanEvidenceResponse>();
+        var materialCategoryLabel = ProductionControlSourceCodes.SupportsMaterialCategoryDefinition(source.SourceCode)
+            && source.SourceDefinitionKey is not null
+                ? await ReadMaterialCategoryLabelAsync(connection, transaction, source.SourceDefinitionKey.Value, cancellationToken)
+                : null;
+        var defaultSourceLabel = materialCategoryLabel is null
+            ? SourceLabel(sourceCatalog, source.SourceDefinitionKey)
+            : $"{sourceCatalog.DepartmentLabel} · {sourceCatalog.Label} · {materialCategoryLabel}";
         var sourceLabel = source.SourceCode == ProductionControlSourceCodes.LqcPassed && !lqcOperational
-            ? $"{SourceLabel(sourceCatalog, source.SourceDefinitionKey)} · LQC 운영 중지, 제조 단계 완료로 대체"
-            : SourceLabel(sourceCatalog, source.SourceDefinitionKey);
+            ? $"{defaultSourceLabel} · LQC 운영 중지, 제조 단계 완료로 대체"
+            : defaultSourceLabel;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -3986,6 +4087,19 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
                 blocked ? "Pending" : completed ? "완료" : "대기"));
         }
         return rows;
+    }
+
+    private static async Task<string?> ReadMaterialCategoryLabelAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid categoryId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "select display_name from material_categories where id=@category_id;";
+        command.Parameters.AddWithValue("category_id", categoryId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
     private static string IqcEvidenceSql(bool itemSpecific) => itemSpecific

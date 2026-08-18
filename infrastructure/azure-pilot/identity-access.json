@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "14694995643951412858"
+      "templateHash": "14502313714128379189"
     }
   },
   "parameters": {
@@ -81,6 +81,17 @@
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'bootstrap-administrator-emails')]",
       "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'bootstrap-administrator-emails'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'development-operator-emails')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'development-operator-emails'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
       "properties": {
         "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
         "principalType": "ServicePrincipal",

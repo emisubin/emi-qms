@@ -2271,6 +2271,10 @@ describe('App', () => {
     expect(contextSummary).not.toHaveTextContent('Active');
     expect(await screen.findByRole('table', { name: '구매정보 수정' })).toBeInTheDocument();
     const editTable = screen.getByRole('table', { name: '구매정보 수정' });
+    const legacyCategorySelect = within(editTable).getByLabelText('구매품 구분');
+    expect(legacyCategorySelect).toBeEnabled();
+    expect(within(legacyCategorySelect).getByRole('option', { name: '기타' })).toBeInTheDocument();
+    fireEvent.change(legacyCategorySelect, { target: { value: '67000000-0000-0000-0000-000000000005' } });
     expect(within(editTable).getAllByLabelText('공급 방식')[0]).toHaveValue('Purchased');
     expect(within(editTable).getByLabelText('발주 수량')).toHaveValue('');
     expect(within(editTable).getByLabelText('발주 단위')).toHaveValue('');
@@ -2296,6 +2300,7 @@ describe('App', () => {
     expect(screen.getByLabelText('최근 저장 결과').querySelector('[data-tone="partial"]')).not.toBeNull();
     expect(JSON.stringify(savedRequests[0])).toContain('8W');
     expect(JSON.stringify(savedRequests[0])).toContain('25');
+    expect(JSON.stringify(savedRequests[0])).toContain('67000000-0000-0000-0000-000000000005');
   });
 
   it('waits for the latest procurement edit load before accepting row input', async () => {
@@ -2342,6 +2347,34 @@ describe('App', () => {
     const initialRowCount = editTable.querySelectorAll('.procurement-table-row.editable').length;
     fireEvent.click(screen.getByRole('button', { name: '도급 구매품 행 추가' }));
     expect(editTable.querySelectorAll('.procurement-table-row.editable')).toHaveLength(initialRowCount + 1);
+  });
+
+  it('keeps material category required for category-based projects', async () => {
+    let patchCount = 0;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
+        patchCount += 1;
+      }
+      if (url.pathname === `/api/projects/${projectId}/procurement` && !init?.method) {
+        return Promise.resolve(json({ ...procurementResponse(), iqcRoutingPolicy: 'CategoryBased', items: [] }));
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-procurement' } });
+    fireEvent.click(await screen.findByText('TASK-003A Demo'));
+    fireEvent.click(await screen.findByRole('tab', { name: '구매' }));
+    fireEvent.click(await screen.findByRole('button', { name: '구매정보 수정' }));
+    fireEvent.click(await screen.findByRole('button', { name: '도급 구매품 행 추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    const alert = (await screen.findByText('저장하지 못한 위치')).closest('[role="alert"]') as HTMLElement;
+    expect(alert).toHaveTextContent('구매품 구분을 선택해 주세요.');
+    expect(screen.getByLabelText('구매품 구분')).toBeRequired();
+    expect(patchCount).toBe(0);
   });
 
   it('identifies the exact purchased row, field, and correction when quantity input is incomplete', async () => {
@@ -2598,6 +2631,8 @@ describe('App', () => {
     expect(planEditSection).toHaveTextContent('계획 시작');
     expect(planEditSection).toHaveTextContent('계획 종료');
     expect(planEditSection).toHaveTextContent('실적 데이터 1:1 연결');
+    expect(within(planEditSection!).getAllByRole('option', { name: '전체 구매품' }).length).toBeGreaterThan(0);
+    expect(within(planEditSection!).getAllByRole('option', { name: '외함' }).length).toBeGreaterThan(0);
     expect(within(planEditSection!).getAllByLabelText('담당자')[0]).toHaveValue('50000000-0000-0000-0000-000000000003');
     expect(within(planEditSection!).getAllByLabelText('필요 인원')[0]).toHaveValue(3);
     const addPlanRowButton = within(planEditSection!).getByRole('button', { name: '계획 항목 추가' });
@@ -3376,6 +3411,33 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       return json({ canManage: true, isSystemAdministrator: false, domains: ['Quality'] });
     }
     return json({ canManage: false, isSystemAdministrator: false, domains: [] });
+  }
+
+  if (path === '/api/form-templates/material-categories') {
+    return json({
+      items: [
+        {
+          categoryId: '67000000-0000-0000-0000-000000000001',
+          code: 'ENCLOSURE',
+          displayName: '외함',
+          requiresIqc: true,
+          iqcDecisionMode: 'ScanBased',
+          isActive: true,
+          displayOrder: 10,
+          rowVersion: 1
+        },
+        {
+          categoryId: '67000000-0000-0000-0000-000000000005',
+          code: 'OTHER',
+          displayName: '기타',
+          requiresIqc: false,
+          iqcDecisionMode: 'ScanBased',
+          isActive: true,
+          displayOrder: 50,
+          rowVersion: 1
+        }
+      ]
+    });
   }
 
   if (path === '/api/sales/kpi') {
@@ -5101,6 +5163,7 @@ function procurementResponse() {
     projectId,
     projectTitle: 'TASK-003A Demo',
     projectCode: 'PJT-003A',
+    iqcRoutingPolicy: 'AllReceipts',
     items: [
       {
         itemId: '76000000-0000-0000-0000-000000000001',
@@ -5397,16 +5460,28 @@ function productionPlanningResponse(status: 'NotPlanned' | 'Planning' | 'Planned
     productTypeName: productType.name,
     notes: '생산계획 검수',
     manufacturingSteps: [],
-    availableSources: [{
-      code: 'PACKED',
-      departmentLabel: '물류',
-      label: '포장 완료',
-      requiresManufacturingDefinition: false,
-      definitionKind: 'None',
-      definitions: [],
-      isOperational: true,
-      operationalMessage: null
-    }],
+    availableSources: [
+      {
+        code: 'PURCHASE_ORDERED',
+        departmentLabel: '구매',
+        label: '발주 완료',
+        requiresManufacturingDefinition: false,
+        definitionKind: 'MaterialCategory',
+        definitions: [{ definitionKey: '67000000-0000-0000-0000-000000000001', label: '외함' }],
+        isOperational: true,
+        operationalMessage: null
+      },
+      {
+        code: 'PACKED',
+        departmentLabel: '물류',
+        label: '포장 완료',
+        requiresManufacturingDefinition: false,
+        definitionKind: 'None',
+        definitions: [],
+        isOperational: true,
+        operationalMessage: null
+      }
+    ],
     items: productType.steps.map((step, index) => {
       const plannedDate = planned || index === 0 || index === 2 ? `2026-07-0${index + 1}` : null;
       return ({

@@ -140,8 +140,8 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
         const brokenCount = countBrokenManufacturingConnections(savedItem, effectiveSources(data.sources, savedItem));
         applyCatalog(data, selectedVersion.versionId);
         setFeedback(brokenCount > 0
-          ? `제조 양식을 저장했습니다. 생산계획에서 연결이 끊긴 항목 ${brokenCount}개를 다시 선택해 주세요. 연결을 수정하기 전에는 새 프로젝트에 적용되지 않습니다.`
-          : '제조 양식을 저장했습니다. 이후 생성되는 프로젝트부터 적용됩니다.');
+          ? `제조 양식을 모든 같은 Item 프로젝트에 반영했습니다. 생산계획에서 연결이 끊긴 항목 ${brokenCount}개를 다시 선택해 주세요.`
+          : '제조 양식을 같은 Item의 모든 프로젝트에 바로 반영했습니다. 진행·완료된 제조 이력은 유지됩니다.');
       } catch (error) {
         setFeedback(error instanceof Error ? error.message : '제조 양식을 저장하지 못했습니다.');
       } finally {
@@ -226,7 +226,11 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
       <div className="production-control-version-bar">
         <div className="production-control-current-label">
           <strong>{selectedVersion ? '현재 사용 중인 양식' : '등록된 양식 없음'}</strong>
-          <small>{selectedVersion ? '저장하면 새 프로젝트부터 바로 적용됩니다.' : '양식을 만든 뒤 항목을 입력해 주세요.'}</small>
+          <small>{selectedVersion
+            ? domain === 'manufacturing'
+              ? '저장하면 같은 Item의 모든 프로젝트에 바로 적용됩니다.'
+              : '저장하면 이후 생성되는 프로젝트의 기본 계획에 적용됩니다.'
+            : '양식을 만든 뒤 항목을 입력해 주세요.'}</small>
         </div>
         {canManage ? (
           <div className="production-control-version-actions">
@@ -318,6 +322,11 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
                             ) : null}
                             {sources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
                               <optgroup key={source.code} disabled={source.isOperational === false} label={`${source.departmentLabel} · ${source.label}${source.isOperational === false ? ' · 운영 중지' : ''}`}>
+                                {source.definitionKind === 'MaterialCategory' ? (
+                                  <option disabled={source.isOperational === false} value={connectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
+                                    전체 구매품
+                                  </option>
+                                ) : null}
                                 {sourceDefinitionOptions(source, manufacturingOptions).map((step) => step.definitionKey ? (
                                   <option disabled={source.isOperational === false} key={`${source.code}:${step.definitionKey}`} value={connectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
                                     {step.label}
@@ -343,7 +352,9 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
 
       <footer className="production-control-snapshot-note">
         <strong>적용 원칙</strong>
-        <span>저장 이후 새로 만드는 프로젝트만 현재 양식을 복제합니다. 기존 프로젝트는 생성 당시 양식을 계속 사용합니다.</span>
+        <span>{domain === 'manufacturing'
+          ? '제조양식은 저장 즉시 같은 Item의 모든 프로젝트에 공통 적용됩니다. 이미 진행·완료된 제조 이력은 바뀌지 않습니다.'
+          : '생산계획 기본 양식은 이후 새로 만드는 프로젝트에 적용됩니다. 프로젝트 안에서 수정한 계획은 해당 프로젝트에만 적용됩니다.'}</span>
       </footer>
     </section>
   );

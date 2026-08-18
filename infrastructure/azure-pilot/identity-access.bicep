@@ -69,6 +69,11 @@ resource bootstrapAdministratorsSecret 'Microsoft.KeyVault/vaults/secrets@2023-0
   name: 'bootstrap-administrator-emails'
 }
 
+resource developmentOperatorsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: 'development-operator-emails'
+}
+
 resource originVerificationSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
   parent: keyVault
   name: 'front-door-origin-verify-token'
@@ -117,6 +122,16 @@ resource backendDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022
 resource backendAdministratorsSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(bootstrapAdministratorsSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
   scope: bootstrapAdministratorsSecret
+  properties: {
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource backendDevelopmentOperatorsSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(developmentOperatorsSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
+  scope: developmentOperatorsSecret
   properties: {
     principalId: backendIdentity.properties.principalId
     principalType: 'ServicePrincipal'

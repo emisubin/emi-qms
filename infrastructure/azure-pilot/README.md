@@ -21,7 +21,7 @@ Portal 업로드 순서는 다음과 같다.
 
 1. `foundation.json`
 2. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비
-3. Key Vault에 secret 11개 직접 입력
+3. Key Vault에 secret 12개 직접 입력
 4. `identity-access.json`
 5. GitHub Actions에서 Backend·Frontend image 게시
 6. `workloads.json`을 `activateWorkloads=false`, `enableExternalNotifications=false`로 배포
@@ -133,6 +133,7 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 | `database-migration-connection-string` | `Username=pms_migrator`, 별도 32자 이상 password, `SSL Mode=VerifyFull` |
 | `database-runtime-connection-string` | `Username=pms_app`, migration과 다른 32자 이상 password, `SSL Mode=VerifyFull` |
 | `bootstrap-administrator-emails` | 비상 관리자 두 명의 email을 세미콜론으로 구분 |
+| `development-operator-emails` | 실제 Entra 인증을 사용하는 지정 개발 검수 사용자 email. 운영 보안 우회 없이 기존 업무 권한 전체를 합성하며 Backend만 읽음 |
 | `front-door-origin-verify-token` | Foundation secure parameter와 동일한 64자 이상 random 값 |
 | `entra-access-gate-client-secret` | Frontend 사전 인증 전용 single-tenant Entra web application secret |
 | `gmail-username` | 발송 계정 |
@@ -147,12 +148,12 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 
 | Identity | 허용 secret |
 | --- | --- |
-| Backend | runtime DB, 비상 관리자 목록, Gmail 계정·app password, Teams activity client secret, Web Push VAPID 공개키·비밀키 |
+| Backend | runtime DB, 비상 관리자 목록, 지정 개발 검수 사용자 목록, Gmail 계정·app password, Teams activity client secret, Web Push VAPID 공개키·비밀키 |
 | Frontend | Front Door origin verification token, Entra access gate client secret |
 | Migration | migration DB |
 | Database bootstrap | admin DB, migration DB, runtime DB |
 
-`identity-access.bicep`은 위 13개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
+`identity-access.bicep`은 위 14개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
 
 새 환경에서는 세 role-name 선택 입력을 빈 값으로 두면 배포 정의가 결정적 이름을 만든다. 현재 운영처럼 Portal·CLI에서 먼저 만든 동일 역할을 코드가 인수해야 할 때는 `frontendAccessGateRoleAssignmentName`, `backendWebPushVapidPublicKeyRoleAssignmentName`, `backendWebPushVapidPrivateKeyRoleAssignmentName`에 기존 role assignment 이름을 ignored `identity-access.parameters.local.json`으로 전달한다. 기존 역할을 먼저 삭제하지 않으며, `what-if`에서 role assignment Create/Delete가 모두 `0`인지 확인한 뒤 배포한다. 실제 이름은 Repository에 기록하지 않는다.
 
@@ -192,8 +193,8 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 1. 사용자가 budget 알림을 먼저 만든다.
 2. Foundation local parameter 파일을 만들고 Azure resource를 생성한다.
 3. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비하고 client identifier를 workload 입력으로 보존한다.
-4. Key Vault에 위 11개 secret을 직접 입력한다.
-5. `identity-access.bicep`을 적용하고 13개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
+4. Key Vault에 위 12개 secret을 직접 입력한다.
+5. `identity-access.bicep`을 적용하고 14개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
 6. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
 7. `activateWorkloads=false`, `enableExternalNotifications=false`로 workload와 두 manual job을 배치한다.
 8. `database-role-bootstrap` job을 한 번 실행해 `pms_migrator`와 `pms_app`을 만들고 권한 probe를 통과시킨다.

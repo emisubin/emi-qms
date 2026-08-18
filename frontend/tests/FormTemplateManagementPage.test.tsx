@@ -108,6 +108,8 @@ describe('FormTemplateManagementPage', () => {
     expect(screen.queryByRole('textbox', { name: '2번 계획 항목명' })).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '1번 연결할 실적' })).toBeEnabled();
     expect(screen.getByRole('option', { name: '외관 확인' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '전체 구매품' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '외함' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: '치수 검사' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: '품질 · OQC 합격' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: '1번 연결할 실적' }), { target: { value: 'OQC_PASSED:' } });
@@ -419,7 +421,7 @@ function productionControlCatalog(withDraft: boolean, lqcOperational = true) {
     canManageManufacturing: true,
     canManageProductionPlanning: true,
     sources: [
-      { code: 'PURCHASE_ORDERED', departmentLabel: '구매', label: '발주 완료', requiresManufacturingDefinition: false, definitionKind: 'None', definitions: [], isOperational: true, operationalMessage: null },
+      { code: 'PURCHASE_ORDERED', departmentLabel: '구매', label: '발주 완료', requiresManufacturingDefinition: false, definitionKind: 'MaterialCategory', definitions: [{ definitionKey: 'material-category-1', label: '외함' }], isOperational: true, operationalMessage: null },
       { code: 'MANUFACTURING_STEP_COMPLETED', departmentLabel: '제조', label: '제조 단계 완료', requiresManufacturingDefinition: true, definitionKind: 'Manufacturing', definitions: [], isOperational: true, operationalMessage: null },
       { code: 'LQC_PASSED', departmentLabel: '품질', label: 'LQC 합격', requiresManufacturingDefinition: true, definitionKind: 'Manufacturing', definitions: [], isOperational: lqcOperational, operationalMessage: lqcOperational ? null : 'LQC는 현재 운영 중지 상태입니다. 기존 연결 이력은 유지되며 새 연결에는 사용할 수 없습니다.' },
       { code: 'IQC_PASSED', departmentLabel: '품질', label: 'IQC 합격', requiresManufacturingDefinition: false, definitionKind: 'Iqc', definitions: [{ definitionKey: 'iqc-step-1', label: '외관 확인' }], isOperational: true, operationalMessage: null },

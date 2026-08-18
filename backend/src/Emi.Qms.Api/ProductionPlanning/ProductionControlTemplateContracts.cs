@@ -22,8 +22,8 @@ public static class ProductionControlSourceCodes
 
     public static readonly IReadOnlyList<ProductionControlSourceCatalogItemResponse> Catalog =
     [
-        new(PurchaseOrdered, "구매", "발주 완료", false, "None", []),
-        new(MaterialReceiptConfirmed, "자재", "전체 입고 확정", false, "None", []),
+        new(PurchaseOrdered, "구매", "발주 완료", false, "MaterialCategory", []),
+        new(MaterialReceiptConfirmed, "자재", "입고 확정", false, "MaterialCategory", []),
         new(IqcPassed, "품질", "IQC 합격", false, "Iqc", []),
         new(ManufacturingStepCompleted, "제조", "제조 단계 완료", true, "Manufacturing", []),
         new(LqcPassed, "품질", "LQC 합격", true, "Manufacturing", []),
@@ -40,6 +40,8 @@ public static class ProductionControlSourceCodes
         => value is ManufacturingStepCompleted or LqcPassed;
     public static bool RequiresQualityDefinition(string value)
         => value is IqcPassed;
+    public static bool SupportsMaterialCategoryDefinition(string value)
+        => value is PurchaseOrdered or MaterialReceiptConfirmed;
     public static bool RequiresDefinition(string value)
         => RequiresManufacturingDefinition(value) || RequiresQualityDefinition(value);
 }

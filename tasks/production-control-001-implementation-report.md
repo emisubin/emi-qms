@@ -1,6 +1,6 @@
 # TASK-PRODUCTION-CONTROL-001 구현 보고 — Item별 생산계획·자동 실적·가로 막대 일정
 
-상태: `Change 011 사용자 검수·원격 main 병합·Azure 공개배포 완료`
+상태: `Change 011 사용자 검수·원격 main 병합·Azure 공개배포 완료 / Change 012·013 로컬 구현·자동 검증 완료·게시 승인·배포 후 사용자 운영 검수 대기`
 
 ## 기준선과 범위
 
@@ -344,3 +344,69 @@ Ready PR #101의 최초 Full-Stack `59/61` 실패에서 오래된 체크 달력 
 
 - 사용자는 다른 추가 작업과 함께 최종 일괄 검수한 뒤 2026-08-14 commit·push·PR·main merge와 Azure 공개배포를 명시 승인했다.
 - 병합 전 Ready PR 최신 head의 필수 `CI Gate`, 병합 뒤 exact `main` SHA의 승인형 Azure release와 공개 보안 smoke를 모두 완료했다.
+
+## Change 012 — 프로젝트 생산계획 항목명 교체 저장 안정화
+
+### 원인과 구현
+
+- 최종 저장 결과에는 중복이 없어도 기존 활성 행을 한 줄씩 갱신하는 중간 순간에 partial unique index가 충돌해 전체 transaction이 롤백됐다.
+- 같은 transaction 안에서 기존 활성 행의 이름을 사용자가 입력할 수 없는 내부 임시값으로 먼저 옮긴 뒤 삭제·수정·추가의 최종 이름을 적용하도록 변경했다.
+- 삭제 행은 비활성화하면서 원래 이름을 복원해 이력에 내부 임시값이 남지 않는다.
+- 최종 활성 항목명 중복은 기존 사전 validation으로 계속 차단하며, 같은 DB constraint가 예상 밖 조합으로 발생해도 일반 500 대신 구체적인 항목명 오류를 반환한다.
+- 화면·권한·실적 계산·UL891 세트 계약·DB schema는 변경하지 않았다.
+
+### 변경 위치와 자동 검증
+
+- Backend: `backend/src/Emi.Qms.Api/ProductionPlanning/ProductionPlanningStore.cs`
+- Backend 회귀: `backend/tests/Emi.Qms.Api.Tests/ProductionPlanningApiTests.cs`
+- 이름 맞교환, 삭제될 이름 재사용, 같은 payload 반복 저장 집중 회귀: PASS
+- 생산계획·구매 관련 Backend API: PASS — `60/60`
+- Backend 전체 회귀: PASS — `533/533`
+- Backend Release build: PASS — 경고 0, 오류 0
+- 신규 migration: 없음
+
+### Finding·검수·게시 경계
+
+- `PC-C012-ACTIVE-NAME-TRANSIENT-001` P1은 구현과 회귀로 `RESOLVED`다.
+- Change 012 Open P0/P1/P2는 `0/0/0`이다.
+- 사용자 검수, commit·push·PR·main 병합과 Azure 공개배포는 아직 수행하지 않았다.
+
+## Change 013 — 구매품 구분별 실적 연결과 Item 제조양식 즉시 공통 적용
+
+### 승인 계약과 구현
+
+- 발주 완료와 입고 확정은 기존 `전체 구매품` 연결을 유지하면서 활성 구매품 구분별 연결을 추가했다.
+- 구분별 연결은 프로젝트 구매품에 저장된 `material_category_id`가 선택 구분과 같은 행만 실적 분모·근거로 집계한다. 구분 없는 기존 행은 전체 구매품 연결에만 포함한다.
+- 양식 관리와 프로젝트 생산계획 수정 양쪽에서 같은 선택 구조를 제공하고, 존재하지 않거나 운영 중지된 구매품 구분은 서버에서 저장을 거부한다.
+- Item별 제조양식은 저장 transaction 안에서 같은 Item의 기존 방식·연결형 프로젝트 제조단계 snapshot을 모두 현재 definition·순서·이름으로 동기화한다.
+- 삭제된 제조단계 snapshot은 비활성 이력으로 남기고, 이미 시작·완료된 제조 execution과 execution step은 수정하지 않는다. 다음 제조 시작부터 동기화된 공통 양식을 사용한다.
+- 생산계획 기본 양식과 프로젝트별 계획 항목·기간·담당자·실적 연결은 기존처럼 서로 다른 저장 범위를 유지한다.
+
+### 변경 위치
+
+- Migration: `database/migrations/0079_production_control_category_sources.sql`
+- Backend: `ProductionControlTemplateContracts.cs`, `ProductionControlTemplateStore.cs`, `ProductionPlanningStore.cs`, `ManufacturingStore.cs`, `ProjectStore.cs`
+- Frontend: `ProductionControlTemplateWorkspace.tsx`, `App.tsx`, 관련 type
+- 회귀: `ProductionPlanningApiTests.cs`, `PostgreSqlMigrationTests.cs`, `App.test.tsx`, `FormTemplateManagementPage.test.tsx`
+- 계약: `tasks/production-control-001-change-013.md`
+
+### 자동 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| 구매품 구분별·전체 발주·입고 실적 계산 | PASS — 발주·입고 선택 구분 각각 `1/1, 100%`, 전체 발주 `1/2, 50%`, 잘못된 구분 저장 차단 |
+| 제조양식 기존 프로젝트 동기화 | PASS — 기존 방식 프로젝트 활성 snapshot 즉시 교체, 완료 execution·step 불변 |
+| 지정 정책 Backend 집중 회귀 | PASS — `3/3` |
+| Backend Release build | PASS — warning `0`, error `0` |
+| Frontend 관련 화면 unit | PASS — `94/94` |
+| Frontend 전체 unit | PASS — `29 files`, `218/218` |
+| Frontend lint·typecheck | PASS — error 0, 기존 Fast Refresh warning 1 |
+| Azure Bicep·Portal ARM 동기화 | PASS — compile·portal template·static validation |
+| Backend·migration 전체 회귀 | PASS — `536/536` (migration `0079` 포함). 이후 제품 코드 변경 없이 입고 구분 성공 assertion을 보강했고 최종 HEAD 집중 회귀 `1/1` 통과 |
+| 격리 Full-Stack 회귀 | PASS — 양식·프로젝트 생산계획·제조 실제 Backend/PostgreSQL 연결 `21/21`, 임시 DB 삭제 확인 |
+| `git diff --check` | PASS |
+
+### Finding·검수·게시 경계
+
+- `PC-C013-CATEGORY-EVIDENCE-GAP-001`, `PC-C013-MANUFACTURING-SNAPSHOT-DRIFT-001`은 구현과 대표 회귀로 `RESOLVED`다.
+- 사용자 검수 완료는 별도로 보고되지 않았다. 사용자는 이 상태와 자동검증 결과를 확인한 뒤 commit·push·PR·main 병합, migration 적용과 Azure 공개배포를 명시 승인했으며 사용자 운영 검수는 배포 후 수행한다.

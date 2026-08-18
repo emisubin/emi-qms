@@ -3,7 +3,7 @@ export type ProductionControlSource = {
   departmentLabel: string;
   label: string;
   requiresManufacturingDefinition: boolean;
-  definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc';
+  definitionKind: 'None' | 'Manufacturing' | 'Iqc' | 'Oqc' | 'MaterialCategory';
   definitions: Array<{ definitionKey: string; label: string }>;
   isOperational?: boolean;
   operationalMessage?: string | null;

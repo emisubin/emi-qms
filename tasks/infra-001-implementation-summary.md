@@ -360,3 +360,13 @@ Codex가 사용자의 Microsoft 계정으로 직접 로그인한 것은 아니�
 - 운영에서는 검수 사용자 전환을 활성화하지 않는다.
 - dev user와 실계정은 자동 병합하지 않는다.
 - 실제 Microsoft Graph Teams/메일 권한은 후속 TASK 범위다.
+
+## 21. Change 001 — 지정 운영 개발 검수 사용자
+
+- 운영의 Dev 인증과 관리자 사용자 전환은 계속 비활성화한다.
+- `Authentication:DevelopmentOperatorEmails`에 등록된 활성·승인 완료 Entra 사용자만 요청 시점의 전체 기존 역할·permission을 합성한다.
+- 실제 사용자의 id·부서·이메일과 audit actor는 바꾸지 않으며, ReviewSafe 차단·업무 validation·동시성·마지막 관리자 보호를 우회하지 않는다.
+- 실제 이메일은 tracked 파일에 기록하지 않고 Key Vault `development-operator-emails` secret으로만 Backend에 주입한다.
+- 비일치 사용자, Dev persona, 비활성 사용자, 역할이 없는 승인 대기 사용자는 권한이 확대되지 않는다.
+- 합성 profile과 Entra claims 회귀, 비대상 회귀, Azure secret-scope RBAC와 Bicep/ARM compile 검증을 통과했다.
+- 실제 Key Vault 값 입력, workload 교체와 공개배포는 2026-08-18 사용자가 자동검증 결과와 사용자 검수 미완료 상태를 확인한 뒤 명시 승인했다. 실제 값은 tracked source에 남기지 않고 운영 검수는 배포 후 수행한다.

@@ -421,6 +421,65 @@ public sealed class IdentityInfrastructureTests
     }
 
     [Fact]
+    public async Task ConfiguredDevelopmentOperatorGetsAllExistingBusinessRolesAndPermissionsOnlyAfterApproval()
+    {
+        await using var context = await IdentityTestContext.CreateAsync(new Dictionary<string, string?>
+        {
+            ["Authentication:BootstrapAdminEmails"] = "operator@example.test",
+            ["Authentication:DevelopmentOperatorEmails"] = "operator@example.test;pending@example.test"
+        });
+        var store = context.Services.GetRequiredService<DbIdentityStore>();
+
+        var developmentOperator = await store.GetOrCreateEntraProfileAsync(
+            "development-operator-object",
+            "Development Operator",
+            "Operator@Example.Test",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(developmentOperator);
+        Assert.Equal(await context.ReadScalarAsync<int>("select count(*)::integer from roles;"), developmentOperator.Roles.Count);
+        Assert.Equal(await context.ReadScalarAsync<int>("select count(*)::integer from permissions;"), developmentOperator.Permissions.Count);
+        Assert.Contains(developmentOperator.Roles, role => role.Code == QmsRoles.SystemAdministrator);
+        Assert.Contains(developmentOperator.Permissions, permission => permission.Code == QmsPermissions.ProductionPlanUpdate);
+        var transformed = await context.Services.GetRequiredService<IClaimsTransformation>().TransformAsync(
+            new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim("oid", "development-operator-object"),
+                new Claim("name", "Development Operator"),
+                new Claim("preferred_username", "operator@example.test")
+            ], QmsAuthenticationSchemes.EntraBearer)));
+        Assert.Contains(transformed.Claims, claim => claim.Type == ClaimTypes.Role && claim.Value == QmsRoles.Quality);
+        Assert.Contains(transformed.Claims, claim => claim.Type == QmsClaimTypes.Permission && claim.Value == QmsPermissions.LogisticsShip);
+
+        var pending = await store.GetOrCreateEntraProfileAsync(
+            "pending-development-operator-object",
+            "Pending Development Operator",
+            "pending@example.test",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(pending);
+        Assert.Empty(pending.Roles);
+        Assert.Empty(pending.Permissions);
+
+        var ordinaryAdministrator = await store.GetOrCreateEntraProfileAsync(
+            "ordinary-administrator-object",
+            "Ordinary Administrator",
+            "ordinary@example.test",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(ordinaryAdministrator);
+        var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        Assert.True((await administration.UpdateEntraUserAsync(
+            ordinaryAdministrator.User.Id,
+            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+            developmentOperator.User.Id,
+            TestContext.Current.CancellationToken)).Succeeded);
+        ordinaryAdministrator = await store.GetProfileByUserIdAsync(
+            ordinaryAdministrator.User.Id,
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(ordinaryAdministrator);
+        Assert.Single(ordinaryAdministrator.Roles);
+        Assert.True(ordinaryAdministrator.Permissions.Count < developmentOperator.Permissions.Count);
+    }
+
+    [Fact]
     public async Task ConcurrentEntraJitRequestsReturnTheSameUserWithoutUniqueConstraintFailures()
     {
         await using var context = await IdentityTestContext.CreateAsync();

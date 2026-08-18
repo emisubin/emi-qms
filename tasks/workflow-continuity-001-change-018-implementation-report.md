@@ -1,6 +1,6 @@
 # TASK-WORKFLOW-CONTINUITY-001 Change 018 구현 보고
 
-상태: `IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_PENDING / PUBLICATION_APPROVED`
+상태: `IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / MAIN_MERGED / AZURE_RELEASED / USER_VALIDATION_PENDING`
 
 ## 해결한 업무 문제
 
@@ -84,6 +84,7 @@ Open P0/P1/P2: `0/0/0`.
 - 사용자 검수 상태: `사용자 검수 대기`.
 - 실제 검수 화면에서 전체 흐름 상단과 18단계 카드에 `내 업무` 건수가 없고 Requested 단계가 `업무 요청됨`으로 보이는지 확인하면 된다.
 - 사용자가 2026-08-18 원격 `main` 병합과 Azure 공개배포를 승인했다. Git 게시와 운영 결과는 `TASK-AZURE-DEPLOY-001 Change 026`에서 추적한다.
+- PR #108과 main CI가 통과했고 exact main SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf`의 Azure release run `32197298425`가 Backend·Frontend 교체와 공개 보안 검사를 완료했다. Migration 변경은 없어 실행하지 않았다.
 
 ## Rollback·forward-fix
 

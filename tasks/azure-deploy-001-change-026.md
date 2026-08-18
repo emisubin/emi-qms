@@ -12,7 +12,7 @@
 - 사용자 승인: 2026-08-18 원격 `main` 병합과 Azure 공개배포 명시 승인
 - mainMergeApprovalCount: `1`
 - productionDeploymentApproved: `true`
-- 상태: `PUBLICATION_APPROVED / CI_AND_RELEASE_PENDING`
+- 상태: `MAIN_MERGED / AZURE_RELEASE_COMPLETE / USER_VALIDATION_PENDING`
 
 ## 게시 대상
 
@@ -35,6 +35,22 @@
 4. `Azure Pilot Release (Manual)`을 exact latest `main` SHA와 두 confirmation으로 실행한다.
 5. 변경 분류가 Backend·Frontend `true`, migration `false`인지 확인한다.
 6. Backend·Frontend ready, 공개 health와 익명 인증 차단을 확인한다.
+
+## 실제 게시 결과
+
+- PR: `#108`, squash merge 완료
+- PR source: `25bcfcd97d0da24d659e6841aeb6e3ff902595ff`
+- PR CI: run `32150934607` 최종 `PASS`
+  - Backend·Frontend·Full-Stack·Workflow Validation은 최초 실행에서 통과했다.
+  - 결제 제한으로 시작되지 않았던 `CI Gate`만 Repository 공개 전환 뒤 재실행해 통과했다.
+- exact main SHA: `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf`
+- main CI: run `32197258001` `PASS`
+  - 검증된 PR tree 재사용으로 Backend·Frontend·Full-Stack·Workflow Validation을 중복 실행하지 않았다.
+- Azure 운영 release: run `32197298425` `PASS`
+  - Backend·Frontend image를 병렬 생성하고 두 운영 revision을 교체했다.
+  - migration 변경이 없어 DB migration은 실행하지 않았다.
+  - public security smoke와 익명 root `401`을 확인했다.
+- 사용자 검수: `대기` — 공개 프로젝트 전체 흐름의 상태 전용 표시를 직접 확인한다.
 
 ## 검증 기준
 

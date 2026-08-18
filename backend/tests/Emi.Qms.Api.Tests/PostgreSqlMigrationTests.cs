@@ -70,7 +70,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -138,7 +138,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -166,6 +166,150 @@ public sealed class PostgreSqlMigrationTests
         finally
         {
             through0077.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ItemManufacturingSnapshotBackfillMigration0080_RefreshesExistingProjectsWithoutTemplateResave()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var through0079 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0079-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql")
+                         .Where(path => string.CompareOrdinal(Path.GetFileName(path), "0080_") < 0))
+            {
+                File.Copy(source, Path.Combine(through0079.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(through0079.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into production_product_types (id,code,name,is_active)
+                values ('80000000-0000-0000-0000-000000000001','MIG0080','Migration 0080 Item',true);
+
+                insert into production_control_manufacturing_templates (id,product_type_id)
+                values ('80000000-0000-0000-0000-000000000011','80000000-0000-0000-0000-000000000001');
+
+                insert into production_control_manufacturing_versions (
+                    id,template_id,version_number,lifecycle_status,activated_at_utc,archived_at_utc
+                ) values
+                    ('80000000-0000-0000-0000-000000000021','80000000-0000-0000-0000-000000000011',1,'Archived',now(),now()),
+                    ('80000000-0000-0000-0000-000000000022','80000000-0000-0000-0000-000000000011',2,'Active',now(),null);
+
+                insert into production_control_manufacturing_items (
+                    template_version_id,definition_key,display_order,label,step_role
+                ) values
+                    ('80000000-0000-0000-0000-000000000022','80000000-0000-0000-0000-000000000032',1,'현재 제조 단계 1','General'),
+                    ('80000000-0000-0000-0000-000000000022','80000000-0000-0000-0000-000000000033',2,'현재 제조 단계 2','General');
+
+                insert into projects (
+                    id, project_key, project_number, name, customer_name, item,
+                    project_code, project_title, project_title_normalized, packaging_method,
+                    delivery_date, sales_owner_user_id
+                ) values (
+                    '80000000-0000-0000-0000-000000000041','migration-0080-existing','MIG-0080',
+                    'Migration 0080 Existing','Migration Customer','MIG0080','MIG-0080',
+                    'Migration 0080 Existing','MIGRATION 0080 EXISTING','StretchWrap','2026-12-31',
+                    (select id from qms_users order by created_at_utc limit 1)
+                );
+
+                insert into project_manufacturing_step_snapshots (
+                    project_id,source_template_version_id,definition_key,sequence_number,
+                    step_name_snapshot,step_role,is_active
+                ) values (
+                    '80000000-0000-0000-0000-000000000041','80000000-0000-0000-0000-000000000021',
+                    '80000000-0000-0000-0000-000000000031',1,'과거 제조 단계','General',true
+                );
+
+                insert into production_product_types (id,code,name,is_active)
+                values ('80000000-0000-0000-0000-000000000101','MIG0080EMPTY','Migration 0080 Empty Item',true);
+
+                insert into production_control_manufacturing_templates (id,product_type_id)
+                values ('80000000-0000-0000-0000-000000000111','80000000-0000-0000-0000-000000000101');
+
+                insert into production_control_manufacturing_versions (
+                    id,template_id,version_number,lifecycle_status,activated_at_utc,archived_at_utc
+                ) values
+                    ('80000000-0000-0000-0000-000000000121','80000000-0000-0000-0000-000000000111',1,'Archived',now(),now()),
+                    ('80000000-0000-0000-0000-000000000122','80000000-0000-0000-0000-000000000111',2,'Active',now(),null);
+
+                insert into projects (
+                    id, project_key, project_number, name, customer_name, item,
+                    project_code, project_title, project_title_normalized, packaging_method,
+                    delivery_date, sales_owner_user_id
+                ) values (
+                    '80000000-0000-0000-0000-000000000141','migration-0080-empty','MIG-0080-EMPTY',
+                    'Migration 0080 Empty','Migration Customer','MIG0080EMPTY','MIG-0080-EMPTY',
+                    'Migration 0080 Empty','MIGRATION 0080 EMPTY','StretchWrap','2026-12-31',
+                    (select id from qms_users order by created_at_utc limit 1)
+                );
+
+                insert into project_manufacturing_step_snapshots (
+                    project_id,source_template_version_id,definition_key,sequence_number,
+                    step_name_snapshot,step_role,is_active
+                ) values (
+                    '80000000-0000-0000-0000-000000000141','80000000-0000-0000-0000-000000000121',
+                    '80000000-0000-0000-0000-000000000131',1,'보존할 과거 제조 단계','General',true
+                );
+                """,
+                TestContext.Current.CancellationToken);
+
+            var currentRunner = CreateMigrationRunner(database.RepositoryRoot, provider);
+            await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(2L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from project_manufacturing_step_snapshots
+                where project_id='80000000-0000-0000-0000-000000000041'
+                  and source_template_version_id='80000000-0000-0000-0000-000000000022'
+                  and is_active;
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from project_manufacturing_step_snapshots
+                where project_id='80000000-0000-0000-0000-000000000041'
+                  and definition_key='80000000-0000-0000-0000-000000000031'
+                  and not is_active;
+                """,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(0L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from project_production_plans where project_id='80000000-0000-0000-0000-000000000041';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                """
+                select count(*)
+                from project_manufacturing_step_snapshots
+                where project_id='80000000-0000-0000-0000-000000000141'
+                  and definition_key='80000000-0000-0000-0000-000000000131'
+                  and is_active;
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            through0079.Delete(recursive: true);
         }
     }
 
@@ -772,7 +916,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1038,7 +1182,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1142,7 +1286,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1208,7 +1352,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1272,7 +1416,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1395,7 +1539,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1561,7 +1705,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2083,7 +2227,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2126,7 +2270,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2307,7 +2451,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2384,7 +2528,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2449,7 +2593,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2499,7 +2643,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0079_production_control_category_sources", await ReadScalarAsync<string>(
+        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

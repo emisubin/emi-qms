@@ -2,13 +2,13 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 025 PR #103 원격 `main` 병합·CI 완료 / merge SHA `58c089993587deea30513cb6edee0b8396a1d474` / 운영 release run `31786040822` 성공
+- Deployment source: Change 026 PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: Azure migration `0078` 적용, 최신 migration job execution `Succeeded`
+- DB role bootstrap·migration: 기존 migration 기준선 유지. Change 026은 migration diff가 없어 실행 생략
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend `backend--0000027`, Frontend `frontend--0000018` latest revision ready·Running / exact Change 025 main image digest 적용 / ClamAV unchanged
+- Active workload: Backend·Frontend latest revision ready·Running / exact Change 026 main image digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
@@ -57,7 +57,7 @@ Portal에는 `foundation.json → identity-access.json → workloads.json → ed
 
 GitHub 운영 release 전 `azure-pilot-image-publish` Environment, `main` branch 제한, Environment secret·비식별 resource variable, federated credential을 구성한다. OIDC service principal에는 ACR 한 개의 `AcrPush`, Backend·Frontend 각 한 개의 `Container Apps Contributor`, migration job 한 개의 `Container Apps Jobs Contributor`만 exact resource 범위로 부여한다. Client secret과 subscription/resource group 범위 `Contributor`는 사용하지 않는다.
 
-현재 private Repository Environment에는 필수 검토자가 적용되어 있지 않다. Workflow는 작업자가 `main`을 선택하고 실행 시점 최신 full SHA, image 게시 확인과 운영 migration·앱 교체 확인을 모두 제출한 경우에만 Azure OIDC login을 시작한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다.
+현재 public Repository에서도 `azure-pilot-image-publish` Environment 승인 Gate를 유지한다. Workflow는 작업자가 `main`을 선택하고 실행 시점 최신 full SHA, image 게시 확인과 운영 migration·앱 교체 확인을 모두 제출하고 Environment 승인을 통과한 경우에만 Azure OIDC login을 시작한다. Backend·Frontend는 source SHA tag와 digest만 사용하고 `latest` tag를 만들지 않는다.
 
 Image 게시 뒤에는 현재 Backend·Frontend가 single revision이고 migration job이 manual인지 확인한다. 현재 앱과 공개 보안 기준선이 정상일 때 migration을 먼저 실행하며, 성공 전에는 앱을 변경하지 않는다. 이후 Backend, Frontend 순서로 digest를 교체하고 각 latest revision의 exact `Healthy`와 `Running` 또는 `RunningAtMaxScale`, 공개 health·익명 인증 차단을 확인한다. `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 준비되지 않은 상태로 차단한다. 앱 또는 공개 검사 실패 시 직전 image로 rollback을 시도하며 migration 자체는 additive forward-fix 원칙을 유지한다.
 

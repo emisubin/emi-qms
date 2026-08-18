@@ -1,5 +1,30 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 026 — 프로젝트 전체 흐름 상태 전용 표시 운영 release
+
+- 사용자 게시 승인: 2026-08-19 완료
+- 게시 대상: `TASK-WORKFLOW-CONTINUITY-001 Change 018`
+- Git 게시: PR #108, 필수 CI run `32150934607` 최종 통과 뒤 squash merge
+- 운영 source: `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf`
+- main 검증: push CI run `32197258001` 통과. 검증된 PR tree 재사용으로 중복 Backend·Frontend·Full-Stack을 생략했다.
+- Azure 운영 release: run `32197298425` `PASS`
+- 배포 분류: Backend·Frontend 적용, database migration 없음
+- runtime: 두 image 병렬 build 뒤 Backend·Frontend revision 교체와 public security smoke 통과
+- 공개 확인: 익명 root `401`; release 내부 공개 health·인증 차단 검사 `PASS`
+- 보존: 운영 Web Push·Teams·메일·Key Vault 참조, 업무 데이터와 DB schema 불변
+- 사용자 검수: 공개 전체 흐름 화면 직접 확인 대기
+- Open P0/P1/P2: `0/0/0`
+
+### Change 026 종료 산출물
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | PR·main·Azure 운영 결과 반영 완료 | 이 문서 |
+| SOP | Change 026 exact-main·migration skip·revision 기준선 반영 완료 | `tasks/azure-deploy-001-sop.md` |
+| User manual | 기존 승인형 release 사용자 동선 유지 | `infrastructure/azure-pilot/README.md` |
+| Roadmap update | PR #108·main·Azure 결과 반영 완료 | `docs/00-product-roadmap.md` |
+| User validation checklist | 자동 운영 검증 완료 / 사용자 화면 검수 대기 | `tasks/azure-deploy-001-user-validation-checklist.md` |
+
 ## Change 025 — 부서장별 양식 권한·PWA 운영 정의 통합 release
 
 - 사용자 검수·게시 승인: 2026-08-14 완료

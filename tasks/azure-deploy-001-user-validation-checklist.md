@@ -1,5 +1,14 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 026 — 프로젝트 전체 흐름 상태 전용 표시 운영 release
+
+- [x] PR #108의 Backend·Frontend·Full-Stack·Workflow Validation과 필수 `CI Gate`가 최종 통과했다.
+- [x] exact main SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf`의 main CI run `32197258001`이 검증된 PR tree를 재사용해 통과했다.
+- [x] Azure release run `32197298425`에서 Backend·Frontend image를 병렬 생성하고 변경 revision을 교체했다.
+- [x] migration 변경이 없어 DB migration을 실행하지 않았고 기존 업무 데이터와 알림 설정을 보존했다.
+- [x] release의 public security smoke와 별도 익명 root `401` 확인이 통과했다.
+- [ ] 공개 프로젝트 상세의 전체 흐름 상단과 단계 카드에 업무 건수가 없고 Requested 단계가 `업무 요청됨`으로 보이는지 사용자가 확인한다.
+
 ## Change 025 — 부서장별 양식 권한·PWA 운영 정의 통합 release
 
 - [x] PR #103의 Backend·Frontend·Full-Stack·Workflow Validation과 필수 `CI Gate`가 모두 통과했다.

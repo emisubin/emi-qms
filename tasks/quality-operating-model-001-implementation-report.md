@@ -1,6 +1,6 @@
 # TASK-QUALITY-OPERATING-MODEL-001 구현 보고
 
-상태: `BASE TASK USER_VALIDATION_COMPLETE / CHANGE 004·005 MAIN_MERGED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / AZURE_PRODUCTION_RELEASE_COMPLETE`
+상태: `BASE TASK USER_VALIDATION_COMPLETE / CHANGE 004·005 MAIN_MERGED / AZURE_PRODUCTION_RELEASE_COMPLETE / CHANGE 007 LOCAL_IMPLEMENTED / AUTOMATED_VALIDATION_COMPLETE / PUBLICATION_APPROVED / POST-DEPLOYMENT_USER_VALIDATION_PENDING`
 
 ## 해결한 업무 문제
 
@@ -280,3 +280,34 @@ Open P0/P1/P2: `0/0/0`.
 - release는 migration `0070`·`0071` → Backend → Frontend 순서로 운영을 교체하고 각 revision의 ready·healthy 상태를 확인했다.
 - 공개 재검증은 `/health/live` `200`, 익명 `/` `401`, 익명 `/api/me` `401`로 통과했다.
 - 실제 Teams·메일 발송, 알림 정책·Web Push, 후속 3~5번 제품 기능은 제외했다.
+
+## Change 007 — 기존 프로젝트 구매품 구분 입력 허용
+
+### 원인과 구현
+
+- 기존 `AllReceipts` 프로젝트의 IQC routing 정책과 구매품 구분 metadata를 같은 조건으로 묶어, 화면이 구분 catalog를 불러오지 않고 선택창도 비활성화하고 있었다.
+- 모든 프로젝트에서 활성 구매품 구분을 조회·선택할 수 있게 했다. 신규 `CategoryBased` 프로젝트는 기존처럼 구분이 필수이고, 기존 `AllReceipts` 프로젝트는 선택사항이다.
+- 직접 입력과 Excel 입력 모두 선택한 구분 snapshot을 저장한다. 기존 행을 같은 구분으로 수정하면 저장 당시 IQC snapshot을 유지한다.
+- 기존 프로젝트는 구분을 저장해도 프로젝트 정책이 우선이므로 모든 도착분이 계속 기존 전역 `Detailed` IQC로 이동한다.
+- 활성 도착 이력이 생긴 뒤 구분 변경은 두 프로젝트 정책 모두 기존처럼 차단한다.
+- 기존 nullable 열을 사용하므로 migration은 추가하지 않았고 과거 도착분·IQC attempt·성적서는 변경하지 않았다.
+
+### 변경 위치와 자동 검증
+
+- Backend: `backend/src/Emi.Qms.Api/Procurement/ProcurementStore.cs`
+- Backend 회귀: `backend/tests/Emi.Qms.Api.Tests/ProcurementApiTests.cs`
+- Frontend: `frontend/src/App.tsx`
+- Frontend 회귀: `frontend/tests/App.test.tsx`
+- 기존 프로젝트 직접 입력·Excel 입력·상세 IQC routing·도착 후 구분 변경 차단 집중 회귀: PASS
+- 생산계획·구매 관련 Backend API: PASS — `60/60`
+- Backend 전체 회귀: PASS — `533/533`
+- Frontend 전체 unit: PASS — `29 files`, `218/218`
+- Frontend lint·typecheck·production build: PASS — lint error 0, 기존 Fast Refresh warning 1과 대형 chunk 안내만 유지
+- Mock UI: 최초 병렬 `8/9` 통과 후 이번 범위와 무관한 로고 이미지 로딩 1건을 단독 재실행해 PASS
+- 신규 migration: 없음
+
+### Finding·검수·게시 경계
+
+- `QOM-C007-LEGACY-CATEGORY-LOCK-001` P1은 구현과 회귀로 `RESOLVED`다.
+- Change 007 Open P0/P1/P2는 `0/0/0`이다.
+- 사용자 검수 완료는 별도로 보고되지 않았다. 사용자는 이 상태와 자동검증 결과를 확인한 뒤 commit·push·PR·main 병합과 Azure 공개배포를 명시 승인했으며 사용자 운영 검수는 배포 후 수행한다.

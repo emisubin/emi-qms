@@ -106,8 +106,14 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             command.Parameters.AddWithValue("step_role", "General");
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+        var synchronizedProjectCount = await SynchronizeProjectManufacturingStepsAsync(
+            connection,
+            transaction,
+            productTypeId,
+            versionId,
+            cancellationToken);
         await IncrementCurrentAsync(connection, transaction, "Manufacturing", versionId, request.ExpectedRowVersion, actorUserId, cancellationToken);
-        await AppendAuditAsync(connection, transaction, "CurrentSaved", "Manufacturing", "ProductionControlManufacturing", productTypeId, versionId, actorUserId, new { itemCount = request.Items.Count }, cancellationToken);
+        await AppendAuditAsync(connection, transaction, "CurrentSaved", "Manufacturing", "ProductionControlManufacturing", productTypeId, versionId, actorUserId, new { itemCount = request.Items.Count, synchronizedProjectCount }, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return await GetCatalogAsync(actorUserId, isSystemAdministrator, cancellationToken);
     }
@@ -307,6 +313,9 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 where quality_template.template_code='MATERIAL_IQC'
                   and quality_item.response_type='Check'
             ) iqc on iqc.definition_key=connection.source_definition_key
+            left join material_categories category
+              on category.id=connection.source_definition_key
+             and category.is_active
             where item.template_version_id=@version_id
               and (
                 (item.is_required and connection.id is null)
@@ -318,6 +327,11 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                     connection.source_code='IQC_PASSED'
                     and connection.source_definition_key is not null
                     and iqc.definition_key is null
+                )
+                or (
+                    connection.source_code in ('PURCHASE_ORDERED','MATERIAL_RECEIPT_CONFIRMED')
+                    and connection.source_definition_key is not null
+                    and category.id is null
                 )
                 or (
                     connection.source_code='OQC_PASSED'
@@ -356,9 +370,12 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
             foreach (var connection in item.Connections)
             {
                 var code = NormalizeSourceCode(connection.SourceCode);
-                if (ProductionControlSourceCodes.RequiresDefinition(code) != (connection.SourceDefinitionKey is not null))
+                if ((ProductionControlSourceCodes.RequiresDefinition(code) && connection.SourceDefinitionKey is null)
+                    || (!ProductionControlSourceCodes.RequiresDefinition(code)
+                        && !ProductionControlSourceCodes.SupportsMaterialCategoryDefinition(code)
+                        && connection.SourceDefinitionKey is not null))
                 {
-                    throw new ArgumentException("제조·LQC·IQC는 세부 단계를 선택하고 OQC를 포함한 나머지 실적은 세부 항목 없이 선택해 주세요.", "connections");
+                    throw new ArgumentException("제조·LQC·IQC는 세부 단계를 선택하고 발주·입고는 전체 구매품 또는 구매품 구분을 선택해 주세요.", "connections");
                 }
             }
         }
@@ -371,7 +388,9 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
     {
         var definitions = new Dictionary<string, List<ProductionControlSourceDefinitionResponse>>(StringComparer.Ordinal)
         {
-            [ProductionControlSourceCodes.IqcPassed] = []
+            [ProductionControlSourceCodes.IqcPassed] = [],
+            [ProductionControlSourceCodes.PurchaseOrdered] = [],
+            [ProductionControlSourceCodes.MaterialReceiptConfirmed] = []
         };
         await using (var command = connection.CreateCommand())
         {
@@ -393,12 +412,93 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
                 definitions[reader.GetString(0)].Add(new(reader.GetGuid(1), reader.GetString(2)));
             }
         }
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select id, display_name
+                from material_categories
+                where is_active
+                order by display_order, display_name;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var definition = new ProductionControlSourceDefinitionResponse(reader.GetGuid(0), reader.GetString(1));
+                definitions[ProductionControlSourceCodes.PurchaseOrdered].Add(definition);
+                definitions[ProductionControlSourceCodes.MaterialReceiptConfirmed].Add(definition);
+            }
+        }
 
         return ProductionControlSourceCodes.Catalog
             .Select(source => definitions.TryGetValue(source.Code, out var items)
                 ? source with { Definitions = items }
                 : source)
             .ToArray();
+    }
+
+    private static async Task<int> SynchronizeProjectManufacturingStepsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid productTypeId,
+        Guid versionId,
+        CancellationToken cancellationToken)
+    {
+        var projectIds = new List<Guid>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select plan.project_id
+                from project_production_plans plan
+                where plan.product_type_id=@product_type_id
+                order by plan.project_id
+                for update of plan;
+                """;
+            command.Parameters.AddWithValue("product_type_id", productTypeId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                projectIds.Add(reader.GetGuid(0));
+            }
+        }
+
+        foreach (var projectId in projectIds)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                update project_manufacturing_step_snapshots
+                set is_active=false,
+                    row_version=row_version+1,
+                    updated_at_utc=now()
+                where project_id=@project_id
+                  and is_active;
+
+                insert into project_manufacturing_step_snapshots (
+                    project_id, source_template_version_id, definition_key, sequence_number,
+                    step_name_snapshot, step_role, is_active
+                )
+                select @project_id, @version_id, item.definition_key, item.display_order,
+                       item.label, item.step_role, true
+                from production_control_manufacturing_items item
+                where item.template_version_id=@version_id
+                order by item.display_order
+                on conflict (project_id, definition_key) do update
+                set source_template_version_id=excluded.source_template_version_id,
+                    sequence_number=excluded.sequence_number,
+                    step_name_snapshot=excluded.step_name_snapshot,
+                    step_role=excluded.step_role,
+                    is_active=true,
+                    row_version=project_manufacturing_step_snapshots.row_version+1,
+                    updated_at_utc=now();
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            command.Parameters.AddWithValue("version_id", versionId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        return projectIds.Count;
     }
 
     private static async Task<bool> IsLqcOperationalAsync(

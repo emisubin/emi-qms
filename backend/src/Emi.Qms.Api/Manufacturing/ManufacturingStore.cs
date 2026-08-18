@@ -1603,6 +1603,32 @@ public sealed class ManufacturingStore(
         Guid projectId,
         CancellationToken cancellationToken)
     {
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                select id,definition_key,step_name_snapshot
+                from project_manufacturing_step_snapshots
+                where project_id=@project_id and is_active
+                order by sequence_number
+                for share;
+                """;
+            command.Parameters.AddWithValue("project_id", projectId);
+            var projectSteps = new List<ManufacturingStartStep>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                projectSteps.Add(new(
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.GetString(2)));
+            }
+            if (projectSteps.Count > 0)
+            {
+                return new(null, projectSteps);
+            }
+        }
+
         await using (var mode = connection.CreateCommand())
         {
             mode.Transaction = transaction;
@@ -1615,26 +1641,7 @@ public sealed class ManufacturingStore(
             mode.Parameters.AddWithValue("project_id", projectId);
             if (string.Equals(Convert.ToString(await mode.ExecuteScalarAsync(cancellationToken)), "LINKED_V1", StringComparison.Ordinal))
             {
-                var projectSteps = new List<ManufacturingStartStep>();
-                await using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                command.CommandText = """
-                    select id,definition_key,step_name_snapshot
-                    from project_manufacturing_step_snapshots
-                    where project_id=@project_id and is_active
-                    order by sequence_number
-                    for share;
-                    """;
-                command.Parameters.AddWithValue("project_id", projectId);
-                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-                while (await reader.ReadAsync(cancellationToken))
-                {
-                    projectSteps.Add(new(
-                        reader.GetGuid(0),
-                        reader.GetGuid(1),
-                        reader.GetString(2)));
-                }
-                return projectSteps.Count == 0 ? null : new(null, projectSteps);
+                return null;
             }
         }
 

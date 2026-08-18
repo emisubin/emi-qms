@@ -190,6 +190,11 @@ public sealed class DbIdentityStore(
         var permissions = user.IsActive
             ? await ReadPermissionsForUserAsync(connection, user.Id, cancellationToken)
             : [];
+        if (IsDevelopmentOperator(user, roles))
+        {
+            roles = await ReadRolesAsync(connection, cancellationToken);
+            permissions = await ReadPermissionsAsync(connection, cancellationToken);
+        }
         var projects = await ReadProjectAccessForUserAsync(connection, user.Id, cancellationToken);
 
         return new UserAuthorizationProfile(user, department, roles, permissions, projects);
@@ -297,6 +302,21 @@ public sealed class DbIdentityStore(
             permissions.Add(new Permission(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
         }
 
+        return permissions;
+    }
+
+    private static async Task<IReadOnlyList<Permission>> ReadPermissionsAsync(
+        NpgsqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "select id, code, name from permissions order by code;";
+        var permissions = new List<Permission>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            permissions.Add(new Permission(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+        }
         return permissions;
     }
 
@@ -463,6 +483,31 @@ public sealed class DbIdentityStore(
             .Select(email => email!)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+    }
+
+    private bool IsDevelopmentOperator(QmsUser user, IReadOnlyList<Role> assignedRoles)
+    {
+        if (!user.IsActive
+            || !string.Equals(user.AuthProvider, QmsAuthProviders.EntraId, StringComparison.Ordinal)
+            || assignedRoles.Count == 0)
+        {
+            return false;
+        }
+        var email = NormalizeEmail(user.Email);
+        if (email is null)
+        {
+            return false;
+        }
+        var configured = configuration["AUTHENTICATION_DEVELOPMENT_OPERATOR_EMAILS"]
+            ?? configuration["Authentication:DevelopmentOperatorEmails"];
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return false;
+        }
+        return configured
+            .Split([',', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormalizeEmail)
+            .Any(candidate => string.Equals(candidate, email, StringComparison.Ordinal));
     }
 
     private NpgsqlDataSource CreateDataSource()

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "3809841659438192778"
+      "templateHash": "7953809752374693437"
     }
   },
   "parameters": {
@@ -692,6 +692,7 @@
         "database-migration-connection-string",
         "database-runtime-connection-string",
         "bootstrap-administrator-emails",
+        "development-operator-emails",
         "front-door-origin-verify-token",
         "entra-access-gate-client-secret",
         "gmail-username",

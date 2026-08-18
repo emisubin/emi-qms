@@ -123,6 +123,9 @@ const checks = [
   [identityAccess, 'scope: databaseMigrationSecret'],
   [identityAccess, 'scope: databaseAdminSecret'],
   [identityAccess, 'scope: originVerificationSecret'],
+  [identityAccess, 'scope: developmentOperatorsSecret'],
+  [workloads, "name: 'Authentication__DevelopmentOperatorEmails'"],
+  [workloads, "secretRef: 'development-ops'"],
   [identityAccess, 'scope: entraAccessGateSecret'],
   [identityAccess, 'scope: webPushVapidPublicKeySecret'],
   [identityAccess, 'scope: webPushVapidPrivateKeySecret'],
@@ -210,7 +213,7 @@ if (identityAccess.includes("scope: keyVault\n")
 }
 
 const secretScopes = identityAccess.match(/scope: \w+Secret$/gmu) ?? [];
-if (secretScopes.length !== 13) {
+if (secretScopes.length !== 14) {
   process.exit(1);
 }
 

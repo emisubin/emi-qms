@@ -312,6 +312,96 @@ public sealed class ProcurementApiTests
     }
 
     [Fact]
+    public async Task AllReceiptsProject_CanStoreMaterialCategoriesWithoutChangingLegacyIqcRouting()
+    {
+        await using var context = await ProcurementApiTestContext.CreateAsync();
+        using var procurementClient = context.CreateClient("dev-procurement");
+        using var materialsClient = context.CreateClient("dev-materials");
+        var projectId = await context.CreateLegacyProjectAsync("PROC-LEGACY-CATEGORY", "Legacy Category Metadata");
+
+        var save = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new object[]
+                {
+                    new
+                    {
+                        materialCategoryId = "67000000-0000-0000-0000-000000000005",
+                        orderItem = "Legacy Categorized Item",
+                        orderQuantity = 1,
+                        orderUnit = "EA"
+                    },
+                    new
+                    {
+                        orderItem = "Legacy Unclassified Item",
+                        orderQuantity = 1,
+                        orderUnit = "EA"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+
+        using var stored = await ReadProcurementAsync(procurementClient, projectId);
+        Assert.Equal("AllReceipts", stored.RootElement.GetProperty("iqcRoutingPolicy").GetString());
+        var categorized = stored.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("orderItem").GetString() == "Legacy Categorized Item");
+        var uncategorized = stored.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("orderItem").GetString() == "Legacy Unclassified Item");
+        Assert.Equal("OTHER", categorized.GetProperty("materialCategoryCode").GetString());
+        Assert.Equal(JsonValueKind.Null, uncategorized.GetProperty("materialCategoryId").ValueKind);
+
+        var excel = CreateProcurementExcel(
+            "Legacy Category Metadata",
+            "PROC-LEGACY-CATEGORY",
+            ["Legacy Category Metadata", "PROC-LEGACY-CATEGORY", "2W", "Legacy Excel Category", "외함", "Vendor", "Owner", "2026-08-01", "2026-08-10", "", ""]);
+        using var preview = await PreviewExcelAsync(procurementClient, excel, "legacy-category.xlsx");
+        Assert.Equal(1, preview.RootElement.GetProperty("newCount").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, (await ApplyExcelAsync(
+            procurementClient,
+            excel,
+            "legacy-category.xlsx",
+            preview,
+            reason: null)).StatusCode);
+        using var afterExcel = await ReadProcurementAsync(procurementClient, projectId);
+        Assert.Equal("ENCLOSURE", afterExcel.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("orderItem").GetString() == "Legacy Excel Category")
+            .GetProperty("materialCategoryCode").GetString());
+
+        var categorizedItemId = categorized.GetProperty("itemId").GetGuid();
+        using var arrival = await ReadJsonAsync(await materialsClient.PostAsJsonAsync(
+            $"/api/materials/items/{categorizedItemId}/receipts",
+            new { quantity = 1, unit = "EA", arrivalDate = "2026-08-18" },
+            TestContext.Current.CancellationToken));
+        Assert.Equal("IqcRequested", arrival.RootElement.GetProperty("status").GetString());
+        Assert.Equal("Detailed", await context.ReadTextAsync(
+            "select decision_mode from material_iqc_attempts where material_receipt_id=@project_id;",
+            arrival.RootElement.GetProperty("receiptId").GetGuid()));
+
+        var categoryChangeAfterArrival = await procurementClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/procurement",
+            new
+            {
+                items = new[]
+                {
+                    new
+                    {
+                        itemId = categorizedItemId,
+                        expectedRowVersion = categorized.GetProperty("rowVersion").GetInt32(),
+                        materialCategoryId = "67000000-0000-0000-0000-000000000001",
+                        orderItem = "Legacy Categorized Item",
+                        orderQuantity = 1,
+                        orderUnit = "EA"
+                    }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, categoryChangeAfterArrival.StatusCode);
+        Assert.Contains("도착 이력이 있는 품목은 구분을 변경할 수 없습니다", await categoryChangeAfterArrival.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task CategoryBasedIqc_RoutesOnlySnapshottedIqcItemsAndKeepsSignedScanImmutable()
     {
         await using var context = await ProcurementApiTestContext.CreateAsync();

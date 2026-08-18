@@ -309,7 +309,7 @@ public sealed class PublicDeploymentSecurityTests
         Assert.DoesNotContain("runtimeIdentity", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("scope: keyVault\n", identityAccess, StringComparison.Ordinal);
         Assert.Equal(
-            13,
+            14,
             Regex.Matches(identityAccess, @"scope: \w+Secret\r?$", RegexOptions.Multiline).Count);
 
         Assert.Contains("database-runtime-connection-string", workloads, StringComparison.Ordinal);
@@ -329,6 +329,12 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Contains("entra-access-gate-client-secret", workloads, StringComparison.Ordinal);
         Assert.Contains("web-push-vapid-public-key", workloads, StringComparison.Ordinal);
         Assert.Contains("web-push-vapid-private-key", workloads, StringComparison.Ordinal);
+        Assert.Contains("development-operator-emails", workloads, StringComparison.Ordinal);
+        Assert.Contains(
+            "name: 'Authentication__DevelopmentOperatorEmails'\n    secretRef: 'development-ops'",
+            workloads,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("name: 'development-operator-emails'", workloads, StringComparison.Ordinal);
         Assert.Contains("frontendAccessGateRoleAssignmentName", identityAccess, StringComparison.Ordinal);
         Assert.Contains("backendWebPushVapidPublicKeyRoleAssignmentName", identityAccess, StringComparison.Ordinal);
         Assert.Contains("backendWebPushVapidPrivateKeyRoleAssignmentName", identityAccess, StringComparison.Ordinal);

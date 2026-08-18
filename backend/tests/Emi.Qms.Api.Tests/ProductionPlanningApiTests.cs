@@ -2396,6 +2396,332 @@ public sealed class ProductionPlanningApiTests
     }
 
     [Fact]
+    public async Task ProductionControl_PurchaseAndReceiptSourcesCanUseMaterialCategoryOrAllProcurementItems()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+        var projectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-CATEGORY-{Guid.NewGuid():N}"[..28],
+            "구매품 구분별 생산 실적");
+        var firstCategoryId = new Guid("67000000-0000-0000-0000-000000000001");
+        var secondCategoryId = new Guid("67000000-0000-0000-0000-000000000002");
+        await context.ExecuteSqlAsync($"""
+            delete from project_procurement_items where project_id='{projectId}';
+            insert into project_procurement_items (
+                project_id, sequence_number, order_item, order_date, material_category_id,
+                material_category_code_snapshot, material_category_name_snapshot,
+                material_category_requires_iqc_snapshot, material_category_iqc_enabled_snapshot,
+                material_category_iqc_decision_mode_snapshot
+            )
+            select '{projectId}', source.sequence_number, source.order_item, source.order_date,
+                   category.id, category.code, category.display_name, category.requires_iqc,
+                   setting.is_enabled, setting.decision_mode
+            from (values
+                (1, '구분 A 발주품', date '2026-08-18', '{firstCategoryId}'::uuid),
+                (2, '구분 B 미발주품', null::date, '{secondCategoryId}'::uuid)
+            ) source(sequence_number, order_item, order_date, category_id)
+            join material_categories category on category.id=source.category_id
+            join material_category_iqc_settings setting on setting.material_category_id=category.id;
+
+            insert into material_receipts (
+                id, procurement_item_id, quantity, unit, arrival_date, status,
+                confirmed_by_user_id, confirmed_at_utc)
+            select uuid_generate_v4(), item.id, 1, 'EA', date '2026-08-18', 'Confirmed',
+                   '50000000-0000-0000-0000-000000000012', now()
+            from project_procurement_items item
+            where item.project_id='{projectId}'
+              and item.material_category_id='{firstCategoryId}';
+
+            select set_config('emi_qms.material_receipt_write', 'allowed', false);
+            update project_procurement_items
+            set receipt_completed=true,
+                receipt_completed_at_utc=now(),
+                receipt_completed_by_user_id='50000000-0000-0000-0000-000000000012'
+            where project_id='{projectId}'
+              and material_category_id='{firstCategoryId}';
+            select set_config('emi_qms.material_receipt_write', '', false);
+            """);
+
+        using var initial = await ReadJsonAsync(await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        var purchaseSource = initial.RootElement.GetProperty("availableSources").EnumerateArray()
+            .Single(source => source.GetProperty("code").GetString() == ProductionControlSourceCodes.PurchaseOrdered);
+        Assert.Equal("MaterialCategory", purchaseSource.GetProperty("definitionKind").GetString());
+        Assert.Contains(purchaseSource.GetProperty("definitions").EnumerateArray(), definition =>
+            definition.GetProperty("definitionKey").GetGuid() == firstCategoryId);
+        var initialItem = initial.RootElement.GetProperty("items")[0];
+
+        static ProductionPlanItemUpdateRequest UpdateWithConnection(JsonElement item, ProductionControlConnectionResponse connection) => new(
+            item.GetProperty("itemId").GetGuid(),
+            item.GetProperty("templateStepId").ValueKind == JsonValueKind.Null ? null : item.GetProperty("templateStepId").GetGuid(),
+            item.GetProperty("stepName").GetString(),
+            item.GetProperty("sequenceNumber").GetInt32(),
+            item.GetProperty("isRequired").GetBoolean(),
+            item.GetProperty("rowVersion").GetInt32(),
+            null, null, null, null, null, null, false,
+            item.GetProperty("definitionKey").ValueKind == JsonValueKind.Null ? null : item.GetProperty("definitionKey").GetGuid(),
+            [connection]);
+
+        using var categoryPlan = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                initial.RootElement.GetProperty("productTypeId").GetGuid(),
+                initial.RootElement.GetProperty("rowVersion").GetInt32(),
+                "구매품 구분 연결",
+                "구분 A만 집계",
+                [UpdateWithConnection(initialItem, new(ProductionControlSourceCodes.PurchaseOrdered, firstCategoryId))],
+                []),
+            TestContext.Current.CancellationToken));
+        var categoryItem = categoryPlan.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("itemId").GetGuid() == initialItem.GetProperty("itemId").GetGuid());
+        Assert.Equal(1, categoryItem.GetProperty("totalTargetCount").GetInt32());
+        Assert.Equal(1, categoryItem.GetProperty("completedTargetCount").GetInt32());
+        Assert.Equal(100, categoryItem.GetProperty("progressPercent").GetInt32());
+        Assert.Contains("외함", Assert.Single(categoryItem.GetProperty("evidence").EnumerateArray()).GetProperty("sourceLabel").GetString());
+
+        using var receiptPlan = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                categoryPlan.RootElement.GetProperty("productTypeId").GetGuid(),
+                categoryPlan.RootElement.GetProperty("rowVersion").GetInt32(),
+                "구매품 구분 입고 연결",
+                "구분 A 입고만 집계",
+                [UpdateWithConnection(categoryItem, new(ProductionControlSourceCodes.MaterialReceiptConfirmed, firstCategoryId))],
+                []),
+            TestContext.Current.CancellationToken));
+        var receiptItem = receiptPlan.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("itemId").GetGuid() == initialItem.GetProperty("itemId").GetGuid());
+        Assert.Equal(1, receiptItem.GetProperty("totalTargetCount").GetInt32());
+        Assert.Equal(1, receiptItem.GetProperty("completedTargetCount").GetInt32());
+        Assert.Equal(100, receiptItem.GetProperty("progressPercent").GetInt32());
+        Assert.Contains("외함", Assert.Single(receiptItem.GetProperty("evidence").EnumerateArray()).GetProperty("sourceLabel").GetString());
+
+        using var allPlan = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                receiptPlan.RootElement.GetProperty("productTypeId").GetGuid(),
+                receiptPlan.RootElement.GetProperty("rowVersion").GetInt32(),
+                "전체 구매품 연결",
+                "기존 전체 집계 호환",
+                [UpdateWithConnection(receiptItem, new(ProductionControlSourceCodes.PurchaseOrdered, null))],
+                []),
+            TestContext.Current.CancellationToken));
+        var allItem = allPlan.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("itemId").GetGuid() == initialItem.GetProperty("itemId").GetGuid());
+        Assert.Equal(2, allItem.GetProperty("totalTargetCount").GetInt32());
+        Assert.Equal(1, allItem.GetProperty("completedTargetCount").GetInt32());
+        Assert.Equal(50, allItem.GetProperty("progressPercent").GetInt32());
+
+        var invalidCategory = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                allPlan.RootElement.GetProperty("productTypeId").GetGuid(),
+                allPlan.RootElement.GetProperty("rowVersion").GetInt32(),
+                "잘못된 구매품 구분",
+                null,
+                [UpdateWithConnection(allItem, new(ProductionControlSourceCodes.MaterialReceiptConfirmed, Guid.NewGuid()))],
+                []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidCategory.StatusCode);
+        Assert.Contains("구매품 구분", await invalidCategory.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ProductionControl_ManufacturingSaveSynchronizesExistingLegacyProjectWithoutChangingExecutionHistory()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+        var projectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-MFG-SYNC-{Guid.NewGuid():N}"[..28],
+            "제조양식 기존 프로젝트 즉시 반영");
+        Assert.Equal("LEGACY", await context.ReadScalarAsync<string>($"select model_version from project_production_plans where project_id='{projectId}';"));
+
+        var executionId = Guid.NewGuid();
+        await context.ExecuteSqlAsync($"""
+            insert into panel_manufacturing_executions (
+                id, project_id, panel_id, status, started_by_user_id, started_at_utc,
+                completed_by_user_id, completed_at_utc, version, updated_at_utc
+            )
+            select '{executionId}', '{projectId}', panel.id, 'Completed',
+                   '50000000-0000-0000-0000-000000000004', now(),
+                   '50000000-0000-0000-0000-000000000004', now(), 1, now()
+            from panel_placeholders panel
+            where panel.project_id='{projectId}' and panel.status='Active'
+            order by panel.sequence_number
+            limit 1;
+            insert into panel_manufacturing_execution_steps (
+                execution_id, sequence_number, step_name, checked_by_user_id, checked_at_utc
+            )
+            values ('{executionId}', 1, '기존 완료 이력', '50000000-0000-0000-0000-000000000004', now());
+            """);
+
+        using var catalog = await ReadJsonAsync(await productionClient.GetAsync(
+            "/api/production-control/templates",
+            TestContext.Current.CancellationToken));
+        var productTypeId = catalog.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeCode").GetString() == "UL67")
+            .GetProperty("productTypeId").GetGuid();
+        using var current = await ReadJsonAsync(await productionClient.PostAsJsonAsync(
+            $"/api/production-control/templates/manufacturing/{productTypeId}/current",
+            new { expectedActiveRowVersion = (int?)null },
+            TestContext.Current.CancellationToken));
+        var version = Assert.Single(current.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("productTypeId").GetGuid() == productTypeId)
+            .GetProperty("manufacturingVersions").EnumerateArray());
+        var versionId = version.GetProperty("versionId").GetGuid();
+        var saved = await productionClient.PutAsJsonAsync(
+            $"/api/production-control/templates/manufacturing/{productTypeId}/versions/{versionId}",
+            new
+            {
+                expectedRowVersion = version.GetProperty("rowVersion").GetInt32(),
+                items = new[]
+                {
+                    new { definitionKey = (Guid?)null, displayOrder = 1, label = "공통 제조 1" },
+                    new { definitionKey = (Guid?)null, displayOrder = 2, label = "공통 제조 2" }
+                }
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        Assert.Equal(2L, await context.ReadScalarAsync<long>($"""
+            select count(*) from project_manufacturing_step_snapshots
+            where project_id='{projectId}' and is_active;
+            """));
+        Assert.Equal("공통 제조 1", await context.ReadScalarAsync<string>($"""
+            select step_name_snapshot from project_manufacturing_step_snapshots
+            where project_id='{projectId}' and is_active and sequence_number=1;
+            """));
+        Assert.Equal("Completed", await context.ReadScalarAsync<string>($"select status from panel_manufacturing_executions where id='{executionId}';"));
+        Assert.Equal("기존 완료 이력", await context.ReadScalarAsync<string>($"select step_name from panel_manufacturing_execution_steps where execution_id='{executionId}';"));
+
+        using var projectPlan = await ReadJsonAsync(await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(new[] { "공통 제조 1", "공통 제조 2" }, projectPlan.RootElement.GetProperty("manufacturingSteps").EnumerateArray()
+            .Select(step => step.GetProperty("stepName").GetString()).ToArray());
+    }
+
+    [Fact]
+    public async Task ProductionControl_ProjectPlanCanSwapAndReuseActiveItemNamesInOneSave()
+    {
+        await using var context = await ProductionPlanningApiTestContext.CreateAsync();
+        using var salesClient = context.CreateClient("dev-sales");
+        using var productionClient = context.CreateClient("dev-production");
+
+        var projectId = await CreateProjectAndReadIdAsync(
+            context,
+            salesClient,
+            $"PC-NAME-SWAP-{Guid.NewGuid():N}"[..28],
+            "생산계획 항목명 교체 저장");
+        using var initial = await ReadJsonAsync(await productionClient.GetAsync(
+            $"/api/projects/{projectId}/production-planning",
+            TestContext.Current.CancellationToken));
+        var initialItems = initial.RootElement.GetProperty("items").EnumerateArray()
+            .OrderBy(item => item.GetProperty("sequenceNumber").GetInt32())
+            .ToList();
+        Assert.True(initialItems.Count >= 2);
+
+        static ProductionPlanItemUpdateRequest ToRequest(JsonElement item, string stepName, bool isDeleted = false)
+        {
+            return new ProductionPlanItemUpdateRequest(
+                item.GetProperty("itemId").GetGuid(),
+                item.GetProperty("templateStepId").ValueKind == JsonValueKind.Null
+                    ? null
+                    : item.GetProperty("templateStepId").GetGuid(),
+                stepName,
+                item.GetProperty("sequenceNumber").GetInt32(),
+                item.GetProperty("isRequired").GetBoolean(),
+                item.GetProperty("rowVersion").GetInt32(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                isDeleted,
+                item.GetProperty("definitionKey").ValueKind == JsonValueKind.Null
+                    ? null
+                    : item.GetProperty("definitionKey").GetGuid(),
+                []);
+        }
+
+        var firstId = initialItems[0].GetProperty("itemId").GetGuid();
+        var secondId = initialItems[1].GetProperty("itemId").GetGuid();
+        var firstName = initialItems[0].GetProperty("stepName").GetString()!;
+        var secondName = initialItems[1].GetProperty("stepName").GetString()!;
+        var swapItems = initialItems.Select(item =>
+        {
+            var itemId = item.GetProperty("itemId").GetGuid();
+            return ToRequest(
+                item,
+                itemId == firstId ? secondName : itemId == secondId ? firstName : item.GetProperty("stepName").GetString()!);
+        }).ToArray();
+
+        using var swapped = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                initial.RootElement.GetProperty("productTypeId").GetGuid(),
+                initial.RootElement.GetProperty("rowVersion").GetInt32(),
+                "항목명 맞교환",
+                "항목명 교체 저장 회귀",
+                swapItems,
+                []),
+            TestContext.Current.CancellationToken));
+        var swappedItems = swapped.RootElement.GetProperty("items").EnumerateArray()
+            .OrderBy(item => item.GetProperty("sequenceNumber").GetInt32())
+            .ToList();
+        Assert.Equal(secondName, swappedItems.Single(item => item.GetProperty("itemId").GetGuid() == firstId).GetProperty("stepName").GetString());
+        Assert.Equal(firstName, swappedItems.Single(item => item.GetProperty("itemId").GetGuid() == secondId).GetProperty("stepName").GetString());
+
+        var deleted = swappedItems.Single(item => item.GetProperty("itemId").GetGuid() == firstId);
+        var reused = swappedItems.Single(item => item.GetProperty("itemId").GetGuid() == secondId);
+        var deletedName = deleted.GetProperty("stepName").GetString()!;
+        var reuseItems = new[] { ToRequest(reused, deletedName) }
+            .Concat([ToRequest(deleted, deletedName, isDeleted: true)])
+            .Concat(swappedItems
+                .Where(item => item.GetProperty("itemId").GetGuid() != firstId
+                    && item.GetProperty("itemId").GetGuid() != secondId)
+                .Select(item => ToRequest(item, item.GetProperty("stepName").GetString()!)))
+            .ToArray();
+
+        using var reusedResult = await ReadJsonAsync(await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                swapped.RootElement.GetProperty("productTypeId").GetGuid(),
+                swapped.RootElement.GetProperty("rowVersion").GetInt32(),
+                "삭제 이름 재사용",
+                "삭제와 이름 재사용 동시 저장 회귀",
+                reuseItems,
+                []),
+            TestContext.Current.CancellationToken));
+        var activeAfterReuse = reusedResult.RootElement.GetProperty("items").EnumerateArray().ToList();
+        Assert.DoesNotContain(activeAfterReuse, item => item.GetProperty("itemId").GetGuid() == firstId);
+        Assert.Equal(deletedName, activeAfterReuse.Single(item => item.GetProperty("itemId").GetGuid() == secondId).GetProperty("stepName").GetString());
+
+        var repeatItems = activeAfterReuse
+            .OrderBy(item => item.GetProperty("sequenceNumber").GetInt32())
+            .Select(item => ToRequest(item, item.GetProperty("stepName").GetString()!))
+            .ToArray();
+        var repeat = await productionClient.PatchAsJsonAsync(
+            $"/api/projects/{projectId}/production-planning",
+            new UpdateProductionPlanningRequest(
+                reusedResult.RootElement.GetProperty("productTypeId").GetGuid(),
+                reusedResult.RootElement.GetProperty("rowVersion").GetInt32(),
+                "반복 저장",
+                "동일 내용 반복 저장 회귀",
+                repeatItems,
+                []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, repeat.StatusCode);
+    }
+
+    [Fact]
     public async Task ProductionControl_ProjectWithoutPlanCanStartUnifiedLegacyPlan()
     {
         await using var context = await ProductionPlanningApiTestContext.CreateAsync();
@@ -2524,7 +2850,11 @@ public sealed class ProductionPlanningApiTests
                     isRequired = true,
                     connections = new[]
                     {
-                        new { sourceCode = "OQC_PASSED", sourceDefinitionKey = (Guid?)null }
+                        new
+                        {
+                            sourceCode = "PURCHASE_ORDERED",
+                            sourceDefinitionKey = (Guid?)new Guid("67000000-0000-0000-0000-000000000001")
+                        }
                     }
                 }
             }
@@ -2544,11 +2874,15 @@ public sealed class ProductionPlanningApiTests
             $"/api/production-control/templates/planning/{productTypeId}/versions/{planningVersionId}",
             planningRequest,
             TestContext.Current.CancellationToken));
-        Assert.Equal("생산관리 계획 저장", Assert.Single(
+        var savedPlanItem = Assert.Single(
             Assert.Single(planningSaved.RootElement.GetProperty("items").EnumerateArray()
                 .Single(item => item.GetProperty("productTypeId").GetGuid() == productTypeId)
                 .GetProperty("planVersions").EnumerateArray())
-                .GetProperty("items").EnumerateArray()).GetProperty("label").GetString());
+                .GetProperty("items").EnumerateArray());
+        Assert.Equal("생산관리 계획 저장", savedPlanItem.GetProperty("label").GetString());
+        var savedConnection = Assert.Single(savedPlanItem.GetProperty("connections").EnumerateArray());
+        Assert.Equal(ProductionControlSourceCodes.PurchaseOrdered, savedConnection.GetProperty("sourceCode").GetString());
+        Assert.Equal(new Guid("67000000-0000-0000-0000-000000000001"), savedConnection.GetProperty("sourceDefinitionKey").GetGuid());
     }
 
     [Fact]
@@ -2777,15 +3111,15 @@ public sealed class ProductionPlanningApiTests
             salesClient,
             $"PC-RENAMED-{Guid.NewGuid():N}"[..28],
             "제조 양식 이름 변경 후 프로젝트");
-        Assert.Equal("조립", await context.ReadScalarAsync<string>($"""
+        Assert.Equal("조립 이름 변경", await context.ReadScalarAsync<string>($"""
             select step_name_snapshot
             from project_manufacturing_step_snapshots
-            where project_id='{existingProjectId}';
+            where project_id='{existingProjectId}' and is_active;
             """));
         Assert.Equal("조립 이름 변경", await context.ReadScalarAsync<string>($"""
             select step_name_snapshot
             from project_manufacturing_step_snapshots
-            where project_id='{renamedProjectId}';
+            where project_id='{renamedProjectId}' and is_active;
             """));
 
         using var replacedManufacturing = await ReadJsonAsync(await adminClient.PutAsJsonAsync(
@@ -2806,15 +3140,22 @@ public sealed class ProductionPlanningApiTests
         var replacementManufacturingDefinitionKey = Assert.Single(
             replacedManufacturingVersion.GetProperty("items").EnumerateArray()).GetProperty("definitionKey").GetGuid();
         Assert.NotEqual(originalManufacturingDefinitionKey, replacementManufacturingDefinitionKey);
-        Assert.Equal(originalManufacturingDefinitionKey, await context.ReadScalarAsync<Guid>($"""
+        Assert.Equal(replacementManufacturingDefinitionKey, await context.ReadScalarAsync<Guid>($"""
             select definition_key
             from project_manufacturing_step_snapshots
-            where project_id='{existingProjectId}';
+            where project_id='{existingProjectId}' and is_active;
             """));
-        Assert.Equal("조립", await context.ReadScalarAsync<string>($"""
+        Assert.Equal("신규 조립", await context.ReadScalarAsync<string>($"""
             select step_name_snapshot
             from project_manufacturing_step_snapshots
-            where project_id='{existingProjectId}';
+            where project_id='{existingProjectId}' and is_active;
+            """));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"""
+            select count(*)
+            from project_manufacturing_step_snapshots
+            where project_id='{existingProjectId}'
+              and definition_key='{originalManufacturingDefinitionKey}'
+              and not is_active;
             """));
 
         var projectBlockedByStaleConnection = await salesClient.PostAsJsonAsync(

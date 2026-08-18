@@ -529,6 +529,7 @@ output requiredKeyVaultSecretNames array = [
   'database-migration-connection-string'
   'database-runtime-connection-string'
   'bootstrap-administrator-emails'
+  'development-operator-emails'
   'front-door-origin-verify-token'
   'entra-access-gate-client-secret'
   'gmail-username'

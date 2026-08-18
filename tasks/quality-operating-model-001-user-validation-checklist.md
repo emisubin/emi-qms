@@ -1,6 +1,6 @@
 # TASK-QUALITY-OPERATING-MODEL-001 사용자 검수 체크리스트
 
-상태: `BASE TASK USER_VALIDATION_COMPLETE / CHANGE 004·005 MAIN_MERGED / AUTOMATED_VALIDATION_COMPLETE / USER_VALIDATION_COMPLETE / AZURE_PRODUCTION_RELEASE_COMPLETE`
+상태: `BASE TASK USER_VALIDATION_COMPLETE / CHANGE 004·005 MAIN_MERGED / AZURE_PRODUCTION_RELEASE_COMPLETE / CHANGE 007 PUBLICATION_APPROVED / POST-DEPLOYMENT_USER_VALIDATION_PENDING`
 
 2026-07-31 사용자가 본 체크리스트의 사용자 검수를 완료했다고 명시했다.
 
@@ -123,3 +123,15 @@
 - [x] PC에서 기존 양식관리 catalog·selector·editor 구조와 같은 디자인으로 보인다.
 - [x] 390px에서 검색·구분 선택·검사 설정·항목 편집이 한 열로 보이고 페이지 가로 스크롤이 없다.
 - [x] 2026-08-11 사용자 화면 검수를 완료했고 병합·공개배포를 승인했다. 최신 PR head `CI Gate` 통과 후 병합·운영 교체를 실행한다.
+
+## Change 007 — 기존 프로젝트 구매품 구분 사용자 검수 대기
+
+- [ ] 기능 도입 전에 생성된 기존 프로젝트의 구매정보 수정 화면에서 `구분` 선택창이 활성화된다.
+- [ ] 기존 구분 없는 구매품은 일반 정보만 수정해도 저장되며, 원하는 경우 활성 구분을 선택해 저장할 수 있다.
+- [ ] 구분을 선택한 기존 구매품을 다시 열면 저장한 구분이 표시된다.
+- [ ] 기존 프로젝트에 새 구매품을 추가하거나 Excel로 입력할 때 구분을 선택할 수 있고, 구분을 비워도 기존 정책상 저장된다.
+- [ ] 해당 구매품의 입고를 등록하면 선택한 구분의 개별 IQC 설정과 관계없이 기존 상세 IQC로 이동한다.
+- [ ] 입고 이력이 생긴 뒤 구분을 바꾸면 이해 가능한 오류로 차단된다.
+- [ ] 신규 프로젝트에서는 구분을 비우면 기존처럼 필수 오류가 표시된다.
+- [ ] Change 007 사용자 운영 검수 완료는 별도로 보고되지 않았다.
+- [x] 사용자는 미검수 상태와 자동검증 결과를 확인한 뒤 2026-08-18 원격 게시·Azure 공개배포를 승인했다. 배포 후 본 항목을 검수한다.

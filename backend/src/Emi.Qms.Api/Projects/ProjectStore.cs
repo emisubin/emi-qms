@@ -2842,6 +2842,9 @@ public sealed class ProjectStore(
                       and quality_version.lifecycle_status='Active'
                       and quality_item.response_type='Check'
                 ) oqc on oqc.definition_key=connection.source_definition_key
+                left join material_categories category
+                  on category.id=connection.source_definition_key
+                 and category.is_active
                 where plan_item.template_version_id=@plan_version_id
                   and (
                     (plan_item.is_required and connection.id is null)
@@ -2858,6 +2861,11 @@ public sealed class ProjectStore(
                         connection.source_code='OQC_PASSED'
                         and connection.source_definition_key is not null
                         and oqc.definition_key is null
+                    )
+                    or (
+                        connection.source_code in ('PURCHASE_ORDERED','MATERIAL_RECEIPT_CONFIRMED')
+                        and connection.source_definition_key is not null
+                        and category.id is null
                     )
                   );
                 """;

@@ -13951,7 +13951,7 @@ function ProductionControlLinkedEditableList({
       <div className="subsection-header">
         <div>
           <h3>프로젝트 생산계획표</h3>
-          <p>{structureOnly ? '모든 실물 세트가 공유할 계획 항목과 실적 연결을 구성합니다.' : '이 프로젝트의 계획 항목·기간·담당자·필요 인원·코멘트와 실적 연결만 바뀝니다. 제조 항목 snapshot은 유지됩니다.'}</p>
+          <p>{structureOnly ? '모든 실물 세트가 공유할 계획 항목과 실적 연결을 구성합니다.' : '이 프로젝트의 계획 항목·기간·담당자·필요 인원·코멘트와 실적 연결만 바뀝니다. 제조 항목은 양식 관리의 Item 공통 기준을 사용합니다.'}</p>
         </div>
         <button type="button" onClick={onAddRow}>계획 항목 추가</button>
       </div>
@@ -13976,6 +13976,11 @@ function ProductionControlLinkedEditableList({
                 <option value="">실적 데이터를 선택해 주세요</option>
                 {plan.availableSources.map((source) => (source.definitionKind ?? (source.requiresManufacturingDefinition ? 'Manufacturing' : 'None')) !== 'None' ? (
                   <optgroup key={source.code} disabled={source.isOperational === false} label={`${source.departmentLabel} · ${source.label}${source.isOperational === false ? ' · 운영 중지' : ''}`}>
+                    {source.definitionKind === 'MaterialCategory' ? (
+                      <option disabled={source.isOperational === false} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: null })}>
+                        전체 구매품
+                      </option>
+                    ) : null}
                     {projectSourceDefinitionOptions(plan, source).map((step) => (
                       <option disabled={source.isOperational === false} key={`${source.code}:${step.definitionKey}`} value={projectConnectionValue({ sourceCode: source.code, sourceDefinitionKey: step.definitionKey })}>
                         {step.label}
@@ -14836,9 +14841,7 @@ function ProcurementEditPage({
       getProject(developmentUserKey, projectId)
     ])
       .then(async ([response, project]) => {
-        const categories = response.iqcRoutingPolicy === 'CategoryBased'
-          ? await getMaterialCategories(developmentUserKey)
-          : { items: [] };
+        const categories = await getMaterialCategories(developmentUserKey);
         if (requestId !== loadRequestIdRef.current) {
           return;
         }
@@ -15007,7 +15010,7 @@ function ProcurementEditPage({
           {state.kind === 'ready' ? (
             <>
               {validationIssue ? <ProcurementIssuePanel row={rows[validationIssue.rowIndex]} rowNumber={rows.slice(0, validationIssue.rowIndex + 1).filter((row) => row.supplyType === rows[validationIssue.rowIndex]?.supplyType).length} issue={validationIssue} /> : null}
-              <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} materialCategories={materialCategories} categoryBased={state.data.iqcRoutingPolicy === 'CategoryBased'} />
+              <ProcurementEditableList rows={rows} onChange={updateRow} activeSupplyType={activeSupplyType} onActiveSupplyTypeChange={setActiveSupplyType} validationIssue={validationIssue} materialCategories={materialCategories} categoryRequired={state.data.iqcRoutingPolicy === 'CategoryBased'} />
             </>
           ) : null}
         </DsInputSection>
@@ -15046,7 +15049,7 @@ function ProcurementEditableList({
   onActiveSupplyTypeChange,
   validationIssue,
   materialCategories,
-  categoryBased
+  categoryRequired
 }: {
   rows: ProcurementRowForm[];
   onChange: (index: number, next: Partial<ProcurementRowForm>) => void;
@@ -15054,7 +15057,7 @@ function ProcurementEditableList({
   onActiveSupplyTypeChange: (supplyType: ProcurementSupplyType) => void;
   validationIssue: ProcurementValidationIssue | null;
   materialCategories: MaterialCategory[];
-  categoryBased: boolean;
+  categoryRequired: boolean;
 }) {
   const isMobile = useIsMobileViewport();
   const visibleRows = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.supplyType === activeSupplyType);
@@ -15062,7 +15065,7 @@ function ProcurementEditableList({
     <div className="procurement-supply-groups">
       <ProcurementSupplyTabs items={rows} activeSupplyType={activeSupplyType} onChange={onActiveSupplyTypeChange} />
       {visibleRows.length === 0 ? <p className="empty-text">등록된 {procurementSupplyGroupLabel(activeSupplyType)}이 없습니다. 위 버튼으로 행을 추가해 주세요.</p> : isMobile
-        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} rowIndexes={visibleRows.map(({ index }) => index)} validationIssue={validationIssue} materialCategories={materialCategories} categoryBased={categoryBased} />
+        ? <ProcurementCards items={visibleRows.map(({ row }) => row)} editable onChange={(index, next) => onChange(visibleRows[index].index, next)} rowIndexes={visibleRows.map(({ index }) => index)} validationIssue={validationIssue} materialCategories={materialCategories} categoryRequired={categoryRequired} />
         : (
       <div className="procurement-table procurement-desktop" role="table" aria-label="구매정보 수정">
         <div className="procurement-table-head editable" role="row">
@@ -15081,8 +15084,8 @@ function ProcurementEditableList({
           <div className={validationIssue?.rowIndex === index ? 'procurement-table-row editable has-error' : 'procurement-table-row editable'} role="row" key={row.itemId ?? `new-${index}`} data-procurement-error-row={validationIssue?.rowIndex === index}>
             <input value={row.standardLeadTime} onChange={(event) => onChange(index, { standardLeadTime: event.target.value })} />
             <input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} />
-            <select data-procurement-row={index} data-procurement-field="materialCategoryId" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'materialCategoryId'} aria-label="구매품 구분" disabled={!categoryBased} value={row.materialCategoryId} onChange={(event) => onChange(index, { materialCategoryId: event.target.value, materialCategoryName: materialCategories.find((category) => category.categoryId === event.target.value)?.displayName ?? '' })}>
-              <option value="">{categoryBased ? '구분 선택' : '기존 프로젝트'}</option>
+            <select data-procurement-row={index} data-procurement-field="materialCategoryId" aria-invalid={validationIssue?.rowIndex === index && validationIssue.field === 'materialCategoryId'} aria-label="구매품 구분" required={categoryRequired} value={row.materialCategoryId} onChange={(event) => onChange(index, { materialCategoryId: event.target.value, materialCategoryName: materialCategories.find((category) => category.categoryId === event.target.value)?.displayName ?? '' })}>
+              <option value="">구분 선택</option>
               {materialCategories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.displayName}{category.requiresIqc ? ' · IQC' : ''}</option>)}
             </select>
             <input value={row.supplierName} onChange={(event) => onChange(index, { supplierName: event.target.value })} />
@@ -15120,7 +15123,7 @@ function ProcurementCards({
   rowIndexes,
   validationIssue,
   materialCategories = [],
-  categoryBased = false,
+  categoryRequired = false,
   receiptConfirmationOnly = false
 }: {
   items: ProcurementItem[] | ProcurementRowForm[];
@@ -15129,7 +15132,7 @@ function ProcurementCards({
   rowIndexes?: number[];
   validationIssue?: ProcurementValidationIssue | null;
   materialCategories?: MaterialCategory[];
-  categoryBased?: boolean;
+  categoryRequired?: boolean;
   receiptConfirmationOnly?: boolean;
 }) {
   return (
@@ -15144,8 +15147,8 @@ function ProcurementCards({
               <>
                 <FormField label="발주품목"><input className="order-item-input" value={row.orderItem} onChange={(event) => onChange(index, { orderItem: event.target.value })} /></FormField>
                 <FormField label="구분" error={issue?.field === 'materialCategoryId' ? issue.message : undefined}>
-                  <select data-procurement-row={sourceRowIndex} data-procurement-field="materialCategoryId" aria-invalid={issue?.field === 'materialCategoryId'} disabled={!categoryBased} value={row.materialCategoryId} onChange={(event) => onChange(index, { materialCategoryId: event.target.value, materialCategoryName: materialCategories.find((category) => category.categoryId === event.target.value)?.displayName ?? '' })}>
-                    <option value="">{categoryBased ? '구분 선택' : '기존 프로젝트'}</option>
+                  <select data-procurement-row={sourceRowIndex} data-procurement-field="materialCategoryId" aria-invalid={issue?.field === 'materialCategoryId'} aria-label="구매품 구분" required={categoryRequired} value={row.materialCategoryId} onChange={(event) => onChange(index, { materialCategoryId: event.target.value, materialCategoryName: materialCategories.find((category) => category.categoryId === event.target.value)?.displayName ?? '' })}>
+                    <option value="">구분 선택</option>
                     {materialCategories.map((category) => <option key={category.categoryId} value={category.categoryId}>{category.displayName}{category.requiresIqc ? ' · IQC' : ''}</option>)}
                   </select>
                 </FormField>

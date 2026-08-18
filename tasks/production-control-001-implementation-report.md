@@ -447,6 +447,9 @@ Ready PR #101의 최초 Full-Stack `59/61` 실패에서 오래된 체크 달력 
 | Backend 전체 회귀 | PASS — `537/537` |
 | 운영형 migration image | PASS — fresh apply, existing apply, migration ledger `80/80` |
 | Frontend | N/A — Frontend 코드·계약·화면 변경 없음. 표준 PR CI의 change routing과 Full-Stack 결과를 게시 Gate로 확인한다. |
+| PR·main CI | PASS — PR run `32116227678`, main run `32118673836` |
+| Azure 운영 게시 | PASS — release `32118742009`, migration `0080`, Backend 교체, public security |
+| 공개 운영 자동 확인 | PASS — LLP 양식 `7`단계, 프로젝트 연결 선택창 `4`개 각각 제조 단계 `7`개, 안정화 후 API 오류 `0` |
 | `git diff --check` | PASS |
 
 ### 개인정보·보안·외부 연동 영향
@@ -459,7 +462,8 @@ Ready PR #101의 최초 Full-Stack `59/61` 실패에서 오래된 체크 달력 
 
 - `PC-C014-DEPLOY-BACKFILL-GAP-001` P1은 migration `0080`과 회귀로 `RESOLVED`다. Open P0/P1/P2는 `0/0/0`이다.
 - 사용자는 원인과 보정 방향을 확인한 뒤 2026-08-18 원격 `main` 병합·migration 적용·Azure 공개배포를 명시 승인했다.
-- 사용자 운영 검수는 배포 후 같은 Item의 현재 제조양식 단계 수와 기존 프로젝트 실적 선택지 수가 일치하는지 확인하는 항목으로 남긴다.
+- PR #106은 merge SHA `d8c60ffe1317907eb5543ad785abf10b058e64e9`로 병합됐고 Azure release `32118742009`가 성공했다.
+- 공개 운영 자동 확인에서 같은 Item의 현재 제조양식 단계 수와 기존 프로젝트의 각 제조 실적 선택지 수가 `7`로 일치했다. 사용자 직접 검수는 기존 완료 제조 기록·완료 상태 보존 확인을 남긴다.
 
 ### 복구와 forward-fix
 
@@ -470,8 +474,8 @@ Ready PR #101의 최초 Full-Stack `59/61` 실패에서 오래된 체크 달력 
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | Change 014 자동 검증 완료·게시 승인 기록 | 본 문서 `Change 014` |
+| Implementation report | Change 014 자동 검증·main 병합·Azure 게시·운영 count 확인 완료 | 본 문서 `Change 014` |
 | SOP | 기존 사용 방법 유지·운영 적용 순서 추가 | 본 문서 `사용자 사용 방법`, `Change 014 복구와 forward-fix` |
 | User manual | 화면 변경 없음·기존 제조양식 사용 방법 유지 | 본 문서 `사용자 사용 방법` |
-| Roadmap update | Change 014 상태 추적 | `docs/00-product-roadmap.md` |
-| User validation checklist | 배포 후 사용자 검수 대기 | `tasks/production-control-001-user-validation-checklist.md` `Change 014` |
+| Roadmap update | Change 014 main·Azure 게시와 운영 자동 확인 추적 | `docs/00-product-roadmap.md` |
+| User validation checklist | 운영 자동 확인 완료·사용자 완료 이력 검수 대기 | `tasks/production-control-001-user-validation-checklist.md` `Change 014` |

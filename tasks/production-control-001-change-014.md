@@ -52,3 +52,12 @@
 - migration은 기존 migration을 수정하지 않는 additive forward-fix다.
 - destructive down migration은 만들지 않는다. 문제 발생 시 애플리케이션을 직전 image로 되돌리고, snapshot은 현재 Item 제조양식에서 다시 생성하는 forward-fix를 사용한다.
 - 운영 적용 순서는 migration `0080` → Backend → Frontend이며, 적용 후 공개 운영에서 Item 제조양식 단계 수와 프로젝트 실적 선택 단계 수가 일치하는지 개인정보 없는 count로 확인한다.
+
+## 게시 결과
+
+- PR #106은 전체 CI run `32116227678` 통과 후 원격 `main`에 squash merge됐다.
+- merge SHA `d8c60ffe1317907eb5543ad785abf10b058e64e9`의 main CI run `32118673836`이 통과했다.
+- Azure release run `32118742009`에서 migration `0080`과 Backend 교체, public security 검사가 통과했다. Frontend는 변경 없음으로 재배포하지 않았다.
+- Azure migration execution은 `Succeeded`, Backend latest/ready revision은 동일한 `Running` 상태와 트래픽 `100%`를 확인했다.
+- 공개 운영에서 LLP 현재 제조양식은 `7`단계이고, 기존 LLP 프로젝트 생산계획의 연결 선택창 `4`개 각각에 제조 단계 `7`개가 표시됐다. 배포 직후 revision 전환 중 일시 연결 종료가 한 차례 있었지만 안정화 뒤 API 오류 `0`과 동일 결과를 다시 확인했다.
+- 사용자 직접 검수는 기존 완료 제조 기록·완료 상태 보존 확인만 남는다.

@@ -33,4 +33,10 @@ public static class QmsPermissions
     public const string PendingRead = "Pending.Read";
     public const string PendingManage = "Pending.Manage";
     public const string PendingTypeManage = "PendingType.Manage";
+    public const string G2Read = "G2.Read";
+    public const string G2ProductionUpdate = "G2.Production.Update";
+    public const string G2DeliveryUpdate = "G2.Delivery.Update";
+    public const string G2AttendanceUpdate = "G2.Attendance.Update";
+    public const string G2InventoryManage = "G2.Inventory.Manage";
+    public const string G2TargetManage = "G2.Target.Manage";
 }

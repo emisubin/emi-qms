@@ -236,6 +236,13 @@ public static class AuthorizationServiceCollectionExtensions
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new PermissionRequirement(QmsPermissions.AdminHistoryRead));
             });
+
+            AddPermissionPolicy(options, QmsPolicies.G2Read, QmsPermissions.G2Read);
+            AddPermissionPolicy(options, QmsPolicies.G2ProductionUpdate, QmsPermissions.G2ProductionUpdate);
+            AddPermissionPolicy(options, QmsPolicies.G2DeliveryUpdate, QmsPermissions.G2DeliveryUpdate);
+            AddPermissionPolicy(options, QmsPolicies.G2AttendanceUpdate, QmsPermissions.G2AttendanceUpdate);
+            AddPermissionPolicy(options, QmsPolicies.G2InventoryManage, QmsPermissions.G2InventoryManage);
+            AddPermissionPolicy(options, QmsPolicies.G2TargetManage, QmsPermissions.G2TargetManage);
         });
 
         services.AddSingleton<InMemoryIdentityStore>();
@@ -250,5 +257,14 @@ public static class AuthorizationServiceCollectionExtensions
         services.AddSingleton<IAuthorizationHandler, OperationalUserAuthorizationHandler>();
 
         return services;
+    }
+
+    private static void AddPermissionPolicy(AuthorizationOptions options, string name, string permission)
+    {
+        options.AddPolicy(name, policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.AddRequirements(new PermissionRequirement(permission));
+        });
     }
 }

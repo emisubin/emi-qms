@@ -1,6 +1,7 @@
 using System.Net;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.G2;
 using Emi.Qms.Api.Home;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
@@ -18,6 +19,197 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class PostgreSqlMigrationTests
 {
+    [Fact]
+    public async Task G2OperationsMigrations_CreateIsolatedSchemaForecastMarkerAndApprovedRoleMatrix()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var runner = CreateMigrationRunner(database.RepositoryRoot, provider);
+        var through0080 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0080-");
+        var through0081 = Directory.CreateTempSubdirectory("emi-qms-migrations-through-0081-");
+        try
+        {
+            var migrationSource = Path.Combine(database.RepositoryRoot, "database", "migrations");
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0081_") < 0))
+            {
+                File.Copy(source, Path.Combine(through0080.FullName, Path.GetFileName(source)));
+            }
+            foreach (var source in Directory.GetFiles(migrationSource, "*.sql").Where(path => string.CompareOrdinal(Path.GetFileName(path), "0082_") < 0))
+            {
+                File.Copy(source, Path.Combine(through0081.FullName, Path.GetFileName(source)));
+            }
+
+            var previousRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(through0080.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await previousRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+
+            var g2SchemaRunner = new DatabaseMigrationRunner(
+                provider,
+                Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(through0081.FullName),
+                new DatabaseRuntimePrivilegeManager(),
+                new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance);
+            await g2SchemaRunner.ApplyAsync(TestContext.Current.CancellationToken);
+            await ExecuteSqlAsync(
+                provider,
+                """
+                insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+                values (
+                    '82000000-0000-0000-0000-000000000002',
+                    'g2-forecast-migration-test',
+                    'G2 Forecast Migration Test',
+                    (select id from departments order by code limit 1),
+                    true
+                );
+
+                insert into g2_daily_metrics (work_date,metric_code,quantity,created_by_user_id,updated_by_user_id)
+                values
+                    (timezone('Asia/Seoul', now())::date + 1,'MorningProduction',50,'82000000-0000-0000-0000-000000000002','82000000-0000-0000-0000-000000000002'),
+                    (timezone('Asia/Seoul', now())::date,'Delivery',12,'82000000-0000-0000-0000-000000000002','82000000-0000-0000-0000-000000000002'),
+                    (timezone('Asia/Seoul', now())::date + 1,'MorningEmiAttendance',null,'82000000-0000-0000-0000-000000000002','82000000-0000-0000-0000-000000000002');
+                """,
+                TestContext.Current.CancellationToken);
+
+            await runner.ApplyAsync(TestContext.Current.CancellationToken);
+            await runner.ApplyAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+                provider,
+                "select max(version) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(3L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from information_schema.tables where table_schema='public' and table_name in ('g2_daily_metrics','g2_inventory_counts','g2_targets');",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(6L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from permissions where code like 'G2.%';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(10L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from role_permissions rp join permissions p on p.id=rp.permission_id where p.code='G2.Read';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(3L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from role_permissions rp join permissions p on p.id=rp.permission_id where p.code='G2.Production.Update';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(3L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from role_permissions rp join permissions p on p.id=rp.permission_id where p.code='G2.Delivery.Update';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from pg_constraint where conrelid='g2_daily_metrics'::regclass and conname='ck_g2_daily_metrics_quantity' and pg_get_constraintdef(oid) like '%quantity >= 0%';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from information_schema.columns where table_schema='public' and table_name='g2_daily_metrics' and column_name='is_forecast' and data_type='boolean' and is_nullable='NO';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from pg_indexes where schemaname='public' and tablename='g2_daily_metrics' and indexname='ix_g2_daily_metrics_forecast_expiry';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from g2_daily_metrics where is_forecast and quantity=50;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(2L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from g2_daily_metrics where not is_forecast;",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            through0080.Delete(recursive: true);
+            through0081.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task G2ForecastValues_AreClearedWhenTheirSeoulDateArrivesAndActualValuesPersist()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '82000000-0000-0000-0000-000000000001',
+                'g2-forecast-expiry-test',
+                'G2 Forecast Expiry Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var actor = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from qms_users where development_user_key='g2-forecast-expiry-test';",
+            TestContext.Current.CancellationToken);
+        var timeProvider = new MutableTimeProvider(new DateTimeOffset(2026, 8, 19, 0, 0, 0, TimeSpan.Zero));
+        var store = new G2OperationsStore(provider, timeProvider);
+        var date = new DateOnly(2026, 8, 20);
+
+        await store.SaveMetricsAsync(date,
+        [
+            new(G2MetricCodes.MorningProduction, 50, null),
+            new(G2MetricCodes.AfternoonProduction, 0, null),
+            new(G2MetricCodes.Delivery, 12, null),
+            new(G2MetricCodes.MorningEmiAttendance, 18, null)
+        ], actor, TestContext.Current.CancellationToken);
+
+        var forecast = await store.GetRangeAsync(date, date, TestContext.Current.CancellationToken);
+        Assert.True(forecast.Days[0].IsForecast);
+        Assert.Equal(50, forecast.Days[0].MorningProduction?.Quantity);
+        Assert.Equal(0, forecast.Days[0].AfternoonProduction?.Quantity);
+        Assert.Equal(12, forecast.Days[0].Delivery?.Quantity);
+        Assert.Equal(18, forecast.Days[0].MorningEmiAttendance?.Quantity);
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from g2_daily_metrics where work_date='2026-08-20' and is_forecast and quantity is not null;",
+            TestContext.Current.CancellationToken));
+
+        timeProvider.Advance(TimeSpan.FromDays(1));
+        var arrived = await store.GetRangeAsync(date, date, TestContext.Current.CancellationToken);
+        Assert.False(arrived.Days[0].IsForecast);
+        Assert.Null(arrived.Days[0].MorningProduction?.Quantity);
+        Assert.Null(arrived.Days[0].AfternoonProduction?.Quantity);
+        Assert.Null(arrived.Days[0].Delivery?.Quantity);
+        Assert.Null(arrived.Days[0].MorningEmiAttendance?.Quantity);
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from g2_daily_metrics where work_date='2026-08-20' and not is_forecast and quantity is null and version=2;",
+            TestContext.Current.CancellationToken));
+
+        await store.SaveMetricsAsync(date,
+        [
+            new(G2MetricCodes.MorningProduction, 47, 2),
+            new(G2MetricCodes.AfternoonProduction, 0, 2),
+            new(G2MetricCodes.Delivery, 10, 2),
+            new(G2MetricCodes.MorningEmiAttendance, 17, 2)
+        ], actor, TestContext.Current.CancellationToken);
+
+        var actual = await store.GetRangeAsync(date, date, TestContext.Current.CancellationToken);
+        Assert.Equal(47, actual.Days[0].MorningProduction?.Quantity);
+        Assert.Equal(0, actual.Days[0].AfternoonProduction?.Quantity);
+        Assert.Equal(10, actual.Days[0].Delivery?.Quantity);
+        Assert.Equal(17, actual.Days[0].MorningEmiAttendance?.Quantity);
+        Assert.Equal(4L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from g2_daily_metrics where work_date='2026-08-20' and not is_forecast and quantity is not null and version=3;",
+            TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task PanelDesignMigration0077_AddsDrawingAndGroupingToFreshAndExistingPanelRows()
     {
@@ -70,7 +262,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -138,7 +330,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -268,7 +460,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -663,7 +855,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(0, counts.Projects);
         Assert.Equal(0, counts.ProjectAccess);
         Assert.Equal(10, counts.Roles);
-        Assert.Equal(29, counts.Permissions);
+        Assert.Equal(35, counts.Permissions);
         Assert.True(counts.RolePermissions > 0);
         Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
@@ -916,7 +1108,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1182,7 +1374,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1286,7 +1478,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1352,7 +1544,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+        Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1416,7 +1608,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1539,7 +1731,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1705,7 +1897,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2227,7 +2419,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2270,7 +2462,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2451,7 +2643,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2528,7 +2720,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2593,7 +2785,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2643,7 +2835,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0080_item_manufacturing_snapshot_backfill", await ReadScalarAsync<string>(
+        Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -5158,6 +5350,15 @@ public sealed class PostgreSqlMigrationTests
         long DisabledUsers);
 
     private sealed record SensitivePermissionAssignment(string RoleCode, string PermissionCode);
+
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void Advance(TimeSpan value) => _utcNow = _utcNow.Add(value);
+    }
 
     private sealed class PostgreSqlTestDatabase : IAsyncDisposable
     {

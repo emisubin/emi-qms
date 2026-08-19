@@ -4,6 +4,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Calendar;
 using Emi.Qms.Api.DataExports;
 using Emi.Qms.Api.Home;
+using Emi.Qms.Api.G2;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.Manufacturing;
@@ -124,6 +125,7 @@ builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
 builder.Services.AddSingleton<UserProfilePhotoStore>();
 builder.Services.AddSingleton<HomeMetricsStore>();
+builder.Services.AddSingleton<G2OperationsStore>();
 builder.Services.AddSingleton<NoticeStore>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
@@ -403,6 +405,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 
 app.MapIdentityEndpoints();
 app.MapHomeMetricsEndpoints();
+app.MapG2OperationsEndpoints();
 app.MapNoticeEndpoints();
 app.MapProjectEndpoints();
 app.MapPanelInformationEndpoints();

@@ -59,7 +59,13 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000026"), QmsPermissions.PendingRead, "Read pending issues"),
         new(new Guid("30000000-0000-0000-0000-000000000027"), QmsPermissions.PendingManage, "Manage pending issues"),
         new(new Guid("30000000-0000-0000-0000-000000000028"), QmsPermissions.SalesSettle, "Complete sales settlement"),
-        new(new Guid("30000000-0000-0000-0000-000000000045"), QmsPermissions.PendingTypeManage, "Manage pending issue types")
+        new(new Guid("30000000-0000-0000-0000-000000000045"), QmsPermissions.PendingTypeManage, "Manage pending issue types"),
+        new(new Guid("30000000-0000-0000-0000-000000000081"), QmsPermissions.G2Read, "Read G2 operations"),
+        new(new Guid("30000000-0000-0000-0000-000000000082"), QmsPermissions.G2ProductionUpdate, "Update G2 production quantities"),
+        new(new Guid("30000000-0000-0000-0000-000000000083"), QmsPermissions.G2DeliveryUpdate, "Update G2 delivery quantities"),
+        new(new Guid("30000000-0000-0000-0000-000000000084"), QmsPermissions.G2AttendanceUpdate, "Update G2 attendance quantities"),
+        new(new Guid("30000000-0000-0000-0000-000000000085"), QmsPermissions.G2InventoryManage, "Manage G2 physical inventory counts"),
+        new(new Guid("30000000-0000-0000-0000-000000000086"), QmsPermissions.G2TargetManage, "Manage G2 production and inventory targets")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -105,7 +111,13 @@ public static class SeedIdentityData
                 QmsPermissions.AuditReadAll,
                 QmsPermissions.AdminHistoryRead,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingTypeManage
+                QmsPermissions.PendingTypeManage,
+                QmsPermissions.G2Read,
+                QmsPermissions.G2ProductionUpdate,
+                QmsPermissions.G2DeliveryUpdate,
+                QmsPermissions.G2AttendanceUpdate,
+                QmsPermissions.G2InventoryManage,
+                QmsPermissions.G2TargetManage
             ],
             [QmsRoles.Sales] =
             [
@@ -123,7 +135,13 @@ public static class SeedIdentityData
                 QmsPermissions.PanelInfoUpdate,
                 QmsPermissions.PendingRead,
                 QmsPermissions.PendingManage,
-                QmsPermissions.SalesSettle
+                QmsPermissions.SalesSettle,
+                QmsPermissions.G2Read,
+                QmsPermissions.G2ProductionUpdate,
+                QmsPermissions.G2DeliveryUpdate,
+                QmsPermissions.G2AttendanceUpdate,
+                QmsPermissions.G2InventoryManage,
+                QmsPermissions.G2TargetManage
             ],
             [QmsRoles.Design] =
             [
@@ -131,7 +149,8 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.PanelInfoUpdate,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read
             ],
             [QmsRoles.ProductionPlanning] =
             [
@@ -141,7 +160,8 @@ public static class SeedIdentityData
                 QmsPermissions.ProductionPlanUpdate,
                 QmsPermissions.PanelInfoUpdate,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read
             ],
             [QmsRoles.Procurement] =
             [
@@ -150,7 +170,8 @@ public static class SeedIdentityData
                 QmsPermissions.ProcurementPlanUpdate,
                 QmsPermissions.MaterialReceiptUpdate,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read
             ],
             [QmsRoles.Materials] =
             [
@@ -158,7 +179,8 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.MaterialReceiptUpdate,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read
             ],
             [QmsRoles.Manufacturing] =
             [
@@ -166,7 +188,12 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.ManufacturingUpdate,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read,
+                QmsPermissions.G2ProductionUpdate,
+                QmsPermissions.G2AttendanceUpdate,
+                QmsPermissions.G2InventoryManage,
+                QmsPermissions.G2TargetManage
             ],
             [QmsRoles.Quality] =
             [
@@ -175,7 +202,8 @@ public static class SeedIdentityData
                 QmsPermissions.QualityInspect,
                 QmsPermissions.QualityApprove,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read
             ],
             [QmsRoles.Logistics] =
             [
@@ -183,13 +211,16 @@ public static class SeedIdentityData
                 QmsPermissions.ProjectReadAll,
                 QmsPermissions.LogisticsShip,
                 QmsPermissions.PendingRead,
-                QmsPermissions.PendingManage
+                QmsPermissions.PendingManage,
+                QmsPermissions.G2Read,
+                QmsPermissions.G2DeliveryUpdate
             ],
             [QmsRoles.ReadOnly] =
             [
                 QmsPermissions.ProjectRead,
                 QmsPermissions.ProjectReadAll,
-                QmsPermissions.PendingRead
+                QmsPermissions.PendingRead,
+                QmsPermissions.G2Read
             ]
         };
 

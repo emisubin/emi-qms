@@ -402,7 +402,7 @@ body,
 }
 
 /* ── 04 · Tables: one editorial system ───────────────────────────────── */
-.app-shell thead th:not(.production-calendar-stage-cell):not(.production-calendar-date-cell):not(.calendar-company-holiday):not(.calendar-red-day) {
+.app-shell thead th:not(.production-calendar-stage-cell):not(.production-calendar-date-cell):not(.calendar-company-holiday):not(.calendar-red-day):not(.g2-red-day) {
   border-bottom: 1px solid var(--wire-ink) !important;
   background-color: var(--wire-surface) !important;
   color: var(--wire-muted) !important;
@@ -1038,6 +1038,55 @@ body,
 /* ── 09 · Charts: monochrome data ink ────────────────────────────────── */
 .app-shell :where(svg, canvas, [class*='chart'], [class*='graph']) {
   filter: grayscale(1);
+}
+
+/* G2 uses operator-approved pastel series colors as part of its data legend.
+   Remove the shared monochrome filter at every matching G2 chart layer so an
+   ancestor filter cannot flatten the series back to gray. */
+.app-shell :where(.g2-chart-card, .g2-chart-dashboard, .g2-chart-wrap, .g2-chart-stage, .g2-chart-stage-mobile, .g2-chart-scroll, .g2-chart-legend, .g2-chart-kpis, .g2-chart-kpi, .g2-chart-kpi-label, .g2-kpi-info, .g2-kpi-tooltip, .g2-mobile-chart-frame-svg, .g2-chart) {
+  filter: none;
+}
+
+/* The inventory-shortage explanation is an information-bearing overlay.
+   Keep it opaque and inside its KPI card after the inline-span normalization. */
+.app-shell .g2-chart-kpi[data-tone='violet'] .g2-kpi-tooltip {
+  border: 1px solid #a78bfa !important;
+  border-radius: 10px !important;
+  background-color: #f5f3ff !important;
+  box-shadow: 0 8px 20px rgb(76 29 149 / 18%) !important;
+  color: #4c1d95 !important;
+}
+
+/* G2 inventory and attendance totals are semantic data accents. Keep their
+   approved pastel colors after the shared monochrome normalization. */
+.app-shell .g2-horizontal-table tr.g2-inventory-row > * {
+  border-top-color: #fecaca !important;
+  background-color: #fff1f2 !important;
+  color: var(--wire-ink) !important;
+}
+
+.app-shell .g2-horizontal-table tr.g2-inventory-row > .g2-negative {
+  color: var(--wire-status-danger-text) !important;
+}
+
+.app-shell .g2-horizontal-table tr.g2-grand-total-row > * {
+  border-top-color: #bfdbfe !important;
+  background-color: #eff6ff !important;
+  color: #1e3a5f !important;
+}
+
+.app-shell .g2-horizontal-table thead th.g2-red-day {
+  border-bottom: 1px solid var(--wire-ink) !important;
+  background-color: var(--wire-surface) !important;
+  color: #dc2626 !important;
+}
+
+.app-shell .g2-horizontal-table thead th.g2-red-day :where(span, small),
+.app-shell .g2-horizontal-table tr > td.g2-red-day-column,
+.app-shell .g2-horizontal-table tr.g2-inventory-row > td.g2-red-day-column,
+.app-shell .g2-horizontal-table tr.g2-grand-total-row > td.g2-red-day-column,
+.app-shell .g2-horizontal-table td.g2-red-day-column :where(button, strong, span, small) {
+  color: #dc2626 !important;
 }
 
 .app-shell .sales-chart-grid { stroke: #f0f0f0; }

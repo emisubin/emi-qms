@@ -25,4 +25,10 @@ public static class QmsPolicies
     public const string ManufacturingWorkTimeRead = "ManufacturingWorkTimeRead";
     public const string AdminUsersRead = "AdminUsersRead";
     public const string AdminHistoryRead = "AdminHistoryRead";
+    public const string G2Read = "G2Read";
+    public const string G2ProductionUpdate = "G2ProductionUpdate";
+    public const string G2DeliveryUpdate = "G2DeliveryUpdate";
+    public const string G2AttendanceUpdate = "G2AttendanceUpdate";
+    public const string G2InventoryManage = "G2InventoryManage";
+    public const string G2TargetManage = "G2TargetManage";
 }

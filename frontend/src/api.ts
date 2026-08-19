@@ -12,6 +12,7 @@ import type {
   SalesSettlementMutationResponse
 } from './salesSettlement';
 import type { SalesKpiMonthDetail, SalesKpiResponse, SalesTargetsResponse, SaveSalesTargetsRequest } from './salesKpi';
+import type { G2HomeResponse, G2RangeResponse, SaveG2AttendanceRequest, SaveG2OperationsRequest } from './g2';
 import type {
   CreateSalesBillingRequest,
   SalesBillingBatch,
@@ -328,6 +329,38 @@ export async function saveSalesTargets(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request)
   });
+}
+
+export async function getG2Home(developmentUserKey: string | undefined, year?: number, month?: number): Promise<G2HomeResponse> {
+  const params = new URLSearchParams();
+  if (year) params.set('year', String(year));
+  if (month) params.set('month', String(month));
+  const query = params.toString();
+  return fetchJson<G2HomeResponse>(`/api/g2/home${query ? `?${query}` : ''}`, developmentUserKey);
+}
+
+export async function getG2Days(developmentUserKey: string | undefined, from: string, to: string): Promise<G2RangeResponse> {
+  return fetchJson<G2RangeResponse>(`/api/g2/days?${new URLSearchParams({ from, to }).toString()}`, developmentUserKey);
+}
+
+export async function saveG2Operations(developmentUserKey: string | undefined, date: string, request: SaveG2OperationsRequest): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/operations/${date}`, developmentUserKey, { method: 'PUT', body: JSON.stringify(request) });
+}
+
+export async function saveG2Attendance(developmentUserKey: string | undefined, date: string, request: SaveG2AttendanceRequest): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/attendance/${date}`, developmentUserKey, { method: 'PUT', body: JSON.stringify(request) });
+}
+
+export async function saveG2InventoryCount(developmentUserKey: string | undefined, date: string, quantity: number, expectedVersion: number | null): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/inventory-counts/${date}`, developmentUserKey, { method: 'PUT', body: JSON.stringify({ quantity, expectedVersion }) });
+}
+
+export async function deleteG2InventoryCount(developmentUserKey: string | undefined, date: string, expectedVersion: number): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/inventory-counts/${date}?expectedVersion=${expectedVersion}`, developmentUserKey, { method: 'DELETE' });
+}
+
+export async function saveG2Target(developmentUserKey: string | undefined, type: 'DailyProduction' | 'Inventory', date: string, quantity: number, expectedVersion: number | null): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/targets/${type}/${date}`, developmentUserKey, { method: 'PUT', body: JSON.stringify({ quantity, expectedVersion }) });
 }
 
 export async function getSalesBillingCandidates(

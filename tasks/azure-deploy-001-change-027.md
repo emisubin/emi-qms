@@ -11,6 +11,7 @@
 - sourceTask: `TASK-G2-OPERATIONS-001 Change 001~020`
 - 기준 원격 `main`: `ee54c3c377ac70e1a49cddda90afa593192cc25e`
 - 사용자 승인: 2026-08-19 원격 `main` 병합과 Azure 공개배포 명시 승인
+- CI 보정 승인: 2026-08-19 Frontend job 제한시간 `20분 → 35분` 명시 승인
 - mainMergeApprovalCount: `1`
 - productionDeploymentApproved: `true`
 - 상태: `PUBLICATION_APPROVED / PR_CI_PENDING / AZURE_RELEASE_PENDING`
@@ -48,8 +49,9 @@
 | ID | 등급 | 상태 | 원인·영향 | 해소·후속 |
 | --- | --- | --- | --- | --- |
 | `G2-PUBLICATION-AUTH-PROJECTION-001` | P2 | `RESOLVED` | 게시 사전 확인에서 인증 성공 boolean보다 상세한 CLI metadata가 transient terminal output에 포함됐다. Repository·PR·운영에는 기록되지 않았고 credential 원문은 노출되지 않았다. | 해당 출력을 증빙에서 폐기하고 이후 GitHub 확인을 boolean·SHA·PR 번호·검사 상태 count로 제한해 Gate를 재실행했다. |
+| `G2-PUBLICATION-CI-TIMEOUT-001` | P2 | `REMEDIATION_IN_PROGRESS` | PR Frontend job에서 lint·typecheck·unit·build는 통과했지만 Playwright browser 설치 중 20분 job timeout이 2회 발생해 E2E와 CI Gate가 완료되지 못했다. 제품 코드 실패는 확인되지 않았다. | 사용자 승인에 따라 Frontend job 제한시간만 35분으로 조정하고 같은 PR에서 전체 CI를 재검증한다. |
 
-현재 Open P0/P1/P2는 `0/0/0`이다.
+현재 Open P0/P1/P2는 `0/0/1`이다.
 
 ## 최신 원격 `main` 통합 검증
 
@@ -63,3 +65,4 @@
 | Azure release 입력·rollback mock | `PASS` |
 | Bicep compile·Portal template·static validation | `PASS/PASS/PASS` |
 | 격리 DB·container·network와 임시 image cleanup | `PASS` |
+| CI workflow 보정 정적 회귀 | `scripts/test-main-pr-ci.sh` `PASS` |

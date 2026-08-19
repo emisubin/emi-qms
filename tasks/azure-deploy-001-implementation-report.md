@@ -1,5 +1,17 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 027 — G2 일일 운영관리 공개 release
+
+- 사용자 게시·운영 배포 승인: 2026-08-19 완료
+- 게시 대상: `TASK-G2-OPERATIONS-001 Change 001~020`
+- 기준 원격 `main`: `ee54c3c377ac70e1a49cddda90afa593192cc25e`
+- 배포 경계: migration `0081`·`0082` → Backend → Frontend, 기존 운영 인증·외부 알림·Key Vault 참조 보존
+- Git 게시: Ready PR·필수 CI·squash merge 대기
+- Azure 운영 release: exact merge SHA 확정 뒤 실행 대기
+- 사용자 검수: 공개 화면 직접 확인 대기
+- Open P0/P1/P2: `0/0/0`
+- 상세 계약: `tasks/azure-deploy-001-change-027.md`
+
 ## Change 026 — 프로젝트 전체 흐름 상태 전용 표시 운영 release
 
 - 사용자 게시 승인: 2026-08-19 완료

@@ -8,13 +8,13 @@
 | Task 유형 | `APPROVED_FEATURE_IMPLEMENTATION` |
 | Branch | `feat/task-g2-operations-001` |
 | 구현 기준 | [Codex 기획안](g2-operations-001-codex-planning.md), [Codex review](g2-operations-001-codex-review.md), [Change 001](g2-operations-001-change-001.md), [Change 002](g2-operations-001-change-002.md), [Change 003](g2-operations-001-change-003.md), [Change 004](g2-operations-001-change-004.md), [Change 005](g2-operations-001-change-005.md), [Change 006](g2-operations-001-change-006.md), [Change 007](g2-operations-001-change-007.md), [Change 008](g2-operations-001-change-008.md), [Change 009](g2-operations-001-change-009.md), [Change 010](g2-operations-001-change-010.md), [Change 011](g2-operations-001-change-011.md), [Change 012](g2-operations-001-change-012.md), [Change 013](g2-operations-001-change-013.md), [Change 014](g2-operations-001-change-014.md), [Change 015](g2-operations-001-change-015.md), [Change 016](g2-operations-001-change-016.md), [Change 017](g2-operations-001-change-017.md), [Change 018](g2-operations-001-change-018.md), [Change 019](g2-operations-001-change-019.md), [Change 020](g2-operations-001-change-020.md) |
-| 기준 SHA | `4a220d446b1fb71604c4289f1cf7d85eec41712d` |
+| 기준 SHA | 최신 원격 `main` 통합 commit `e1eb8b0` |
 | 자동 검증 | 완료 |
 | 사용자 검수 | local 합성 데이터 검수 서버 실행 / `사용자 검수 대기` |
-| Commit / Push / PR / Merge | 미승인·미실행 |
-| Persistent UAT / Azure 공개배포 | 미승인·미변경 |
+| Commit / Push / PR / Merge | local commit 완료 / 원격 게시·merge 승인·실행 대기 |
+| Persistent UAT / Azure 공개배포 | Azure 공개배포 승인·실행 대기 / 별도 Persistent UAT 미실행 |
 
-이 문서는 local feature branch의 코드 구현과 isolated 자동 검증 결과만 기록한다. 원격 `main`, Persistent UAT, 공개 Azure와 실제 운영 데이터에는 적용하지 않았다.
+이 문서는 feature branch의 코드 구현과 isolated 자동 검증 결과를 기록한다. 사용자는 2026-08-19 원격 `main` 병합과 Azure 공개배포를 명시 승인했으며, 실제 Git·CI·운영 결과는 [Azure Change 027](azure-deploy-001-change-027.md)에 따라 후속 기록한다.
 
 ## 2. 해결한 업무 문제와 범위
 
@@ -87,15 +87,16 @@ Excel/PDF/첨부파일 영향은 `N/A`다. 해당 기능과 저장소를 추가�
 | 검증 | 적용 | 결과 | 근거·미실행 이유 |
 | --- | --- | --- | --- |
 | Backend Release build | 적용 | 통과, warning/error `0/0` | `dotnet build backend/Emi.Qms.sln --configuration Release --nologo` |
-| Backend 전체 회귀 | 적용 | `548/548` 통과 | disposable PostgreSQL과 전체 API tests |
+| Backend 전체 회귀 | 적용 | 최신 원격 `main` 통합 기준 `549/549` 통과 | disposable PostgreSQL과 전체 API tests |
 | G2·migration 영향 검사 | 적용 | `64/64` 통과 | migration 전체 class + G2 tests, fresh DB apply·`0081→0082` forward apply와 두 번 적용 |
 | Frontend lint | 적용 | error 0, 기존 Fast Refresh warning 1 | `pnpm --dir frontend lint` |
 | Frontend typecheck | 적용 | 통과 | `pnpm --dir frontend typecheck` |
 | Frontend 전체 unit | 적용 | 31 files, `230/230` 통과 | `pnpm --dir frontend test` |
 | Frontend production build | 적용 | 통과, 기존 대형 chunk warning 유지 | `pnpm --dir frontend build` |
 | Isolated Full-Stack | 적용 | `1/1` 통과 | 실제 HTTP/browser, disposable PostgreSQL, 권한·CAS·2200년 미래·desktop/mobile |
+| Production migration image | 적용 | fresh/existing 각 1회와 재적용 통과, ledger `82 Exact` | 임시 Production Backend image로 `0081`·`0082` 포함 전체 migration을 두 번 적용한 뒤 image·DB·container·network 정리 |
 | Visual QA | 적용 | 통과 | 기존 privacy-safe synthetic [Desktop 1440](g2-operations-001-screenshots/01-g2-home-desktop-1440.png)·[Mobile 390](g2-operations-001-screenshots/02-g2-operations-mobile-390.png)와 Change 011~020 비식별 projection. Change 015 latest desktop은 SVG `720×340` 2개, scale note·axis break `0/0`, 생산·납품 수량 label 겹침 `0`, color filter 해제, 생산표 납품행 `1`, page overflow `0`을 확인했다. Mobile layout unit은 좌우 축·frame 고정 layer와 내부 scroll layer를 분리하고 31일 data width `620%`, 첫 plot viewport 날짜 `5`개와 확대된 모바일 수치 글꼴을 확인했다. Change 016 live 화면은 두 관리표 `구분` row `0`, 미래 `예상` header 유지를 확인했다. Change 017 live 화면은 graph/KPI desktop 2열과 KPI 6개를 확인했다. Change 018은 막대 위 합계 label 제거, 통합 hit area, 순수 파랑 평균선·하위 draw order, KPI 강조선 제거·조별 gradient, 오늘 기준 부족분 안내와 page overflow `0`을 확인했다. Change 019는 재고 부족분 안내가 `208×74` 카드 안쪽의 `194×60` 불투명 overlay이며 네 방향 포함·page overflow `0`임을 local Desktop에서 확인했다. Change 020은 빈 목표·실사 저장 비활성, `0` 입력 활성과 page overflow `0`을 local Desktop에서 확인하고, 서울 날짜·월별 단일 조회·최신 응답 우선은 unit·Full-Stack fixed projection으로 검증했다. 사용자 제공 숫자가 보이는 임시 screenshot은 육안 확인 직후 저장소 밖 임시 경로에서 제거했다. |
-| CI | 미실행 | `N/A` | commit·push·PR 미승인 |
+| CI | 실행 대기 | `PENDING` | 게시·merge 승인 완료, Ready PR 생성 뒤 최신 head 필수 CI 확인 |
 | Persistent UAT | 미실행 | `N/A` | 명시적 제외·미승인, 운영 DB/runtime 미변경 |
 | Azure 공개 URL | 미실행 | `N/A` | 공개배포 미승인 |
 | Local 사용자 검수 runtime | 적용 | 실행 중 | Frontend `42983`, Backend `41166`, 전용 PostgreSQL `emi-qms-g2-validation` |
@@ -159,6 +160,7 @@ Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다�
 | `G2-REQUIRED-QUANTITY-ZERO-001` | P1 | `RESOLVED` | 홈 필수 실사·목표 수량의 빈 문자열이 JavaScript 숫자 변환에서 `0`이 되어, 특히 재고 checkpoint를 의도하지 않은 0으로 저장할 수 있음 | 공백 명시 거부·저장 button 비활성·실제 `0` 활성과 unit·Full-Stack 회귀를 추가 |
 | `G2-CLIENT-SEOUL-DATE-001` | P2 | `RESOLVED` | Backend는 서울 날짜를 쓰지만 Frontend 초기 날짜·월은 기기 현지 날짜를 사용해 다른 timezone·월 경계에서 조회·입력일이 달라질 수 있음 | `Asia/Seoul` 공용 날짜 함수로 홈·목표·두 관리 화면 초기값을 통일하고 UTC→서울 월 경계 회귀와 Full-Stack 오늘 일치를 검증 |
 | `G2-MONTH-LOAD-SEQUENCE-001` | P2 | `RESOLVED` | 월 이동의 직접 조회와 effect 조회가 중복되고 늦은 이전 응답이 최신 월 자료를 덮을 수 있으며 같은 달 날짜 변경도 월 전체를 다시 읽음 | 월별 effect 단일 조회·request sequence 최신 응답 우선·같은 달 자료 재사용·저장 중 탐색 차단과 요청 횟수·역전 회귀를 추가 |
+| `G2-PUBLICATION-DB-ENV-001` | P3 | `RESOLVED` | 게시 전 첫 Backend 전체 실행이 local 검수 DB 환경을 상속해 인증 단계에서 실패했으며 제품 assertion을 실행하지 못함 | 이 실행을 성공 증빙에서 제외하고 Repository의 격리 스크립트로 새 disposable PostgreSQL을 만든 뒤 동일 source 전체 `549/549`와 cleanup을 확인 |
 | `G2-ADMIN-HISTORY-001` | P3 | `DEFERRED_NEW_FEATURE` | 현재 schema는 최신 수정자·시각만 보존하며 관리자용 before/after 이력은 별도 제품 능력임 | 사용자가 Change 020에서 명시적으로 제외. append-only 정책·권한·조회 UX를 별도 `NEW_FEATURE`로 기획할 때 재개 |
 
 현재 G2 승인 범위의 Open P0/P1/P2/P3는 `0/0/0/0`이다. 관리자 입력·수정 이력은 사용자 명시 제외에 따른 별도 `DEFERRED_NEW_FEATURE`이며 이번 게시 범위 Finding으로 계산하지 않는다.
@@ -285,7 +287,7 @@ Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다�
 - [x] 빈 실사·목표 저장 차단과 실제 `0` 허용
 - [x] 홈·목표·관리 화면 초기 날짜의 서울 기준 통일
 - [x] 월 이동 단일 조회·최신 응답 우선과 같은 달 자료 재사용
-- [x] Backend 전체 548, Frontend 전체 230, isolated Full-Stack 통과
+- [x] 최신 원격 `main` 통합 기준 Backend 전체 549, Frontend 전체 230, isolated Full-Stack과 Production migration image 통과
 
 ### 사용자 직접 확인 대기
 
@@ -324,15 +326,15 @@ Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다�
 
 ## 11. Rollback, 남은 위험과 후속 경계
 
-현재는 미커밋 local branch이므로 이 branch를 게시하지 않으면 원격·운영 rollback은 필요 없다. 향후 `0081`·`0082` 적용 뒤 애플리케이션 rollback이 필요하면 세 G2 테이블, 예상 marker와 permission을 삭제하지 않고 이전 Backend/Frontend로 되돌려 데이터를 보존한다. schema 제거가 필요하면 별도 데이터 보존·destructive 승인과 forward migration이 필요하다.
+현재 G2 source는 local commit으로 고정됐고 원격 게시·운영 배포를 대기한다. `0081`·`0082` 적용 뒤 애플리케이션 rollback이 필요하면 세 G2 테이블, 예상 marker와 permission을 삭제하지 않고 이전 Backend/Frontend로 되돌려 데이터를 보존한다. schema 제거가 필요하면 별도 데이터 보존·destructive 승인과 forward migration이 필요하다.
 
 남은 항목은 다음과 같다.
 
 - 사용자 직접 검수
 - local 검수 종료 뒤 Task 소유 runtime·전용 DB cleanup
-- commit·push·PR·merge와 CI
-- Persistent UAT migration·runtime handover
-- Azure 공개배포
+- push·PR·필수 CI·merge
+- exact `main` SHA 기준 Azure migration·Backend·Frontend 공개배포
+- 배포 후 사용자 직접 화면 검수
 - 영업팀 전용 손익관리 별도 `NEW_FEATURE`
 
 ## 12. 종료 산출물 추적
@@ -342,7 +344,7 @@ Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다�
 | Implementation report | 작성 완료 | 이 문서 |
 | SOP | 작성 완료 | 이 문서 8장 |
 | User manual | 작성 완료 | 이 문서 9장 |
-| Roadmap update | 자동 검증 완료·사용자 검수 대기로 갱신 | `docs/00-product-roadmap.md` 6.4와 Decision Log |
+| Roadmap update | 자동 검증 완료·게시 및 Azure 승인·사용자 검수 대기로 갱신 | `docs/00-product-roadmap.md` 6.4와 Decision Log |
 | User validation checklist | 작성됨·자동 검증 완료·사용자 검수 대기 | 이 문서 10장 |
 
-코드 구현은 완료했지만 사용자 검수·Git 게시·Persistent UAT·Azure 공개배포는 완료로 처리하지 않는다.
+코드 구현과 게시·Azure 승인은 완료했지만 사용자 검수·Git 게시·Azure 공개배포의 실제 실행 결과는 아직 완료로 처리하지 않는다.

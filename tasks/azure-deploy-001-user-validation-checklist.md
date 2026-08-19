@@ -1,5 +1,16 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 027 — G2 일일 운영관리 공개 release
+
+- [x] PR #110의 Change Classification·Workflow Validation·Backend·Frontend·Full-Stack E2E와 필수 `CI Gate`가 모두 통과했다.
+- [x] 원격 `main`이 exact SHA `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`으로 squash merge됐다.
+- [x] Azure release run `32240902944`가 Backend·Frontend image 게시, migration `0081`·`0082`와 두 운영 revision 교체를 성공했다.
+- [x] 공개 health `200`, 익명 root·`/api/me` `401/401`과 비인증 browser 회사 로그인 안내를 확인했다.
+- [x] 기존 운영 인증·Web Push·Teams·메일 활성 상태와 Key Vault 참조를 보존하는 release 경계를 유지했다.
+- [ ] 인증 후 왼쪽 G2 메뉴와 홈·생산/출하 관리·제조 인원 출근 관리 세 화면을 사용자가 직접 확인한다.
+- [ ] 제조·영업·물류 역할별 입력 제한, 미래 예상 표시·날짜 도래 초기화, 실사·목표·재고 계산을 실제 운영에서 확인한다.
+- [ ] Desktop graph·가로표·KPI와 모바일 5일 내부 drag·고정 좌우 축의 사용성을 확인한다.
+
 ## Change 026 — 프로젝트 전체 흐름 상태 전용 표시 운영 release
 
 - [x] PR #108의 Backend·Frontend·Full-Stack·Workflow Validation과 필수 `CI Gate`가 최종 통과했다.

@@ -14,7 +14,7 @@
 - CI 보정 승인: 2026-08-19 Frontend job 제한시간 `20분 → 35분` 명시 승인
 - mainMergeApprovalCount: `1`
 - productionDeploymentApproved: `true`
-- 상태: `PUBLICATION_APPROVED / PR_CI_PENDING / AZURE_RELEASE_PENDING`
+- 상태: `PUBLICATION_COMPLETE / AZURE_RELEASE_COMPLETE / USER_VALIDATION_PENDING`
 
 ## 게시 대상
 
@@ -44,14 +44,30 @@
 7. migration 성공 뒤 Backend·Frontend revision, 공개 health와 익명 root·API 차단을 확인한다.
 8. 실제 결과를 Implementation report, SOP, Roadmap과 user validation checklist에 후속 동기화한다.
 
+## 실제 게시·운영 결과
+
+| 항목 | 결과 |
+| --- | --- |
+| Git 게시 | PR #110, head `8e749a3ce709ce1ed37064bdf2316e4b416f64f5` |
+| PR CI | run `32238834691`, Change Classification·Workflow Validation·Backend·Frontend·Full-Stack E2E·CI Gate `6/6 PASS` |
+| 원격 `main` | squash merge `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50` |
+| Azure release | `Azure Pilot Release (Manual)` run `32240902944` / Run #26 / `PASS` |
+| 변경 분류 | `cross-layer`, changed files `68`, Backend·Frontend·migration `true/true/true` |
+| image 게시 | Backend `PASS`, Frontend `PASS` |
+| 운영 적용 | migration과 Backend·Frontend revision 교체 `PASS` |
+| 공개 보안 | `/health/live` `200`, 익명 root·`/api/me` `401/401` |
+| 사용자 화면 | 비인증 browser의 회사 로그인 안내 정상 / 인증 후 G2 실제 업무 화면 검수 대기 |
+
+기존 Web Push·Teams·메일 활성 상태, 운영 인증과 Key Vault 참조는 release workflow의 보존 계약 아래 유지했다. 사용자 직접 화면 검수는 완료로 간주하지 않는다.
+
 ## Finding
 
 | ID | 등급 | 상태 | 원인·영향 | 해소·후속 |
 | --- | --- | --- | --- | --- |
 | `G2-PUBLICATION-AUTH-PROJECTION-001` | P2 | `RESOLVED` | 게시 사전 확인에서 인증 성공 boolean보다 상세한 CLI metadata가 transient terminal output에 포함됐다. Repository·PR·운영에는 기록되지 않았고 credential 원문은 노출되지 않았다. | 해당 출력을 증빙에서 폐기하고 이후 GitHub 확인을 boolean·SHA·PR 번호·검사 상태 count로 제한해 Gate를 재실행했다. |
-| `G2-PUBLICATION-CI-TIMEOUT-001` | P2 | `REMEDIATION_IN_PROGRESS` | PR Frontend job에서 lint·typecheck·unit·build는 통과했지만 Playwright browser 설치 중 20분 job timeout이 2회 발생해 E2E와 CI Gate가 완료되지 못했다. 제품 코드 실패는 확인되지 않았다. | 사용자 승인에 따라 Frontend job 제한시간만 35분으로 조정하고 같은 PR에서 전체 CI를 재검증한다. |
+| `G2-PUBLICATION-CI-TIMEOUT-001` | P2 | `RESOLVED` | PR Frontend job에서 lint·typecheck·unit·build는 통과했지만 Playwright browser 설치 중 20분 job timeout이 2회 발생해 E2E와 CI Gate가 완료되지 못했다. 제품 코드 실패는 확인되지 않았다. | 사용자 승인에 따라 Frontend job 제한시간만 35분으로 조정했고 같은 PR의 run `32238834691`에서 Frontend·Full-Stack E2E와 최종 CI Gate까지 모두 통과했다. |
 
-현재 Open P0/P1/P2는 `0/0/1`이다.
+현재 Open P0/P1/P2는 `0/0/0`이다. 성공한 Azure run의 기존 Node action·Azure CLI version parse 경고는 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog를 재사용한다.
 
 ## 최신 원격 `main` 통합 검증
 

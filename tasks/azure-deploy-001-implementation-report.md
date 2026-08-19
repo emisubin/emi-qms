@@ -6,11 +6,25 @@
 - 게시 대상: `TASK-G2-OPERATIONS-001 Change 001~020`
 - 기준 원격 `main`: `ee54c3c377ac70e1a49cddda90afa593192cc25e`
 - 배포 경계: migration `0081`·`0082` → Backend → Frontend, 기존 운영 인증·외부 알림·Key Vault 참조 보존
-- Git 게시: Ready PR·필수 CI·squash merge 대기
-- Azure 운영 release: exact merge SHA 확정 뒤 실행 대기
+- Git 게시: PR #110, CI run `32238834691` 필수 검사 `6/6 PASS`, squash merge 완료
+- 운영 source: `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`
+- Azure 운영 release: run `32240902944` / Run #26 / `PASS`
+- 배포 분류: `cross-layer`, Backend·Frontend·migration `true/true/true`
+- 운영 결과: migration 성공 뒤 Backend·Frontend revision 교체와 public security smoke 통과
+- 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 비인증 browser 회사 로그인 안내 정상
 - 사용자 검수: 공개 화면 직접 확인 대기
 - Open P0/P1/P2: `0/0/0`
 - 상세 계약: `tasks/azure-deploy-001-change-027.md`
+
+### Change 027 종료 산출물
+
+| 산출물 | 상태 | 위치 |
+| --- | --- | --- |
+| Implementation report | PR·main·Azure 운영 결과 반영 완료 | 이 문서, `tasks/g2-operations-001-implementation-report.md` |
+| SOP | Change 027 exact-main·migration·revision 기준선 반영 완료 | `tasks/azure-deploy-001-sop.md` |
+| User manual | G2 사용자 동선과 기존 승인형 release 절차 유지 | G2 Implementation report 9장, `infrastructure/azure-pilot/README.md` |
+| Roadmap update | PR #110·main·Azure 결과 반영 완료 | `docs/00-product-roadmap.md` |
+| User validation checklist | 자동 운영 검증 완료 / 사용자 G2 화면 검수 대기 | `tasks/azure-deploy-001-user-validation-checklist.md` |
 
 ## Change 026 — 프로젝트 전체 흐름 상태 전용 표시 운영 release
 

@@ -2,13 +2,13 @@
 
 ## 1. 현재 판정
 
-- Deployment source: Change 026 PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
+- Deployment source: Change 027 PR #110 원격 `main` 병합·CI 완료 / merge SHA `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50` / 운영 release run `32240902944` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 기존 migration 기준선 유지. Change 026은 migration diff가 없어 실행 생략
+- DB role bootstrap·migration: 기존 최소 권한 기준선 유지. Change 027은 G2 additive migration `0081`·`0082`를 적용하고 성공
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend latest revision ready·Running / exact Change 026 main image digest 적용 / ClamAV unchanged
+- Active workload: Backend·Frontend latest revision ready·Running / exact Change 027 main image digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
@@ -16,6 +16,7 @@
 - Frontend 사전 인증: Change 015 운영 적용·실제 계정 로그인 검수 완료. `/health/live` 외 shell·bundle·PWA·API proxy는 Entra 인증 전 제공하지 않음
 - 실제 Teams·Gmail: 최신 수동 Teams Activity `6/6 Sent`, Mail `3/3 Sent`, Open Pending/Processing/Failed `0` / 사용자 client·메일함 실제 수신 확인 완료
 - 비용 발생 단계: 사용자 승인·시작 완료
+- G2 공개배포: 홈·생산/출하·제조 인원 출근 관리 source와 migration을 운영에 반영 / health `200`, 익명 root·`/api/me` `401/401` / 인증 후 사용자 화면 검수 대기
 
 ## 2. 비용 Gate
 

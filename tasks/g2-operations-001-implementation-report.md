@@ -8,13 +8,13 @@
 | Task 유형 | `APPROVED_FEATURE_IMPLEMENTATION` |
 | Branch | `feat/task-g2-operations-001` |
 | 구현 기준 | [Codex 기획안](g2-operations-001-codex-planning.md), [Codex review](g2-operations-001-codex-review.md), [Change 001](g2-operations-001-change-001.md), [Change 002](g2-operations-001-change-002.md), [Change 003](g2-operations-001-change-003.md), [Change 004](g2-operations-001-change-004.md), [Change 005](g2-operations-001-change-005.md), [Change 006](g2-operations-001-change-006.md), [Change 007](g2-operations-001-change-007.md), [Change 008](g2-operations-001-change-008.md), [Change 009](g2-operations-001-change-009.md), [Change 010](g2-operations-001-change-010.md), [Change 011](g2-operations-001-change-011.md), [Change 012](g2-operations-001-change-012.md), [Change 013](g2-operations-001-change-013.md), [Change 014](g2-operations-001-change-014.md), [Change 015](g2-operations-001-change-015.md), [Change 016](g2-operations-001-change-016.md), [Change 017](g2-operations-001-change-017.md), [Change 018](g2-operations-001-change-018.md), [Change 019](g2-operations-001-change-019.md), [Change 020](g2-operations-001-change-020.md) |
-| 기준 SHA | 최신 원격 `main` 통합 commit `e1eb8b0` |
+| 기준 SHA | 원격 `main` merge SHA `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50` |
 | 자동 검증 | 완료 |
-| 사용자 검수 | local 합성 데이터 검수 서버 실행 / `사용자 검수 대기` |
-| Commit / Push / PR / Merge | local commit 완료 / 원격 게시·merge 승인·실행 대기 |
-| Persistent UAT / Azure 공개배포 | Azure 공개배포 승인·실행 대기 / 별도 Persistent UAT 미실행 |
+| 사용자 검수 | 공개배포 완료 / 인증 후 G2 실제 업무 화면 `사용자 검수 대기` |
+| Commit / Push / PR / Merge | 완료 / PR #110 / squash merge 완료 |
+| Persistent UAT / Azure 공개배포 | 별도 Persistent UAT 미실행 / Azure run `32240902944` 완료 |
 
-이 문서는 feature branch의 코드 구현과 isolated 자동 검증 결과를 기록한다. 사용자는 2026-08-19 원격 `main` 병합과 Azure 공개배포를 명시 승인했으며, 실제 Git·CI·운영 결과는 [Azure Change 027](azure-deploy-001-change-027.md)에 따라 후속 기록한다.
+이 문서는 코드 구현, isolated 자동 검증과 실제 게시·운영 결과를 기록한다. 사용자는 2026-08-19 원격 `main` 병합과 Azure 공개배포를 명시 승인했고, PR #110과 [Azure Change 027](azure-deploy-001-change-027.md)에 따라 exact `main` SHA를 운영에 반영했다. 사용자 인증 후 실제 G2 화면 검수는 계속 대기 상태다.
 
 ## 2. 해결한 업무 문제와 범위
 
@@ -30,7 +30,7 @@ G2가 매일 관리하는 생산·납품·제조 출근 숫자를 기존 프로�
 - 역할별 조회·변경 권한, metric별 CAS와 mixed permission 원자 거부
 - desktop 1440px·mobile 390px, 화면 읽기용 그래프 표, 키보드 접근 가능한 실사 dialog
 
-제외 범위는 손익관리 placeholder와 기능, 기존 PMS 데이터 연결, 개인 근태, 예상 대비 실적, 납품목표, Excel/PDF/첨부/알림, 운영 적용과 Git 게시다. 손익관리는 영업팀 전용 별도 `NEW_FEATURE`로 추적한다.
+제품 기능 제외 범위는 손익관리 placeholder와 기능, 기존 PMS 데이터 연결, 개인 근태, 예상 대비 실적, 납품목표와 Excel/PDF/첨부/알림이다. 손익관리는 영업팀 전용 별도 `NEW_FEATURE`로 추적한다.
 
 ## 3. 아키텍처와 기술적 결정
 
@@ -96,14 +96,14 @@ Excel/PDF/첨부파일 영향은 `N/A`다. 해당 기능과 저장소를 추가�
 | Isolated Full-Stack | 적용 | `1/1` 통과 | 실제 HTTP/browser, disposable PostgreSQL, 권한·CAS·2200년 미래·desktop/mobile |
 | Production migration image | 적용 | fresh/existing 각 1회와 재적용 통과, ledger `82 Exact` | 임시 Production Backend image로 `0081`·`0082` 포함 전체 migration을 두 번 적용한 뒤 image·DB·container·network 정리 |
 | Visual QA | 적용 | 통과 | 기존 privacy-safe synthetic [Desktop 1440](g2-operations-001-screenshots/01-g2-home-desktop-1440.png)·[Mobile 390](g2-operations-001-screenshots/02-g2-operations-mobile-390.png)와 Change 011~020 비식별 projection. Change 015 latest desktop은 SVG `720×340` 2개, scale note·axis break `0/0`, 생산·납품 수량 label 겹침 `0`, color filter 해제, 생산표 납품행 `1`, page overflow `0`을 확인했다. Mobile layout unit은 좌우 축·frame 고정 layer와 내부 scroll layer를 분리하고 31일 data width `620%`, 첫 plot viewport 날짜 `5`개와 확대된 모바일 수치 글꼴을 확인했다. Change 016 live 화면은 두 관리표 `구분` row `0`, 미래 `예상` header 유지를 확인했다. Change 017 live 화면은 graph/KPI desktop 2열과 KPI 6개를 확인했다. Change 018은 막대 위 합계 label 제거, 통합 hit area, 순수 파랑 평균선·하위 draw order, KPI 강조선 제거·조별 gradient, 오늘 기준 부족분 안내와 page overflow `0`을 확인했다. Change 019는 재고 부족분 안내가 `208×74` 카드 안쪽의 `194×60` 불투명 overlay이며 네 방향 포함·page overflow `0`임을 local Desktop에서 확인했다. Change 020은 빈 목표·실사 저장 비활성, `0` 입력 활성과 page overflow `0`을 local Desktop에서 확인하고, 서울 날짜·월별 단일 조회·최신 응답 우선은 unit·Full-Stack fixed projection으로 검증했다. 사용자 제공 숫자가 보이는 임시 screenshot은 육안 확인 직후 저장소 밖 임시 경로에서 제거했다. |
-| CI | 실행 대기 | `PENDING` | 게시·merge 승인 완료, Ready PR 생성 뒤 최신 head 필수 CI 확인 |
+| CI | 적용 | PR run `32238834691` `6/6 PASS` | Change Classification·Workflow Validation·Backend·Frontend·Full-Stack E2E·CI Gate |
 | Persistent UAT | 미실행 | `N/A` | 명시적 제외·미승인, 운영 DB/runtime 미변경 |
-| Azure 공개 URL | 미실행 | `N/A` | 공개배포 미승인 |
+| Azure 공개 URL | 적용 | run `32240902944` `PASS` | migration·Backend·Frontend revision 교체, health `200`, 익명 root·`/api/me` `401/401` |
 | Local 사용자 검수 runtime | 적용 | 실행 중 | Frontend `42983`, Backend `41166`, 전용 PostgreSQL `emi-qms-g2-validation` |
 
 Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다른 metric 동시 저장 `2 success`, 제조의 생산+납품 mixed request 전체 `403`, 물류의 생산 `403`·납품 성공, 미래 실사 `400`, 미래 예상·목표 적용·재고 계산을 실제 DB에서 검증했다.
 
-최종 `origin/main` 갱신은 Product Roadmap과 생산관리 Task 문서만 변경했으며 runtime·migration·test source 변경은 없었다. G2 branch를 SHA `4a220d446b1fb71604c4289f1cf7d85eec41712d`에 다시 맞추고 Roadmap에 양쪽 상태를 보존했으며, 앞서 완료한 코드 검증의 실행 기준에는 변화가 없음을 확인했다.
+PR #110은 Frontend job의 Playwright 설치가 기존 20분 제한을 두 차례 초과한 뒤 사용자 승인으로 해당 job 제한만 35분으로 조정했다. 새 head의 필수 CI `6/6`이 모두 성공했고 squash merge SHA `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`을 Azure release run `32240902944`에 exact source로 전달했다. Release는 Backend·Frontend image 게시, migration `0081`·`0082`, 두 revision 교체와 공개 보안 검사를 모두 통과했다.
 
 ## 6. 시행착오와 Finding
 
@@ -326,15 +326,12 @@ Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다�
 
 ## 11. Rollback, 남은 위험과 후속 경계
 
-현재 G2 source는 local commit으로 고정됐고 원격 게시·운영 배포를 대기한다. `0081`·`0082` 적용 뒤 애플리케이션 rollback이 필요하면 세 G2 테이블, 예상 marker와 permission을 삭제하지 않고 이전 Backend/Frontend로 되돌려 데이터를 보존한다. schema 제거가 필요하면 별도 데이터 보존·destructive 승인과 forward migration이 필요하다.
+현재 G2 source는 원격 `main`과 Azure 운영에 반영됐다. `0081`·`0082` 적용 뒤 애플리케이션 rollback이 필요하면 세 G2 테이블, 예상 marker와 permission을 삭제하지 않고 이전 Backend/Frontend로 되돌려 데이터를 보존한다. schema 제거가 필요하면 별도 데이터 보존·destructive 승인과 forward migration이 필요하다.
 
 남은 항목은 다음과 같다.
 
-- 사용자 직접 검수
+- 인증 후 배포된 G2 사용자 직접 화면 검수
 - local 검수 종료 뒤 Task 소유 runtime·전용 DB cleanup
-- push·PR·필수 CI·merge
-- exact `main` SHA 기준 Azure migration·Backend·Frontend 공개배포
-- 배포 후 사용자 직접 화면 검수
 - 영업팀 전용 손익관리 별도 `NEW_FEATURE`
 
 ## 12. 종료 산출물 추적
@@ -344,7 +341,7 @@ Full-Stack은 같은 metric 동시 요청 `1 success / 1 conflict`, 서로 다�
 | Implementation report | 작성 완료 | 이 문서 |
 | SOP | 작성 완료 | 이 문서 8장 |
 | User manual | 작성 완료 | 이 문서 9장 |
-| Roadmap update | 자동 검증 완료·게시 및 Azure 승인·사용자 검수 대기로 갱신 | `docs/00-product-roadmap.md` 6.4와 Decision Log |
-| User validation checklist | 작성됨·자동 검증 완료·사용자 검수 대기 | 이 문서 10장 |
+| Roadmap update | PR #110·Azure run #26 완료·사용자 검수 대기로 갱신 | `docs/00-product-roadmap.md` 6.4와 Decision Log |
+| User validation checklist | 자동·운영 검증 완료·사용자 화면 검수 대기 | 이 문서 10장, `tasks/azure-deploy-001-user-validation-checklist.md` Change 027 |
 
-코드 구현과 게시·Azure 승인은 완료했지만 사용자 검수·Git 게시·Azure 공개배포의 실제 실행 결과는 아직 완료로 처리하지 않는다.
+코드 구현, Git 게시와 Azure 공개배포는 완료했다. 사용자 인증 후 실제 G2 화면 검수는 아직 완료로 처리하지 않는다.

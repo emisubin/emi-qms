@@ -36,7 +36,8 @@ internal static class SelectedExportColumnRegistry
             [SelectedExportScreens.AdminNotificationPreferenceAudit] = Required(
                 ("변경일시", "occurred-at"), ("대상 사용자", "target-user"), ("변경 주체", "actor-user"),
                 ("행동", "action"), ("알림 종류", "delivery-type"), ("변경 결과", "change")),
-            [SelectedExportScreens.AdminWorkItemEscalations] = Required(("PJT Code", "project-code"), ("업무", "work-title"))
+            [SelectedExportScreens.AdminWorkItemEscalations] = Required(("PJT Code", "project-code"), ("업무", "work-title")),
+            [SelectedExportScreens.AuditLedger] = Required(("사건 ID", "audit-event-id"), ("발생일시", "occurred-at"))
         };
 
     internal static IReadOnlyList<SelectedExportColumn> Describe(string screen, IEnumerable<string> labels)

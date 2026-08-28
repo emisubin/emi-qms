@@ -1,13 +1,18 @@
 import {
+  EventType,
   InteractionRequiredAuthError,
+  InteractionType,
   PublicClientApplication,
   type AccountInfo,
+  type AuthenticationResult,
   type Configuration,
   type IPublicClientApplication
 } from '@azure/msal-browser';
 
 export type AuthMode = 'Dev' | 'EntraId';
 export type MsalCacheLocation = 'localStorage' | 'sessionStorage';
+export type PendingInteractiveAuditLogin = { clientInteractionId: string };
+export type StoredAuditSession = { loginCorrelationId: string; idempotencyReceipt: string };
 
 export const rememberSessionStorageKey = 'emi-auth-remember-session';
 
@@ -44,6 +49,109 @@ export function setRememberSessionPreference(rememberSession: boolean) {
 
 export function getMsalCacheLocation(rememberSession = getRememberSessionPreference()): MsalCacheLocation {
   return rememberSession ? 'localStorage' : 'sessionStorage';
+}
+
+export function registerInteractiveLoginAuditTracker(
+  instance: IPublicClientApplication,
+  rememberSession: boolean
+) {
+  return instance.addEventCallback((event) => {
+    if (event.eventType !== EventType.LOGIN_SUCCESS
+      || (event.interactionType !== InteractionType.Redirect && event.interactionType !== InteractionType.Popup)) {
+      return;
+    }
+
+    const account = (event.payload as AuthenticationResult | null)?.account;
+    if (!account || typeof window === 'undefined') {
+      return;
+    }
+
+    auditStorage(rememberSession)?.setItem(
+      pendingAuditKey(account),
+      JSON.stringify({ clientInteractionId: window.crypto.randomUUID() } satisfies PendingInteractiveAuditLogin)
+    );
+  });
+}
+
+export function readPendingInteractiveAuditLogin(
+  account: AccountInfo,
+  rememberSession: boolean
+): PendingInteractiveAuditLogin | null {
+  return readAuditJson<PendingInteractiveAuditLogin>(auditStorage(rememberSession)?.getItem(pendingAuditKey(account)));
+}
+
+export function clearPendingInteractiveAuditLogin(account: AccountInfo, rememberSession: boolean) {
+  auditStorage(rememberSession)?.removeItem(pendingAuditKey(account));
+}
+
+export function readStoredAuditSession(account: AccountInfo, rememberSession: boolean): StoredAuditSession | null {
+  return readAuditJson<StoredAuditSession>(auditStorage(rememberSession)?.getItem(sessionAuditKey(account)));
+}
+
+export function readAuditStartupState(account: AccountInfo, rememberSession: boolean) {
+  const pendingLogin = readPendingInteractiveAuditLogin(account, rememberSession);
+  return {
+    pendingLogin,
+    session: pendingLogin ? null : readStoredAuditSession(account, rememberSession)
+  };
+}
+
+export function saveStoredAuditSession(
+  account: AccountInfo,
+  rememberSession: boolean,
+  session: StoredAuditSession
+) {
+  auditStorage(rememberSession)?.setItem(sessionAuditKey(account), JSON.stringify(session));
+}
+
+export function clearStoredAuditSession(account: AccountInfo, rememberSession: boolean) {
+  auditStorage(rememberSession)?.removeItem(sessionAuditKey(account));
+}
+
+export function subscribeStoredAuditSession(
+  account: AccountInfo,
+  rememberSession: boolean,
+  onSessionChange: (session: StoredAuditSession | null) => void
+) {
+  if (typeof window === 'undefined' || !rememberSession) {
+    return () => undefined;
+  }
+
+  const pendingKey = pendingAuditKey(account);
+  const sessionKey = sessionAuditKey(account);
+  const handleStorage = (event: StorageEvent) => {
+    if ((event.storageArea && event.storageArea !== window.localStorage)
+      || (event.key !== null && event.key !== pendingKey && event.key !== sessionKey)) {
+      return;
+    }
+
+    onSessionChange(readAuditStartupState(account, true).session);
+  };
+
+  window.addEventListener('storage', handleStorage);
+  return () => window.removeEventListener('storage', handleStorage);
+}
+
+function auditStorage(rememberSession: boolean): Storage | null {
+  if (typeof window === 'undefined') return null;
+  return rememberSession ? window.localStorage : window.sessionStorage;
+}
+
+function pendingAuditKey(account: AccountInfo) {
+  return `emi-audit-login-pending:${account.homeAccountId}`;
+}
+
+function sessionAuditKey(account: AccountInfo) {
+  return `emi-audit-session:${account.homeAccountId}`;
+}
+
+function readAuditJson<T>(value: string | null | undefined): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
 }
 
 export function hasMsalConfiguration() {

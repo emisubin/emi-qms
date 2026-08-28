@@ -680,6 +680,40 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task AdminUserPurge_IsBlockedWhenAuthorizationAuditReferencesOnlyTheActualActor()
+    {
+        await using var context = await ProjectApiTestContext.CreateAsync();
+        using var adminClient = context.CreateClient("dev-admin");
+        var actualActorId = Guid.NewGuid();
+        var administratorId = new Guid("50000000-0000-0000-0000-000000000001");
+
+        await context.ExecuteSqlAsync($"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                deletion_requested_at_utc, scheduled_hard_delete_at_utc
+            ) values (
+                '{actualActorId}', 'audit-actual-purge-{actualActorId:N}', 'Synthetic Audit Actual Actor',
+                null, false, 'Dev', now() - interval '8 days', now() - interval '1 day'
+            );
+            insert into authorization_audit_events (
+                user_id, actual_actor_user_id, reason, endpoint, target_project_key
+            ) values (
+                '{administratorId}', '{actualActorId}', 'permission_denied', 'SyntheticDeniedAction', null
+            );
+            """);
+
+        var deletionService = context.Services.GetRequiredService<AdminScheduledDeletionService>();
+        var result = await deletionService.PurgeUserNowAsync(
+            actualActorId,
+            administratorId,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("PurgeBlocked", result.Status);
+        Assert.Equal(1L, await context.ReadScalarAsync<long>(
+            $"select count(*) from qms_users where id='{actualActorId}' and purge_blocked_at_utc is not null;"));
+    }
+
+    [Fact]
     public async Task MalformedDueAdministratorRejectionRollsBackTheEntirePurgeBatch()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();

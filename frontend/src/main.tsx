@@ -7,6 +7,7 @@ import {
   createMsalInstance,
   getRememberSessionPreference,
   isEntraAuthMode,
+  registerInteractiveLoginAuditTracker,
   setRememberSessionPreference
 } from './auth';
 import './styles.css';
@@ -22,6 +23,7 @@ function EntraRoot() {
 
   useEffect(() => {
     let cancelled = false;
+    const auditCallbackId = registerInteractiveLoginAuditTracker(instance, rememberSession);
     void instance.initialize().then(() => {
       if (!cancelled) {
         setInitializedInstance(instance);
@@ -30,8 +32,9 @@ function EntraRoot() {
 
     return () => {
       cancelled = true;
+      if (auditCallbackId) instance.removeEventCallback(auditCallbackId);
     };
-  }, [instance]);
+  }, [instance, rememberSession]);
 
   const handleRememberSessionChange = (nextRememberSession: boolean) => {
     setRememberSessionPreference(nextRememberSession);

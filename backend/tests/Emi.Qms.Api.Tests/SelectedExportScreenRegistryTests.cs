@@ -6,14 +6,15 @@ namespace Emi.Qms.Api.Tests;
 public sealed class SelectedExportScreenRegistryTests
 {
     [Fact]
-    public void Registry_CoversTwentyOneUniqueSelectedExportScreens()
+    public void Registry_CoversTwentyTwoUniqueSelectedExportScreens()
     {
-        Assert.Equal(21, SelectedExportScreens.All.Count);
+        Assert.Equal(22, SelectedExportScreens.All.Count);
         Assert.Contains(SelectedExportScreens.Projects, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.QualityInspections, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.AdminUsers, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.AdminNotificationPreferenceAudit, SelectedExportScreens.All);
         Assert.Contains(SelectedExportScreens.AdminWorkItemEscalations, SelectedExportScreens.All);
+        Assert.Contains(SelectedExportScreens.AuditLedger, SelectedExportScreens.All);
         Assert.Equal(SelectedExportScreens.All.Count, SelectedExportScreens.AuditKinds.Count);
         Assert.True(SelectedExportScreens.All.SetEquals(SelectedExportScreens.AuditKinds.Keys));
     }
@@ -36,6 +37,7 @@ public sealed class SelectedExportScreenRegistryTests
         Assert.Equal("QualityIqcSelected", SelectedExportScreens.AuditKinds[SelectedExportScreens.MaterialIqc]);
         Assert.Equal("AdminPermissionMatrixSelected", SelectedExportScreens.AuditKinds[SelectedExportScreens.AdminPermissions]);
         Assert.Equal("AdminMasterChangeLogsSelected", SelectedExportScreens.AuditKinds[SelectedExportScreens.AdminMasterHistory]);
+        Assert.Equal("AuditLedgerSelected", SelectedExportScreens.AuditKinds[SelectedExportScreens.AuditLedger]);
     }
 
     [Fact]

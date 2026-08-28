@@ -1,4 +1,5 @@
 using Emi.Qms.Api.ReviewSafe;
+using Emi.Qms.Api.Audit;
 using Npgsql;
 
 namespace Emi.Qms.Api;
@@ -54,16 +55,49 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
 
     private string ApplyRuntimeSafety(string connectionString)
     {
-        if (!ReviewSafeMode.IsEnabled(configuration))
+        var reviewSafe = ReviewSafeMode.IsEnabled(configuration);
+        var auditContext = AuditRequestContext.Current;
+        if (!reviewSafe && auditContext is null)
         {
             return connectionString;
         }
 
-        var builder = new NpgsqlConnectionStringBuilder(connectionString)
+        var builder = new NpgsqlConnectionStringBuilder(connectionString);
+        var options = new List<string>();
+        if (!string.IsNullOrWhiteSpace(builder.Options))
         {
-            ApplicationName = ReviewSafeMode.ResolveDatabaseApplicationName(configuration),
-            Options = "-c default_transaction_read_only=on"
-        };
+            options.Add(builder.Options.Trim());
+        }
+
+        if (reviewSafe)
+        {
+            builder.ApplicationName = ReviewSafeMode.ResolveDatabaseApplicationName(configuration);
+            options.Add("-c default_transaction_read_only=on");
+        }
+
+        if (auditContext is not null)
+        {
+            // The audit GUCs below are request-specific. Pooling a connection string that
+            // contains a unique request id would create an unbounded number of Npgsql pools.
+            // Mutation connections are therefore short-lived; read-only traffic keeps using
+            // the stable configured pool.
+            builder.Pooling = false;
+            options.Add($"-c qms.audit_actor_id={auditContext.ActorUserId:D}");
+            options.Add($"-c qms.audit_request_id={auditContext.RequestCorrelationId:D}");
+            options.Add($"-c qms.audit_domain={auditContext.Domain}");
+            options.Add($"-c qms.audit_action={auditContext.Action}");
+            options.Add($"-c qms.audit_route_key={auditContext.RouteKey}");
+            if (auditContext.ActualActorUserId is Guid actualActorUserId)
+            {
+                options.Add($"-c qms.audit_actual_actor_id={actualActorUserId:D}");
+            }
+            if (auditContext.LoginCorrelationId is Guid loginCorrelationId)
+            {
+                options.Add($"-c qms.audit_login_id={loginCorrelationId:D}");
+            }
+        }
+
+        builder.Options = string.Join(' ', options);
 
         return builder.ConnectionString;
     }

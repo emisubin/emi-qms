@@ -1,5 +1,6 @@
 using Emi.Qms.Api;
 using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Audit;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Calendar;
 using Emi.Qms.Api.DataExports;
@@ -133,6 +134,7 @@ builder.Services.AddSingleton<ProjectStore>();
 builder.Services.AddSingleton<ExcelWorkbookBuilder>();
 builder.Services.AddSingleton<ExcelExportConcurrencyGate>();
 builder.Services.AddSingleton<DataExportAuditStore>();
+builder.Services.AddSingleton<AuditStore>();
 builder.Services.AddSingleton<ExcelExportService>();
 builder.Services.AddSingleton<SelectedExcelExportService>();
 builder.Services.AddSingleton<PanelInformationExcelParser>();
@@ -341,6 +343,7 @@ if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
 }
 app.UseMiddleware<AdminUserSwitchGuardMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<AuditMutationMiddleware>();
 app.UseMiddleware<UploadSecurityMiddleware>();
 
 if (!reviewSafeEnabled
@@ -404,6 +407,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 .WithName("RuntimeMode");
 
 app.MapIdentityEndpoints();
+app.MapAuditEndpoints();
 app.MapHomeMetricsEndpoints();
 app.MapG2OperationsEndpoints();
 app.MapNoticeEndpoints();
@@ -435,6 +439,8 @@ app.MapNotificationEscalationEndpoints();
 app.MapNotificationPreferenceEndpoints();
 app.MapNotificationPreferenceAuditEndpoints();
 app.MapWebPushEndpoints();
+
+AuditMutationRegistry.ValidateCoverage(((IEndpointRouteBuilder)app).DataSources);
 
 app.Run();
 

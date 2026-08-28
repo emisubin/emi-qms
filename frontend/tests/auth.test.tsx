@@ -1,16 +1,71 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MsalProvider } from '@azure/msal-react';
+import type { AccountInfo } from '@azure/msal-browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
 describe('authentication modes', () => {
   afterEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
     window.history.replaceState(null, '', '/');
     vi.restoreAllMocks();
     vi.doUnmock('@azure/msal-react');
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.resetModules();
+  });
+
+  it('does not restore a previous audit session while a new interactive login is pending', async () => {
+    const account = { homeAccountId: 'audit-account-1' } as AccountInfo;
+    const { readAuditStartupState, saveStoredAuditSession } = await import('../src/auth');
+    saveStoredAuditSession(account, true, {
+      loginCorrelationId: '11111111-1111-1111-1111-111111111111',
+      idempotencyReceipt: '22222222-2222-2222-2222-222222222222'
+    });
+
+    expect(readAuditStartupState(account, true).session?.loginCorrelationId)
+      .toBe('11111111-1111-1111-1111-111111111111');
+
+    window.localStorage.setItem(
+      'emi-audit-login-pending:audit-account-1',
+      JSON.stringify({ clientInteractionId: '33333333-3333-3333-3333-333333333333' })
+    );
+    const pendingState = readAuditStartupState(account, true);
+
+    expect(pendingState.pendingLogin?.clientInteractionId).toBe('33333333-3333-3333-3333-333333333333');
+    expect(pendingState.session).toBeNull();
+  });
+
+  it('clears an old shared audit session while another tab logs in and then adopts the new session', async () => {
+    const account = { homeAccountId: 'audit-account-multitab' } as AccountInfo;
+    const { saveStoredAuditSession, subscribeStoredAuditSession } = await import('../src/auth');
+    const onSessionChange = vi.fn();
+    saveStoredAuditSession(account, true, {
+      loginCorrelationId: '11111111-1111-1111-1111-111111111111',
+      idempotencyReceipt: '22222222-2222-2222-2222-222222222222'
+    });
+    const unsubscribe = subscribeStoredAuditSession(account, true, onSessionChange);
+    const pendingKey = 'emi-audit-login-pending:audit-account-multitab';
+    const sessionKey = 'emi-audit-session:audit-account-multitab';
+
+    window.localStorage.setItem(
+      pendingKey,
+      JSON.stringify({ clientInteractionId: '33333333-3333-3333-3333-333333333333' })
+    );
+    window.dispatchEvent(new StorageEvent('storage', { key: pendingKey, storageArea: window.localStorage }));
+    expect(onSessionChange).toHaveBeenLastCalledWith(null);
+
+    const newSession = {
+      loginCorrelationId: '44444444-4444-4444-4444-444444444444',
+      idempotencyReceipt: '55555555-5555-5555-5555-555555555555'
+    };
+    window.localStorage.setItem(sessionKey, JSON.stringify(newSession));
+    window.localStorage.removeItem(pendingKey);
+    window.dispatchEvent(new StorageEvent('storage', { key: pendingKey, storageArea: window.localStorage }));
+    expect(onSessionChange).toHaveBeenLastCalledWith(newSession);
+
+    unsubscribe();
   });
 
   it('uses X-Dev-User in Dev API mode', async () => {
@@ -88,6 +143,83 @@ describe('authentication modes', () => {
     expect(headers.get('Authorization')).toBe('Bearer entra-access-token');
     expect(headers.get('X-Qms-Test-User')).toBeNull();
     expect(headers.get('X-Dev-User')).toBeNull();
+  });
+
+  it('attaches the owned audit session only to business mutation requests', async () => {
+    const fetchMock = vi.fn((...args: Parameters<typeof fetch>) => {
+      void args;
+      return Promise.resolve(json({}));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const {
+      issuePanelQr,
+      listProjectPanelQrs,
+      setAccessTokenProvider,
+      setAuditSessionHeaders,
+      setRuntimeMutationAllowed
+    } = await import('../src/api');
+
+    setAccessTokenProvider(async () => 'entra-access-token');
+    setRuntimeMutationAllowed(true);
+    setAuditSessionHeaders({
+      loginCorrelationId: '11111111-1111-1111-1111-111111111111',
+      idempotencyReceipt: '22222222-2222-2222-2222-222222222222'
+    });
+
+    await listProjectPanelQrs('', 'project-1');
+    await issuePanelQr('', 'project-1', 'panel-1');
+
+    const getHeaders = fetchMock.mock.calls[0][1]?.headers as Headers;
+    const mutationHeaders = fetchMock.mock.calls[1][1]?.headers as Headers;
+    expect(getHeaders.get('X-Qms-Audit-Correlation')).toBeNull();
+    expect(getHeaders.get('X-Qms-Audit-Receipt')).toBeNull();
+    expect(mutationHeaders.get('X-Qms-Audit-Correlation')).toBe('11111111-1111-1111-1111-111111111111');
+    expect(mutationHeaders.get('X-Qms-Audit-Receipt')).toBe('22222222-2222-2222-2222-222222222222');
+  });
+
+  it('records login and logout without test-user or inherited audit headers', async () => {
+    const loginSession = {
+      eventId: '30000000-0000-0000-0000-000000000001',
+      loginCorrelationId: '30000000-0000-0000-0000-000000000002',
+      idempotencyReceipt: '30000000-0000-0000-0000-000000000003'
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(loginSession))
+      .mockResolvedValueOnce(json({}));
+    vi.stubGlobal('fetch', fetchMock);
+    const {
+      recordExplicitLogoutAudit,
+      recordInteractiveLoginAudit,
+      setAccessTokenProvider,
+      setAdminTestUserKey,
+      setAuditSessionHeaders
+    } = await import('../src/api');
+
+    setAccessTokenProvider(async () => 'entra-access-token');
+    setAdminTestUserKey('dev-production');
+    setAuditSessionHeaders({
+      loginCorrelationId: 'old-correlation',
+      idempotencyReceipt: 'old-receipt'
+    });
+
+    expect(await recordInteractiveLoginAudit('40000000-0000-0000-0000-000000000001')).toEqual(loginSession);
+    setAuditSessionHeaders(loginSession);
+    await recordExplicitLogoutAudit();
+
+    const loginInit = fetchMock.mock.calls[0][1];
+    const logoutInit = fetchMock.mock.calls[1][1];
+    for (const init of [loginInit, logoutInit]) {
+      const headers = init?.headers as Headers;
+      expect(headers.get('Authorization')).toBe('Bearer entra-access-token');
+      expect(headers.get('X-Qms-Test-User')).toBeNull();
+      expect(headers.get('X-Qms-Audit-Correlation')).toBeNull();
+      expect(headers.get('X-Qms-Audit-Receipt')).toBeNull();
+    }
+    expect(logoutInit?.keepalive).toBe(true);
+    expect(JSON.parse(String(logoutInit?.body))).toEqual({
+      loginCorrelationId: loginSession.loginCorrelationId,
+      idempotencyReceipt: loginSession.idempotencyReceipt
+    });
   });
 
   it('maps interaction-required token acquisition failures to a re-login API error', async () => {

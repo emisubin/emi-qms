@@ -278,6 +278,11 @@ public static class DataExportEndpointExtensions
 
     private static bool CanExportSelectedScreen(ClaimsPrincipal user, string screen)
     {
+        if (screen == SelectedExportScreens.AuditLedger)
+        {
+            return ProjectEndpointExtensions.HasPermission(user, QmsPermissions.AuditReadAll);
+        }
+
         if (SelectedExportScreens.RequiresAdminUsersRead(screen))
         {
             return ProjectEndpointExtensions.HasPermission(user, QmsPermissions.UsersManage);

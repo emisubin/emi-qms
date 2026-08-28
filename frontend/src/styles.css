@@ -23855,3 +23855,61 @@ body {
     grid-column: auto;
   }
 }
+.table-link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-action-primary, #176b87);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.audit-detail-panel {
+  position: fixed;
+  z-index: 80;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  width: min(52rem, calc(100vw - 2rem));
+  overflow: auto;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border, #d9e1e6);
+  border-radius: 1rem;
+  background: var(--color-surface, #fff);
+  box-shadow: 0 1.25rem 3rem rgb(23 50 77 / 22%);
+}
+
+.audit-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+  margin: 1rem 0;
+}
+
+.audit-detail-summary > div {
+  padding: .75rem;
+  border-radius: .75rem;
+  background: var(--color-surface-subtle, #f5f8fa);
+}
+
+.audit-detail-summary dt {
+  color: var(--color-text-muted, #5d6b76);
+  font-size: .8rem;
+}
+
+.audit-detail-summary dd {
+  margin: .25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .audit-detail-panel {
+    inset: .5rem;
+    width: auto;
+  }
+
+  .audit-detail-summary {
+    grid-template-columns: 1fr;
+  }
+}

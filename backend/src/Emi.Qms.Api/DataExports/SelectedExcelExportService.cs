@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Audit;
 using Emi.Qms.Api.Calendar;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Logistics;
@@ -38,6 +39,7 @@ public static class SelectedExportScreens
     public const string AdminNotificationDeliveries = "admin-notification-deliveries";
     public const string AdminNotificationPreferenceAudit = "admin-notification-preference-audit";
     public const string AdminWorkItemEscalations = "admin-work-item-escalations";
+    public const string AuditLedger = "admin-audit-events";
 
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -45,7 +47,7 @@ public static class SelectedExportScreens
         Manufacturing, MaterialIqc, QualityInspections, Logistics, Pending, Notifications,
         AdminUsers, AdminDepartments, AdminCalendarHolidays, AdminPermissions,
         AdminMasterHistory, AdminWorkHistory, AdminNotificationDeliveries,
-        AdminNotificationPreferenceAudit, AdminWorkItemEscalations
+        AdminNotificationPreferenceAudit, AdminWorkItemEscalations, AuditLedger
     };
 
     public static readonly IReadOnlyDictionary<string, string> AuditKinds = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -70,7 +72,8 @@ public static class SelectedExportScreens
         [AdminWorkHistory] = "AdminWorkHistorySelected",
         [AdminNotificationDeliveries] = "AdminNotificationDeliveriesSelected",
         [AdminNotificationPreferenceAudit] = "AdminNotificationPreferenceAuditSelected",
-        [AdminWorkItemEscalations] = "AdminWorkItemEscalationsSelected"
+        [AdminWorkItemEscalations] = "AdminWorkItemEscalationsSelected",
+        [AuditLedger] = "AuditLedgerSelected"
     };
 
     public static bool RequiresAdminUsersRead(string screen) => screen is
@@ -98,6 +101,7 @@ public sealed class SelectedExcelExportService(
     NotificationDeliveryStore notificationDeliveryStore,
     NotificationPreferenceAuditStore notificationPreferenceAuditStore,
     WorkItemEscalationStore workItemEscalationStore,
+    AuditStore auditLedgerStore,
     ExcelWorkbookBuilder workbookBuilder,
     DataExportAuditStore auditStore,
     ExcelExportConcurrencyGate concurrencyGate,
@@ -131,6 +135,7 @@ public sealed class SelectedExcelExportService(
             SelectedExportScreens.AdminNotificationDeliveries => NotificationDeliveryColumns.Select(column => column.Header),
             SelectedExportScreens.AdminNotificationPreferenceAudit => NotificationPreferenceAuditColumns.Select(column => column.Header),
             SelectedExportScreens.AdminWorkItemEscalations => EscalationColumns.Select(column => column.Header),
+            SelectedExportScreens.AuditLedger => AuditLedgerColumns.Select(column => column.Header),
             _ => throw new ArgumentOutOfRangeException(nameof(screen), screen, "Unsupported selected export screen.")
         };
 
@@ -167,7 +172,8 @@ public sealed class SelectedExcelExportService(
             [SelectedExportScreens.AdminWorkHistory] = AdminWorkHistoryColumns.Select(column => column.Header).ToList(),
             [SelectedExportScreens.AdminNotificationDeliveries] = NotificationDeliveryColumns.Select(column => column.Header).ToList(),
             [SelectedExportScreens.AdminNotificationPreferenceAudit] = NotificationPreferenceAuditColumns.Select(column => column.Header).ToList(),
-            [SelectedExportScreens.AdminWorkItemEscalations] = EscalationColumns.Select(column => column.Header).ToList()
+            [SelectedExportScreens.AdminWorkItemEscalations] = EscalationColumns.Select(column => column.Header).ToList(),
+            [SelectedExportScreens.AuditLedger] = AuditLedgerColumns.Select(column => column.Header).ToList()
         };
 
     internal async Task<ExcelExportResult> ExportAsync(
@@ -298,6 +304,10 @@ public sealed class SelectedExcelExportService(
                 actorUserId, ids, filters, "업무 에스컬레이션", "에스컬레이션", SelectedExportScreens.AdminWorkItemEscalations,
                 () => workItemEscalationStore.ListEscalationsAsync(Filter(filters, "status"), Filter(filters, "level"), cancellationToken),
                 response => response.Items, row => row.EscalationId, FilterColumns(EscalationColumns, selectedColumns), cancellationToken),
+            SelectedExportScreens.AuditLedger => await ExportRowsAsync(
+                actorUserId, ids, filters, "전체 감사 이력", "감사이력", SelectedExportScreens.AuditLedger,
+                () => auditLedgerStore.ListByIdsAsync(ids, cancellationToken),
+                response => response, row => row.EventId, FilterColumns(AuditLedgerColumns, selectedColumns), cancellationToken),
             _ => new ExcelExportResult(ExcelExportStatus.SelectionUnavailable)
         };
     }
@@ -530,5 +540,17 @@ public sealed class SelectedExcelExportService(
         new("단계", row => row.WorkflowStageName), new("담당자", row => row.AssignedDisplayName), new("마감일", row => row.DueDate),
         new("상태", row => row.Status), new("현재 레벨", row => row.CurrentLevel), new("최근 에스컬레이션", row => row.LastEscalatedAtUtc),
         new("다음 확인", row => row.NextCheckAtUtc), new("전송 요약", row => row.DeliveryStatusSummary)
+    ];
+
+    private static readonly IReadOnlyList<ExcelColumn<AuditListItemResponse>> AuditLedgerColumns =
+    [
+        new("사건 ID", row => row.EventId), new("발생일시", row => row.OccurredAtUtc),
+        new("사건 종류", row => row.EventType), new("사용자", row => row.ActorDisplayName),
+        new("당시 부서", row => row.ActorDepartmentName), new("실제 사용자", row => row.ActualActorDisplayName),
+        new("업무영역", row => row.Domain), new("행동", row => row.Action),
+        new("대상", row => row.TargetKey), new("결과", row => row.Outcome),
+        new("실패 종류", row => row.FailureReason), new("변경 항목 수", row => row.ChangeCount),
+        new("로그인 연결 ID", row => row.LoginCorrelationId), new("IP", row => row.ClientIp),
+        new("브라우저", row => row.BrowserFamily), new("운영체제", row => row.OsFamily)
     ];
 }

@@ -26,20 +26,27 @@ public sealed class AuthorizationAuditLogger(
         CancellationToken cancellationToken)
     {
         var userId = user.FindFirst(QmsClaimTypes.UserId)?.Value ?? "anonymous";
+        var actualUserId = user.FindFirst(QmsClaimTypes.ActualUserId)?.Value;
+        if (string.Equals(userId, actualUserId, StringComparison.Ordinal))
+        {
+            actualUserId = null;
+        }
         var endpoint = httpContext?.GetEndpoint()?.DisplayName ?? "unknown";
 
         logger.LogWarning(
-            "Authorization denied. userId={UserId} reason={Reason} endpoint={Endpoint} targetProject={TargetProject}",
+            "Authorization denied. userId={UserId} actualUserId={ActualUserId} reason={Reason} endpoint={Endpoint} targetProject={TargetProject}",
             userId,
+            actualUserId ?? "none",
             reason,
             endpoint,
             targetProjectKey ?? "none");
 
-        await TryWriteDatabaseEventAsync(userId, reason, endpoint, targetProjectKey, cancellationToken);
+        await TryWriteDatabaseEventAsync(userId, actualUserId, reason, endpoint, targetProjectKey, cancellationToken);
     }
 
     private async Task TryWriteDatabaseEventAsync(
         string userId,
+        string? actualUserId,
         string reason,
         string endpoint,
         string? targetProjectKey,
@@ -55,13 +62,17 @@ public sealed class AuthorizationAuditLogger(
         {
             await using var dataSource = NpgsqlDataSource.Create(connectionString);
             await using var command = dataSource.CreateCommand("""
-                insert into authorization_audit_events (user_id, reason, endpoint, target_project_key)
-                values (@user_id, @reason, @endpoint, @target_project_key);
+                insert into authorization_audit_events (
+                    user_id, actual_actor_user_id, reason, endpoint, target_project_key)
+                values (@user_id, @actual_actor_user_id, @reason, @endpoint, @target_project_key);
                 """);
 
             command.Parameters.AddWithValue(
                 "user_id",
                 Guid.TryParse(userId, out var parsedUserId) ? parsedUserId : DBNull.Value);
+            command.Parameters.AddWithValue(
+                "actual_actor_user_id",
+                Guid.TryParse(actualUserId, out var parsedActualUserId) ? parsedActualUserId : DBNull.Value);
             command.Parameters.AddWithValue("reason", reason);
             command.Parameters.AddWithValue("endpoint", endpoint);
             command.Parameters.AddWithValue("target_project_key", targetProjectKey ?? (object)DBNull.Value);

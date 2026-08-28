@@ -49,6 +49,7 @@ import type {
   UpdateNotificationPreferencesRequest
 } from './notificationPreferences';
 import type { NotificationPreferenceAuditFilters, NotificationPreferenceAuditList } from './notificationPreferenceAudit';
+import type { AuditDetail, AuditFilters, AuditList } from './audit';
 import type {
   WebPushConfiguration,
   WebPushCurrentSubscriptionStatus,
@@ -566,6 +567,16 @@ export async function exportFormTemplateVersionsExcel(
 let accessTokenProvider: (() => Promise<string | null>) | null = null;
 let adminTestUserKey: string | null = null;
 let mutationAllowed = false;
+let auditSession: AuditSessionHeaders | null = null;
+
+export type AuditSessionHeaders = {
+  loginCorrelationId: string;
+  idempotencyReceipt: string;
+};
+
+export type AuditSessionResponse = AuditSessionHeaders & {
+  eventId: string;
+};
 
 export type RuntimeMode = {
   mode: string;
@@ -592,6 +603,50 @@ export type RuntimeMode = {
 
 export function setAccessTokenProvider(provider: (() => Promise<string | null>) | null) {
   accessTokenProvider = provider;
+}
+
+export function setAuditSessionHeaders(session: AuditSessionHeaders | null) {
+  auditSession = session;
+}
+
+export async function recordInteractiveLoginAudit(clientInteractionId: string): Promise<AuditSessionResponse> {
+  const response = await fetchWithAuth(
+    '/api/audit/sessions/interactive-login',
+    undefined,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientInteractionId })
+    },
+    { includeAdminSwitch: false, includeAuditSession: false }
+  );
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  return response.json() as Promise<AuditSessionResponse>;
+}
+
+export async function recordExplicitLogoutAudit(): Promise<void> {
+  if (!auditSession) return;
+  const response = await fetchWithAuth(
+    '/api/audit/sessions/logout',
+    undefined,
+    {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        loginCorrelationId: auditSession.loginCorrelationId,
+        idempotencyReceipt: auditSession.idempotencyReceipt
+      })
+    },
+    { includeAdminSwitch: false, includeAuditSession: false }
+  );
+  if (!response.ok && response.status !== 404) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
 }
 
 export function setAdminTestUserKey(testUserKey: string | null) {
@@ -1033,6 +1088,35 @@ export async function getAdminNotificationPreferenceAudit(
   if (filters.deliveryType) params.set('deliveryType', filters.deliveryType);
   if (filters.search.trim()) params.set('search', filters.search.trim());
   return fetchJson<NotificationPreferenceAuditList>(`/api/admin/notification-preference-audit?${params.toString()}`, developmentUserKey);
+}
+
+export async function getAdminAuditEvents(
+  developmentUserKey: string | undefined,
+  filters: AuditFilters
+): Promise<AuditList> {
+  const params = new URLSearchParams({
+    from: filters.from,
+    to: filters.to,
+    page: String(filters.page),
+    pageSize: String(filters.pageSize)
+  });
+  if (filters.domain) params.set('domain', filters.domain);
+  if (filters.action.trim()) params.set('action', filters.action.trim());
+  if (filters.eventType) params.set('eventType', filters.eventType);
+  if (filters.failureReason) params.set('failureReason', filters.failureReason);
+  if (filters.search.trim()) params.set('search', filters.search.trim());
+  return fetchJson<AuditList>(`/api/admin/audit-events?${params.toString()}`, developmentUserKey);
+}
+
+export async function getAdminAuditEventDetail(
+  developmentUserKey: string | undefined,
+  eventId: string,
+  source: 'Global' | 'Authorization'
+): Promise<AuditDetail> {
+  return fetchJson<AuditDetail>(
+    `/api/admin/audit-events/${encodeURIComponent(eventId)}?source=${encodeURIComponent(source)}`,
+    developmentUserKey
+  );
 }
 
 export async function getMyTeamsActivityDelivery(
@@ -3110,6 +3194,7 @@ export type SelectedExportScreen =
   | 'admin-notification-deliveries'
   | 'admin-notification-preference-audit'
   | 'admin-work-item-escalations'
+  | 'admin-audit-events'
   | 'form-templates';
 
 export type SelectedExportColumn = {
@@ -3278,7 +3363,12 @@ async function downloadExcelExport(
   };
 }
 
-async function fetchWithAuth(path: string, developmentUserKey?: string, init?: RequestInit): Promise<Response> {
+async function fetchWithAuth(
+  path: string,
+  developmentUserKey?: string,
+  init?: RequestInit,
+  options: { includeAdminSwitch?: boolean; includeAuditSession?: boolean } = {}
+): Promise<Response> {
   const headers = new Headers(init?.headers);
 
   if (developmentUserKey) {
@@ -3289,9 +3379,17 @@ async function fetchWithAuth(path: string, developmentUserKey?: string, init?: R
       headers.set('Authorization', `Bearer ${accessToken}`);
     }
 
-    if (adminTestUserKey) {
+    if (adminTestUserKey && options.includeAdminSwitch !== false) {
       headers.set('X-Qms-Test-User', adminTestUserKey);
     }
+  }
+
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (auditSession
+    && options.includeAuditSession !== false
+    && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    headers.set('X-Qms-Audit-Correlation', auditSession.loginCorrelationId);
+    headers.set('X-Qms-Audit-Receipt', auditSession.idempotencyReceipt);
   }
 
   return fetch(buildApiUrl(path), { ...init, headers });

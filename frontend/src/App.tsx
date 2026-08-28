@@ -21,6 +21,7 @@ import { G2AttendancePage, G2OperationsPage } from './G2ManagementPages';
 import { FormTemplateManagementPage } from './FormTemplateManagementPage';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
 import { NotificationPreferenceAuditPage } from './NotificationPreferenceAuditPage';
+import { AuditPage } from './AuditPage';
 import { WebPushFirstRunPrompt } from './WebPushSettings';
 import { deactivateCurrentWebPushForLogout } from './webPushLogout';
 import { PanelQrManager } from './PanelQrManager';
@@ -135,6 +136,8 @@ import {
   purgeAdminUser,
   purgeDeletedProject,
   retryAdminNotificationDeliveries,
+  recordExplicitLogoutAudit,
+  recordInteractiveLoginAudit,
   completeMyWorkItem,
   markAllNotificationsRead,
   markProjectNotificationsRead,
@@ -149,6 +152,7 @@ import {
   startMyWorkItem,
   setAdminTestUserKey,
   setAccessTokenProvider,
+  setAuditSessionHeaders,
   setRuntimeMutationAllowed,
   updateAdminCalendarHoliday,
   updateAdminDepartment,
@@ -168,12 +172,17 @@ import type { MaterialCategory } from './formTemplates';
 import type { RuntimeMode } from './api';
 import {
   acquireAccessToken,
+  clearPendingInteractiveAuditLogin,
+  clearStoredAuditSession,
   getRememberSessionPreference,
   hasMsalConfiguration,
   isEntraAuthMode,
   isInteractionRequiredAuthError,
   loginRequest,
-  restoreActiveAccount
+  readAuditStartupState,
+  restoreActiveAccount,
+  saveStoredAuditSession,
+  subscribeStoredAuditSession
 } from './auth';
 import authEllipse66 from './assets/auth-ellipse-66.svg';
 import authEllipse67 from './assets/auth-ellipse-67.svg';
@@ -333,6 +342,7 @@ type View =
   | { kind: 'admin-notification-deliveries'; status?: string | null; handlingStatus?: string | null; channel?: string | null; deliveryType?: string | null }
   | { kind: 'admin-notification-delivery-detail'; deliveryId: string }
   | { kind: 'admin-notification-preference-audit' }
+  | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
@@ -746,6 +756,10 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/admin/system/notification-preference-audit') {
     return { kind: 'admin-notification-preference-audit' };
+  }
+
+  if (window.location.pathname === '/admin/system/audit-events') {
+    return { kind: 'admin-audit-events' };
   }
 
   if (window.location.pathname === '/admin/system/work-item-escalations') {
@@ -1301,6 +1315,8 @@ function pathForView(view: View) {
       return `/admin/system/notification-deliveries/${view.deliveryId}`;
     case 'admin-notification-preference-audit':
       return '/admin/system/notification-preference-audit';
+    case 'admin-audit-events':
+      return '/admin/system/audit-events';
     case 'admin-work-item-escalations':
       return `/admin/system/work-item-escalations${queryString({
         status: view.status ?? undefined,
@@ -1386,12 +1402,23 @@ function EntraAuthenticatedApp({
   };
 
   const logout = async () => {
+    const account = instance.getActiveAccount();
     clearTestUserSwitch();
     try {
       await deactivateCurrentWebPushForLogout();
     } catch {
       // 로그아웃은 푸시 구독 정리 실패로 차단하지 않는다.
     }
+    try {
+      await recordExplicitLogoutAudit();
+    } catch {
+      // 감사 기록 장애는 사용자의 로그아웃을 차단하지 않는다.
+    }
+    if (account) {
+      clearStoredAuditSession(account, rememberSession);
+      clearPendingInteractiveAuditLogin(account, rememberSession);
+    }
+    setAuditSessionHeaders(null);
     instance.setActiveAccount(null);
     setAccessTokenProvider(null);
     void instance.logoutRedirect();
@@ -1409,7 +1436,9 @@ function EntraAuthenticatedApp({
     }
 
     let cancelled = false;
+    let unsubscribeAuditStorage: () => void = () => undefined;
     setAccessTokenProvider(null);
+    setAuditSessionHeaders(null);
 
     void (async () => {
       setAuthGate({ kind: 'loading' });
@@ -1429,6 +1458,13 @@ function EntraAuthenticatedApp({
       }
 
       const account = restoredAccount.account;
+      unsubscribeAuditStorage = subscribeStoredAuditSession(
+        account,
+        rememberSession,
+        (session) => {
+          if (!cancelled) setAuditSessionHeaders(session);
+        }
+      );
 
       try {
         const accessToken = await acquireAccessToken(instance, account);
@@ -1446,6 +1482,22 @@ function EntraAuthenticatedApp({
         }
 
         setAccessTokenProvider(() => acquireAccessToken(instance, account));
+        const auditStartup = readAuditStartupState(account, rememberSession);
+        const pendingAuditLogin = auditStartup.pendingLogin;
+        setAuditSessionHeaders(auditStartup.session);
+        if (pendingAuditLogin) {
+          void recordInteractiveLoginAudit(pendingAuditLogin.clientInteractionId)
+            .then((session) => {
+              if (cancelled) return;
+              saveStoredAuditSession(account, rememberSession, {
+                loginCorrelationId: session.loginCorrelationId,
+                idempotencyReceipt: session.idempotencyReceipt
+              });
+              setAuditSessionHeaders(session);
+              clearPendingInteractiveAuditLogin(account, rememberSession);
+            })
+            .catch(() => undefined);
+        }
         setAuthGate({ kind: 'ready' });
       } catch (error: unknown) {
         if (cancelled) {
@@ -1470,9 +1522,11 @@ function EntraAuthenticatedApp({
 
     return () => {
       cancelled = true;
+      unsubscribeAuditStorage();
       setAccessTokenProvider(null);
+      setAuditSessionHeaders(null);
     };
-  }, [accountCacheKey, inProgress, instance]);
+  }, [accountCacheKey, inProgress, instance, rememberSession]);
 
   if (!hasMsalConfiguration()) {
     return (
@@ -2747,6 +2801,10 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-preference-audit' ? (
         <NotificationPreferenceAuditPage developmentUserKey={developmentUserKey} />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-audit-events' ? (
+        <AuditPage developmentUserKey={developmentUserKey} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
@@ -4702,6 +4760,7 @@ function AdminSectionNav({ onNavigate }: { onNavigate: (view: View) => void }) {
         { label: '알림 수동 발송', view: { kind: 'admin-send-notification' } },
         { label: '알림 발송 상태', view: { kind: 'admin-notification-deliveries' } },
         { label: '알림 설정 변경 이력', view: { kind: 'admin-notification-preference-audit' } },
+        { label: '전체 감사 이력', view: { kind: 'admin-audit-events' } },
         { label: '에스컬레이션 상태', view: { kind: 'admin-work-item-escalations' } }
       ]
     },
@@ -6927,6 +6986,7 @@ function isAdminWorkspace(view: View) {
     || view.kind === 'admin-notification-deliveries'
     || view.kind === 'admin-notification-delivery-detail'
     || view.kind === 'admin-notification-preference-audit'
+    || view.kind === 'admin-audit-events'
     || view.kind === 'admin-work-item-escalations';
 }
 

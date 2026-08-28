@@ -1,5 +1,7 @@
 using System.Net;
+using System.Security.Claims;
 using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Audit;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.G2;
 using Emi.Qms.Api.Home;
@@ -19,6 +21,531 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class PostgreSqlMigrationTests
 {
+    [Fact]
+    public async Task GlobalAuditStore_DeduplicatesLoginValidatesSessionRecordsFailureAndUnifiesAuthorizationDenial()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        var actorId = Guid.Parse("83000000-0000-0000-0000-000000000101");
+        var actualActorId = Guid.Parse("83000000-0000-0000-0000-000000000103");
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values
+                ('{actorId:D}', 'audit-store-user', 'Audit Store User',
+                 (select id from departments order by code limit 1), true),
+                ('{actualActorId:D}', 'audit-store-actual-user', 'Audit Actual User',
+                 (select id from departments order by code limit 1), true);
+            """,
+            TestContext.Current.CancellationToken);
+
+        var store = new AuditStore(provider, NullLogger<AuditStore>.Instance);
+        var interactionId = Guid.Parse("83000000-0000-0000-0000-000000000102");
+        var first = await store.AppendInteractiveLoginAsync(
+            actorId, interactionId, "Allowed", IPAddress.Parse("192.0.2.10"), "Edge", "Windows",
+            TestContext.Current.CancellationToken);
+        var duplicate = await store.AppendInteractiveLoginAsync(
+            actorId, interactionId, "Allowed", IPAddress.Parse("192.0.2.10"), "Edge", "Windows",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(first, duplicate);
+        Assert.True(await store.ResolveOwnedSessionAsync(
+            actorId, first.LoginCorrelationId, first.IdempotencyReceipt, TestContext.Current.CancellationToken));
+        Assert.False(await store.ResolveOwnedSessionAsync(
+            Guid.NewGuid(), first.LoginCorrelationId, first.IdempotencyReceipt, TestContext.Current.CancellationToken));
+
+        await store.TryAppendFailedMutationAsync(
+            actorId,
+            null,
+            new AuditMutationDefinition(
+                true, "Projects", "UpdateProject", "UpdateProject", "projects", actorId.ToString("D"), AuditFailureReasons.Conflict),
+            AuditFailureReasons.Validation,
+            first.LoginCorrelationId,
+            TestContext.Current.CancellationToken);
+        var authorizationLogger = new AuthorizationAuditLogger(
+            provider,
+            NullLogger<AuthorizationAuditLogger>.Instance);
+        var switchedPrincipal = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(QmsClaimTypes.UserId, actorId.ToString("D")),
+            new Claim(QmsClaimTypes.ActualUserId, actualActorId.ToString("D"))
+        ], "AuditTest"));
+        await authorizationLogger.LogDeniedAsync(
+            switchedPrincipal,
+            null,
+            "permission_denied",
+            "AUDIT-PROJECT",
+            TestContext.Current.CancellationToken);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var list = await store.ListAsync(
+            today.AddDays(-1),
+            today.AddDays(1),
+            new AuditQuery(
+                DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1), actorId,
+                null, null, null, null, null, 1, 50),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, list.TotalCount);
+        Assert.Equal(1, list.Summary.LoginEvents);
+        Assert.Equal(1, list.Summary.FailedChanges);
+        Assert.Equal(1, list.Summary.AuthorizationDenials);
+        Assert.All(list.Items, item => Assert.Equal(actorId, item.ActorUserId));
+        Assert.Contains(list.Items, item => item.EventType == AuditEventTypes.MutationFailed
+            && item.FailureReason == AuditFailureReasons.Validation
+            && item.ReasonSummary == "입력값 검증에서 저장이 거절되었습니다.");
+        var authorizationDenied = Assert.Single(list.Items, item => item.EventType == AuditEventTypes.AuthorizationDenied);
+        Assert.Equal(actualActorId, authorizationDenied.ActualActorUserId);
+        Assert.Equal("Audit Actual User", authorizationDenied.ActualActorDisplayName);
+        var failedItem = Assert.Single(list.Items, item => item.EventType == AuditEventTypes.MutationFailed);
+        var failedDetail = await store.GetDetailAsync(
+            failedItem.EventId, failedItem.Source, TestContext.Current.CancellationToken);
+        var loginContext = Assert.IsType<AuditLoginContextResponse>(failedDetail?.LoginContext);
+        Assert.Equal("Edge", loginContext.BrowserFamily);
+        Assert.Equal("Windows", loginContext.OsFamily);
+        Assert.Equal("192.0.2.10", loginContext.ClientIp);
+
+        Assert.True(await store.AppendLogoutAsync(
+            actorId, first.LoginCorrelationId, first.IdempotencyReceipt, TestContext.Current.CancellationToken));
+        Assert.False(await store.AppendLogoutAsync(
+            actorId, first.LoginCorrelationId, first.IdempotencyReceipt, TestContext.Current.CancellationToken));
+        Assert.False(await store.ResolveOwnedSessionAsync(
+            actorId, first.LoginCorrelationId, first.IdempotencyReceipt, TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_events where event_type='Logout';",
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GlobalAuditMigration_RecordsCommittedChangesRejectsTamperingAndOmitsRollbackNoOpAndFreeText()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+
+        var actorId = Guid.Parse("83000000-0000-0000-0000-000000000001");
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{actorId:D}',
+                'audit-migration-user',
+                'Audit Migration User',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        var firstRequest = Guid.Parse("83000000-0000-0000-0000-000000000011");
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, firstRequest, null, "G2", "SaveG2Operations", "SaveG2Operations")))
+        {
+            await ExecuteSqlAsync(
+                provider,
+                $"""
+                insert into g2_daily_metrics (
+                    work_date, metric_code, quantity, created_by_user_id, updated_by_user_id)
+                values (
+                    '2026-08-28', 'MorningProduction', 50, '{actorId:D}', '{actorId:D}');
+                """,
+                TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_events where event_type='MutationSucceeded' and action='SaveG2Operations';",
+            TestContext.Current.CancellationToken));
+        Assert.True(await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_event_changes where projection_kind='ExactScalar' and field_code='g2_daily_metrics.quantity' and after_value='50';",
+            TestContext.Current.CancellationToken) > 0);
+
+        var procurementRequest = Guid.Parse("83000000-0000-0000-0000-000000000012");
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, procurementRequest, null, "Procurement", "UpdateProcurementRequiredItems", "UpdateProcurementRequiredItems")))
+        {
+            await ExecuteSqlAsync(
+                provider,
+                $"""
+                with template as (
+                    insert into procurement_required_item_templates (
+                        item_code, version, is_active, created_by_user_id)
+                    values ('AUDIT-ITEM', 1, true, '{actorId:D}')
+                    returning id
+                )
+                insert into procurement_required_item_template_rows (
+                    template_id, sequence_number, item_name, normalized_item_name, is_required, is_active)
+                select id, 1, '=PRIVATE PROCUREMENT VALUE', '=private procurement value', true, true
+                from template;
+                """,
+                TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"select count(*) from audit_events where event_type='MutationSucceeded' and request_correlation_id='{procurementRequest:D}';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{procurementRequest:D}'
+              and changes.field_code='procurement_required_item_templates.item_code'
+              and changes.projection_kind='ExactScalar'
+              and changes.after_value='AUDIT-ITEM';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{procurementRequest:D}'
+              and changes.field_code='procurement_required_item_template_rows.item_name'
+              and changes.projection_kind='MetadataOnly'
+              and changes.after_value is null
+              and changes.after_length=26;
+            """,
+            TestContext.Current.CancellationToken));
+
+        var attachmentRequest = Guid.Parse("83000000-0000-0000-0000-000000000013");
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, attachmentRequest, null, "Identity", "UpdateProfilePhoto", "UpdateProfilePhoto")))
+        {
+            await ExecuteSqlAsync(
+                provider,
+                $"""
+                insert into user_profile_photos (
+                    user_id, normalized_mime, byte_size, content_hash, content,
+                    updated_by_profile_user_id)
+                values (
+                    '{actorId:D}', 'image/png', 1, repeat('a', 64), decode('01', 'hex'),
+                    '{actorId:D}');
+                """,
+                TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{attachmentRequest:D}'
+              and changes.field_code='user_profile_photos.normalized_mime'
+              and changes.projection_kind='ExactScalar'
+              and changes.after_value='image/png';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{attachmentRequest:D}'
+              and changes.field_code='user_profile_photos.byte_size'
+              and changes.projection_kind='ExactScalar'
+              and changes.after_value='1';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{attachmentRequest:D}'
+              and changes.field_code in (
+                  'user_profile_photos.content', 'user_profile_photos.content_hash');
+            """,
+            TestContext.Current.CancellationToken));
+
+        var noticeRequest = Guid.Parse("83000000-0000-0000-0000-000000000014");
+        const string privateNoticeBody = "=PRIVATE NOTICE BODY";
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, noticeRequest, null, "Notices", "CreateNotice", "CreateNotice")))
+        {
+            await ExecuteSqlAsync(
+                provider,
+                $"""
+                insert into notice_posts (
+                    title, body, author_user_id, author_display_name_snapshot,
+                    author_department_name_snapshot, request_id)
+                values (
+                    'Audit notice', '{privateNoticeBody}', '{actorId:D}', 'Audit Migration User',
+                    'Audit Department', gen_random_uuid());
+                """,
+                TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{noticeRequest:D}'
+              and changes.field_code='notice_posts.body'
+              and changes.projection_kind='MetadataOnly'
+              and changes.after_value is null
+              and changes.after_length=char_length('{privateNoticeBody}');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{noticeRequest:D}'
+              and changes.field_code='notice_posts.body_format'
+              and changes.projection_kind='ExactScalar'
+              and changes.after_value='PlainTextV1';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            $"""
+            select count(*)
+            from audit_event_changes changes
+            join audit_events events on events.id=changes.audit_event_id
+            where events.request_correlation_id='{noticeRequest:D}'
+              and (changes.before_value='{privateNoticeBody}' or changes.after_value='{privateNoticeBody}');
+            """,
+            TestContext.Current.CancellationToken));
+
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, Guid.NewGuid(), null, "G2", "SaveG2Operations", "SaveG2Operations")))
+        {
+            await ExecuteSqlAsync(
+                provider,
+                "update g2_daily_metrics set quantity=quantity where work_date='2026-08-28' and metric_code='MorningProduction';",
+                TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_events where event_type='MutationSucceeded' and action='SaveG2Operations';",
+            TestContext.Current.CancellationToken));
+
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, Guid.NewGuid(), null, "G2", "SaveG2Operations", "SaveG2Operations")))
+        {
+            await using var connection = new NpgsqlConnection(provider.GetConnectionString());
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "update g2_daily_metrics set quantity=99 where work_date='2026-08-28' and metric_code='MorningProduction';";
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            await transaction.RollbackAsync(TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(50, await ReadScalarAsync<int>(
+            provider,
+            "select quantity from g2_daily_metrics where work_date='2026-08-28' and metric_code='MorningProduction';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_events where event_type='MutationSucceeded' and action='SaveG2Operations';",
+            TestContext.Current.CancellationToken));
+
+        const string privateDisplayName = "=PRIVATE AUDIT VALUE";
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actorId, null, Guid.NewGuid(), null, "Administration", "UpdateAdminUser", "UpdateAdminUser")))
+        {
+            await ExecuteSqlAsync(
+                provider,
+                $"update qms_users set display_name='{privateDisplayName}' where id='{actorId:D}';",
+                TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_event_changes where field_code='qms_users.display_name' and projection_kind='MetadataOnly' and before_value is null and after_value is null;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            $"select count(*) from audit_event_changes where coalesce(before_value,'')='{privateDisplayName}' or coalesce(after_value,'')='{privateDisplayName}';",
+            TestContext.Current.CancellationToken));
+
+        var eventId = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from audit_events order by occurred_at_utc limit 1;",
+            TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            provider,
+            $"update audit_events set action='Tampered' where id='{eventId:D}';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
+
+        Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            provider,
+            "select max(version) from schema_migrations;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(94L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_qms_global_audit_%';",
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GlobalAuditMigration_RollsBackBusinessMutationWhenAuditAppendFails()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+
+        var actorId = Guid.Parse("83000000-0000-0000-0000-000000000151");
+        var requestId = Guid.Parse("83000000-0000-0000-0000-000000000152");
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{actorId:D}', 'audit-append-failure-user', 'Audit Append Failure User',
+                (select id from departments order by code limit 1), true
+            );
+
+            create function qms_test_fail_audit_insert()
+            returns trigger
+            language plpgsql
+            as $function$
+            begin
+                raise exception 'Controlled audit append failure.';
+            end;
+            $function$;
+
+            create trigger trg_qms_test_fail_audit_insert
+            before insert on audit_events
+            for each row
+            when (new.action = 'ForcedAuditAppendFailure')
+            execute function qms_test_fail_audit_insert();
+            """,
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            using (AuditRequestContext.Push(new AuditMutationContext(
+                       actorId, null, requestId, null, "G2", "ForcedAuditAppendFailure", "ForcedAuditAppendFailure")))
+            {
+                var exception = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+                    provider,
+                    $"""
+                    insert into g2_daily_metrics (
+                        work_date, metric_code, quantity, created_by_user_id, updated_by_user_id)
+                    values (
+                        '2026-08-29', 'MorningProduction', 51, '{actorId:D}', '{actorId:D}');
+                    """,
+                    TestContext.Current.CancellationToken));
+                Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
+                Assert.Equal("Controlled audit append failure.", exception.MessageText);
+            }
+
+            Assert.Equal(0L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from g2_daily_metrics where work_date='2026-08-29' and metric_code='MorningProduction';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(0L, await ReadScalarAsync<long>(
+                provider,
+                $"select count(*) from audit_events where request_correlation_id='{requestId:D}';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(0L, await ReadScalarAsync<long>(
+                provider,
+                $"""
+                select count(*)
+                from audit_event_changes changes
+                join audit_events events on events.id=changes.audit_event_id
+                where events.request_correlation_id='{requestId:D}';
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            await ExecuteSqlAsync(
+                provider,
+                """
+                drop trigger if exists trg_qms_test_fail_audit_insert on audit_events;
+                drop function if exists qms_test_fail_audit_insert();
+                """,
+                TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task GlobalAuditMigration_HandlesFiftyConcurrentCommittedMutations()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+
+        var actorId = Guid.Parse("83000000-0000-0000-0000-000000000201");
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{actorId:D}', 'audit-concurrency-user', 'Audit Concurrency User',
+                (select id from departments order by code limit 1), true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mutations = Enumerable.Range(0, 50)
+            .Select(index => Task.Run(async () =>
+            {
+                await start.Task;
+                using var scope = AuditRequestContext.Push(new AuditMutationContext(
+                    actorId,
+                    null,
+                    Guid.Parse($"83000000-0000-0000-0000-{index + 301:D12}"),
+                    null,
+                    "G2",
+                    "ConcurrentAuditMutation",
+                    "ConcurrentAuditMutation"));
+                var workDate = new DateOnly(2026, 1, 1).AddDays(index);
+                await ExecuteSqlAsync(
+                    provider,
+                    $"""
+                    insert into g2_daily_metrics (
+                        work_date, metric_code, quantity, created_by_user_id, updated_by_user_id)
+                    values (
+                        '{workDate:yyyy-MM-dd}', 'MorningProduction', {index + 1},
+                        '{actorId:D}', '{actorId:D}');
+                    """,
+                    TestContext.Current.CancellationToken);
+            }, TestContext.Current.CancellationToken))
+            .ToArray();
+
+        start.SetResult();
+        await Task.WhenAll(mutations).WaitAsync(
+            TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+
+        Assert.Equal(50L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from g2_daily_metrics where created_by_user_id='83000000-0000-0000-0000-000000000201';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(50L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_events where event_type='MutationSucceeded' and action='ConcurrentAuditMutation';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(50L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(distinct events.id)
+            from audit_events events
+            join audit_event_changes changes on changes.audit_event_id=events.id
+            where events.event_type='MutationSucceeded'
+              and events.action='ConcurrentAuditMutation';
+            """,
+            TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task G2OperationsMigrations_CreateIsolatedSchemaForecastMarkerAndApprovedRoleMatrix()
     {
@@ -81,7 +608,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -262,7 +789,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -330,7 +857,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -460,7 +987,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -569,6 +1096,15 @@ public sealed class PostgreSqlMigrationTests
             Assert.Equal("False", (await ScalarAsync(
                 runtimeSession,
                 "select has_database_privilege(current_user, current_database(), 'temporary');"))?.ToString());
+            Assert.Equal("True", (await ScalarAsync(
+                runtimeSession,
+                "select has_table_privilege(current_user, 'audit_events', 'select');"))?.ToString());
+            Assert.Equal("False", (await ScalarAsync(
+                runtimeSession,
+                "select has_table_privilege(current_user, 'audit_events', 'insert');"))?.ToString());
+            Assert.Equal("True", (await ScalarAsync(
+                runtimeSession,
+                "select has_function_privilege(current_user, 'qms_append_audit_login_event(uuid,uuid,text,inet,text,text)', 'execute');"))?.ToString());
 
             await ExecuteAsync(
                 runtimeSession,
@@ -591,6 +1127,28 @@ public sealed class PostgreSqlMigrationTests
             await AssertInsufficientPrivilegeAsync(
                 runtimeSession,
                 "insert into schema_migrations(version) values ('runtime-bypass');");
+            await AssertInsufficientPrivilegeAsync(
+                runtimeSession,
+                "insert into audit_events(id, event_type, actor_user_id, actor_display_name, domain, action, outcome) "
+                + "values (uuid_generate_v4(), 'Login', uuid_generate_v4(), 'bypass', 'Identity', 'InteractiveLogin', 'Succeeded');");
+
+            var auditActorId = Guid.NewGuid();
+            await ExecuteAsync(
+                runtimeSession,
+                "insert into qms_users(id, development_user_key, display_name, department_id, is_active) "
+                + "values (@id, @key, @name, (select id from departments order by code limit 1), true);",
+                new Dictionary<string, object>
+                {
+                    ["id"] = auditActorId,
+                    ["key"] = $"audit-runtime-{suffix}",
+                    ["name"] = "Audit runtime function probe"
+                });
+            Assert.NotNull(await ScalarAsync(
+                runtimeSession,
+                $"select event_id from qms_append_audit_login_event('{auditActorId:D}', uuid_generate_v4(), 'Allowed', '192.0.2.20', 'Other', 'Other');"));
+            Assert.Equal("1", (await ScalarAsync(
+                runtimeSession,
+                $"select count(*) from audit_events where actor_user_id='{auditActorId:D}';"))?.ToString());
             await AssertInsufficientPrivilegeAsync(
                 runtimeSession,
                 $"create role runtime_must_not_create_roles_{suffix};");
@@ -1108,7 +1666,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1374,7 +1932,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1478,7 +2036,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1544,7 +2102,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+        Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1608,7 +2166,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1731,7 +2289,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1897,7 +2455,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2419,7 +2977,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2462,7 +3020,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2643,7 +3201,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2720,7 +3278,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2785,7 +3343,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2835,7 +3393,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0082_g2_forecast_expiry", await ReadScalarAsync<string>(
+        Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

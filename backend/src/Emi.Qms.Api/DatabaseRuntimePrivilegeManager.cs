@@ -95,6 +95,12 @@ public sealed class DatabaseRuntimePrivilegeManager
                 on table public.schema_migrations from {runtime};
             grant select on table public.schema_migrations to {runtime};
 
+            revoke insert, update, delete, truncate, references, trigger
+                on table public.audit_coverage_state, public.audit_events, public.audit_event_changes
+                from {runtime};
+            grant select on table public.audit_coverage_state, public.audit_events, public.audit_event_changes
+                to {runtime};
+
             revoke all privileges on all sequences in schema public from {runtime};
             grant usage, select on all sequences in schema public to {runtime};
 

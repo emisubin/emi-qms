@@ -1,15 +1,15 @@
 # TASK-AUDIT-001 구현 보고서
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION / UAT_RUNTIME`
-- implementation status: `PUBLICATION_APPROVED / AZURE_DEPLOYMENT_APPROVED / USER_VALIDATION_PENDING`
-- release candidate: `true — local only`
-- current gate: `Ready PR 필수 CI → main 병합 → exact main Azure release → 사용자 직접 검수`
+- implementation status: `MAIN_MERGED / AZURE_RELEASE_COMPLETE / USER_VALIDATION_PENDING`
+- release candidate: `N/A — production deployed`
+- current gate: `공개 사용자 직접 검수 → 운영 aggregate 관찰`
 - user validation: `자동·독립 검증 완료 / 사용자 직접 검수 대기`
-- current user action: `없음 — 승인된 게시·Azure release 실행 중`
-- publication: `Local commit 완료 / Push·PR·Merge·Azure release 승인·실행 대기 / local Persistent UAT 미승인·미실행`
-- branch: `feat/task-audit-001-access-change-audit`
-- base SHA: `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`
-- release identity: `이 보고서를 포함한 branch tip local commit; exact SHA는 Git metadata와 final handoff로 식별`
+- current user action: `공개 관리자 감사 화면 직접 검수`
+- publication: `Commit·Push·PR #111·Merge·Azure release 완료 / local Persistent UAT 미승인·미실행`
+- implementation branch: `feat/task-audit-001-access-change-audit`
+- implementation base SHA: `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`
+- release identity: `운영 source exact main SHA 6713e5974ad5262d87d7cc2332b27486d2487ccd`
 - validation target: base 대비 source/test `29` files, SHA-256 `1f344c6a446a508882a6bcab69f00482d08204b4d3bf5397380bb08d29dcc6f9`, `2026-08-28T02:00:05Z`
 - migration: `0083_global_access_change_audit` — schema-additive, runtime-behavior-changing, forward-only
 - planning: [audit-001-planning.md](audit-001-planning.md)
@@ -47,7 +47,7 @@ System Administrator는 `관리자 → 전체 감사 이력`에서 최근 30일�
 - 조회·preview·알림 읽음·web-push 기기 상태·404·5xx
 - request/response body, exception message, header, cookie, token, 첨부 binary
 - 과거 전용 원장의 소급 합성, 신규 알림 채널, 권한 확대, audit purge/archive
-- Persistent UAT, 운영 DB migration, 실제 provider, Azure 공개배포
+- 구현·격리 검증 단계의 Persistent UAT, 운영 DB migration, 실제 provider와 Azure 공개배포. 운영 DB migration과 Azure 공개배포는 이후 Change 003 승인으로 실행했다.
 
 Coverage 수치는 다음처럼 서로 다른 집합을 센다. 상세 계약은 coverage registry에 있다.
 
@@ -174,6 +174,10 @@ Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하�
 | final privacy/secret scan | credential signature 감지 `0`; audit code의 request/response/body/exception 직렬화 `0`; 식별 UUID header 2개만 허용 |
 | 독립 read-only 재검증 | `PASS`, Open P0/P1/P2 `0/0/0`, local release candidate `READY` |
 | Change 003 Azure release preflight | 마지막 성공 release와 원격 main SHA 일치; `cross-layer`; migration·Backend·Frontend `true`; Bicep·Portal template·static·release mock `PASS` |
+| 구현 PR·필수 CI | PR `#111` squash merge 완료; PR CI run `33136383870` `PASS` |
+| main CI | 운영 source exact SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`; run `33137735821` `PASS` |
+| Azure 운영 release | run `33137792491`; migration·Backend·Frontend·public security smoke 모두 `PASS` |
+| release workflow 밖 별도 공개 endpoint | health `200`, 익명 root `401`, 익명 API `401` |
 | Fable private session cleanup | `FABLE_TASK_SESSION_CLEANED`, session/transcript 각 `5` 정리 |
 | local full-stack visual | desktop list/detail/login context 확인; narrow viewport `375=375`, card `3`, desktop table hidden, horizontal overflow `0` |
 | local 동시 mutation | non-pooled 연결로 시작한 50개 동시 저장, 업무 row `50`, 성공 parent `50`, field child 연결 `50` 통과 |
@@ -190,7 +194,7 @@ Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하�
 
 Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 고정 포트 `5432`를 사용하는데 임시 PostgreSQL을 `55439`에 연 설정 오류로 즉시 중단했다. Task 전용 PostgreSQL을 기존 회귀가 기대하는 `5432`에 다시 열고 처음부터 재실행해 `567/567`을 통과했다. 이 중단 실행은 제품 결함이나 통과 수치로 계산하지 않았다.
 
-로컬 full-stack은 임시 PostgreSQL·Development identity·synthetic holiday 1건과 validation 실패 1건만 사용했다. 종료 뒤 Vite, Backend와 Task 소유 `--rm` PostgreSQL container를 모두 종료했고 Task 소유 잔존 container가 없음을 확인했다. 별도 작업의 `valhalla-walking-engine-1`은 수정하지 않았다. Persistent UAT와 Azure 운영 데이터는 변경하지 않았다.
+로컬 full-stack은 임시 PostgreSQL·Development identity·synthetic holiday 1건과 validation 실패 1건만 사용했다. 종료 뒤 Vite, Backend와 Task 소유 `--rm` PostgreSQL container를 모두 종료했고 Task 소유 잔존 container가 없음을 확인했다. 별도 작업의 `valhalla-walking-engine-1`은 수정하지 않았다. 이 로컬 검증에서는 Persistent UAT와 Azure 운영 데이터를 변경하지 않았다.
 
 ## 8. 시행착오 및 폐기한 접근
 
@@ -317,9 +321,8 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ## 13. 미실행 검증
 
-- 실제 Microsoft 365 interactive login: 운영 계정·Azure mutation 승인이 없으므로 미실행. Frontend event contract와 local Dev identity로 검증했다.
+- 실제 Microsoft 365 interactive login: 배포는 완료했지만 사용자 직접 운영 검수 단계이므로 미실행. Frontend event contract와 local Dev identity로 검증했다.
 - Persistent UAT migration/runtime handover: 승인 범위 밖이므로 미실행.
-- Azure 운영 DB·공개 사이트·실제 Front Door IP: 승인 범위 밖이므로 미실행.
 - 실제 운영 Excel 다운로드와 일반 역할 403: local contract·자동 검증까지만 완료, 공개 운영 사용자 checklist에서 대기.
 - Azure 운영 환경의 실제 50명 동시 부하: local 전용 PostgreSQL의 50개 동시 mutation은 통과했지만 Azure network·DB tier를 포함한 부하는 미실행이다. 운영 aggregate 관찰을 P3로 추적한다.
 - 포함 route 156개의 실제 성공·accepted no-op·rollback 1:1 execution matrix: 미실행이다. Change 002에서 v1 acceptance 제외를 승인했으며 모든 route의 개별 업무 규칙을 실행 증명했다고 주장하지 않는다.
@@ -337,4 +340,4 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ## 15. 사용자 검수 결과와 남은 항목
 
-현재 local implementation·exact catalog·중앙 PostgreSQL 대표 transaction·local full-stack visual·Backend `567/567`·Frontend `235/235`·migration `59/59`·final privacy/secret scan을 포함한 일반 자동 회귀를 완료했다. 사용자는 Change 002에서 이를 v1 acceptance로 확정하고 모든 409를 `Conflict`로 보수 분류하도록 승인했다. 독립 검증에서 발견된 audit append 실패 rollback 증빙과 잔존 `Duplicate` 계약도 보정했고, 최종 read-only 재검증은 `PASS`, Open P0/P1/P2 `0/0/0`, local release candidate `READY`다. Change 003에서 원격 Push·PR·main merge, 운영 migration과 Azure 공개 release가 승인됐으며 실행 결과는 exact main SHA와 privacy-safe 상태로 후속 기록한다. Local Persistent UAT handover와 실제 외부 알림 시험 발송은 제외하고, 공개 적용 뒤 사용자 직접 검수를 진행한다.
+현재 local implementation·exact catalog·중앙 PostgreSQL 대표 transaction·local full-stack visual·Backend `567/567`·Frontend `235/235`·migration `59/59`·final privacy/secret scan을 포함한 일반 자동 회귀를 완료했다. 사용자는 Change 002에서 이를 v1 acceptance로 확정하고 모든 409를 `Conflict`로 보수 분류하도록 승인했다. 독립 검증에서 발견된 audit append 실패 rollback 증빙과 잔존 `Duplicate` 계약도 보정했고, 최종 read-only 재검증은 `PASS`, Open P0/P1/P2 `0/0/0`이다. Change 003에 따라 PR `#111`을 squash merge해 운영 source exact main SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`를 만들었고, main CI run `33137735821`과 Azure release run `33137792491`이 통과했다. Migration·Backend·Frontend·public security smoke가 모두 `PASS`이며 release workflow 밖 별도 HTTP 확인은 health `200`, 익명 root·API `401/401`이다. Local Persistent UAT handover와 실제 외부 알림 시험 발송은 제외했다. 공개 사용자 직접 검수와 운영 aggregate 관찰은 계속 대기 상태다.

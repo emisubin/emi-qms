@@ -1,7 +1,7 @@
 # TASK-AUDIT-001 Change 003 — 원격 main 병합과 Azure 공개배포 승인
 
 - taskType: `UAT_RUNTIME`
-- changeStatus: `PUBLICATION_AND_AZURE_DEPLOYMENT_APPROVED`
+- changeStatus: `MAIN_MERGED / AZURE_RELEASE_COMPLETE / USER_VALIDATION_PENDING`
 - instructionChainRead: true
 - instructionConflictCount: 0
 - roadmapSequenceMatch: true
@@ -63,3 +63,18 @@
 - 변경 분류: `cross-layer`, changed files `42`, Backend·Frontend·Full-Stack·Azure validation 대상
 - 운영 범위: `deploy_backend=true`, `deploy_frontend=true`, `run_migration=true`, `fail_safe=false`
 - Azure Bicep compile·Portal template·static validation·release rollback mock: `PASS`
+
+## 7. 실제 게시·배포 결과
+
+- 구현 PR: `#111`, 필수 PR CI run `33136383870` 전체 `PASS`
+- 원격 main 병합: squash merge 완료, 운영 source exact SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`
+- 병합 후 main CI run `33137735821`: `PASS`
+- Azure 공개 운영 release(workflow명 `Azure Pilot Release`) run `33137792491`: `PASS`
+- 운영 적용 결과: migration `PASS`, Backend `PASS`, Frontend `PASS`, public security smoke `PASS`
+- release workflow 밖 별도 HTTP 확인: health `200`, 익명 root `401`, 익명 API `401`
+- 로컬 Persistent UAT handover와 실제 외부 알림 시험 발송: 승인 제외 상태를 유지해 미실행
+- 사용자 직접 검수: 배포 성공과 분리해 `PENDING_AFTER_DEPLOYMENT` 유지
+
+## 8. 현재 다음 Gate
+
+공개 관리자 감사 화면 직접 검수 → 감사 row 증가량·DB connection·p95 latency aggregate 운영 관찰 순서로 진행한다.

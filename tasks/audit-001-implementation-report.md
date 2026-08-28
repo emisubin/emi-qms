@@ -1,12 +1,12 @@
 # TASK-AUDIT-001 구현 보고서
 
-- taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- implementation status: `LOCAL_RELEASE_CANDIDATE_READY / USER_VALIDATION_PENDING`
+- taskType: `APPROVED_FEATURE_IMPLEMENTATION / UAT_RUNTIME`
+- implementation status: `PUBLICATION_APPROVED / AZURE_DEPLOYMENT_APPROVED / USER_VALIDATION_PENDING`
 - release candidate: `true — local only`
-- current gate: `이 revision의 local commit 완료 → 원격 게시·운영 적용 별도 승인 → 적용 후 사용자 직접 검수`
+- current gate: `Ready PR 필수 CI → main 병합 → exact main Azure release → 사용자 직접 검수`
 - user validation: `자동·독립 검증 완료 / 사용자 직접 검수 대기`
-- current user action: `원격 게시·Persistent UAT·Azure 운영 적용 승인 결정`
-- publication: `이 revision의 Local commit 포함 / Push·PR·Merge·Persistent UAT·Azure release 미승인·미실행`
+- current user action: `없음 — 승인된 게시·Azure release 실행 중`
+- publication: `Local commit 완료 / Push·PR·Merge·Azure release 승인·실행 대기 / local Persistent UAT 미승인·미실행`
 - branch: `feat/task-audit-001-access-change-audit`
 - base SHA: `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`
 - release identity: `이 보고서를 포함한 branch tip local commit; exact SHA는 Git metadata와 final handoff로 식별`
@@ -14,7 +14,7 @@
 - migration: `0083_global_access_change_audit` — schema-additive, runtime-behavior-changing, forward-only
 - planning: [audit-001-planning.md](audit-001-planning.md)
 - Codex review: [audit-001-review.md](audit-001-review.md)
-- approved changes: [audit-001-change-001.md](audit-001-change-001.md), [audit-001-change-002.md](audit-001-change-002.md)
+- approved changes: [audit-001-change-001.md](audit-001-change-001.md), [audit-001-change-002.md](audit-001-change-002.md), [audit-001-change-003.md](audit-001-change-003.md)
 - coverage registry: [audit-001-coverage-registry.md](audit-001-coverage-registry.md)
 
 ## 1. 해결한 업무 문제
@@ -173,6 +173,7 @@ Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하�
 | `git diff --check` | 통과 |
 | final privacy/secret scan | credential signature 감지 `0`; audit code의 request/response/body/exception 직렬화 `0`; 식별 UUID header 2개만 허용 |
 | 독립 read-only 재검증 | `PASS`, Open P0/P1/P2 `0/0/0`, local release candidate `READY` |
+| Change 003 Azure release preflight | 마지막 성공 release와 원격 main SHA 일치; `cross-layer`; migration·Backend·Frontend `true`; Bicep·Portal template·static·release mock `PASS` |
 | Fable private session cleanup | `FABLE_TASK_SESSION_CLEANED`, session/transcript 각 `5` 정리 |
 | local full-stack visual | desktop list/detail/login context 확인; narrow viewport `375=375`, card `3`, desktop table hidden, horizontal overflow `0` |
 | local 동시 mutation | non-pooled 연결로 시작한 50개 동시 저장, 업무 row `50`, 성공 parent `50`, field child 연결 `50` 통과 |
@@ -336,4 +337,4 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ## 15. 사용자 검수 결과와 남은 항목
 
-현재 local implementation·exact catalog·중앙 PostgreSQL 대표 transaction·local full-stack visual·Backend `567/567`·Frontend `235/235`·migration `59/59`·final privacy/secret scan을 포함한 일반 자동 회귀를 완료했다. 사용자는 Change 002에서 이를 v1 acceptance로 확정하고 모든 409를 `Conflict`로 보수 분류하도록 승인했다. 독립 검증에서 발견된 audit append 실패 rollback 증빙과 잔존 `Duplicate` 계약도 보정했고, 최종 read-only 재검증은 `PASS`, Open P0/P1/P2 `0/0/0`, local release candidate `READY`다. 이 보고서를 포함한 branch tip local commit이 release revision이며 exact SHA는 Git metadata와 final handoff로 식별한다. Push·PR·main merge·Persistent UAT·Azure release는 이번 승인 범위 밖이고, 별도 승인과 적용 뒤 사용자 직접 검수를 진행한다.
+현재 local implementation·exact catalog·중앙 PostgreSQL 대표 transaction·local full-stack visual·Backend `567/567`·Frontend `235/235`·migration `59/59`·final privacy/secret scan을 포함한 일반 자동 회귀를 완료했다. 사용자는 Change 002에서 이를 v1 acceptance로 확정하고 모든 409를 `Conflict`로 보수 분류하도록 승인했다. 독립 검증에서 발견된 audit append 실패 rollback 증빙과 잔존 `Duplicate` 계약도 보정했고, 최종 read-only 재검증은 `PASS`, Open P0/P1/P2 `0/0/0`, local release candidate `READY`다. Change 003에서 원격 Push·PR·main merge, 운영 migration과 Azure 공개 release가 승인됐으며 실행 결과는 exact main SHA와 privacy-safe 상태로 후속 기록한다. Local Persistent UAT handover와 실제 외부 알림 시험 발송은 제외하고, 공개 적용 뒤 사용자 직접 검수를 진행한다.

@@ -1,7 +1,7 @@
 # TASK-AUDIT-001 Change 004 — MSAL v5 대화형 로그인 기록 보정
 
 - taskType: `BUGFIX`
-- changeStatus: `LOCAL_IMPLEMENTATION_VERIFIED / INDEPENDENT_VERIFICATION_PASS / PUBLICATION_APPROVED`
+- changeStatus: `MAIN_MERGED / AZURE_FRONTEND_RELEASE_COMPLETE / POST_DEPLOYMENT_USER_VALIDATION_PENDING`
 - instructionChainRead: true
 - instructionConflictCount: 0
 - roadmapSequenceMatch: true
@@ -19,7 +19,7 @@
 - publicationApprovalExact: `공개 배포 승인`
 - implementationBranch: `fix/task-audit-001-login-record`
 - implementationBase: `origin/main@92b93d1e294e18bb7c19ed0495757a3734fddf86`
-- candidateRevision: `UNCOMMITTED_WORKTREE — commit not approved`
+- publishedRevision: `origin/main@6e2b00de494995cd9901003c76912c481e4424d2`
 - sourceTestDiffSha256: `3a272ee86730189da9791ea7d698ea513302ab70da50a7541f555a0ca05b1731`
 - independentVerification: `PASS`
 - openP0P1P2: `0/0/0`
@@ -31,6 +31,17 @@
 - frontendDeploymentApproved: true
 - backendDeploymentApproved: false
 - productionMigrationApproved: false
+- publicationEvidenceCanonical: [audit-001-implementation-report.md](audit-001-implementation-report.md)
+
+## 게시 결과
+
+- local commit `43215fc0d118482e21687610e2fccb844bbb213c`를 PR `#113`에서 squash해 main commit `6e2b00de494995cd9901003c76912c481e4424d2`로 게시했다.
+- Ready PR: `#113`, squash merge 완료
+- PR CI: run `33356499110`, Frontend·Backend·Full-Stack E2E·CI Gate `PASS`
+- 운영 source: exact main SHA `6e2b00de494995cd9901003c76912c481e4424d2`
+- main CI: run `33358318439`, `CI Gate PASS`
+- Azure release: run `33358365813`, Frontend `PASS`, Backend `SKIPPED`, migration `SKIPPED`, public security `PASS`
+- workflow 밖 공개 상태 확인: health `200`, 익명 root `401`, 익명 API `401`
 
 ## 확인된 운영 결함
 
@@ -79,6 +90,6 @@ MSAL Browser `5.16.0`의 `LOGIN_SUCCESS` event payload는 `AccountInfo` 자체�
 
 ## 다음 Gate
 
-고정 source/test diff의 독립 read-only 재검토는 `PASS`, Open P0/P1/P2 `0/0/0`이고 사용자가 공개 배포를 승인했다. 다음은 local commit → 원격 Task branch Push·Ready PR 필수 CI → main merge → exact main SHA Azure Frontend 배포 → 공개 사용자 재검수 순서다.
+고정 source/test diff의 독립 read-only 재검토는 `PASS`, Open P0/P1/P2 `0/0/0`이고, PR `#113`·exact main SHA `6e2b00de494995cd9901003c76912c481e4424d2`·Azure release `33358365813`으로 Frontend 공개배포까지 완료했다. Backend·migration은 실행하지 않았다. 다음 Gate는 공개 사용자 재검수다.
 
-공개 재검수는 동시 검수자가 없는 5분 구간을 정하고, 시작 직전 login endpoint·login row aggregate를 기준값으로 저장한 뒤 Microsoft 세션까지 완전히 로그아웃하고 Redirect 로그인을 정확히 1회 수행한다. 5분 뒤 endpoint 호출과 로그인 row가 각각 기준값 대비 `+1`인지 확인한다. Popup은 자동 회귀로 고정하며 운영 UI가 Redirect를 사용하므로 공개 검수는 Redirect 경로를 사용한다. 사용자·계정·IP 원문은 증빙하지 않는다.
+공개 재검수는 운영자와 사용자가 동시 검수자가 없는 5분 구간을 정해 진행한다. 운영자는 시작 직전 `/api/audit/sessions/interactive-login` 호출 aggregate와 별도 login row aggregate의 기준값을 저장하고, 사용자는 `https://pms.emiinc.co.kr/`에서 앱 로그아웃 뒤 Microsoft 세션까지 완전히 로그아웃한 다음 운영 UI의 Redirect 로그인을 정확히 1회 수행한다. 사용자가 Redirect 뒤 앱 화면에 정상 복귀했고 추가 로그인·새로고침이 없었음을 확인한 뒤, 운영자는 5분 뒤 두 count가 각각 기준값 대비 `+1`인지 확인한다. 사용자 확인이 없거나 다른 로그인·재시도 때문에 어느 count든 `+1`이 아니면 그 구간은 `FAIL`로 닫고 같은 구간의 수치를 추정·보정하지 않으며, 원인을 확인한 뒤 새 기준값과 새 구간으로만 다시 검수한다. Popup은 자동 회귀로 고정하며 운영 UI가 Redirect를 사용하므로 공개 검수는 Redirect 경로를 사용한다. 증빙에는 사용자 성공 여부, 두 aggregate count와 고정 결과만 남기고 사용자·계정·IP 원문은 기록하지 않는다.

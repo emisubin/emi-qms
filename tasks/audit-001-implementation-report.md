@@ -1,17 +1,18 @@
 # TASK-AUDIT-001 구현 보고서
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION / UAT_RUNTIME / BUGFIX`
-- implementation status: `MAIN_MERGED / AZURE_RELEASE_COMPLETE / USER_VALIDATION_FAILED / CHANGE_004_PUBLICATION_APPROVED`
-- release candidate: `Change 004 local candidate — independent verification PASS / publication approved`
-- current gate: `Commit·Push·Ready PR CI → main merge → exact main SHA Azure Frontend release`
-- user validation: `공개 로그인 기록 미생성 확인 / Change 004 local 보정 완료`
-- current user action: `없음 — 승인된 게시 절차 진행`
-- publication: `기존 PR #111·Merge·Azure release 완료 / Change 004 Commit·Push·PR·Merge·Azure Frontend release 승인·진행 중`
+- implementation status: `CHANGE_003_FULL_RELEASE_COMPLETE / CHANGE_004_FRONTEND_ONLY_RELEASE_COMPLETE / POST_DEPLOYMENT_USER_VALIDATION_PENDING`
+- release candidate: `Change 004 published — independent verification PASS / Frontend production release complete`
+- current gate: `운영자 기준값 저장 → 사용자 완전 로그아웃·Microsoft Redirect 로그인 1회와 앱 복귀 확인 → 운영자 endpoint·login row aggregate 각각 +1 확인`
+- user validation: `기존 공개 로그인 기록 미생성 확인 / Change 004 재배포 완료 / 재검수 대기`
+- current user action: `운영자가 기준값 저장을 알린 뒤 Microsoft 세션까지 완전히 로그아웃하고 운영 UI에서 Redirect 로그인 1회, 앱 화면 정상 복귀 확인`
+- publication: `PR #111은 감사 Backend·schema를 포함한 기존 전체 release 완료 / PR #113은 Change 004 Frontend-only 보정 release 완료`
+- publication evidence canonical: `이 문서 8장 검증표·15장 사용자 검수 결과`
 - implementation branch: `feat/task-audit-001-access-change-audit / fix/task-audit-001-login-record`
 - implementation base SHA: `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`
-- release identity: `운영 source exact main SHA 6713e5974ad5262d87d7cc2332b27486d2487ccd`
+- release identity: `운영 source exact main SHA 6e2b00de494995cd9901003c76912c481e4424d2`
 - validation target: base 대비 source/test `29` files, SHA-256 `1f344c6a446a508882a6bcab69f00482d08204b4d3bf5397380bb08d29dcc6f9`, `2026-08-28T02:00:05Z`
-- Change 004 validation target: `origin/main@92b93d1e294e18bb7c19ed0495757a3734fddf86`, uncommitted source/test diff SHA-256 `3a272ee86730189da9791ea7d698ea513302ab70da50a7541f555a0ca05b1731`, governance artifact
+- Change 004 validation target: `origin/main@92b93d1e294e18bb7c19ed0495757a3734fddf86`, source/test diff SHA-256 `3a272ee86730189da9791ea7d698ea513302ab70da50a7541f555a0ca05b1731`, local commit `43215fc0d118482e21687610e2fccb844bbb213c`, published main SHA `6e2b00de494995cd9901003c76912c481e4424d2`
 - migration: `0083_global_access_change_audit` — schema-additive, runtime-behavior-changing, forward-only
 - planning: [audit-001-planning.md](audit-001-planning.md)
 - Codex review: [audit-001-review.md](audit-001-review.md)
@@ -189,6 +190,10 @@ Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하�
 | main CI | 운영 source exact SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`; run `33137735821` `PASS` |
 | Azure 운영 release | run `33137792491`; migration·Backend·Frontend·public security smoke 모두 `PASS` |
 | release workflow 밖 별도 공개 endpoint | health `200`, 익명 root `401`, 익명 API `401` |
+| Change 004 구현 PR·필수 CI | PR `#113` squash merge 완료; PR CI run `33356499110`, Frontend·Backend·Full-Stack E2E·CI Gate `PASS` |
+| Change 004 main CI | 운영 source exact SHA `6e2b00de494995cd9901003c76912c481e4424d2`; run `33358318439`, `CI Gate PASS` |
+| Change 004 Azure Frontend release | run `33358365813`; Frontend·public security `PASS`, Backend·migration `SKIPPED` |
+| Change 004 workflow 밖 공개 endpoint | health `200`, 익명 root `401`, 익명 API `401` |
 | Fable private session cleanup | `FABLE_TASK_SESSION_CLEANED`, session/transcript 각 `5` 정리 |
 | local full-stack visual | desktop list/detail/login context 확인; narrow viewport `375=375`, card `3`, desktop table hidden, horizontal overflow `0` |
 | local 동시 mutation | non-pooled 연결로 시작한 50개 동시 저장, 업무 row `50`, 성공 parent `50`, field child 연결 `50` 통과 |
@@ -249,7 +254,8 @@ MSAL 이전 버전의 event shape를 가정한 구현은 v5에서 `.account`가 
 
 ### 운영 확인
 
-- Change 004 배포 뒤 브라우저의 Microsoft 세션까지 완전히 로그아웃하고 새 Redirect 또는 Popup 로그인을 1회 수행한다. 운영 aggregate에서 login endpoint 호출 증가와 관리자 원장 로그인 row 정확히 1건을 확인한다.
+- Change 004 배포 뒤 운영자는 동시 검수자가 없는 5분 구간의 `/api/audit/sessions/interactive-login` 호출 aggregate와 별도 login row aggregate 기준값을 먼저 저장한다. 사용자는 `https://pms.emiinc.co.kr/`에서 앱 로그아웃 뒤 Microsoft 세션까지 완전히 로그아웃하고 Redirect 로그인을 정확히 1회 수행한 다음 앱 화면 정상 복귀와 추가 로그인·새로고침 없음 여부를 확인한다. 5분 뒤 운영자가 두 count의 `+1`을 확인한다.
+- 사용자 성공 확인이 없거나 다른 로그인·재시도로 어느 count든 `+1`이 아니면 해당 구간은 `FAIL`로 닫고 수치를 추정·보정하지 않는다. 원인을 확인한 뒤 새 기준값과 새 5분 구간으로만 다시 검수한다.
 - 관리자 1명이 대화형 로그인 1건, 성공 저장 1건, validation 실패 1건을 확인한다.
 - 성공 변경 상세의 연결 로그인과 자유문 `N자`, fixed scalar before/after를 확인한다.
 - 일반 역할의 감사 API 접근이 403이고 기존 권한 거부 원장에 남는지 확인한다.
@@ -279,7 +285,7 @@ MSAL 이전 버전의 event shape를 가정한 구현은 v5에서 `.account`가 
 
 ## 11. 사용자 검수 체크리스트
 
-상태: `공개 로그인 기록 검수 실패 / Change 004 local 자동·독립 검증 완료 / 게시 승인·재배포 대기`
+상태: `기존 공개 로그인 기록 검수 실패 / Change 004 Frontend 재배포 완료 / 공개 재검수 대기`
 
 ### 일반 자동 회귀·대표 계약 검증 완료
 
@@ -303,7 +309,7 @@ MSAL 이전 버전의 event shape를 가정한 구현은 v5에서 `.account`가 
 - [ ] 일반 역할은 메뉴/API 접근이 차단된다.
 - [ ] 과거 소급 없음과 coverage 시작 안내를 이해했다.
 
-이 체크리스트는 존재만으로 완료되지 않는다. 기존 공개 검수에서 로그인 기록 미생성을 확인했으며, Change 004가 공개 반영되고 사용자가 다시 확인하기 전까지는 `사용자 검수 실패 / 재검수 대기`다.
+이 체크리스트는 존재만으로 완료되지 않는다. 기존 공개 검수에서 로그인 기록 미생성을 확인했고 Change 004 공개 반영은 완료했지만, 사용자가 완전 로그아웃 뒤 새 대화형 로그인을 수행해 다시 확인하기 전까지는 `재검수 대기`다.
 
 ## 12. Finding, known issue와 잔여 위험
 
@@ -343,7 +349,7 @@ MSAL 이전 버전의 event shape를 가정한 구현은 v5에서 `.account`가 
 
 ## 13. 미실행 검증
 
-- Change 004 수정본의 실제 Microsoft 365 interactive login: local 자동 검증까지만 완료했고 공개 배포 뒤 재검수가 필요하다. 기존 운영 검수에서는 로그인 기록 미생성을 확인했다.
+- Change 004 수정본의 실제 Microsoft 365 interactive login: 공개 Frontend 재배포까지 완료했지만 완전 로그아웃 뒤 새 로그인 1건의 운영 재검수는 아직 수행하지 않았다. 기존 운영 검수에서는 로그인 기록 미생성을 확인했다.
 - Persistent UAT migration/runtime handover: 승인 범위 밖이므로 미실행.
 - 실제 운영 Excel 다운로드와 일반 역할 403: local contract·자동 검증까지만 완료, 공개 운영 사용자 checklist에서 대기.
 - Azure 운영 환경의 실제 50명 동시 부하: local 전용 PostgreSQL의 50개 동시 mutation은 통과했지만 Azure network·DB tier를 포함한 부하는 미실행이다. 운영 aggregate 관찰을 P3로 추적한다.
@@ -358,8 +364,8 @@ MSAL 이전 버전의 event shape를 가정한 구현은 v5에서 `.account`가 
 | SOP | 작성됨 | 이 문서 9장 |
 | User manual | 작성됨 | 이 문서 10장 |
 | Roadmap update | 작성됨 | `docs/00-product-roadmap.md` 실행 큐 `3.3L`·추적 `48`·Decision Log `2026-08-28`, `2026-08-31` |
-| User validation checklist | 기존 공개 로그인 검수 실패 / Change 004 local 자동 검증 완료 / 재배포 뒤 재검수 대기 | 이 문서 11장 |
+| User validation checklist | 기존 공개 로그인 검수 실패 / Change 004 공개 재배포 완료 / 새 로그인 재검수 대기 | 이 문서 11장 |
 
 ## 15. 사용자 검수 결과와 남은 항목
 
-기존 기능은 Change 003에 따라 PR `#111`, 운영 source exact main SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`, main CI `33137735821`과 Azure release `33137792491`까지 완료했다. 이후 공개 사용자 검수에서 로그인 기록 미생성을 확인했고, 운영 aggregate의 login endpoint 호출 `0`·Backend 저장 실패 `0`과 MSAL v5 event 계약 대조로 Frontend payload 해석 오류를 P1 root cause로 확정했다. Change 004는 MSAL v5 `AccountInfo` payload, request correlation과 로그인 시작 탭 소유권, API pending과 cross-tab 차단 marker 분리를 보정해 auth 집중 `23/23`, Frontend 전체 `238/238`, typecheck, lint error `0`, production build와 `git diff --check`를 통과했다. 독립 read-only 재검증도 `PASS`, Open P0/P1/P2 `0/0/0`이다. Backend·DB·migration은 변경하지 않았고 과거 누락 로그인은 합성하지 않는다. 현재 별도 Push·PR·main merge·Azure release 승인과 배포 뒤 완전 로그아웃·새 대화형 로그인 재검수가 남았다.
+기존 기능은 Change 003에 따라 PR `#111`, 운영 source exact main SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`, main CI `33137735821`과 Azure release `33137792491`까지 완료했다. 이후 공개 사용자 검수에서 로그인 기록 미생성을 확인했고, 운영 aggregate의 login endpoint 호출 `0`·Backend 저장 실패 `0`과 MSAL v5 event 계약 대조로 Frontend payload 해석 오류를 P1 root cause로 확정했다. Change 004는 MSAL v5 `AccountInfo` payload, request correlation과 로그인 시작 탭 소유권, API pending과 cross-tab 차단 marker 분리를 보정해 auth 집중 `23/23`, Frontend 전체 `238/238`, typecheck, lint error `0`, production build와 `git diff --check`를 통과했고 독립 read-only 재검증도 `PASS`, Open P0/P1/P2 `0/0/0`이다. PR `#113` 필수 CI `33356499110` 통과 뒤 exact main SHA `6e2b00de494995cd9901003c76912c481e4424d2`로 병합했고 main CI `33358318439`과 Azure release `33358365813`이 성공했다. release scope는 Frontend `PASS`, Backend·migration `SKIPPED`이며 public security와 별도 health `200`, 익명 root·API `401/401`을 확인했다. 과거 누락 로그인은 합성하지 않았다. 현재 남은 Gate는 완전 로그아웃 뒤 새 Microsoft Redirect 로그인 1건의 앱 복귀와 운영 aggregate·감사 row `+1` 재검수다.

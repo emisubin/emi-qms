@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MsalProvider } from '@azure/msal-react';
-import type { AccountInfo } from '@azure/msal-browser';
+import {
+  EventType,
+  InteractionType,
+  type AccountInfo,
+  type EventCallbackFunction,
+  type EventMessage,
+  type IPublicClientApplication
+} from '@azure/msal-browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
@@ -16,6 +23,91 @@ describe('authentication modes', () => {
     vi.resetModules();
   });
 
+  it.each([InteractionType.Redirect, InteractionType.Popup])(
+    'tracks one MSAL v5 interactive login correlation across tabs from %s',
+    async (interactionType) => {
+      const account = { homeAccountId: `audit-account-${interactionType}` } as AccountInfo;
+      const eventCallbacks: EventCallbackFunction[] = [];
+      vi.spyOn(window.crypto, 'randomUUID')
+        .mockReturnValue('44444444-4444-4444-8444-444444444444');
+      const storageSetItem = vi.spyOn(Storage.prototype, 'setItem');
+      const {
+        beginInteractiveLoginAudit,
+        readAuditStartupState,
+        readPendingInteractiveAuditLogin,
+        registerInteractiveLoginAuditTracker
+      } = await import('../src/auth');
+
+      for (const callbackId of ['first-tab', 'second-tab']) {
+        const instance = {
+          addEventCallback: vi.fn((callback: EventCallbackFunction) => {
+            eventCallbacks.push(callback);
+            return callbackId;
+          })
+        } as unknown as IPublicClientApplication;
+        registerInteractiveLoginAuditTracker(instance, true);
+      }
+      expect(beginInteractiveLoginAudit()).toBe('44444444-4444-4444-8444-444444444444');
+      const loginEvent: EventMessage = {
+        eventType: EventType.LOGIN_SUCCESS,
+        interactionType,
+        payload: account,
+        error: null,
+        timestamp: Date.now(),
+        correlationId: '44444444-4444-4444-8444-444444444444'
+      };
+      for (const eventCallback of eventCallbacks) {
+        eventCallback(loginEvent);
+      }
+
+      expect(readPendingInteractiveAuditLogin(account)).toEqual({
+        clientInteractionId: '44444444-4444-4444-8444-444444444444'
+      });
+      expect(storageSetItem.mock.calls.filter(([key]) => (
+        key === `emi-audit-login-pending:${account.homeAccountId}`
+      ))).toHaveLength(2);
+
+      window.sessionStorage.removeItem(`emi-audit-login-pending:${account.homeAccountId}`);
+      expect(readAuditStartupState(account, true)).toEqual({
+        pendingLogin: null,
+        session: null
+      });
+    }
+  );
+
+  it('does not consume the interactive login owner from a silent success event', async () => {
+    const account = { homeAccountId: 'audit-account-silent' } as AccountInfo;
+    let eventCallback: EventCallbackFunction = () => undefined;
+    const instance = {
+      addEventCallback: vi.fn((callback: EventCallbackFunction) => {
+        eventCallback = callback;
+        return 'silent-callback';
+      })
+    } as unknown as IPublicClientApplication;
+    vi.spyOn(window.crypto, 'randomUUID')
+      .mockReturnValue('55555555-5555-4555-8555-555555555555');
+    const {
+      beginInteractiveLoginAudit,
+      readPendingInteractiveAuditLogin,
+      registerInteractiveLoginAuditTracker
+    } = await import('../src/auth');
+
+    expect(beginInteractiveLoginAudit()).toBe('55555555-5555-4555-8555-555555555555');
+    registerInteractiveLoginAuditTracker(instance, true);
+    eventCallback({
+      eventType: EventType.LOGIN_SUCCESS,
+      interactionType: InteractionType.Silent,
+      payload: account,
+      error: null,
+      timestamp: Date.now(),
+      correlationId: '55555555-5555-4555-8555-555555555555'
+    });
+
+    expect(readPendingInteractiveAuditLogin(account)).toBeNull();
+    expect(window.sessionStorage.getItem('emi-audit-login-owner'))
+      .toBe('55555555-5555-4555-8555-555555555555');
+  });
+
   it('does not restore a previous audit session while a new interactive login is pending', async () => {
     const account = { homeAccountId: 'audit-account-1' } as AccountInfo;
     const { readAuditStartupState, saveStoredAuditSession } = await import('../src/auth');
@@ -27,10 +119,9 @@ describe('authentication modes', () => {
     expect(readAuditStartupState(account, true).session?.loginCorrelationId)
       .toBe('11111111-1111-1111-1111-111111111111');
 
-    window.localStorage.setItem(
-      'emi-audit-login-pending:audit-account-1',
-      JSON.stringify({ clientInteractionId: '33333333-3333-3333-3333-333333333333' })
-    );
+    const pendingLogin = JSON.stringify({ clientInteractionId: '33333333-3333-3333-3333-333333333333' });
+    window.localStorage.setItem('emi-audit-login-pending:audit-account-1', pendingLogin);
+    window.sessionStorage.setItem('emi-audit-login-pending:audit-account-1', pendingLogin);
     const pendingState = readAuditStartupState(account, true);
 
     expect(pendingState.pendingLogin?.clientInteractionId).toBe('33333333-3333-3333-3333-333333333333');
@@ -473,6 +564,9 @@ describe('authentication modes', () => {
     expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
     expect(fakeInstance.loginRedirect).toHaveBeenCalledTimes(1);
     expect(fakeInstance.loginRedirect).toHaveBeenCalledWith(expect.not.objectContaining({ prompt: 'select_account' }));
+    const redirectRequest = fakeInstance.loginRedirect.mock.calls[0]?.[0];
+    expect(redirectRequest?.correlationId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(window.sessionStorage.getItem('emi-audit-login-owner')).toBe(redirectRequest?.correlationId);
   });
 
   it('renders the common branded error shell for a non-interaction token failure', async () => {

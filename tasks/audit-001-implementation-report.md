@@ -1,20 +1,21 @@
 # TASK-AUDIT-001 구현 보고서
 
-- taskType: `APPROVED_FEATURE_IMPLEMENTATION / UAT_RUNTIME`
-- implementation status: `MAIN_MERGED / AZURE_RELEASE_COMPLETE / USER_VALIDATION_PENDING`
-- release candidate: `N/A — production deployed`
-- current gate: `공개 사용자 직접 검수 → 운영 aggregate 관찰`
-- user validation: `자동·독립 검증 완료 / 사용자 직접 검수 대기`
-- current user action: `공개 관리자 감사 화면 직접 검수`
-- publication: `Commit·Push·PR #111·Merge·Azure release 완료 / local Persistent UAT 미승인·미실행`
-- implementation branch: `feat/task-audit-001-access-change-audit`
+- taskType: `APPROVED_FEATURE_IMPLEMENTATION / UAT_RUNTIME / BUGFIX`
+- implementation status: `MAIN_MERGED / AZURE_RELEASE_COMPLETE / USER_VALIDATION_FAILED / CHANGE_004_PUBLICATION_APPROVED`
+- release candidate: `Change 004 local candidate — independent verification PASS / publication approved`
+- current gate: `Commit·Push·Ready PR CI → main merge → exact main SHA Azure Frontend release`
+- user validation: `공개 로그인 기록 미생성 확인 / Change 004 local 보정 완료`
+- current user action: `없음 — 승인된 게시 절차 진행`
+- publication: `기존 PR #111·Merge·Azure release 완료 / Change 004 Commit·Push·PR·Merge·Azure Frontend release 승인·진행 중`
+- implementation branch: `feat/task-audit-001-access-change-audit / fix/task-audit-001-login-record`
 - implementation base SHA: `7371d9e7224c3786f9b0efe3b2b88dfe9b88cd50`
 - release identity: `운영 source exact main SHA 6713e5974ad5262d87d7cc2332b27486d2487ccd`
 - validation target: base 대비 source/test `29` files, SHA-256 `1f344c6a446a508882a6bcab69f00482d08204b4d3bf5397380bb08d29dcc6f9`, `2026-08-28T02:00:05Z`
+- Change 004 validation target: `origin/main@92b93d1e294e18bb7c19ed0495757a3734fddf86`, uncommitted source/test diff SHA-256 `3a272ee86730189da9791ea7d698ea513302ab70da50a7541f555a0ca05b1731`, governance artifact
 - migration: `0083_global_access_change_audit` — schema-additive, runtime-behavior-changing, forward-only
 - planning: [audit-001-planning.md](audit-001-planning.md)
 - Codex review: [audit-001-review.md](audit-001-review.md)
-- approved changes: [audit-001-change-001.md](audit-001-change-001.md), [audit-001-change-002.md](audit-001-change-002.md), [audit-001-change-003.md](audit-001-change-003.md)
+- approved changes: [audit-001-change-001.md](audit-001-change-001.md), [audit-001-change-002.md](audit-001-change-002.md), [audit-001-change-003.md](audit-001-change-003.md), [audit-001-change-004.md](audit-001-change-004.md)
 - coverage registry: [audit-001-coverage-registry.md](audit-001-coverage-registry.md)
 
 ## 1. 해결한 업무 문제
@@ -28,6 +29,8 @@
 - 변경 field의 고정 scalar before/after 또는 자유문 원문 없는 길이 metadata
 
 System Administrator는 `관리자 → 전체 감사 이력`에서 최근 30일을 기본으로 요약·필터·목록·상세를 확인하고 선택한 행을 Excel로 보존할 수 있다.
+
+공개 사용자 검수에서 로그인 기록이 생성되지 않는 P1 결함을 확인했다. 운영 aggregate는 대화형 로그인 endpoint 호출 `0`, Backend 저장 실패 `0`이었고, Frontend가 MSAL v5 `LOGIN_SUCCESS`의 `AccountInfo` payload를 이전 `AuthenticationResult.account` 형식으로 읽어 pending login 생성 전에 반환한 것이 원인이었다. Change 004는 실제 v5 payload를 직접 처리하도록 보정했으며 과거 누락 기록은 합성하지 않는다.
 
 ## 2. 포함·제외 범위
 
@@ -95,6 +98,8 @@ Coverage 수치는 다음처럼 서로 다른 집합을 센다. 상세 계약은
 ### Frontend·UI·UX
 
 - MSAL event API의 Redirect/Popup `LOGIN_SUCCESS`만 pending interaction UUID를 만든다.
+- Change 004에서 MSAL Browser v5의 `LOGIN_SUCCESS` payload가 `AccountInfo` 자체라는 계약으로 tracker를 보정하고 실제 Redirect·Popup callback 회귀를 추가했다.
+- MSAL localStorage cross-tab broadcast에서는 로그인 시작 탭만 event를 소비한다. API 요청용 pending은 owner 탭 sessionStorage, 다른 탭의 이전 correlation 차단 표식은 localStorage에 분리하고 신규 서버 session만 다시 공유한다.
 - 서버가 반환한 login correlation·receipt는 MSAL cache 선택과 같은 local/session storage에 account별로 보관한다.
 - localStorage 공유 탭은 pending/session 변경을 구독해 다른 탭의 새 로그인 중에 이전 correlation을 쓰지 않고, 새 session 발급 뒤 최신 값으로 교체한다.
 - business mutation에만 두 식별 header를 붙이며 GET, 로그인/로그아웃, admin test-user header와 분리한다.
@@ -152,6 +157,7 @@ Coverage 수치는 다음처럼 서로 다른 집합을 센다. 상세 계약은
 - `DataExports/*`, selected export registry tests: 전체 감사 선택 Excel
 - `PostgreSqlMigrationTests.cs`: fresh/upgrade, commit/no-op/rollback, privacy, append-only, runtime role, login/session/query/detail
 - `App.tsx`, `api.ts`, `auth.ts`, `main.tsx`, `styles.css`, `auth.test.tsx`: route/menu/session header/logout/responsive UI와 회귀
+- Change 004의 `App.tsx`, `auth.ts`, `auth.test.tsx`: MSAL request correlation·tab owner 연결, v5 `AccountInfo` payload 처리, Redirect·Popup 두 탭 단일 소비와 Silent 제외 회귀
 - `tasks/audit-001-*`, Product Roadmap: 승인 계약·coverage·구현·검수·운영 handoff
 
 Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하지 않았다.
@@ -169,10 +175,15 @@ Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하�
 | Frontend typecheck | 통과 |
 | Frontend lint | error `0`, 기존 `main.tsx` fast-refresh warning `1` |
 | Frontend production build | 통과, 기존 대형 bundle warning 유지 |
+| Change 004 auth 집중 검증 | `23/23` 통과 |
+| Change 004 Frontend 전체 | `238/238` 통과 |
+| Change 004 typecheck·lint·build | typecheck 통과, lint error `0`·기존 warning `1`, production build 통과·기존 bundle warning 유지 |
+| Change 004 `git diff --check` | 통과 |
 | selected Excel registry | `5/5` 통과 |
 | `git diff --check` | 통과 |
 | final privacy/secret scan | credential signature 감지 `0`; audit code의 request/response/body/exception 직렬화 `0`; 식별 UUID header 2개만 허용 |
-| 독립 read-only 재검증 | `PASS`, Open P0/P1/P2 `0/0/0`, local release candidate `READY` |
+| Change 002 독립 read-only 재검증 | `PASS`, Open P0/P1/P2 `0/0/0`, 당시 local release candidate `READY` |
+| Change 004 독립 read-only 재검증 | `PASS`, Open P0/P1/P2 `0/0/0`, local candidate `READY_FOR_USER_REVIEW` |
 | Change 003 Azure release preflight | 마지막 성공 release와 원격 main SHA 일치; `cross-layer`; migration·Backend·Frontend `true`; Bicep·Portal template·static·release mock `PASS` |
 | 구현 PR·필수 CI | PR `#111` squash merge 완료; PR CI run `33136383870` `PASS` |
 | main CI | 운영 source exact SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`; run `33137735821` `PASS` |
@@ -187,6 +198,7 @@ Fable 원문 `tasks/audit-001-planning.md`와 raw interview round는 수정하�
 - PostgreSQL row trigger는 원래 statement와 같은 transaction에서 실행되며 어느 쪽이든 오류가 나면 둘 다 rollback된다는 계약을 [PostgreSQL Trigger Behavior](https://www.postgresql.org/docs/current/trigger-definition.html)에서 확인했다.
 - Npgsql은 기본적으로 pooling을 사용하며 connection string에서 이를 끌 수 있다는 계약을 [Npgsql Connection String Parameters](https://www.npgsql.org/doc/connection-string-parameters)에서 확인했다. Request별 pool 증가 자체는 첫 전체 회귀의 연결 정체와 수정 뒤 전체 회귀 통과로 검증했다.
 - MSAL Browser의 `LOGIN_SUCCESS`가 `Popup` 또는 `Redirect` interaction으로 발생하고 silent token 사건과 분리된다는 계약을 [Microsoft MSAL Browser Events](https://learn.microsoft.com/en-us/entra/msal/javascript/browser/events)에서 확인했다.
+- MSAL Browser v5의 `LOGIN_SUCCESS` payload가 `AuthenticationResult`가 아니라 `AccountInfo` 자체라는 breaking change를 [Microsoft MSAL Browser v4에서 v5로 마이그레이션](https://learn.microsoft.com/ko-kr/entra/msal/javascript/browser/v4-migration)에서 확인했다.
 
 전체 Backend 첫 실행에서 request별 audit GUC가 connection string pool key를 바꿔 연결 pool이 증가하는 결함을 발견했다. 해당 실행을 중단하고 audit mutation connection에 `Pooling=false`를 적용했으며 unit guard를 추가했다. Change 002 독립 검증 보정까지 모두 반영한 최종 전체 Backend `567/567`은 연결 정체 없이 통과했다.
 
@@ -214,10 +226,15 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 관리자가 UUID를 보고 로그인 맥락을 판단할 수 없으므로 폐기했다. 서버가 correlation 소유 Login 사건을 다시 조회해 시각·IP·fixed browser/OS를 상세에 제공한다.
 
+### `LOGIN_SUCCESS` payload를 `AuthenticationResult`로 해석
+
+MSAL 이전 버전의 event shape를 가정한 구현은 v5에서 `.account`가 없어 조용히 반환했다. TypeScript cast가 runtime shape를 검증하지 않아 기존 회귀도 통과했다. Change 004에서 payload를 `AccountInfo`로 직접 처리하고 실제 v5 event callback을 Redirect·Popup 각각 실행하는 회귀로 교체했다.
+
 ## 9. SOP — 운영 적용·관찰·복구
 
 ### 배포 전
 
+0. Change 004 독립 read-only 재검증 PASS를 확인하고, 별도 Push·PR·main merge·Azure 배포 승인을 받는다.
 1. Change 002 완화 계약의 독립 재검증 PASS와 exact release SHA의 최신 Backend 전체, Frontend `235/235`, build, migration fresh/upgrade와 50개 동시 mutation 결과를 다시 확인한다.
 2. 운영 DB backup/restore readiness와 migration/runtime 분리 role을 확인한다. Secret 원문은 증빙에 적지 않는다.
 3. `0083` 적용 전 현재 latest migration이 `0082`이고 원격 release branch가 승인된 exact SHA인지 확인한다.
@@ -232,6 +249,7 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ### 운영 확인
 
+- Change 004 배포 뒤 브라우저의 Microsoft 세션까지 완전히 로그아웃하고 새 Redirect 또는 Popup 로그인을 1회 수행한다. 운영 aggregate에서 login endpoint 호출 증가와 관리자 원장 로그인 row 정확히 1건을 확인한다.
 - 관리자 1명이 대화형 로그인 1건, 성공 저장 1건, validation 실패 1건을 확인한다.
 - 성공 변경 상세의 연결 로그인과 자유문 `N자`, fixed scalar before/after를 확인한다.
 - 일반 역할의 감사 API 접근이 403이고 기존 권한 거부 원장에 남는지 확인한다.
@@ -261,7 +279,7 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ## 11. 사용자 검수 체크리스트
 
-상태: `자동·독립 검증 완료 / 사용자 직접 검수 대기`
+상태: `공개 로그인 기록 검수 실패 / Change 004 local 자동·독립 검증 완료 / 게시 승인·재배포 대기`
 
 ### 일반 자동 회귀·대표 계약 검증 완료
 
@@ -276,7 +294,7 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ### 공개 운영 사용자 검수 대기
 
-- [ ] 본인의 새 대화형 로그인 1건이 한 번만 보인다.
+- [ ] Change 004 배포 뒤 완전 로그아웃과 새 대화형 로그인 1건이 한 번만 보인다.
 - [ ] 승인된 bounded 업무 데이터 1건을 바꾼 뒤 사용자·시각·대상·field before/after가 맞다.
 - [ ] validation 실패 1건이 입력 원문 없이 실패 종류로 보인다.
 - [ ] 변경 상세의 연결 로그인 시각·IP·browser/OS family가 맞다.
@@ -285,7 +303,7 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 - [ ] 일반 역할은 메뉴/API 접근이 차단된다.
 - [ ] 과거 소급 없음과 coverage 시작 안내를 이해했다.
 
-이 체크리스트는 존재만으로 완료되지 않는다. Change 002 독립 재검증은 PASS했으며, 사용자가 직접 확인하기 전까지는 `사용자 검수 대기`다.
+이 체크리스트는 존재만으로 완료되지 않는다. 기존 공개 검수에서 로그인 기록 미생성을 확인했으며, Change 004가 공개 반영되고 사용자가 다시 확인하기 전까지는 `사용자 검수 실패 / 재검수 대기`다.
 
 ## 12. Finding, known issue와 잔여 위험
 
@@ -308,10 +326,14 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 - `AUDIT-IMPL-F15` P1 `RESOLVED`: forbidden regex의 일반 `body`가 `notice_posts.body`·`pending_comments.body`·`notice_posts.body_format`까지 완전 제외해 metadata-only 계약을 깨뜨렸음. request/response/exception/raw body만 제외하고 업무 body는 길이만, `body_format`은 고정 enum으로 실제 DB 검증.
 - `AUDIT-IMPL-F16` P1 `RESOLVED`: audit append 자체가 실패할 때 business mutation도 rollback된다는 직접 증빙이 없었음. `audit_events` insert를 통제된 trigger로 실패시키고 업무 row·audit parent·field child가 모두 `0`건인지 실제 PostgreSQL에서 검증.
 - `AUDIT-IMPL-F17` P2 `RESOLVED`: Change 002가 모든 409를 `Conflict`로 확정했지만 `Duplicate`가 Backend allowlist·DB constraint/function·관리자 filter/label에 남아 있었음. 두 fixed reason만 남기고 Backend·migration·Frontend 부재 검증으로 고정.
+- `AUDIT-IMPL-F18` P1 `RESOLVED_VERIFIED`: MSAL v5 `LOGIN_SUCCESS`가 `AccountInfo`를 직접 전달하지만 Frontend가 `AuthenticationResult.account`로 읽어 login audit API 호출이 전부 누락됨. v5 payload 직접 처리와 Redirect·Popup 회귀를 추가해 독립 검증했다.
+- `AUDIT-IMPL-F19` P1 `RESOLVED_VERIFIED`: MSAL v5 localStorage cross-tab broadcast에서 여러 탭이 shared pending을 읽으면 한 로그인에 API가 중복 호출될 수 있었음. request correlation과 tab-scoped owner를 연결하고 API pending과 cross-tab 차단 marker를 분리했으며 두 탭 callback 단일 소비 회귀를 독립 검증했다.
+- `AUDIT-TEST-F01` P2 `RESOLVED_VERIFIED`: 기존 테스트가 storage와 API 함수만 검증하고 MSAL event payload 계약을 직접 실행하지 않아 P1을 놓침. 실제 v5 event shape callback 테스트로 고정했다.
+- `PRIVACY_QUERY_COMMAND_LEAK` P2 `RESOLVED`: 진단 중 실패한 운영 조회 한 건이 허용 fixed projection 밖 식별 metadata를 tool error에 포함했다. Repository artifact에는 저장하지 않고 원문을 폐기했으며 이후 확인은 endpoint·failure aggregate count로 제한한다.
 
 ### Open/Backlog
 
-- 최종 독립 read-only 재검증 기준 Open P0/P1/P2: `0/0/0`.
+- Change 002와 Change 004 최종 독립 read-only 재검증 기준 Open P0/P1/P2: 각각 `0/0/0`.
 - `AUDIT-COVERAGE-EXECUTION-GAP` P1 `RESOLVED_BY_CHANGE_002 / VERIFIED`: endpoint 분류 `185/185`(포함 156·제외 29), relation 분류 `145/145`(추적 94·제외 51), 중앙 PostgreSQL 성공·accepted no-op·caller rollback·audit append 실패 rollback·privacy·append-only·권한 대표 검증과 동시 mutation 50건을 v1 acceptance로 승인·검증했다. 156-route 1:1 matrix는 요구하지 않으며 모든 route의 개별 업무 규칙을 실행 증명했다고 주장하지 않는다.
 - `AUDIT-DUPLICATE-CLASSIFICATION-GAP` P2 `RESOLVED_BY_CHANGE_002 / VERIFIED`: v1은 400/422 `Validation`, 409/412 `Conflict`만 사용한다. 중복도 `Conflict`로 보수 분류하며 endpoint·action 이름 추정은 금지한다. `Duplicate`는 Backend·DB·UI와 관리자 filter/label에서 제거했다.
 - `AUDIT-BACKLOG-001` P3 `BACKLOG`: 무기한 append-only 저장량의 archive/purge 정책. 현재는 사용자 확정대로 purge 없음. 운영 row growth와 DB 비용 관찰 후 별도 Task ID를 Roadmap에서 확정한다.
@@ -321,7 +343,7 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 
 ## 13. 미실행 검증
 
-- 실제 Microsoft 365 interactive login: 배포는 완료했지만 사용자 직접 운영 검수 단계이므로 미실행. Frontend event contract와 local Dev identity로 검증했다.
+- Change 004 수정본의 실제 Microsoft 365 interactive login: local 자동 검증까지만 완료했고 공개 배포 뒤 재검수가 필요하다. 기존 운영 검수에서는 로그인 기록 미생성을 확인했다.
 - Persistent UAT migration/runtime handover: 승인 범위 밖이므로 미실행.
 - 실제 운영 Excel 다운로드와 일반 역할 403: local contract·자동 검증까지만 완료, 공개 운영 사용자 checklist에서 대기.
 - Azure 운영 환경의 실제 50명 동시 부하: local 전용 PostgreSQL의 50개 동시 mutation은 통과했지만 Azure network·DB tier를 포함한 부하는 미실행이다. 운영 aggregate 관찰을 P3로 추적한다.
@@ -335,9 +357,9 @@ Change 002 이후 첫 Backend 전체 재실행은 일부 기존 test fixture가 
 | Implementation report | 작성됨 | 이 문서 |
 | SOP | 작성됨 | 이 문서 9장 |
 | User manual | 작성됨 | 이 문서 10장 |
-| Roadmap update | 작성됨 | `docs/00-product-roadmap.md` 실행 큐 `3.3L`·추적 `48`·Decision Log `2026-08-28` |
-| User validation checklist | 자동·독립 검증 완료 / 사용자 직접 검수 대기 | 이 문서 11장 |
+| Roadmap update | 작성됨 | `docs/00-product-roadmap.md` 실행 큐 `3.3L`·추적 `48`·Decision Log `2026-08-28`, `2026-08-31` |
+| User validation checklist | 기존 공개 로그인 검수 실패 / Change 004 local 자동 검증 완료 / 재배포 뒤 재검수 대기 | 이 문서 11장 |
 
 ## 15. 사용자 검수 결과와 남은 항목
 
-현재 local implementation·exact catalog·중앙 PostgreSQL 대표 transaction·local full-stack visual·Backend `567/567`·Frontend `235/235`·migration `59/59`·final privacy/secret scan을 포함한 일반 자동 회귀를 완료했다. 사용자는 Change 002에서 이를 v1 acceptance로 확정하고 모든 409를 `Conflict`로 보수 분류하도록 승인했다. 독립 검증에서 발견된 audit append 실패 rollback 증빙과 잔존 `Duplicate` 계약도 보정했고, 최종 read-only 재검증은 `PASS`, Open P0/P1/P2 `0/0/0`이다. Change 003에 따라 PR `#111`을 squash merge해 운영 source exact main SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`를 만들었고, main CI run `33137735821`과 Azure release run `33137792491`이 통과했다. Migration·Backend·Frontend·public security smoke가 모두 `PASS`이며 release workflow 밖 별도 HTTP 확인은 health `200`, 익명 root·API `401/401`이다. Local Persistent UAT handover와 실제 외부 알림 시험 발송은 제외했다. 공개 사용자 직접 검수와 운영 aggregate 관찰은 계속 대기 상태다.
+기존 기능은 Change 003에 따라 PR `#111`, 운영 source exact main SHA `6713e5974ad5262d87d7cc2332b27486d2487ccd`, main CI `33137735821`과 Azure release `33137792491`까지 완료했다. 이후 공개 사용자 검수에서 로그인 기록 미생성을 확인했고, 운영 aggregate의 login endpoint 호출 `0`·Backend 저장 실패 `0`과 MSAL v5 event 계약 대조로 Frontend payload 해석 오류를 P1 root cause로 확정했다. Change 004는 MSAL v5 `AccountInfo` payload, request correlation과 로그인 시작 탭 소유권, API pending과 cross-tab 차단 marker 분리를 보정해 auth 집중 `23/23`, Frontend 전체 `238/238`, typecheck, lint error `0`, production build와 `git diff --check`를 통과했다. 독립 read-only 재검증도 `PASS`, Open P0/P1/P2 `0/0/0`이다. Backend·DB·migration은 변경하지 않았고 과거 누락 로그인은 합성하지 않는다. 현재 별도 Push·PR·main merge·Azure release 승인과 배포 뒤 완전 로그아웃·새 대화형 로그인 재검수가 남았다.

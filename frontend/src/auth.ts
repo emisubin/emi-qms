@@ -4,7 +4,6 @@ import {
   InteractionType,
   PublicClientApplication,
   type AccountInfo,
-  type AuthenticationResult,
   type Configuration,
   type IPublicClientApplication
 } from '@azure/msal-browser';
@@ -15,6 +14,7 @@ export type PendingInteractiveAuditLogin = { clientInteractionId: string };
 export type StoredAuditSession = { loginCorrelationId: string; idempotencyReceipt: string };
 
 export const rememberSessionStorageKey = 'emi-auth-remember-session';
+const interactiveAuditOwnerStorageKey = 'emi-audit-login-owner';
 
 export const authMode: AuthMode = (import.meta.env.VITE_AUTH_MODE ?? (import.meta.env.DEV ? 'Dev' : 'EntraId')).toLowerCase() === 'dev'
   ? 'Dev'
@@ -61,27 +61,56 @@ export function registerInteractiveLoginAuditTracker(
       return;
     }
 
-    const account = (event.payload as AuthenticationResult | null)?.account;
-    if (!account || typeof window === 'undefined') {
+    const account = event.payload as AccountInfo | null;
+    const clientInteractionId = event.correlationId;
+    if (!account?.homeAccountId || !clientInteractionId || typeof window === 'undefined') {
+      return;
+    }
+    if (window.sessionStorage.getItem(interactiveAuditOwnerStorageKey) !== clientInteractionId) {
       return;
     }
 
-    auditStorage(rememberSession)?.setItem(
-      pendingAuditKey(account),
-      JSON.stringify({ clientInteractionId: window.crypto.randomUUID() } satisfies PendingInteractiveAuditLogin)
-    );
+    const pendingLogin = JSON.stringify({ clientInteractionId } satisfies PendingInteractiveAuditLogin);
+    window.sessionStorage.setItem(pendingAuditKey(account), pendingLogin);
+    if (rememberSession) {
+      window.localStorage.setItem(pendingAuditKey(account), pendingLogin);
+    }
+    clearInteractiveLoginAuditOwner(clientInteractionId);
   });
 }
 
+export function beginInteractiveLoginAudit(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const clientInteractionId = window.crypto.randomUUID();
+  window.sessionStorage.setItem(interactiveAuditOwnerStorageKey, clientInteractionId);
+  return clientInteractionId;
+}
+
+export function clearInteractiveLoginAuditOwner(clientInteractionId: string | null) {
+  if (typeof window === 'undefined' || !clientInteractionId) {
+    return;
+  }
+  if (window.sessionStorage.getItem(interactiveAuditOwnerStorageKey) === clientInteractionId) {
+    window.sessionStorage.removeItem(interactiveAuditOwnerStorageKey);
+  }
+}
+
 export function readPendingInteractiveAuditLogin(
-  account: AccountInfo,
-  rememberSession: boolean
+  account: AccountInfo
 ): PendingInteractiveAuditLogin | null {
-  return readAuditJson<PendingInteractiveAuditLogin>(auditStorage(rememberSession)?.getItem(pendingAuditKey(account)));
+  if (typeof window === 'undefined') return null;
+  return readAuditJson<PendingInteractiveAuditLogin>(window.sessionStorage.getItem(pendingAuditKey(account)));
 }
 
 export function clearPendingInteractiveAuditLogin(account: AccountInfo, rememberSession: boolean) {
-  auditStorage(rememberSession)?.removeItem(pendingAuditKey(account));
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(pendingAuditKey(account));
+  if (rememberSession) {
+    window.localStorage.removeItem(pendingAuditKey(account));
+  }
 }
 
 export function readStoredAuditSession(account: AccountInfo, rememberSession: boolean): StoredAuditSession | null {
@@ -89,10 +118,13 @@ export function readStoredAuditSession(account: AccountInfo, rememberSession: bo
 }
 
 export function readAuditStartupState(account: AccountInfo, rememberSession: boolean) {
-  const pendingLogin = readPendingInteractiveAuditLogin(account, rememberSession);
+  const pendingLogin = readPendingInteractiveAuditLogin(account);
+  const sharedPendingLogin = rememberSession && typeof window !== 'undefined'
+    ? readAuditJson<PendingInteractiveAuditLogin>(window.localStorage.getItem(pendingAuditKey(account)))
+    : pendingLogin;
   return {
     pendingLogin,
-    session: pendingLogin ? null : readStoredAuditSession(account, rememberSession)
+    session: sharedPendingLogin ? null : readStoredAuditSession(account, rememberSession)
   };
 }
 

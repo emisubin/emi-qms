@@ -172,6 +172,8 @@ import type { MaterialCategory } from './formTemplates';
 import type { RuntimeMode } from './api';
 import {
   acquireAccessToken,
+  beginInteractiveLoginAudit,
+  clearInteractiveLoginAuditOwner,
   clearPendingInteractiveAuditLogin,
   clearStoredAuditSession,
   getRememberSessionPreference,
@@ -1395,10 +1397,12 @@ function EntraAuthenticatedApp({
 
   const login = () => {
     clearTestUserSwitch();
-    void instance.loginRedirect({
+    const clientInteractionId = beginInteractiveLoginAudit();
+    void Promise.resolve(instance.loginRedirect({
       ...loginRequest,
+      correlationId: clientInteractionId ?? undefined,
       redirectStartPage: typeof window === 'undefined' ? undefined : window.location.href
-    });
+    })).catch(() => clearInteractiveLoginAuditOwner(clientInteractionId));
   };
 
   const logout = async () => {

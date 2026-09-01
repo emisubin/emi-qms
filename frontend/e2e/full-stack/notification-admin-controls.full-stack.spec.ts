@@ -48,7 +48,8 @@ test('notification administrator audit and failed reprocess use the real isolate
 
   await page.goto(`/admin/system/notification-deliveries/${failedDeliveryId}`);
   await expect(page.getByRole('heading', { name: '알림 발송 상세' })).toBeVisible();
-  await expect(page.getByText('G2', { exact: true })).toBeVisible();
+  const generationItem = page.locator('.notification-detail-panel .detail-item').filter({ hasText: '재처리 Generation' });
+  await expect(generationItem.getByText('G2', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '수동 재처리 이력' })).toBeVisible();
   await capture(page, '05-reprocessed-notification-detail-desktop-1440.png');
 });

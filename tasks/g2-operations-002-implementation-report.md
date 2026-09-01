@@ -144,6 +144,7 @@ Synthetic 화면 증빙:
 | `G2-002-FORECAST-COLOR-001` | P2 | `RESOLVED` | Graphite 마지막 cascade가 예상 input·출근 합계의 파란색을 덮음 | wireframe semantic 예외와 mobile computed-style 검증, 휴일 빨강 우선 유지 |
 | `G2-002-E2E-LOCATOR-001` | P3 | `RESOLVED` | 첫 통합 검증의 재고 행 locator가 table scope를 잘못 결합 | rowheader parent로 고정한 뒤 동일 시나리오 재실행 통과 |
 | `G2-002-CI-DATE-WIDTH-001` | P2 | `RESOLVED` | Linux Chromium의 date input intrinsic width 때문에 `116px` grid 안의 실제 폭이 `121.15625px`로 넘침 | G2 mobile date input에 `min-width: 0`, `box-sizing: border-box`, 명시적 max-width를 적용하고 local·PR Full-Stack 재검증 |
+| `G2-002-CI-NOTIFICATION-LOCATOR-001` | P3 | `RESOLVED` | 기존 알림 관리자 E2E가 전역 `G2` 문구를 찾으면서 새 G2 메뉴와 재처리 Generation 값 두 요소가 일치해 strict locator가 실패함 | 알림 상세 panel의 `재처리 Generation / G2` detail item으로 assertion scope를 제한하고 targeted·전체 PR Full-Stack 재검증 |
 
 현재 Open P0/P1/P2/P3는 `0/0/0/0`이다. 자동 assertion과 검증 시나리오는 같은 구현 cycle에서 작성되었으므로 독립적인 현업 ground truth가 아니다. 자동 검증은 계약 회귀와 기술 동작의 근거이며, 사용자 직접 가독성·업무 적합성 검수를 대체하지 않는다.
 

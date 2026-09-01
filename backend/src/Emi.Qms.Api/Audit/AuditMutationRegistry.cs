@@ -73,6 +73,8 @@ public static partial class AuditMutationRegistry
         POST /api/admin/users/{userId:guid}/restore
         POST /api/audit/sessions/interactive-login
         POST /api/audit/sessions/logout
+        POST /api/audit/site-access/end
+        POST /api/audit/site-access/signals
         POST /api/data-exports/selected
         POST /api/deleted-projects/purge-all
         POST /api/deleted-projects/{projectId:guid}/restore
@@ -220,6 +222,8 @@ public static partial class AuditMutationRegistry
         POST /api/admin/notification-deliveries/test-teams-activity
         POST /api/audit/sessions/interactive-login
         POST /api/audit/sessions/logout
+        POST /api/audit/site-access/end
+        POST /api/audit/site-access/signals
         POST /api/data-exports/selected
         POST /api/form-templates/export
         POST /api/my/web-push/current-status

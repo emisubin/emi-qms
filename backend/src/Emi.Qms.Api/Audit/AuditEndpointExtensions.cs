@@ -11,7 +11,8 @@ public static class AuditEndpointExtensions
         AuditEventTypes.Logout,
         AuditEventTypes.MutationSucceeded,
         AuditEventTypes.MutationFailed,
-        AuditEventTypes.AuthorizationDenied
+        AuditEventTypes.AuthorizationDenied,
+        AuditEventTypes.SiteAccess
     };
 
     public static IEndpointRouteBuilder MapAuditEndpoints(this IEndpointRouteBuilder app)
@@ -96,6 +97,105 @@ public static class AuditEndpointExtensions
         .RequireAuthorization("AuthenticatedIdentity")
         .WithName("RecordExplicitLogout");
 
+        app.MapPost("/api/audit/site-access/signals", async (
+            RecordSiteAccessRequest request,
+            HttpContext context,
+            ClaimsPrincipal user,
+            AuditStore store,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryGetUserId(user, out var actorUserId))
+            {
+                return Results.Unauthorized();
+            }
+
+            if (request.BrowserClientId == Guid.Empty || !SiteAccessMenuCodes.Labels.ContainsKey(request.MenuCode))
+            {
+                return Results.ValidationProblem(
+                    new Dictionary<string, string[]>
+                    {
+                        ["siteAccess"] = ["브라우저 식별자와 지원하는 메뉴 코드를 확인해 주세요."]
+                    },
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    title: "사이트 접속 기록 요청을 확인해 주세요.");
+            }
+
+            var appAccessOutcome = user.HasClaim(QmsClaimTypes.Inactive, bool.TrueString)
+                ? "Inactive"
+                : user.HasClaim(QmsClaimTypes.ApprovalPending, bool.TrueString)
+                    ? "ApprovalPending"
+                    : "Allowed";
+            var userAgent = context.Request.Headers.UserAgent.ToString();
+
+            try
+            {
+                return Results.Ok(await store.RecordSiteAccessAsync(
+                    actorUserId,
+                    request.BrowserClientId,
+                    request.MenuCode,
+                    appAccessOutcome,
+                    context.Connection.RemoteIpAddress,
+                    ResolveBrowserFamily(userAgent),
+                    ResolveOsFamily(userAgent),
+                    cancellationToken));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                loggerFactory.CreateLogger("Emi.Qms.Api.Audit.SiteAccess")
+                    .LogError(exception, "Best-effort site access audit write failed.");
+                return Results.Problem(
+                    title: "사이트 접속 기록을 남기지 못했습니다.",
+                    detail: "사이트 이용은 계속할 수 있습니다.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("AuthenticatedIdentity")
+        .WithName("RecordSiteAccess");
+
+        app.MapPost("/api/audit/site-access/end", async (
+            EndSiteAccessRequest request,
+            ClaimsPrincipal user,
+            AuditStore store,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryGetUserId(user, out var actorUserId))
+            {
+                return Results.Unauthorized();
+            }
+
+            if (request.SessionId == Guid.Empty || request.IdempotencyReceipt == Guid.Empty)
+            {
+                return Results.ValidationProblem(
+                    new Dictionary<string, string[]> { ["siteAccess"] = ["접속 종료 영수증을 확인해 주세요."] },
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    title: "사이트 접속 종료 요청을 확인해 주세요.");
+            }
+
+            try
+            {
+                return await store.EndSiteAccessAsync(
+                    actorUserId,
+                    request.SessionId,
+                    request.IdempotencyReceipt,
+                    cancellationToken)
+                    ? Results.NoContent()
+                    : Results.NotFound();
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                loggerFactory.CreateLogger("Emi.Qms.Api.Audit.SiteAccess")
+                    .LogError(exception, "Best-effort site access end audit write failed.");
+                return Results.Problem(
+                    title: "사이트 접속 종료 기록을 남기지 못했습니다.",
+                    detail: "로그아웃은 계속 진행할 수 있습니다.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("AuthenticatedIdentity")
+        .WithName("EndSiteAccess");
+
         app.MapGet("/api/admin/audit-events", async (
             DateOnly? from,
             DateOnly? to,
@@ -157,7 +257,7 @@ public static class AuditEndpointExtensions
             CancellationToken cancellationToken) =>
         {
             var normalizedSource = Normalize(source) ?? "Global";
-            if (normalizedSource is not "Global" and not "Authorization")
+            if (normalizedSource is not "Global" and not "Authorization" and not "SiteAccess")
             {
                 return Results.ValidationProblem(
                     new Dictionary<string, string[]> { ["source"] = ["지원하지 않는 감사 원본입니다."] },

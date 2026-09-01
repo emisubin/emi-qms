@@ -80,7 +80,7 @@ export function AuditPage({ developmentUserKey }: Props) {
         className="page-header"
         eyebrow="System · Audit"
         title="전체 감사 이력"
-        description="누가 로그인했고 실제로 어떤 값을 저장하거나 저장하지 못했는지 확인합니다."
+        description="누가 사이트에 들어왔고 실제로 어떤 값을 저장하거나 저장하지 못했는지 확인합니다."
         actions={<button type="button" onClick={() => setFilters({ ...filters })}>새로고침</button>}
       />
 
@@ -89,10 +89,13 @@ export function AuditPage({ developmentUserKey }: Props) {
           <div className="audit-summary-grid" aria-label="감사 이력 요약">
             <article><span>전체</span><strong>{state.data.summary.totalEvents}</strong></article>
             <article><span>로그인</span><strong>{state.data.summary.loginEvents}</strong></article>
+            <article><span>사이트 접속</span><strong>{state.data.summary.siteAccessEvents}</strong></article>
             <article><span>저장 완료</span><strong>{state.data.summary.successfulChanges}</strong></article>
             <article><span>저장 실패·권한 거절</span><strong>{state.data.summary.failedChanges + state.data.summary.authorizationDenials}</strong></article>
           </div>
-          <p className="audit-identity-notice"><strong>기록 범위</strong> {state.data.coverage.completenessNotice}</p>
+          <p className="audit-identity-notice"><strong>변경·인증 기록 범위</strong> {state.data.coverage.completenessNotice}</p>
+          <p className="audit-identity-notice"><strong>사이트 접속 기록 범위</strong> {state.data.coverage.siteAccessCompletenessNotice}</p>
+          <p className="audit-identity-notice">{state.data.coverage.lastActivityNotice}</p>
         </>
       ) : null}
 
@@ -101,7 +104,7 @@ export function AuditPage({ developmentUserKey }: Props) {
         <label>종료일<input type="date" value={draft.to} onChange={(event) => setDraft({ ...draft, to: event.target.value })} /></label>
         <label>사건<select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value })}>
           <option value="">전체</option><option value="Login">로그인</option><option value="Logout">로그아웃</option>
-          <option value="MutationSucceeded">저장 완료</option><option value="MutationFailed">저장 실패</option><option value="AuthorizationDenied">권한 거절</option>
+          <option value="SiteAccess">사이트 접속</option><option value="MutationSucceeded">저장 완료</option><option value="MutationFailed">저장 실패</option><option value="AuthorizationDenied">권한 거절</option>
         </select></label>
         <label>업무영역<select value={draft.domain} onChange={(event) => setDraft({ ...draft, domain: event.target.value })}>
           <option value="">전체</option><option value="Projects">프로젝트</option><option value="ProductionPlanning">생산관리</option>
@@ -136,14 +139,16 @@ export function AuditPage({ developmentUserKey }: Props) {
           {items.length === 0 ? <div className="empty-state"><strong>조건에 맞는 감사 이력이 없습니다.</strong></div> : (<>
             <div className="audit-desktop-table table-scroll">
               <table className="admin-table">
-                <thead><tr><th>선택</th><th>발생일시</th><th>사용자</th><th>사건</th><th>업무영역·행동</th><th>대상</th><th>결과</th><th>변경</th></tr></thead>
+                <thead><tr><th>선택</th><th>최초 발생</th><th>마지막 활동</th><th>사용자</th><th>사건</th><th>업무영역·행동</th><th>접속 메뉴</th><th>대상</th><th>결과</th><th>변경</th></tr></thead>
                 <tbody>{items.map((item) => (
                   <tr key={`${item.source}:${item.eventId}`}>
                     <td><SelectionCheckbox checked={selection.selectedIds.has(item.eventId)} disabled={selection.busy} label={`${item.actorDisplayName} 감사 이력 선택`} onChange={(checked) => selection.toggle(item.eventId, checked)} /></td>
                     <td><button type="button" className="table-link-button" onClick={() => void openDetail(item)}>{kstFormatter.format(new Date(item.occurredAtUtc))}</button></td>
+                    <td>{item.lastActivityAtUtc ? kstFormatter.format(new Date(item.lastActivityAtUtc)) : '-'}</td>
                     <td><strong>{item.actorDisplayName}</strong><br /><small>{item.actorDepartmentName ?? '부서 없음'}</small>{item.actualActorDisplayName ? <><br /><small>실제 사용자: {item.actualActorDisplayName}</small></> : null}</td>
                     <td>{eventTypeLabel(item.eventType)}</td>
                     <td>{domainLabel(item.domain)}<br /><small>{item.action}</small></td>
+                    <td>{item.eventType === 'SiteAccess' ? siteAccessMenuSummary(item) : '-'}</td>
                     <td>{item.targetKey ?? '-'}</td>
                     <td>{outcomeLabel(item)}</td>
                     <td>{item.changeCount}</td>
@@ -158,9 +163,11 @@ export function AuditPage({ developmentUserKey }: Props) {
                   <span>{kstFormatter.format(new Date(item.occurredAtUtc))}</span>
                   <strong>{eventTypeLabel(item.eventType)}</strong>
                 </div>
+                {item.lastActivityAtUtc ? <small>마지막 활동 {kstFormatter.format(new Date(item.lastActivityAtUtc))}</small> : null}
                 <h3>{item.actorDisplayName} <span>{outcomeLabel(item)}</span></h3>
                 {item.actualActorDisplayName ? <small>실제 사용자: {item.actualActorDisplayName}</small> : null}
                 <p>{domainLabel(item.domain)} · {item.action}</p>
+                {item.eventType === 'SiteAccess' ? <small>접속 메뉴 {siteAccessMenuSummary(item)}</small> : null}
                 <div><small>{item.targetKey ?? '대상 없음'} · 변경 {item.changeCount}건</small><button type="button" className="table-link-button" onClick={() => void openDetail(item)}>상세 보기</button></div>
               </article>
             ))}</div>
@@ -196,6 +203,15 @@ function AuditDetailView({ detail }: { detail: AuditDetail }) {
       <div><dt>사건</dt><dd>{eventTypeLabel(item.eventType)} · {outcomeLabel(item)}</dd></div>
       <div><dt>업무</dt><dd>{domainLabel(item.domain)} · {item.action}</dd></div>
       <div><dt>대상</dt><dd>{item.targetType ?? '-'} · {item.targetKey ?? '-'}</dd></div>
+      {item.eventType === 'SiteAccess' ? <>
+        <div><dt>최초 접속</dt><dd>{kstFormatter.format(new Date(item.occurredAtUtc))}</dd></div>
+        <div><dt>마지막 활동</dt><dd>{item.lastActivityAtUtc ? kstFormatter.format(new Date(item.lastActivityAtUtc)) : '-'}</dd></div>
+        <div><dt>종료</dt><dd>{item.endedAtUtc ? kstFormatter.format(new Date(item.endedAtUtc)) : '-'}</dd></div>
+        <div><dt>접속 상태</dt><dd>{siteAccessStatusLabel(item.siteAccessStatus)}</dd></div>
+        <div><dt>접속 메뉴</dt><dd>{item.menuLabels.length > 0 ? item.menuLabels.join(' → ') : '-'}</dd></div>
+        <div><dt>앱 접근 결과</dt><dd>{appAccessOutcomeLabel(item.appAccessOutcome)}</dd></div>
+        <div><dt>접속 환경</dt><dd>{item.clientIp ?? '-'} · {item.browserFamily ?? '-'} · {item.osFamily ?? '-'}</dd></div>
+      </> : null}
       {item.eventType === 'Login' ? <div><dt>로그인 환경</dt><dd>{item.clientIp ?? '-'} · {item.browserFamily ?? '-'} · {item.osFamily ?? '-'}</dd></div> : null}
       {item.eventType !== 'Login' && detail.loginContext ? <div><dt>연결 로그인</dt><dd>{kstFormatter.format(new Date(detail.loginContext.occurredAtUtc))} · {detail.loginContext.clientIp ?? '-'} · {detail.loginContext.browserFamily ?? '-'} · {detail.loginContext.osFamily ?? '-'}</dd></div> : null}
       {item.source === 'Global' && item.eventType !== 'Login' && !detail.loginContext ? <div><dt>연결 로그인</dt><dd>로그인 연결 없음</dd></div> : null}
@@ -213,18 +229,38 @@ function AuditDetailView({ detail }: { detail: AuditDetail }) {
 }
 
 function eventTypeLabel(value: AuditListItem['eventType']) {
-  return ({ Login: '로그인', Logout: '로그아웃', MutationSucceeded: '저장 완료', MutationFailed: '저장 실패', AuthorizationDenied: '권한 거절' } as const)[value];
+  return ({ Login: '로그인', Logout: '로그아웃', SiteAccess: '사이트 접속', MutationSucceeded: '저장 완료', MutationFailed: '저장 실패', AuthorizationDenied: '권한 거절' } as const)[value];
 }
 
 function domainLabel(value: string) {
-  return ({ Projects: '프로젝트', ProductionPlanning: '생산관리', Procurement: '구매', Materials: '자재', Manufacturing: '제조', Quality: '품질', Logistics: '물류', Pending: 'Pending', Administration: '관리자', G2: 'G2', Identity: '로그인', Authorization: '권한' } as Record<string, string>)[value] ?? value;
+  return ({ Projects: '프로젝트', ProductionPlanning: '생산관리', Procurement: '구매', Materials: '자재', Manufacturing: '제조', Quality: '품질', Logistics: '물류', Pending: 'Pending', Administration: '관리자', G2: 'G2', Identity: '인증·접속', Authorization: '권한' } as Record<string, string>)[value] ?? value;
 }
 
 function outcomeLabel(item: AuditListItem) {
+  if (item.eventType === 'SiteAccess') return siteAccessStatusLabel(item.siteAccessStatus);
   if (item.failureReason === 'Validation') return '입력값 확인 실패';
   if (item.failureReason === 'Conflict') return '동시 수정·상태 충돌';
   if (item.eventType === 'AuthorizationDenied') return '권한 거절';
   if (item.appAccessOutcome === 'ApprovalPending') return '승인 대기';
   if (item.appAccessOutcome === 'Inactive') return '비활성 계정';
   return item.outcome === 'Succeeded' ? '완료' : item.outcome === 'Ended' ? '종료' : '거절';
+}
+
+function siteAccessStatusLabel(value: AuditListItem['siteAccessStatus']) {
+  return value === 'RecentSignal' ? '최근 활동'
+    : value === 'ExplicitLogout' ? '직접 로그아웃'
+      : value === 'TimedOut' ? '30분 경과'
+        : '-';
+}
+
+function appAccessOutcomeLabel(value: AuditListItem['appAccessOutcome']) {
+  return value === 'Allowed' ? '허용'
+    : value === 'ApprovalPending' ? '승인 대기'
+      : value === 'Inactive' ? '비활성 계정'
+        : '-';
+}
+
+function siteAccessMenuSummary(item: AuditListItem) {
+  if (item.menuLabels.length <= 3) return item.menuLabels.join(' → ') || '-';
+  return `${item.menuLabels.slice(0, 3).join(' → ')} 외 ${item.menuLabels.length - 3}개`;
 }

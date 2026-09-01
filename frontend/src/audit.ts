@@ -4,18 +4,22 @@ export type AuditSummary = {
   successfulChanges: number;
   failedChanges: number;
   authorizationDenials: number;
+  siteAccessEvents: number;
 };
 
 export type AuditCoverage = {
   coverageStartedAtUtc: string;
   completenessNotice: string;
+  siteAccessCoverageStartedAtUtc: string;
+  siteAccessCompletenessNotice: string;
+  lastActivityNotice: string;
 };
 
 export type AuditListItem = {
   eventId: string;
-  source: 'Global' | 'Authorization';
+  source: 'Global' | 'Authorization' | 'SiteAccess';
   occurredAtUtc: string;
-  eventType: 'Login' | 'Logout' | 'MutationSucceeded' | 'MutationFailed' | 'AuthorizationDenied';
+  eventType: 'Login' | 'Logout' | 'MutationSucceeded' | 'MutationFailed' | 'AuthorizationDenied' | 'SiteAccess';
   actorUserId: string | null;
   actorDisplayName: string;
   actorDepartmentName: string | null;
@@ -34,6 +38,12 @@ export type AuditListItem = {
   browserFamily: string | null;
   osFamily: string | null;
   appAccessOutcome: string | null;
+  lastActivityAtUtc: string | null;
+  endedAtUtc: string | null;
+  siteAccessStatus: 'RecentSignal' | 'ExplicitLogout' | 'TimedOut' | null;
+  menuCodes: string[];
+  menuLabels: string[];
+  siteAccessCoverageStartedAtUtc: string;
 };
 
 export type AuditList = {

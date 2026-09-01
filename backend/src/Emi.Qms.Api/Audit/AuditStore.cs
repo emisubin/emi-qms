@@ -5,6 +5,7 @@ namespace Emi.Qms.Api.Audit;
 
 public sealed class AuditStore(
     DatabaseConnectionStringProvider connectionStringProvider,
+    TimeProvider timeProvider,
     ILogger<AuditStore> logger)
 {
     private const string UnifiedSelect = """
@@ -29,7 +30,13 @@ public sealed class AuditStore(
                host(event.client_ip),
                event.browser_family,
                event.os_family,
-               event.app_access_outcome
+               event.app_access_outcome,
+               null::timestamptz as last_activity_at_utc,
+               null::timestamptz as ended_at_utc,
+               null::text as site_access_status,
+               null::text[] as menu_codes,
+               (select coverage_started_at_utc from site_access_coverage_state where singleton)
+                   as site_access_coverage_started_at_utc
         from audit_events event
         where event.occurred_at_utc >= (select coverage_started_at_utc from audit_coverage_state where singleton)
         union all
@@ -54,12 +61,56 @@ public sealed class AuditStore(
                null::text,
                null::text,
                null::text,
-               null::text
+               null::text,
+               null::timestamptz,
+               null::timestamptz,
+               null::text,
+               null::text[],
+               (select coverage_started_at_utc from site_access_coverage_state where singleton)
         from authorization_audit_events denied
         left join qms_users qms_user on qms_user.id = denied.user_id
         left join departments department on department.id = qms_user.department_id
         left join qms_users actual_user on actual_user.id = denied.actual_actor_user_id
         where denied.occurred_at_utc >= (select coverage_started_at_utc from audit_coverage_state where singleton)
+        union all
+        select access.id,
+               'SiteAccess'::text,
+               access.started_at_utc,
+               'SiteAccess'::text,
+               access.actor_user_id,
+               access.actor_display_name,
+               access.actor_department_name,
+               null::uuid,
+               null::text,
+               'Identity'::text,
+               'SiteAccess'::text,
+               null::text,
+               null::text,
+               case
+                   when access.ended_at_utc is not null then 'ExplicitLogout'
+                   when access.last_activity_at_utc > @current_utc - interval '30 minutes' then 'RecentSignal'
+                   else 'TimedOut'
+               end,
+               null::text,
+               null::text,
+               null::uuid,
+               0::integer,
+               host(access.client_ip),
+               access.browser_family,
+               access.os_family,
+               access.app_access_outcome,
+               access.last_activity_at_utc,
+               access.ended_at_utc,
+               case
+                   when access.ended_at_utc is not null then 'ExplicitLogout'
+                   when access.last_activity_at_utc > @current_utc - interval '30 minutes' then 'RecentSignal'
+                   else 'TimedOut'
+               end,
+               access.menu_codes,
+               (select coverage_started_at_utc from site_access_coverage_state where singleton)
+        from site_access_sessions access
+        where access.started_at_utc >= (
+            select coverage_started_at_utc from site_access_coverage_state where singleton)
         """;
 
     private const string FilterPredicate = """
@@ -157,6 +208,72 @@ public sealed class AuditStore(
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
+    public async Task<SiteAccessSessionResponse> RecordSiteAccessAsync(
+        Guid actorUserId,
+        Guid browserClientId,
+        string menuCode,
+        string appAccessOutcome,
+        System.Net.IPAddress? clientIp,
+        string browserFamily,
+        string osFamily,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select session_id, idempotency_receipt, started_at_utc, last_activity_at_utc, created
+            from qms_record_site_access(
+                @actor_user_id,
+                @browser_client_id,
+                @menu_code,
+                @app_access_outcome,
+                @client_ip,
+                @browser_family,
+                @os_family);
+            """);
+        command.Parameters.AddWithValue("actor_user_id", actorUserId);
+        command.Parameters.AddWithValue("browser_client_id", browserClientId);
+        command.Parameters.AddWithValue("menu_code", menuCode);
+        command.Parameters.AddWithValue("app_access_outcome", appAccessOutcome);
+        command.Parameters.Add(new NpgsqlParameter("client_ip", NpgsqlDbType.Inet)
+        {
+            Value = (object?)clientIp ?? DBNull.Value
+        });
+        command.Parameters.AddWithValue("browser_family", browserFamily);
+        command.Parameters.AddWithValue("os_family", osFamily);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Site access signal did not return a session receipt.");
+        }
+
+        return new SiteAccessSessionResponse(
+            reader.GetGuid(0),
+            reader.GetGuid(1),
+            ToUtcDateTimeOffset(reader.GetValue(2)),
+            ToUtcDateTimeOffset(reader.GetValue(3)),
+            reader.GetBoolean(4));
+    }
+
+    public async Task<bool> EndSiteAccessAsync(
+        Guid actorUserId,
+        Guid sessionId,
+        Guid receipt,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select qms_end_site_access(
+                @actor_user_id,
+                @session_id,
+                @idempotency_receipt);
+            """);
+        command.Parameters.AddWithValue("actor_user_id", actorUserId);
+        command.Parameters.AddWithValue("session_id", sessionId);
+        command.Parameters.AddWithValue("idempotency_receipt", receipt);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
     public async Task TryAppendFailedMutationAsync(
         Guid actorUserId,
         Guid? actualActorUserId,
@@ -221,7 +338,8 @@ public sealed class AuditStore(
                    count(*) filter (where event_type = 'Login')::integer,
                    count(*) filter (where event_type = 'MutationSucceeded')::integer,
                    count(*) filter (where event_type = 'MutationFailed')::integer,
-                   count(*) filter (where event_type = 'AuthorizationDenied')::integer
+                   count(*) filter (where event_type = 'AuthorizationDenied')::integer,
+                   count(*) filter (where event_type = 'SiteAccess')::integer
             from filtered;
 
             with unified as ({UnifiedSelect})
@@ -233,13 +351,15 @@ public sealed class AuditStore(
             limit @page_size;
             """;
         AddFilterParameters(command, query);
+        command.Parameters.AddWithValue("current_utc", timeProvider.GetUtcNow());
         command.Parameters.AddWithValue("offset_rows", (query.Page - 1) * query.PageSize);
         command.Parameters.AddWithValue("page_size", query.PageSize);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
         var summary = new AuditSummaryResponse(
-            reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetInt32(4));
+            reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3),
+            reader.GetInt32(4), reader.GetInt32(5));
 
         await reader.NextResultAsync(cancellationToken);
         var items = new List<AuditListItemResponse>();
@@ -294,6 +414,7 @@ public sealed class AuditStore(
             """;
         command.Parameters.AddWithValue("event_id", eventId);
         command.Parameters.AddWithValue("source", source);
+        command.Parameters.AddWithValue("current_utc", timeProvider.GetUtcNow());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -358,6 +479,7 @@ public sealed class AuditStore(
         {
             Value = eventIds.ToArray()
         });
+        command.Parameters.AddWithValue("current_utc", timeProvider.GetUtcNow());
 
         var items = new List<AuditListItemResponse>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -368,39 +490,64 @@ public sealed class AuditStore(
         return items;
     }
 
-    private static AuditListItemResponse ReadItem(NpgsqlDataReader reader) => new(
-        reader.GetGuid(0),
-        reader.GetString(1),
-        ToUtcDateTimeOffset(reader.GetValue(2)),
-        reader.GetString(3),
-        reader.IsDBNull(4) ? null : reader.GetGuid(4),
-        reader.GetString(5),
-        reader.IsDBNull(6) ? null : reader.GetString(6),
-        reader.IsDBNull(7) ? null : reader.GetGuid(7),
-        reader.IsDBNull(8) ? null : reader.GetString(8),
-        reader.GetString(9),
-        reader.GetString(10),
-        reader.IsDBNull(11) ? null : reader.GetString(11),
-        reader.IsDBNull(12) ? null : reader.GetString(12),
-        reader.GetString(13),
-        reader.IsDBNull(14) ? null : reader.GetString(14),
-        reader.IsDBNull(15) ? null : reader.GetString(15),
-        reader.IsDBNull(16) ? null : reader.GetGuid(16),
-        reader.GetInt32(17),
-        reader.IsDBNull(18) ? null : reader.GetString(18),
-        reader.IsDBNull(19) ? null : reader.GetString(19),
-        reader.IsDBNull(20) ? null : reader.GetString(20),
-        reader.IsDBNull(21) ? null : reader.GetString(21));
+    private static AuditListItemResponse ReadItem(NpgsqlDataReader reader)
+    {
+        var menuCodes = reader.IsDBNull(25) ? [] : reader.GetFieldValue<string[]>(25);
+        return new AuditListItemResponse(
+            reader.GetGuid(0),
+            reader.GetString(1),
+            ToUtcDateTimeOffset(reader.GetValue(2)),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetGuid(4),
+            reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetGuid(7),
+            reader.IsDBNull(8) ? null : reader.GetString(8),
+            reader.GetString(9),
+            reader.GetString(10),
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(12) ? null : reader.GetString(12),
+            reader.GetString(13),
+            reader.IsDBNull(14) ? null : reader.GetString(14),
+            reader.IsDBNull(15) ? null : reader.GetString(15),
+            reader.IsDBNull(16) ? null : reader.GetGuid(16),
+            reader.GetInt32(17),
+            reader.IsDBNull(18) ? null : reader.GetString(18),
+            reader.IsDBNull(19) ? null : reader.GetString(19),
+            reader.IsDBNull(20) ? null : reader.GetString(20),
+            reader.IsDBNull(21) ? null : reader.GetString(21),
+            reader.IsDBNull(22) ? null : ToUtcDateTimeOffset(reader.GetValue(22)),
+            reader.IsDBNull(23) ? null : ToUtcDateTimeOffset(reader.GetValue(23)),
+            reader.IsDBNull(24) ? null : reader.GetString(24),
+            menuCodes,
+            menuCodes.Select(code => SiteAccessMenuCodes.Labels.GetValueOrDefault(code, code)).ToArray(),
+            ToUtcDateTimeOffset(reader.GetValue(26)));
+    }
 
     private static async Task<AuditCoverageResponse> ReadCoverageAsync(
         NpgsqlConnection connection,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = "select coverage_started_at_utc from audit_coverage_state where singleton;";
-        var startedAt = ToUtcDateTimeOffset(await command.ExecuteScalarAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Audit coverage state is missing."));
-        return new AuditCoverageResponse(startedAt, $"{startedAt:yyyy-MM-dd HH:mm:ss} UTC 이후 전체 기록입니다.");
+        command.CommandText = """
+            select audit.coverage_started_at_utc, site.coverage_started_at_utc
+            from audit_coverage_state audit
+            cross join site_access_coverage_state site
+            where audit.singleton and site.singleton;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Audit coverage state is missing.");
+        }
+        var startedAt = ToUtcDateTimeOffset(reader.GetValue(0));
+        var siteStartedAt = ToUtcDateTimeOffset(reader.GetValue(1));
+        return new AuditCoverageResponse(
+            startedAt,
+            $"{startedAt:yyyy-MM-dd HH:mm:ss} UTC 이후 변경·인증 기록입니다.",
+            siteStartedAt,
+            $"{siteStartedAt:yyyy-MM-dd HH:mm:ss} UTC 이후 사이트 접속 기록입니다.",
+            "마지막 활동 시각은 페이지 진입 또는 새로고침 신호이며 실제 근무시간을 의미하지 않습니다.");
     }
 
     private static DateTimeOffset ToUtcDateTimeOffset(object value) => value switch

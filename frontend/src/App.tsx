@@ -54,6 +54,7 @@ import {
   deactivateAdminCalendarHoliday,
   deactivateAdminDepartment,
   dismissAdminNotificationDeliveries,
+  endCurrentSiteAccess,
   downloadAdminCalendarHolidayTemplate,
   downloadPanelInformationTemplate,
   downloadProductionPlanningBulkTemplate,
@@ -138,6 +139,7 @@ import {
   retryAdminNotificationDeliveries,
   recordExplicitLogoutAudit,
   recordInteractiveLoginAudit,
+  signalSiteAccess,
   completeMyWorkItem,
   markAllNotificationsRead,
   markProjectNotificationsRead,
@@ -186,6 +188,7 @@ import {
   saveStoredAuditSession,
   subscribeStoredAuditSession
 } from './auth';
+import { getSiteAccessBrowserClientId, type SiteAccessMenuCode } from './siteAccess';
 import authEllipse66 from './assets/auth-ellipse-66.svg';
 import authEllipse67 from './assets/auth-ellipse-67.svg';
 import emiLoginLogo from './assets/emi-logo.png';
@@ -349,6 +352,75 @@ type View =
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
+
+function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
+  switch (view.kind) {
+    case 'home': return 'Home';
+    case 'privacy-notice': return 'PrivacyNotice';
+    case 'notice-board': return 'NoticeBoard';
+    case 'my-work': return 'MyWork';
+    case 'teams-activity':
+    case 'teams-activity-detail':
+    case 'teams-notification-detail': return 'TeamsActivity';
+    case 'list':
+    case 'create':
+    case 'detail':
+    case 'deleted-detail':
+    case 'edit':
+    case 'panel-info-edit':
+    case 'panel': return 'Projects';
+    case 'sales-settlement':
+    case 'sales-kpi':
+    case 'sales-billing': return 'Sales';
+    case 'g2-home':
+    case 'g2-operations':
+    case 'g2-attendance': return 'G2';
+    case 'form-templates': return 'FormTemplates';
+    case 'production-planning-edit':
+    case 'production-planning-dashboard':
+    case 'production-planning-settings': return 'ProductionPlanning';
+    case 'procurement-edit':
+    case 'procurement-dashboard':
+    case 'procurement-settings': return 'Procurement';
+    case 'materials-receipts':
+    case 'materials-kitting': return 'Materials';
+    case 'manufacturing-work': return 'Manufacturing';
+    case 'quality-iqc':
+    case 'quality-inspections': return 'Quality';
+    case 'logistics': return 'Logistics';
+    case 'notifications': return 'Notifications';
+    case 'notification-preferences': return 'NotificationSettings';
+    case 'pending':
+    case 'pending-detail': return 'Pending';
+    case 'operational-hub':
+      return ({
+        production: 'ProductionPlanning',
+        materials: 'Materials',
+        quality: 'Quality',
+        logistics: 'Logistics'
+      } as const)[view.area];
+    case 'qr-scan': return 'Projects';
+    case 'pending-types':
+    case 'admin-dashboard':
+    case 'admin-users':
+    case 'admin-user-notification-preferences':
+    case 'admin-departments':
+    case 'admin-calendar-holidays':
+    case 'admin-permission-matrix':
+    case 'admin-master-change-logs':
+    case 'admin-work-history':
+    case 'admin-send-notification':
+    case 'admin-notification-deliveries':
+    case 'admin-notification-delivery-detail':
+    case 'admin-notification-preference-audit':
+    case 'admin-audit-events':
+    case 'admin-work-item-escalations': return 'Administration';
+    default: {
+      const exhaustive: never = view;
+      return exhaustive;
+    }
+  }
+}
 
 type LoadState<T> =
   | { kind: 'loading' }
@@ -1414,7 +1486,10 @@ function EntraAuthenticatedApp({
       // 로그아웃은 푸시 구독 정리 실패로 차단하지 않는다.
     }
     try {
-      await recordExplicitLogoutAudit();
+      await Promise.all([
+        endCurrentSiteAccess(),
+        recordExplicitLogoutAudit()
+      ]);
     } catch {
       // 감사 기록 장애는 사용자의 로그아웃을 차단하지 않는다.
     }
@@ -1723,6 +1798,25 @@ function QmsAppShellContent({
   const profilePhotoUrl = profilePhotoState?.key === profilePhotoKey ? profilePhotoState.url : null;
   const formTemplateScopeUserId = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
   const formTemplateScopeBlocked = currentUser.kind !== 'ready' || currentUser.data.approvalPending;
+  const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
+
+  useEffect(() => {
+    if (currentUser.kind !== 'ready') return;
+
+    let cancelled = false;
+    void getSiteAccessBrowserClientId()
+      .then((browserClientId) => {
+        if (cancelled) return;
+        return signalSiteAccess(
+          developmentUserKey || undefined,
+          browserClientId,
+          siteAccessMenuCodeForView(view)
+        );
+      })
+      .catch(() => undefined);
+
+    return () => { cancelled = true; };
+  }, [currentUser.kind, developmentUserKey, siteAccessActorKey, view]);
 
   useEffect(() => {
     let cancelled = false;

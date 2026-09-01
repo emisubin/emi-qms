@@ -50,6 +50,7 @@ import type {
 } from './notificationPreferences';
 import type { NotificationPreferenceAuditFilters, NotificationPreferenceAuditList } from './notificationPreferenceAudit';
 import type { AuditDetail, AuditFilters, AuditList } from './audit';
+import type { SiteAccessMenuCode } from './siteAccess';
 import type {
   WebPushConfiguration,
   WebPushCurrentSubscriptionStatus,
@@ -568,6 +569,10 @@ let accessTokenProvider: (() => Promise<string | null>) | null = null;
 let adminTestUserKey: string | null = null;
 let mutationAllowed = false;
 let auditSession: AuditSessionHeaders | null = null;
+let currentSiteAccess: SiteAccessSessionResponse | null = null;
+let currentSiteAccessDevelopmentUserKey: string | undefined;
+let siteAccessSignalChain: Promise<void> = Promise.resolve();
+const siteAccessDeadlineMs = 1_500;
 
 export type AuditSessionHeaders = {
   loginCorrelationId: string;
@@ -576,6 +581,14 @@ export type AuditSessionHeaders = {
 
 export type AuditSessionResponse = AuditSessionHeaders & {
   eventId: string;
+};
+
+export type SiteAccessSessionResponse = {
+  sessionId: string;
+  idempotencyReceipt: string;
+  startedAtUtc: string;
+  lastActivityAtUtc: string;
+  created: boolean;
 };
 
 export type RuntimeMode = {
@@ -629,7 +642,7 @@ export async function recordInteractiveLoginAudit(clientInteractionId: string): 
 
 export async function recordExplicitLogoutAudit(): Promise<void> {
   if (!auditSession) return;
-  const response = await fetchWithAuth(
+  const response = await withinSiteAccessDeadline(fetchWithAuth(
     '/api/audit/sessions/logout',
     undefined,
     {
@@ -642,12 +655,104 @@ export async function recordExplicitLogoutAudit(): Promise<void> {
       })
     },
     { includeAdminSwitch: false, includeAuditSession: false }
-  );
+  ));
   if (!response.ok && response.status !== 404) {
     const problem = await readProblem(response);
     throw new ApiError(response.status, problem.message, problem.errors);
   }
 }
+
+function withinSiteAccessDeadline<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new ApiError(0, '접속 기록 요청 제한 시간이 지났습니다.')),
+      siteAccessDeadlineMs
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+export function signalSiteAccess(
+  developmentUserKey: string | undefined,
+  browserClientId: string,
+  menuCode: SiteAccessMenuCode
+): Promise<void> {
+  const run = async () => {
+    const response = await withinSiteAccessDeadline(fetchWithAuth(
+      '/api/audit/site-access/signals',
+      developmentUserKey,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ browserClientId, menuCode })
+      },
+      { includeAuditSession: false }
+    ));
+    if (!response.ok) {
+      const problem = await readProblem(response);
+      throw new ApiError(response.status, problem.message, problem.errors);
+    }
+    currentSiteAccess = await response.json() as SiteAccessSessionResponse;
+    currentSiteAccessDevelopmentUserKey = developmentUserKey;
+  };
+
+  const result = siteAccessSignalChain.catch(() => undefined).then(run);
+  siteAccessSignalChain = result.catch(() => undefined);
+  return result;
+}
+
+async function finishCurrentSiteAccess(): Promise<void> {
+  await siteAccessSignalChain;
+  const session = currentSiteAccess;
+  if (!session) return;
+
+  const response = await fetchWithAuth(
+    '/api/audit/site-access/end',
+    currentSiteAccessDevelopmentUserKey,
+    {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: session.sessionId,
+        idempotencyReceipt: session.idempotencyReceipt
+      })
+    },
+    { includeAuditSession: false }
+  );
+  if (!response.ok && response.status !== 404) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, problem.message, problem.errors);
+  }
+  currentSiteAccess = null;
+  currentSiteAccessDevelopmentUserKey = undefined;
+}
+
+export async function endCurrentSiteAccess(): Promise<void> {
+  try {
+    await withinSiteAccessDeadline(finishCurrentSiteAccess());
+  } catch {
+    // 접속 이력 장애나 멈춘 요청은 실제 로그아웃을 차단하지 않는다.
+  }
+}
+
+export const siteAccessApiTesting = {
+  deadlineMs: siteAccessDeadlineMs,
+  reset() {
+    currentSiteAccess = null;
+    currentSiteAccessDevelopmentUserKey = undefined;
+    siteAccessSignalChain = Promise.resolve();
+  }
+};
 
 export function setAdminTestUserKey(testUserKey: string | null) {
   adminTestUserKey = testUserKey?.trim() || null;
@@ -1111,7 +1216,7 @@ export async function getAdminAuditEvents(
 export async function getAdminAuditEventDetail(
   developmentUserKey: string | undefined,
   eventId: string,
-  source: 'Global' | 'Authorization'
+  source: 'Global' | 'Authorization' | 'SiteAccess'
 ): Promise<AuditDetail> {
   return fetchJson<AuditDetail>(
     `/api/admin/audit-events/${encodeURIComponent(eventId)}?source=${encodeURIComponent(source)}`,

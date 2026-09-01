@@ -70,6 +70,16 @@ async function navMockFetch(input: RequestInfo | URL): Promise<Response> {
     return json(me);
   }
 
+  if (path === '/api/audit/site-access/signals') {
+    return json({
+      sessionId: '61000000-0000-4000-8000-000000000001',
+      idempotencyReceipt: '61000000-0000-4000-8000-000000000002',
+      startedAtUtc: '2026-09-01T00:00:00Z',
+      lastActivityAtUtc: '2026-09-01T00:00:00Z',
+      created: true
+    });
+  }
+
   // Nav tests only assert shell/navigation behavior; unrelated data endpoints
   // resolve to 404 so pages render their error states instead of crashing on
   // partially-shaped payloads.
@@ -103,6 +113,25 @@ describe('FABLE department navigation: whole-parent disclosure accordion', () =>
     for (const child of ['생산계획', '제조 투입', '입고 관리', '패널 키팅', '수입검사(IQC)', '포장']) {
       expect(within(navigation).queryByRole('button', { name: child })).toBeNull();
     }
+  });
+
+  it('records the initial page and the next view using fixed menu codes only', async () => {
+    await renderShell();
+    const fetchMock = vi.mocked(fetch);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
+      new URL(String(input)).pathname === '/api/audit/site-access/signals'
+    ))).toBe(true));
+
+    window.history.pushState(null, '', '/projects');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    await waitFor(() => {
+      const bodies = fetchMock.mock.calls
+        .filter(([input]) => new URL(String(input)).pathname === '/api/audit/site-access/signals')
+        .map(([, init]) => JSON.parse(String(init?.body)));
+      expect(bodies.map((body) => body.menuCode)).toEqual(['Home', 'Projects']);
+      expect(bodies.every((body) => Object.keys(body).sort().join(',') === 'browserClientId,menuCode')).toBe(true);
+    });
   });
 
   it('toggles children with the whole parent row without navigating', async () => {

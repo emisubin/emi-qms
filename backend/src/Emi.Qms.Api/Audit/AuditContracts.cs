@@ -7,6 +7,34 @@ public static class AuditEventTypes
     public const string MutationSucceeded = "MutationSucceeded";
     public const string MutationFailed = "MutationFailed";
     public const string AuthorizationDenied = "AuthorizationDenied";
+    public const string SiteAccess = "SiteAccess";
+}
+
+public static class SiteAccessMenuCodes
+{
+    public static readonly IReadOnlyDictionary<string, string> Labels =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Home"] = "홈",
+            ["PrivacyNotice"] = "개인정보 처리방침",
+            ["NoticeBoard"] = "공지사항",
+            ["MyWork"] = "내 업무",
+            ["TeamsActivity"] = "Teams 알림",
+            ["Projects"] = "프로젝트",
+            ["Sales"] = "영업",
+            ["G2"] = "G2 운영",
+            ["FormTemplates"] = "양식 관리",
+            ["ProductionPlanning"] = "생산관리",
+            ["Procurement"] = "구매",
+            ["Materials"] = "자재",
+            ["Manufacturing"] = "제조",
+            ["Quality"] = "품질",
+            ["Logistics"] = "물류",
+            ["Notifications"] = "알림",
+            ["NotificationSettings"] = "알림 설정",
+            ["Pending"] = "Pending List",
+            ["Administration"] = "관리자"
+        };
 }
 
 public static class AuditFailureReasons
@@ -24,19 +52,36 @@ public sealed record RecordInteractiveLoginRequest(Guid ClientInteractionId);
 
 public sealed record RecordAuditLogoutRequest(Guid LoginCorrelationId, Guid IdempotencyReceipt);
 
+public sealed record RecordSiteAccessRequest(Guid BrowserClientId, string MenuCode);
+
+public sealed record EndSiteAccessRequest(Guid SessionId, Guid IdempotencyReceipt);
+
+public sealed record SiteAccessSessionResponse(
+    Guid SessionId,
+    Guid IdempotencyReceipt,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset LastActivityAtUtc,
+    bool Created);
+
 public sealed record AuditSessionResponse(
     Guid EventId,
     Guid LoginCorrelationId,
     Guid IdempotencyReceipt);
 
-public sealed record AuditCoverageResponse(DateTimeOffset CoverageStartedAtUtc, string CompletenessNotice);
+public sealed record AuditCoverageResponse(
+    DateTimeOffset CoverageStartedAtUtc,
+    string CompletenessNotice,
+    DateTimeOffset SiteAccessCoverageStartedAtUtc,
+    string SiteAccessCompletenessNotice,
+    string LastActivityNotice);
 
 public sealed record AuditSummaryResponse(
     int TotalEvents,
     int LoginEvents,
     int SuccessfulChanges,
     int FailedChanges,
-    int AuthorizationDenials);
+    int AuthorizationDenials,
+    int SiteAccessEvents);
 
 public sealed record AuditListItemResponse(
     Guid EventId,
@@ -60,7 +105,13 @@ public sealed record AuditListItemResponse(
     string? ClientIp,
     string? BrowserFamily,
     string? OsFamily,
-    string? AppAccessOutcome);
+    string? AppAccessOutcome,
+    DateTimeOffset? LastActivityAtUtc,
+    DateTimeOffset? EndedAtUtc,
+    string? SiteAccessStatus,
+    IReadOnlyList<string> MenuCodes,
+    IReadOnlyList<string> MenuLabels,
+    DateTimeOffset SiteAccessCoverageStartedAtUtc);
 
 public sealed record AuditListResponse(
     IReadOnlyList<AuditListItemResponse> Items,

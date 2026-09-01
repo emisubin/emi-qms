@@ -13,6 +13,7 @@ public sealed class AuditInfrastructureTests
         {
             ["GlobalAuditInfrastructure"] = ParseRelationNames("""
                 audit_coverage_state audit_event_changes audit_events
+                site_access_coverage_state site_access_sessions
                 """),
             ["ExistingCanonicalLedger"] = ParseRelationNames("""
                 admin_master_change_logs authorization_audit_events data_export_events
@@ -167,7 +168,27 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(94, trackedRelations.Count);
-        Assert.Equal(51, excludedRelations.Length);
+        Assert.Equal(53, excludedRelations.Length);
+    }
+
+    [Fact]
+    public void SiteAccessMigration_UsesFixedMenusDatabaseTimeAndGuardedUpdates()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var migration = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "database",
+            "migrations",
+            "0085_site_access_sessions.sql"));
+
+        Assert.Equal(19, SiteAccessMenuCodes.Labels.Count);
+        Assert.Contains("observed_at_utc := clock_timestamp()", migration, StringComparison.Ordinal);
+        Assert.DoesNotContain("p_observed_at_utc", migration, StringComparison.Ordinal);
+        Assert.Contains("access.last_activity_at_utc > observed_at_utc - interval '30 minutes'", migration, StringComparison.Ordinal);
+        Assert.Contains("Site access menu history is append-only.", migration, StringComparison.Ordinal);
+        Assert.Contains("Only explicit logout can end a site access record.", migration, StringComparison.Ordinal);
+        Assert.Contains("pg_advisory_xact_lock", migration, StringComparison.Ordinal);
+        Assert.DoesNotContain("http", migration, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IReadOnlySet<string> ParseRelationNames(string names) => names

@@ -307,7 +307,8 @@ public sealed class SelectedExcelExportService(
             SelectedExportScreens.AuditLedger => await ExportRowsAsync(
                 actorUserId, ids, filters, "전체 감사 이력", "감사이력", SelectedExportScreens.AuditLedger,
                 () => auditLedgerStore.ListByIdsAsync(ids, cancellationToken),
-                response => response, row => row.EventId, FilterColumns(AuditLedgerColumns, selectedColumns), cancellationToken),
+                response => response, row => row.EventId, FilterColumns(AuditLedgerColumns, selectedColumns), cancellationToken,
+                "마지막 활동 시각은 페이지 진입 또는 새로고침 신호이며 실제 근무시간을 의미하지 않습니다."),
             _ => new ExcelExportResult(ExcelExportStatus.SelectionUnavailable)
         };
     }
@@ -323,7 +324,8 @@ public sealed class SelectedExcelExportService(
         Func<TResponse, IReadOnlyList<TRow>> rows,
         Func<TRow, Guid> key,
         IReadOnlyList<ExcelColumn<TRow>> columns,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? notice = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!concurrencyGate.TryAcquire(out var lease))
@@ -342,7 +344,12 @@ public sealed class SelectedExcelExportService(
 
             var selected = ids.Select(id => byId[id]).ToList();
             cancellationToken.ThrowIfCancellationRequested();
-            var content = workbookBuilder.Build(title, screenName, $"현재 화면에서 선택한 {selected.Count}건", selected, columns);
+            var subtitle = $"현재 화면에서 선택한 {selected.Count}건";
+            if (!string.IsNullOrWhiteSpace(notice))
+            {
+                subtitle += $" · {notice}";
+            }
+            var content = workbookBuilder.Build(title, screenName, subtitle, selected, columns);
             cancellationToken.ThrowIfCancellationRequested();
             await auditStore.AppendSuccessAsync(
                 actorUserId, SelectedExportScreens.AuditKinds[screen], selected.Count,
@@ -551,6 +558,16 @@ public sealed class SelectedExcelExportService(
         new("대상", row => row.TargetKey), new("결과", row => row.Outcome),
         new("실패 종류", row => row.FailureReason), new("변경 항목 수", row => row.ChangeCount),
         new("로그인 연결 ID", row => row.LoginCorrelationId), new("IP", row => row.ClientIp),
-        new("브라우저", row => row.BrowserFamily), new("운영체제", row => row.OsFamily)
+        new("브라우저", row => row.BrowserFamily), new("운영체제", row => row.OsFamily),
+        new("앱 접근 결과", row => row.AppAccessOutcome),
+        new("사이트 최초 접속", row => row.EventType == AuditEventTypes.SiteAccess ? row.OccurredAtUtc : null),
+        new("사이트 마지막 활동", row => row.LastActivityAtUtc),
+        new("사이트 종료", row => row.EndedAtUtc),
+        new("사이트 접속 상태", row => row.SiteAccessStatus),
+        new("접속 메뉴", row => row.MenuLabels.Count == 0 ? null : string.Join(" → ", row.MenuLabels)),
+        new("사이트 접속 기록 시작", row => row.SiteAccessCoverageStartedAtUtc),
+        new("시간 해석 안내", row => row.EventType == AuditEventTypes.SiteAccess
+            ? "마지막 활동 시각은 페이지 진입 또는 새로고침 신호이며 실제 근무시간을 의미하지 않습니다."
+            : null)
     ];
 }

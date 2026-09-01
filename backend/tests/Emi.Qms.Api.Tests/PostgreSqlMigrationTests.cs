@@ -22,6 +22,120 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task SiteAccessSessions_UseDatabaseTimeThirtyMinuteBoundaryConcurrencyAndExplicitLogout()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+
+        var actorId = Guid.Parse("84000000-0000-0000-0000-000000000001");
+        var session29 = Guid.Parse("84000000-0000-0000-0000-000000000029");
+        var session30 = Guid.Parse("84000000-0000-0000-0000-000000000030");
+        var session31 = Guid.Parse("84000000-0000-0000-0000-000000000031");
+        var client29 = Guid.Parse("84000000-0000-4000-8000-000000000029");
+        var client30 = Guid.Parse("84000000-0000-4000-8000-000000000030");
+        var client31 = Guid.Parse("84000000-0000-4000-8000-000000000031");
+        var concurrentClient = Guid.Parse("84000000-0000-4000-8000-000000000050");
+
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{actorId:D}', 'site-access-user', 'Site Access User',
+                (select id from departments order by code limit 1), true);
+
+            insert into site_access_sessions (
+                id, actor_user_id, actor_display_name, actor_department_name,
+                browser_client_id, idempotency_receipt, started_at_utc, last_activity_at_utc,
+                client_ip, browser_family, os_family, app_access_outcome, menu_codes)
+            values
+                ('{session29:D}', '{actorId:D}', 'Site Access User', 'Synthetic Department',
+                 '{client29:D}', gen_random_uuid(), clock_timestamp() - interval '29 minutes',
+                 clock_timestamp() - interval '29 minutes', '192.0.2.29', 'Edge', 'Windows', 'Allowed', array['Home']),
+                ('{session30:D}', '{actorId:D}', 'Site Access User', 'Synthetic Department',
+                 '{client30:D}', gen_random_uuid(), clock_timestamp() - interval '30 minutes',
+                 clock_timestamp() - interval '30 minutes', '192.0.2.30', 'Edge', 'Windows', 'Allowed', array['Home']),
+                ('{session31:D}', '{actorId:D}', 'Site Access User', 'Synthetic Department',
+                 '{client31:D}', gen_random_uuid(), clock_timestamp() - interval '31 minutes',
+                 clock_timestamp() - interval '31 minutes', '192.0.2.31', 'Edge', 'Windows', 'Allowed', array['Home']);
+            """,
+            TestContext.Current.CancellationToken);
+
+        var store = new AuditStore(provider, TimeProvider.System, NullLogger<AuditStore>.Instance);
+        var at29 = await store.RecordSiteAccessAsync(
+            actorId, client29, "Projects", "Allowed", IPAddress.Parse("192.0.2.29"), "Edge", "Windows",
+            TestContext.Current.CancellationToken);
+        var at30 = await store.RecordSiteAccessAsync(
+            actorId, client30, "Projects", "Allowed", IPAddress.Parse("192.0.2.30"), "Edge", "Windows",
+            TestContext.Current.CancellationToken);
+        var at31 = await store.RecordSiteAccessAsync(
+            actorId, client31, "Projects", "Allowed", IPAddress.Parse("192.0.2.31"), "Edge", "Windows",
+            TestContext.Current.CancellationToken);
+
+        Assert.False(at29.Created);
+        Assert.Equal(session29, at29.SessionId);
+        Assert.True(at30.Created);
+        Assert.NotEqual(session30, at30.SessionId);
+        Assert.True(at31.Created);
+        Assert.NotEqual(session31, at31.SessionId);
+
+        var concurrent = await Task.WhenAll(Enumerable.Range(0, 20).Select(index =>
+            store.RecordSiteAccessAsync(
+                actorId,
+                concurrentClient,
+                index % 2 == 0 ? "Home" : "Projects",
+                "Allowed",
+                IPAddress.Parse("192.0.2.50"),
+                "Chrome",
+                "macOS",
+                TestContext.Current.CancellationToken)));
+        Assert.Single(concurrent.Select(item => item.SessionId).Distinct());
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"select count(*) from site_access_sessions where actor_user_id='{actorId:D}' and browser_client_id='{concurrentClient:D}';",
+            TestContext.Current.CancellationToken));
+
+        var current = concurrent[0];
+        Assert.True(await store.EndSiteAccessAsync(
+            actorId, current.SessionId, current.IdempotencyReceipt, TestContext.Current.CancellationToken));
+        Assert.True(await store.EndSiteAccessAsync(
+            actorId, current.SessionId, current.IdempotencyReceipt, TestContext.Current.CancellationToken));
+        Assert.False(await store.EndSiteAccessAsync(
+            Guid.NewGuid(), current.SessionId, current.IdempotencyReceipt, TestContext.Current.CancellationToken));
+
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            provider,
+            $"update site_access_sessions set actor_display_name='Tampered' where id='{current.SessionId:D}';",
+            TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            provider,
+            $"delete from site_access_sessions where id='{current.SessionId:D}';",
+            TestContext.Current.CancellationToken));
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var list = await store.ListAsync(
+            today.AddDays(-1),
+            today.AddDays(1),
+            new AuditQuery(
+                DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1), actorId,
+                "Identity", "SiteAccess", AuditEventTypes.SiteAccess, null, null, 1, 100),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, list.Summary.SiteAccessEvents);
+        var ended = Assert.Single(list.Items, item => item.EventId == current.SessionId);
+        Assert.Equal("ExplicitLogout", ended.SiteAccessStatus);
+        Assert.Equal(2, ended.MenuCodes.Count);
+        Assert.Contains("Home", ended.MenuCodes);
+        Assert.Contains("Projects", ended.MenuCodes);
+        Assert.Equal(
+            ended.MenuCodes.Select(code => SiteAccessMenuCodes.Labels[code]),
+            ended.MenuLabels);
+        Assert.NotNull(ended.EndedAtUtc);
+        Assert.Equal(list.Coverage.SiteAccessCoverageStartedAtUtc, ended.SiteAccessCoverageStartedAtUtc);
+    }
+
+    [Fact]
     public async Task GlobalAuditStore_DeduplicatesLoginValidatesSessionRecordsFailureAndUnifiesAuthorizationDenial()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -42,7 +156,7 @@ public sealed class PostgreSqlMigrationTests
             """,
             TestContext.Current.CancellationToken);
 
-        var store = new AuditStore(provider, NullLogger<AuditStore>.Instance);
+        var store = new AuditStore(provider, TimeProvider.System, NullLogger<AuditStore>.Instance);
         var interactionId = Guid.Parse("83000000-0000-0000-0000-000000000102");
         var first = await store.AppendInteractiveLoginAsync(
             actorId, interactionId, "Allowed", IPAddress.Parse("192.0.2.10"), "Edge", "Windows",
@@ -381,7 +495,7 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -608,7 +722,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -789,7 +903,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -857,7 +971,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -987,7 +1101,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1105,6 +1219,15 @@ public sealed class PostgreSqlMigrationTests
             Assert.Equal("True", (await ScalarAsync(
                 runtimeSession,
                 "select has_function_privilege(current_user, 'qms_append_audit_login_event(uuid,uuid,text,inet,text,text)', 'execute');"))?.ToString());
+            Assert.Equal("True", (await ScalarAsync(
+                runtimeSession,
+                "select has_table_privilege(current_user, 'site_access_sessions', 'select');"))?.ToString());
+            Assert.Equal("False", (await ScalarAsync(
+                runtimeSession,
+                "select has_table_privilege(current_user, 'site_access_sessions', 'insert');"))?.ToString());
+            Assert.Equal("True", (await ScalarAsync(
+                runtimeSession,
+                "select has_function_privilege(current_user, 'qms_record_site_access(uuid,uuid,text,text,inet,text,text)', 'execute');"))?.ToString());
 
             await ExecuteAsync(
                 runtimeSession,
@@ -1666,7 +1789,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1932,7 +2055,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2036,7 +2159,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2102,7 +2225,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2166,7 +2289,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2289,7 +2412,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2455,7 +2578,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2977,7 +3100,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3020,7 +3143,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3201,7 +3324,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3278,7 +3401,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3343,7 +3466,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3393,7 +3516,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0083_global_access_change_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0085_site_access_sessions", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

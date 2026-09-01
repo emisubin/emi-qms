@@ -15,6 +15,8 @@
 - persistentUatApproved: `false`
 - azureDeploymentApproved: `false`
 - approvalSource: `USER_EXPLICIT_2026-09-01`
+- integratedProductCommit: `6ca27d5f2552eb367279f2899b872f82cd03fccb`
+- integrationValidationStatus: `PASS`
 
 ## 실행 대상
 

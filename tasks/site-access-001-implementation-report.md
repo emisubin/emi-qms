@@ -1,10 +1,11 @@
 # TASK-SITE-ACCESS-001 — Implementation report
 
-> 상태: Latest-main integration in progress / 사용자 검수 대기·Git 게시·원격 main 병합 승인 / Azure 배포 미승인
+> 상태: Latest-main integration·전체 자동/Full-Stack validation complete / 최종 독립 검증 진행 전 / 사용자 검수 대기·Git 게시·원격 main 병합 승인 / Azure 배포 미승인
 > 작업 기준선: `220d1201c9dbb881fb3e5c5061871fb943c7961b`
 > 작업공간: 대표 clone과 분리된 recovery worktree, detached HEAD
+> 검증된 제품 통합 commit: `6ca27d5f2552eb367279f2899b872f82cd03fccb`
 
-최초 local 검증 후보를 현재 공개본과 같은 최신 원격 `main`에 통합하는 중이다. 공개본에 G2 migration `0084_g2_delivery_target_defect.sql`이 추가되어 사이트 접속 migration은 Change 002에 따라 `0085`로 교정한다. 최종 검증 표와 Git 게시 상태는 통합 검증 완료 뒤 갱신한다.
+최초 local 검증 후보를 현재 공개본과 같은 최신 원격 `main`에 통합했다. 공개본의 G2 migration `0084_g2_delivery_target_defect.sql`과 Roadmap 추적 `97`을 보존하고, 사이트 접속은 Change 002에 따라 migration `0085`와 추적 `98`로 교정했다. 통합 제품 commit에서 Backend·Frontend 전체 회귀와 사이트 접속·G2 Full-Stack을 다시 통과했으며, 이 report·최신 screenshot만 뒤따르는 종료 artifact다.
 
 ## 해결한 업무 문제
 
@@ -125,16 +126,17 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 | Backend Release build | PASS | warning/error `0/0` |
 | Backend audit/export/privilege 집중 검증 | PASS | `41/41` |
 | Backend audit infrastructure·site PostgreSQL·global store | PASS | `14/14`, 격리 PostgreSQL |
-| Backend 전체 회귀 | PASS | `569/569`, skip `0`, 21분 4초 |
-| Frontend 전체 회귀 | PASS | `245/245` |
+| Backend 전체 회귀 | PASS | 최종 통합 tree `570/570`, skip `0`, 19분 54초 |
+| Frontend 전체 회귀 | PASS | 최종 통합 tree `248/248` |
 | Frontend typecheck | PASS | type error `0` |
 | Frontend lint | PASS | error `0`, 기존 `main.tsx` Fast Refresh warning `1` |
 | Frontend production build | PASS | build 완료, 기존 large bundle warning |
-| 격리 Full-Stack | PASS | `1/1`, Web Locks 미지원과 localStorage 쓰기 차단 각각에서 두 동시 탭의 동일 client ID 수렴·isolated PostgreSQL 생성·삭제 확인 |
+| 사이트 접속 격리 Full-Stack | PASS | `1/1`, API·관리자 UI·선택 Excel, Web Locks 미지원과 localStorage 쓰기 차단 각각에서 두 동시 탭의 동일 client ID 수렴·isolated PostgreSQL 생성·삭제 확인 |
+| 공개 G2 격리 Full-Stack | PASS | `1/1`, G2 권한·동시 입력·불량 차감 재고·반응형 UI와 격리 PostgreSQL 생성·삭제 확인 |
 | API 권한·선택 Excel | PASS | 익명 signal `401`, 일반 사용자 감사 조회 `403`, 관리자 조회·상세·Excel 성공, formula `0` |
 | 화면 | PASS | 1440px desktop, 390px 목록·상세, page overflow `0` |
 | diff whitespace | PASS | `git diff --check` |
-| 독립 검증 | PASS | 별도 Codex session 재검토, Open P0/P1/P2 `0/0/0`, local GO |
+| 독립 검증 | 진행 전 | 최신 main 통합·종료 artifact commit을 고정한 뒤 분리된 Codex session에서 재실행 |
 
 실제 사용자·운영 DB·외부 provider는 사용하지 않았다. Full-Stack은 synthetic 계정과 격리된 일회용 PostgreSQL만 사용했고 종료 시 database·container·network가 제거됐다.
 
@@ -143,12 +145,13 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 ### 전체 검증 재현 명령
 
 - `dotnet build backend/Emi.Qms.sln --configuration Release`
-- `dotnet test backend/Emi.Qms.sln --configuration Release --logger 'console;verbosity=minimal'`
+- `bash scripts/e2e-backend-tests.sh`
 - `corepack pnpm --dir frontend test`
 - `corepack pnpm --dir frontend typecheck`
 - `corepack pnpm --dir frontend lint`
 - `corepack pnpm --dir frontend build`
 - `bash scripts/e2e-full-stack.sh site-access-audit.full-stack.spec.ts`
+- `bash scripts/e2e-full-stack.sh g2-operations.full-stack.spec.ts`
 
 ## 검증 중 발견하고 보정한 Finding
 
@@ -166,6 +169,9 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 | SITE-ACCESS-IV2-F01 접속 메뉴가 상세에만 있고 desktop 목록·mobile card 요약에 없음 | P2 | RESOLVED | 목록 열과 mobile card에 최초 3개 메뉴와 초과 개수 요약 추가, 상세의 전체 순서 유지 |
 | SITE-ACCESS-IV2-F02 Web Locks 미지원 fallback이 고정 75ms 안의 수렴에 의존함 | P2 | RESOLVED | IndexedDB readwrite transaction get-or-create로 교체하고 Web Locks를 끈 실제 두 탭 동시 Full-Stack 검증 추가 |
 | SITE-ACCESS-FC02 Web Locks는 가능하지만 localStorage 쓰기만 거부되면 IndexedDB 이전에 탭별 임시 ID로 종료함 | P2 | RESOLVED | lock callback이 쓰기 실패를 반환하면 IndexedDB로 계속하고, localStorage 접근을 차단한 실제 두 탭 회귀 추가 |
+| SITE-ACCESS-INTEGRATION-F01 최신 공개 G2가 migration `0084`를 이미 사용해 최초 사이트 접속 후보와 충돌 | P1 | RESOLVED | 공개 G2 `0084`를 보존하고 미게시 사이트 접속 migration을 `0085`로 교정, fresh·forward 포함 Backend `570/570` 재검증 |
+| SITE-ACCESS-INTEGRATION-F02 공개 G2와 미게시 사이트 접속 Roadmap 항목이 추적 `97`을 동시에 사용 | P2 | RESOLVED | 공개 G2 추적 `97`을 보존하고 사이트 접속을 다음 빈 번호 `98`로 교정, 현행 Roadmap·report·Change 002 동기화 |
+| SITE-ACCESS-INTEGRATION-F03 공개 G2 Roadmap 상태가 병합 승인에 머물러 실제 PR #115·Azure 공개 상태와 불일치 | P2 | RESOLVED | exact main `220d1201c9dbb881fb3e5c5061871fb943c7961b` 기준 실행 큐·추적·Decision Log를 실제 상태로 동기화 |
 
 복구 전 임시 worktree가 환경 전환 중 사라졌고 저장된 commit은 없었다. private Fable transcript에서 원문 문서를 byte-for-byte로 복원하고 승인된 계약을 새 격리 worktree에서 재구현했다. 대표 clone의 사용자 WIP는 수정하지 않았으며, 복구본 전체를 다시 build·test·Full-Stack 검증 대상으로 삼았다.
 
@@ -179,7 +185,7 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 
 ## Rollback·forward-fix
 
-- 현재 변경은 격리 local worktree에만 있어 게시하지 않으면 대표 repo와 운영 환경 영향이 없다.
+- 사이트 접속 변경은 최신 공개본과 통합한 local commit에만 있으며 아직 원격 `main`과 운영 환경에는 반영되지 않았다.
 - migration `0085`는 additive이고 감사 원장은 삭제 대상이 아니다. 운영 적용 후 schema나 행을 역삭제하지 않는다.
 - Application 문제는 직전 호환 Backend/Frontend로 rollback하거나 forward-fix한다.
 - DB 함수·guard·권한 문제는 다음 번호의 additive migration으로 수정한다.
@@ -189,7 +195,7 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 작성·자동·독립 검증 완료 | 본 문서 |
+| Implementation report | 작성·latest-main 자동 검증 완료·최종 독립 검증 진행 전 | 본 문서 |
 | SOP | 작성 | [site-access-001-sop.md](site-access-001-sop.md) |
 | User manual | 작성 | [site-access-001-user-manual.md](site-access-001-user-manual.md) |
 | Roadmap update | 작성 | `docs/00-product-roadmap.md` 3.3M·추적 98·Decision Log |
@@ -197,8 +203,9 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 
 ## 현재 Gate
 
-- Open P0/P1/P2: `0/0/0`
+- Open P0/P1/P2: 자동 검증 기준 `0/0/0`, 최종 독립 재검증 진행 전
 - 사용자 화면 검수: 대기
-- Commit/Push/PR/Merge: 사용자 승인 / 최신 main 통합·재검증 뒤 실행
+- Commit: 사이트 접속 후보·latest-main 통합 완료 / 종료 artifact commit 전
+- Push/PR/Merge: 사용자 승인 / 최종 독립 검증·필수 CI 뒤 실행
 - Persistent UAT/Azure 공개배포: 미실행·미승인
-- 다음 Gate: 사용자 local 화면 검수 → 별도 게시 승인
+- 다음 Gate: 종료 artifact commit → 최종 독립 검증 → Push·Ready PR·CI Gate·원격 main squash merge

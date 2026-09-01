@@ -1,6 +1,6 @@
 # TASK-SITE-ACCESS-001 — 사용자 검수 체크리스트
 
-> 상태: Latest-main 자동/Full-Stack 검증 완료 / 독립 제품 검증 PASS·문서 P2 재확인 대기 / 사용자 검수 대기 / Git 게시·원격 main 병합 승인 / Persistent UAT·Azure 배포 미승인
+> 상태: Latest-main 자동/Full-Stack·독립 검증 완료 / 사용자 검수 대기 / Git 게시·원격 main 병합 승인 / Persistent UAT·Azure 배포 미승인
 > 환경: 격리된 Local Full-Stack, synthetic 사용자만 사용
 
 현재 구현 후보·기준 SHA·검증 결과는 [Implementation report](site-access-001-implementation-report.md), 기능 계약은 [Change 001](site-access-001-change-001.md), 최신 main 통합·게시 계약은 [Change 002](site-access-001-change-002.md)을 기준으로 한다. 코드·migration 변경 뒤에는 체크 결과를 재사용하지 않는다. 사용자 화면 검수는 독립 검증 통과 후 별도 local synthetic runtime URL을 준비한 다음 시작한다. 일반 synthetic 사용자로 접속 신호를 만든 뒤 `Audit.Read.All`을 가진 synthetic 감사 관리자로 전환해 조회한다.
@@ -25,7 +25,7 @@
 - [x] Desktop 1440px 표와 Mobile 390px 카드에 접속 메뉴 요약이 보이고 상세에는 전체 순서가 표시되며, 가로 overflow가 없다.
 - [x] 최종 통합 tree의 Frontend `248/248`와 Backend `570/570` 전체 회귀가 통과한다.
 - [x] 사이트 접속과 공개 G2 격리 Full-Stack이 각각 `1/1` 통과한다.
-- [ ] 문서 P2 `SITE-ACCESS-FINAL-F01` 보정 commit을 대상으로 독립 Codex 재확인이 Open P0/P1/P2 `0/0/0`으로 통과한다.
+- [x] 문서 P2 `SITE-ACCESS-FINAL-F01` 보정 commit을 대상으로 독립 Codex 재확인이 Open P0/P1/P2 `0/0/0`으로 통과한다.
 
 ## 사용자 화면 검수
 
@@ -51,8 +51,8 @@
 ## 현재 판정
 
 - 자동 검증: PASS — latest-main 통합 tree
-- 독립 검증: 제품·통합 PASS / 문서 P2 보정 후 read-only 재확인 대기
+- 독립 검증: PASS — 제품·통합·문서 Gate
 - 사용자 검수: 대기
 - Git 게시·원격 main 병합: 승인 / 실행 전
 - Persistent UAT·Azure 배포: 미승인
-- Open P0/P1/P2: `0/0/1` — `SITE-ACCESS-FINAL-F01` 재확인 대기
+- Open P0/P1/P2: `0/0/0`

@@ -1,6 +1,6 @@
 # TASK-SITE-ACCESS-001 — 사이트 접속 이력 운영 SOP
 
-> 상태: Latest-main 통합·자동/Full-Stack 검증 완료 / 최종 독립 검증·사용자 검수 대기 / Git 게시·원격 main 병합 승인 / Persistent UAT·Azure 배포 미승인
+> 상태: Latest-main 통합·자동/Full-Stack 검증 완료 / 독립 제품 검증 PASS·문서 P2 재확인 대기 / 사용자 검수 대기 / Git 게시·원격 main 병합 승인 / Persistent UAT·Azure 배포 미승인
 
 ## 적용 기준
 
@@ -8,7 +8,7 @@
 - 기능 계약은 [Change 001](site-access-001-change-001.md), 최신 main 통합·migration 번호·게시 경계는 [Change 002](site-access-001-change-002.md)을 기준으로 한다.
 - 환경별 Azure 대상·명령·승인·보안·복구 절차는 [Azure deployment SOP](azure-deploy-001-sop.md)를 사용한다. 이 문서는 사이트 접속 원장의 추가 점검만 정의한다.
 - 검수 증빙은 [Privacy-safe Evidence](../docs/development/privacy-safe-evidence.md)를 따른다.
-- 검증된 제품 통합 commit은 `6ca27d5f2552eb367279f2899b872f82cd03fccb`다. 종료 artifact commit 뒤 분리된 Codex가 최종 candidate를 다시 검증하며, 이후 코드·migration이 달라지면 자동·독립 검증을 다시 실행한다.
+- 검증된 제품 통합 commit은 `6ca27d5f2552eb367279f2899b872f82cd03fccb`이고 독립 1차 검증 artifact는 `b514e236728741e39905c6424d3a3acaf48061cd`다. 제품·통합은 PASS했고 상태 문서 P2 `SITE-ACCESS-FINAL-F01` 보정 후 read-only 재확인 대기다. 이후 코드·migration이 달라지면 자동·독립 검증을 다시 실행한다.
 
 ## 운영 원칙
 

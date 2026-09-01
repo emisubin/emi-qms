@@ -487,6 +487,7 @@
 .g2-line { fill: none; stroke-width: 3.5; stroke-linejoin: round; stroke-linecap: round; }
 .g2-line-inventory { stroke: #f87171; filter: drop-shadow(0 2px 2px rgb(248 113 113 / 18%)); }
 .g2-line-target { stroke: #60a5fa; stroke-width: 3; stroke-dasharray: 9 5; }
+.g2-line-delivery-target { stroke: #fb923c; stroke-width: 3; stroke-dasharray: 9 5; }
 .g2-line-production-target { stroke: #f87171; stroke-width: 3; stroke-dasharray: 9 5; }
 .g2-line-production-average { stroke: #2563eb; stroke-width: 2.6; stroke-dasharray: 5 4; }
 .g2-line-halo { stroke: rgb(255 255 255 / 96%); stroke-width: 7; filter: none; pointer-events: none; }
@@ -535,6 +536,7 @@
 }
 
 .g2-chart-legend [data-series='delivery']::before { background: linear-gradient(90deg, #fb923c, #fed7aa); }
+.g2-chart-legend [data-series='delivery-target']::before { background: repeating-linear-gradient(90deg, #fb923c 0 7px, transparent 7px 11px); }
 .g2-chart-legend [data-series='production-target']::before { background: repeating-linear-gradient(90deg, #f87171 0 7px, transparent 7px 11px); }
 .g2-chart-legend [data-series='inventory']::before { background: #f87171; }
 .g2-chart-legend [data-series='target']::before { background: repeating-linear-gradient(90deg, #60a5fa 0 7px, transparent 7px 11px); }
@@ -562,6 +564,28 @@
 .g2-warning,
 .g2-feedback[data-tone='error'] { background: #fff1f2; color: #9f1239; }
 .g2-feedback { background: #ecfdf5; color: #065f46; }
+.g2-preview-note { margin: 0 0 10px; color: #1d4ed8; font-size: 0.78rem; font-weight: 750; }
+.g2-preview-input {
+  display: block;
+  width: 58px;
+  min-height: 32px;
+  margin: 0 auto;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #1e293b;
+  appearance: textfield;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  text-align: center;
+}
+.g2-preview-input::-webkit-outer-spin-button,
+.g2-preview-input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+.g2-preview-input:focus { border-color: #60a5fa; outline: 2px solid rgb(96 165 250 / 24%); }
 
 .g2-inline-form,
 .g2-entry-grid {
@@ -645,8 +669,10 @@
 .g2-horizontal-table thead th span,
 .g2-horizontal-table thead th small { display: block; }
 .g2-horizontal-table thead th small { margin-top: 3px; color: var(--muted); font-size: 0.66rem; }
+.g2-horizontal-table thead th small { color: #2563eb; }
 .g2-horizontal-table thead th.g2-red-day,
 .g2-horizontal-table td.g2-red-day-column { color: #dc2626; }
+.g2-horizontal-table thead th.g2-red-day small { color: #dc2626; }
 .g2-horizontal-table tbody tr:nth-child(even) td { background: #fafbfc; }
 .g2-horizontal-table th:first-child {
   position: sticky;
@@ -721,6 +747,14 @@
 .g2-horizontal-table tr.g2-detail-row > th::before { margin-right: 7px; color: #94a3b8; content: '↳'; }
 .g2-horizontal-table tr.g2-inventory-row > * { border-top: 2px solid #fecaca; background: #fff1f2; color: #1e293b; font-weight: 850; }
 .g2-horizontal-table tr.g2-grand-total-row > * { border-top: 2px solid #bfdbfe; background: #eff6ff; color: #1e3a5f; font-weight: 900; }
+.g2-horizontal-table td.g2-forecast-column,
+.g2-horizontal-table td.g2-forecast-column strong { color: #2563eb; }
+.app-shell .g2-horizontal-table td.g2-forecast-column input.g2-preview-input { color: #2563eb; }
+.g2-horizontal-table td.g2-forecast-column .g2-table-total-button { color: #2563eb !important; }
+.g2-horizontal-table td.g2-red-day-column,
+.g2-horizontal-table td.g2-red-day-column strong { color: #dc2626; }
+.app-shell .g2-horizontal-table td.g2-red-day-column input.g2-preview-input { border-color: #fecaca; background: #fff7f7; color: #dc2626; }
+.g2-horizontal-table td.g2-red-day-column .g2-table-total-button { color: #dc2626 !important; }
 
 .g2-dialog-backdrop {
   position: fixed;
@@ -811,10 +845,13 @@
   .g2-inventory-value { font-size: 11px; }
   .g2-stack-value { font-size: 12px; }
   .g2-flow-bar-value { font-size: 11px; stroke-width: 2px; }
-  .g2-date-range { grid-template-columns: 1fr 1fr; }
+  .g2-date-range { grid-template-columns: minmax(0, 116px) minmax(0, 116px); justify-content: start; }
   .g2-date-range > div { grid-column: 1 / -1; }
   .g2-date-range > span { display: none; }
   .g2-date-range button { grid-column: 1 / -1; width: 100%; }
+  .g2-date-range input { min-height: 36px; padding-inline: 7px; font-size: 0.76rem; }
+  .g2-target-date-field { width: 132px; }
+  .g2-target-date-field input { min-height: 36px; padding-inline: 7px; font-size: 0.76rem; }
   .g2-horizontal-table th,
   .g2-horizontal-table td { min-width: 70px; padding: 9px 8px; }
   .g2-horizontal-table th:first-child { min-width: 102px; }

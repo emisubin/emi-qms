@@ -203,6 +203,7 @@ export function G2ProductionDeliveryInventoryChart({ days, holidays = EMPTY_G2_H
   const futureStart = firstFuture < 0 ? days.length : Math.max(0, firstFuture - 1);
   const inventoryFirst = Math.max(0, days.findIndex(day => day.inventory !== null));
   const targetFirst = Math.max(0, days.findIndex(day => day.inventoryTarget !== null));
+  const deliveryTargetFirst = Math.max(0, days.findIndex(day => day.deliveryTarget !== null));
   const showValue = (index: number, label: string, quantity: number, y: number) => setTooltip({
     x: xAt(index, days.length, plotRight, plotLeft), y, date: shortDate(days[index].date), label, value: `${quantity}대`
   });
@@ -216,6 +217,12 @@ export function G2ProductionDeliveryInventoryChart({ days, holidays = EMPTY_G2_H
     const quantity = day?.inventoryTarget?.quantity;
     if (quantity === undefined) { setTooltip(null); return; }
     showValue(index, '재고 목표', quantity, inventoryScale.y(quantity));
+  };
+  const showDeliveryTarget = (index: number) => {
+    const day = days[index];
+    const quantity = day?.deliveryTarget?.quantity;
+    if (quantity === undefined) { setTooltip(null); return; }
+    showValue(index, '납품 목표', quantity, barScale.y(quantity));
   };
   const inventoryLabelY = (day: G2Day, index: number) => {
     if (day.inventory === null) return 0;
@@ -238,7 +245,7 @@ export function G2ProductionDeliveryInventoryChart({ days, holidays = EMPTY_G2_H
 
   return (
     <div className="g2-chart-wrap">
-      <div className="g2-chart-legend" aria-hidden="true"><span data-series="production">생산</span><span data-series="delivery">납품</span><span data-series="inventory">재고</span><span data-series="target">재고 목표</span><span data-series="forecast">예상 재고(점선)</span></div>
+      <div className="g2-chart-legend" aria-hidden="true"><span data-series="production">생산</span><span data-series="delivery">납품</span><span data-series="delivery-target">납품 목표</span><span data-series="inventory">재고</span><span data-series="target">재고 목표</span><span data-series="forecast">예상 재고(점선)</span></div>
       <div className={`g2-chart-stage${mobile ? ' g2-chart-stage-mobile' : ''}`}>
       {mobile ? <MobileChartFrame leftScale={barScale} leftTitle="생산·납품 (대)" rightScale={inventoryScale} rightTitle="재고 (대)" /> : null}
       <div className="g2-chart-scroll" role="region" aria-label="일별 생산·납품·재고 그래프 가로 탐색" tabIndex={0}>
@@ -274,10 +281,13 @@ export function G2ProductionDeliveryInventoryChart({ days, holidays = EMPTY_G2_H
         <path className="g2-line g2-line-halo" d={linePath(days, day => day.inventory, inventoryScale.y, 0, actualEnd, plotRight, plotLeft)} aria-hidden="true" />
         <path className="g2-line g2-line-inventory" d={linePath(days, day => day.inventory, inventoryScale.y, 0, actualEnd, plotRight, plotLeft)} />
         {futureStart < days.length ? <><path className="g2-line g2-line-halo g2-line-forecast" d={linePath(days, day => day.inventory, inventoryScale.y, futureStart, days.length - 1, plotRight, plotLeft)} aria-hidden="true" /><path className="g2-line g2-line-inventory g2-line-forecast" d={linePath(days, day => day.inventory, inventoryScale.y, futureStart, days.length - 1, plotRight, plotLeft)} /></> : null}
+        <path className="g2-line g2-line-halo g2-line-delivery-target" d={stepPath(days, day => day.deliveryTarget?.quantity ?? null, barScale.y, plotRight, plotLeft)} aria-hidden="true" />
+        <path className="g2-line g2-line-delivery-target" d={stepPath(days, day => day.deliveryTarget?.quantity ?? null, barScale.y, plotRight, plotLeft)} />
         <path className="g2-line g2-line-halo g2-line-target" d={stepPath(days, day => day.inventoryTarget?.quantity ?? null, inventoryScale.y, plotRight, plotLeft)} aria-hidden="true" />
         <path className="g2-line g2-line-target" d={stepPath(days, day => day.inventoryTarget?.quantity ?? null, inventoryScale.y, plotRight, plotLeft)} />
         <path className="g2-line-hit" data-series="inventory" d={linePath(days, day => day.inventory, inventoryScale.y, 0, days.length - 1, plotRight, plotLeft)} onMouseEnter={event => showInventory(pointerIndex(event, days.length, inventoryFirst, chartWidth, plotRight, plotLeft))} onMouseMove={event => showInventory(pointerIndex(event, days.length, inventoryFirst, chartWidth, plotRight, plotLeft))} onMouseLeave={() => setTooltip(null)} aria-hidden="true" />
         <path className="g2-line-hit" data-series="inventory-target" d={stepPath(days, day => day.inventoryTarget?.quantity ?? null, inventoryScale.y, plotRight, plotLeft)} onMouseEnter={event => showInventoryTarget(pointerIndex(event, days.length, targetFirst, chartWidth, plotRight, plotLeft))} onMouseMove={event => showInventoryTarget(pointerIndex(event, days.length, targetFirst, chartWidth, plotRight, plotLeft))} onMouseLeave={() => setTooltip(null)} aria-hidden="true" />
+        <path className="g2-line-hit" data-series="delivery-target" d={stepPath(days, day => day.deliveryTarget?.quantity ?? null, barScale.y, plotRight, plotLeft)} onMouseEnter={event => showDeliveryTarget(pointerIndex(event, days.length, deliveryTargetFirst, chartWidth, plotRight, plotLeft))} onMouseMove={event => showDeliveryTarget(pointerIndex(event, days.length, deliveryTargetFirst, chartWidth, plotRight, plotLeft))} onMouseLeave={() => setTooltip(null)} aria-hidden="true" />
         {days.map((day, index) => day.inventory !== null ? <g key={`inventory-${day.date}`}>
           {day.physicalCount !== null ? <circle className="g2-physical-point-hit" cx={xAt(index, days.length, plotRight, plotLeft)} cy={inventoryScale.y(day.inventory)} r="9" onMouseEnter={() => showValue(index, '실사', day.physicalCount!.quantity, inventoryScale.y(day.inventory!))} onMouseLeave={() => setTooltip(null)} aria-hidden="true" /> : null}
           <circle className={`g2-line-point${day.isForecast ? ' g2-line-point-forecast' : ''}${day.physicalCount !== null ? ' g2-line-point-physical' : ''}`} cx={xAt(index, days.length, plotRight, plotLeft)} cy={inventoryScale.y(day.inventory)} r={day.physicalCount !== null ? 3.2 : 2.5} onMouseEnter={() => showValue(index, day.physicalCount !== null ? '실사' : day.isForecast ? '예상 재고' : '재고', day.physicalCount?.quantity ?? day.inventory!, inventoryScale.y(day.inventory!))} onMouseLeave={() => setTooltip(null)}><title>{Number(day.date.slice(-2))}일 {day.physicalCount !== null ? '실사' : '재고'} {day.physicalCount?.quantity ?? day.inventory}대</title></circle>
@@ -287,7 +297,7 @@ export function G2ProductionDeliveryInventoryChart({ days, holidays = EMPTY_G2_H
       </svg>
       </div>
       </div>
-      <div className="sr-only"><table><caption>일별 생산·납품·재고 그래프 자료</caption><thead><tr><th>항목</th>{days.map(day => <th key={day.date}>{day.date}</th>)}</tr></thead><tbody><tr><th>구분</th>{days.map(day => <td key={day.date}>{day.isForecast ? '예상' : '실적'}</td>)}</tr><tr><th>생산</th>{days.map(day => <td key={day.date}>{day.productionTotal ?? '미입력'}</td>)}</tr><tr><th>납품</th>{days.map(day => <td key={day.date}>{day.delivery?.quantity ?? '미입력'}</td>)}</tr><tr><th>재고</th>{days.map(day => <td key={day.date}>{day.inventory ?? '기준 없음'}</td>)}</tr><tr><th>재고 목표</th>{days.map(day => <td key={day.date}>{day.inventoryTarget?.quantity ?? '미등록'}</td>)}</tr><tr><th>실사</th>{days.map(day => <td key={day.date}>{day.physicalCount?.quantity ?? '아님'}</td>)}</tr></tbody></table></div>
+      <div className="sr-only"><table><caption>일별 생산·납품·재고 그래프 자료</caption><thead><tr><th>항목</th>{days.map(day => <th key={day.date}>{day.date}</th>)}</tr></thead><tbody><tr><th>구분</th>{days.map(day => <td key={day.date}>{day.isForecast ? '예상' : '실적'}</td>)}</tr><tr><th>생산</th>{days.map(day => <td key={day.date}>{day.productionTotal ?? '미입력'}</td>)}</tr><tr><th>납품 목표</th>{days.map(day => <td key={day.date}>{day.deliveryTarget?.quantity ?? '미등록'}</td>)}</tr><tr><th>납품</th>{days.map(day => <td key={day.date}>{day.delivery?.quantity ?? '미입력'}</td>)}</tr><tr><th>불량</th>{days.map(day => <td key={day.date}>{day.defect?.quantity ?? '미입력'}</td>)}</tr><tr><th>재고</th>{days.map(day => <td key={day.date}>{day.inventory ?? '기준 없음'}</td>)}</tr><tr><th>재고 목표</th>{days.map(day => <td key={day.date}>{day.inventoryTarget?.quantity ?? '미등록'}</td>)}</tr><tr><th>실사</th>{days.map(day => <td key={day.date}>{day.physicalCount?.quantity ?? '아님'}</td>)}</tr></tbody></table></div>
     </div>
   );
 }

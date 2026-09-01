@@ -1075,6 +1075,11 @@ body,
   color: #1e3a5f !important;
 }
 
+.app-shell .g2-horizontal-table tr > td.g2-forecast-column,
+.app-shell .g2-horizontal-table td.g2-forecast-column :where(input, button, strong, span, small) {
+  color: #2563eb !important;
+}
+
 .app-shell .g2-horizontal-table thead th.g2-red-day {
   border-bottom: 1px solid var(--wire-ink) !important;
   background-color: var(--wire-surface) !important;
@@ -1085,7 +1090,7 @@ body,
 .app-shell .g2-horizontal-table tr > td.g2-red-day-column,
 .app-shell .g2-horizontal-table tr.g2-inventory-row > td.g2-red-day-column,
 .app-shell .g2-horizontal-table tr.g2-grand-total-row > td.g2-red-day-column,
-.app-shell .g2-horizontal-table td.g2-red-day-column :where(button, strong, span, small) {
+.app-shell .g2-horizontal-table td.g2-red-day-column :where(input, button, strong, span, small) {
   color: #dc2626 !important;
 }
 

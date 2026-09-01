@@ -16,8 +16,8 @@ public static class G2OperationsEndpointExtensions
         group.MapPut("/operations/{date}", async (DateOnly date, SaveG2OperationsRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
         {
             var changes = Changes(request);
-            if (changes.Count == 0) return Validation("request", "저장할 생산 또는 납품 항목을 하나 이상 입력해 주세요.");
-            if (changes.Any(c => c.MetricCode is G2MetricCodes.MorningProduction or G2MetricCodes.AfternoonProduction && !Has(user, QmsPermissions.G2ProductionUpdate))
+            if (changes.Count == 0) return Validation("request", "저장할 생산, 납품 또는 불량 항목을 하나 이상 입력해 주세요.");
+            if (changes.Any(c => (c.MetricCode is G2MetricCodes.MorningProduction or G2MetricCodes.AfternoonProduction or G2MetricCodes.Defect) && !Has(user, QmsPermissions.G2ProductionUpdate))
                 || changes.Any(c => c.MetricCode == G2MetricCodes.Delivery && !Has(user, QmsPermissions.G2DeliveryUpdate))) return Results.Forbid();
             var actor = UserId(user);
             return actor is null ? Results.Unauthorized() : await Safe(() => store.SaveMetricsAsync(date, changes, actor.Value, token));
@@ -51,7 +51,7 @@ public static class G2OperationsEndpointExtensions
 
     private static IReadOnlyList<G2MetricChange> Changes(SaveG2OperationsRequest request)
     {
-        var result = new List<G2MetricChange>(); Add(result, G2MetricCodes.MorningProduction, request.MorningProduction); Add(result, G2MetricCodes.AfternoonProduction, request.AfternoonProduction); Add(result, G2MetricCodes.Delivery, request.Delivery); return result;
+        var result = new List<G2MetricChange>(); Add(result, G2MetricCodes.MorningProduction, request.MorningProduction); Add(result, G2MetricCodes.AfternoonProduction, request.AfternoonProduction); Add(result, G2MetricCodes.Delivery, request.Delivery); Add(result, G2MetricCodes.Defect, request.Defect); return result;
     }
     private static IReadOnlyList<G2MetricChange> Changes(SaveG2AttendanceRequest request)
     {

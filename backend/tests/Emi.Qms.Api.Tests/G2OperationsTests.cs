@@ -22,13 +22,14 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             null,
             new Dictionary<DateOnly, int> { [from.AddDays(1)] = 5 },
             new Dictionary<DateOnly, long> { [from] = 20, [from.AddDays(2)] = 3 },
-            new Dictionary<DateOnly, long> { [from.AddDays(2)] = 10, [from.AddDays(3)] = 2 });
+            new Dictionary<DateOnly, long> { [from.AddDays(2)] = 10, [from.AddDays(3)] = 2 },
+            new Dictionary<DateOnly, long> { [from.AddDays(2)] = 1 });
 
         Assert.Null(result[from]);
         Assert.Equal(5, result[from.AddDays(1)]);
-        Assert.Equal(-2, result[from.AddDays(2)]);
-        Assert.Equal(-4, result[from.AddDays(3)]);
-        Assert.Equal(-4, result[from.AddDays(4)]);
+        Assert.Equal(-3, result[from.AddDays(2)]);
+        Assert.Equal(-5, result[from.AddDays(3)]);
+        Assert.Equal(-5, result[from.AddDays(4)]);
     }
 
     [Fact]
@@ -38,9 +39,11 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
         var counts = new Dictionary<DateOnly, int> { [from] = 100, [from.AddDays(3)] = 80 };
         var before = G2InventoryCalculator.Calculate(from, from.AddDays(4), null, counts,
             new Dictionary<DateOnly, long> { [from.AddDays(1)] = 10, [from.AddDays(4)] = 5 },
+            new Dictionary<DateOnly, long>(),
             new Dictionary<DateOnly, long>());
         var corrected = G2InventoryCalculator.Calculate(from, from.AddDays(4), null, counts,
             new Dictionary<DateOnly, long> { [from.AddDays(1)] = 25, [from.AddDays(4)] = 5 },
+            new Dictionary<DateOnly, long>(),
             new Dictionary<DateOnly, long>());
 
         Assert.NotEqual(before[from.AddDays(2)], corrected[from.AddDays(2)]);
@@ -95,6 +98,19 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
                 morningProduction = new { quantity = 10, expectedVersion = (int?)null },
                 delivery = new { quantity = 4, expectedVersion = (int?)null }
             },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task OperationsEndpoint_RejectsDefectForLogisticsRole()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-logistics");
+        using var response = await client.PutAsJsonAsync(
+            "/api/g2/operations/2026-08-18",
+            new { defect = new { quantity = 2, expectedVersion = (int?)null } },
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);

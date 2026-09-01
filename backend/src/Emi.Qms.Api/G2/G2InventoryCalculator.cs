@@ -8,14 +8,15 @@ public static class G2InventoryCalculator
         long? balanceBeforeFrom,
         IReadOnlyDictionary<DateOnly, int> physicalCounts,
         IReadOnlyDictionary<DateOnly, long> production,
-        IReadOnlyDictionary<DateOnly, long> delivery)
+        IReadOnlyDictionary<DateOnly, long> delivery,
+        IReadOnlyDictionary<DateOnly, long> defects)
     {
         var result = new Dictionary<DateOnly, long?>();
         long? balance = balanceBeforeFrom;
         for (var date = from; date <= to; date = date.AddDays(1))
         {
             if (physicalCounts.TryGetValue(date, out var counted)) balance = counted;
-            else if (balance.HasValue) balance += production.GetValueOrDefault(date) - delivery.GetValueOrDefault(date);
+            else if (balance.HasValue) balance += production.GetValueOrDefault(date) - delivery.GetValueOrDefault(date) - defects.GetValueOrDefault(date);
             result[date] = balance;
         }
         return result;

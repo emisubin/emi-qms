@@ -760,6 +760,14 @@ public sealed class PostgreSqlMigrationTests
                 TestContext.Current.CancellationToken));
             Assert.Equal(1L, await ReadScalarAsync<long>(
                 provider,
+                "select count(*) from pg_constraint where conrelid='g2_daily_metrics'::regclass and conname='ck_g2_daily_metrics_code' and pg_get_constraintdef(oid) like '%Defect%';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from pg_constraint where conrelid='g2_targets'::regclass and conname='ck_g2_targets_type' and pg_get_constraintdef(oid) like '%Delivery%';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
                 "select count(*) from g2_daily_metrics where is_forecast and quantity=50;",
                 TestContext.Current.CancellationToken));
             Assert.Equal(2L, await ReadScalarAsync<long>(
@@ -806,6 +814,7 @@ public sealed class PostgreSqlMigrationTests
             new(G2MetricCodes.MorningProduction, 50, null),
             new(G2MetricCodes.AfternoonProduction, 0, null),
             new(G2MetricCodes.Delivery, 12, null),
+            new(G2MetricCodes.Defect, 2, null),
             new(G2MetricCodes.MorningEmiAttendance, 18, null)
         ], actor, TestContext.Current.CancellationToken);
 
@@ -814,8 +823,9 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(50, forecast.Days[0].MorningProduction?.Quantity);
         Assert.Equal(0, forecast.Days[0].AfternoonProduction?.Quantity);
         Assert.Equal(12, forecast.Days[0].Delivery?.Quantity);
+        Assert.Equal(2, forecast.Days[0].Defect?.Quantity);
         Assert.Equal(18, forecast.Days[0].MorningEmiAttendance?.Quantity);
-        Assert.Equal(4L, await ReadScalarAsync<long>(
+        Assert.Equal(5L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from g2_daily_metrics where work_date='2026-08-20' and is_forecast and quantity is not null;",
             TestContext.Current.CancellationToken));
@@ -826,8 +836,9 @@ public sealed class PostgreSqlMigrationTests
         Assert.Null(arrived.Days[0].MorningProduction?.Quantity);
         Assert.Null(arrived.Days[0].AfternoonProduction?.Quantity);
         Assert.Null(arrived.Days[0].Delivery?.Quantity);
+        Assert.Null(arrived.Days[0].Defect?.Quantity);
         Assert.Null(arrived.Days[0].MorningEmiAttendance?.Quantity);
-        Assert.Equal(4L, await ReadScalarAsync<long>(
+        Assert.Equal(5L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from g2_daily_metrics where work_date='2026-08-20' and not is_forecast and quantity is null and version=2;",
             TestContext.Current.CancellationToken));
@@ -837,6 +848,7 @@ public sealed class PostgreSqlMigrationTests
             new(G2MetricCodes.MorningProduction, 47, 2),
             new(G2MetricCodes.AfternoonProduction, 0, 2),
             new(G2MetricCodes.Delivery, 10, 2),
+            new(G2MetricCodes.Defect, 1, 2),
             new(G2MetricCodes.MorningEmiAttendance, 17, 2)
         ], actor, TestContext.Current.CancellationToken);
 
@@ -844,8 +856,9 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal(47, actual.Days[0].MorningProduction?.Quantity);
         Assert.Equal(0, actual.Days[0].AfternoonProduction?.Quantity);
         Assert.Equal(10, actual.Days[0].Delivery?.Quantity);
+        Assert.Equal(1, actual.Days[0].Defect?.Quantity);
         Assert.Equal(17, actual.Days[0].MorningEmiAttendance?.Quantity);
-        Assert.Equal(4L, await ReadScalarAsync<long>(
+        Assert.Equal(5L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from g2_daily_metrics where work_date='2026-08-20' and not is_forecast and quantity is not null and version=3;",
             TestContext.Current.CancellationToken));

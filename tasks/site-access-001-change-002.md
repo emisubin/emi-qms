@@ -26,7 +26,7 @@
 - 승인 allowlist: [Implementation report의 변경 파일](site-access-001-implementation-report.md#변경-파일)에 열거된 제품 코드·migration·테스트·Task 문서, 본 Change 002와 Roadmap 상태 갱신이다. 이 밖의 제품 의미 변경은 승인에 포함하지 않는다.
 - 병합 방식: Ready PR의 필수 CI가 통과한 검증 candidate를 GitHub에서 squash merge한다.
 - 통합 방식: publication branch의 사이트 접속 candidate commit에 최신 `origin/main`을 merge하고 중첩 파일을 의미 단위로 해결한다. 공개 PR의 최종 병합만 squash를 사용한다.
-- Drift gate: 통합·병합 직전 `origin/main` SHA, 전체 migration 목록, 동일 목적 코드와 중첩 파일을 다시 확인한다. 기준 SHA에서 움직였으면 새 diff를 재평가·재검증하며, `0085`가 점유됐거나 승인 allowlist 밖 의미 변경이 필요하면 현재 승인을 확대하지 않고 통합을 중단한다.
+- Drift gate: 통합·병합 직전 `origin/main` SHA, 전체 migration 목록, Roadmap 추적 `98`, 동일 목적 코드와 중첩 파일을 다시 확인한다. 기준 SHA에서 움직였으면 새 diff를 재평가·재검증하며, `0085` 또는 추적 `98`이 점유됐거나 승인 allowlist 밖 의미 변경이 필요하면 현재 승인을 확대하지 않고 통합을 중단한다.
 
 ## Root Finding
 
@@ -34,9 +34,13 @@
 
 `0084_site_access_sessions.sql`은 Git 이력·원격 branch·Persistent UAT·운영 Azure에 게시·적용된 적이 없다. local 검증에서는 삭제되는 일회용 PostgreSQL에만 적용됐으므로 기존 migration을 바꾸는 것이 아니라 미게시 후보의 번호를 교정한다. 기준 확인 시점의 `origin/main`에는 `0085`가 없다.
 
+Roadmap 추적 번호도 최초 후보와 공개 G2가 모두 `97`을 사용했다. 공개된 G2 추적 `97`을 보존하고 미게시 사이트 접속 추적 항목은 다음 빈 번호 `98`로 교정한다. Fable planning의 `97` 표기는 당시 원문으로 보존하고 Change 002와 현행 Roadmap·Implementation report가 교정된 번호의 source다.
+
 ## 승인 내용
 
 사용자는 사이트 접속 migration을 `0085`로 변경하고 충돌 여부를 모두 확인해 기존 공개 기능과 충돌하지 않도록 원격 `main`까지 병합하라고 명시 승인했다.
+
+사이트 접속의 사용자 직접 화면 검수는 아직 대기지만, 사용자는 이 상태를 확인한 뒤 코드의 Commit·Push·PR·원격 `main` 병합을 별도로 명시 승인했다. 따라서 병합은 사용자 검수 완료를 의미하지 않으며 Persistent UAT·Azure 배포 승인으로 확대되지 않는다.
 
 ## 포함 범위
 

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, deleteG2InventoryCount, getG2Home, saveG2InventoryCount, saveG2Target } from './api';
 import { G2ProductionDeliveryInventoryChart, G2ShiftProductionChart } from './G2Charts';
 import { G2DateRangeFilter, G2HorizontalTable, type G2HorizontalRow } from './G2DataViews';
 import { formatG2Date, formatG2Modified, todaySeoul, type G2Day, type G2HomeResponse, type G2Target } from './g2';
+import { applyG2HomePreview, type G2PreviewField, type G2PreviewInputs } from './G2HomePreview';
 import { useG2DateRange } from './useG2DateRange';
 import { useG2Holidays, type G2HolidayMap } from './useG2Holidays';
 
@@ -98,18 +99,20 @@ export function G2HomePage({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [countEditor, setCountEditor] = useState<{ date: string; value: string } | null>(null);
-  const [targetType, setTargetType] = useState<'DailyProduction' | 'Inventory'>('DailyProduction');
+  const [targetType, setTargetType] = useState<'DailyProduction' | 'Delivery' | 'Inventory'>('DailyProduction');
   const [targetDate, setTargetDate] = useState(initialDate);
   const [targetValue, setTargetValue] = useState('');
+  const [previewInputs, setPreviewInputs] = useState<G2PreviewInputs>({});
   const dialogInputRef = useRef<HTMLInputElement>(null);
   const loadSequenceRef = useRef(0);
+  const data = state.kind === 'ready' ? state.data : null;
 
   const load = useCallback(async (nextYear = year, nextMonth = month, preserve = false) => {
     const loadSequence = ++loadSequenceRef.current;
     if (!preserve) setState({ kind: 'loading' });
     try {
       const nextData = await getG2Home(developmentUserKey, nextYear, nextMonth);
-      if (loadSequence === loadSequenceRef.current) setState({ kind: 'ready', data: nextData });
+      if (loadSequence === loadSequenceRef.current) { setPreviewInputs({}); setState({ kind: 'ready', data: nextData }); }
     } catch (error) {
       if (loadSequence !== loadSequenceRef.current) return;
       setState(error instanceof ApiError && error.status === 403 ? { kind: 'forbidden', message: 'G2 현황을 조회할 권한이 없습니다.' } : { kind: 'error', message: error instanceof ApiError ? error.message : 'G2 현황을 불러오지 못했습니다.' });
@@ -126,9 +129,13 @@ export function G2HomePage({
     setState({ kind: 'loading' }); setYear(nextYear); setMonth(nextMonth); setTargetDate(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01`); setTargetValue(''); setFeedback(null);
   }
 
-  const data = state.kind === 'ready' ? state.data : null;
   const dateRange = useG2DateRange(data?.days ?? [], data ? `${data.year}-${data.month}` : 'loading');
   const holidays = useG2Holidays(developmentUserKey, data?.days ?? []);
+  const previewDays = useMemo(() => applyG2HomePreview(data?.days ?? [], previewInputs), [data?.days, previewInputs]);
+  const visibleDays = useMemo(
+    () => previewDays.filter(day => day.date >= dateRange.from && day.date <= dateRange.to),
+    [dateRange.from, dateRange.to, previewDays]
+  );
   function openCount(date: string) {
     const count = data?.days.find(day => day.date === date)?.physicalCount;
     setCountEditor({ date, value: count ? String(count.quantity) : '' }); setFeedback(null);
@@ -159,8 +166,32 @@ export function G2HomePage({
 
   function matchingTarget(): G2Target | null {
     const day = data?.days.find(item => item.date === targetDate);
-    const target = targetType === 'DailyProduction' ? day?.dailyProductionTarget : day?.inventoryTarget;
+    const target = targetType === 'DailyProduction'
+      ? day?.dailyProductionTarget
+      : targetType === 'Delivery'
+        ? day?.deliveryTarget
+        : day?.inventoryTarget;
     return target?.effectiveDate === targetDate ? target : null;
+  }
+
+  function setPreviewValue(date: string, field: G2PreviewField, value: string) {
+    setPreviewInputs(current => ({ ...current, [date]: { ...current[date], [field]: value } }));
+  }
+
+  function previewInput(day: G2Day, field: G2PreviewField, label: string) {
+    const rawValue = previewInputs[day.date]?.[field];
+    const quantity = day[field]?.quantity;
+    return <input
+      className="g2-preview-input"
+      type="number"
+      min="0"
+      step="1"
+      inputMode="numeric"
+      aria-label={`${formatG2Date(day.date)} ${label} 임시 예상값`}
+      value={rawValue ?? (quantity === null || quantity === undefined ? '' : String(quantity))}
+      placeholder="—"
+      onChange={event => setPreviewValue(day.date, field, event.target.value)}
+    />;
   }
 
   async function saveTarget() {
@@ -178,14 +209,13 @@ export function G2HomePage({
   if (state.kind === 'loading') return <section className="page-surface g2-page"><p role="status">G2 월간 현황을 불러오는 중입니다.</p></section>;
   if (state.kind === 'forbidden' || state.kind === 'error') return <section className="page-surface g2-page"><div className="g2-state" role="alert"><strong>{state.message}</strong><button type="button" onClick={() => void load()}>다시 시도</button></div></section>;
   if (!data) return null;
-  const visibleDays = dateRange.filteredDays;
   const hasNegativeInventory = visibleDays.some(day => day.inventory !== null && day.inventory < 0);
   const productionAverage = averageQuantity(visibleDays.map(day => day.productionTotal));
   const deliveryAverage = averageQuantity(visibleDays.map(day => day.delivery?.quantity));
   const inventoryAverage = averageQuantity(visibleDays.map(day => day.inventory));
   const morningAverage = averageQuantity(visibleDays.map(day => day.morningProduction?.quantity));
   const afternoonAverage = averageQuantity(visibleDays.map(day => day.afternoonProduction?.quantity));
-  const todayInventoryDay = data.days.find(day => day.date === data.today);
+  const todayInventoryDay = previewDays.find(day => day.date === data.today);
   const inventoryShortage = todayInventoryDay?.inventory !== null && todayInventoryDay?.inventory !== undefined && todayInventoryDay.inventoryTarget !== null
     ? Math.max(todayInventoryDay.inventoryTarget.quantity - todayInventoryDay.inventory, 0)
     : null;
@@ -219,6 +249,18 @@ export function G2HomePage({
       {canManageInventory ? <div className="g2-marker-actions" aria-label="재고 실사 날짜별 수정">{visibleDays.filter(day => day.physicalCount).map(day => <button key={day.date} type="button" disabled={!mutationEnabled} onClick={() => openCount(day.date)}><b>{Number(day.date.slice(-2))}일 실사</b><span>{day.physicalCount?.quantity}대 · 수정</span></button>)}<button type="button" disabled={!mutationEnabled || !countDateMaximum} onClick={() => countDateMaximum && openCount(countDateMaximum)}>실사 입력</button></div> : null}
     </article>
 
+    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">표의 생산·납품·불량 숫자는 조회용 임시 예상값입니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p><G2HorizontalTable days={visibleDays} caption="생산 현황" rows={[
+      { label: '오전 생산', value: day => previewInput(day, 'morningProduction', '오전 생산') },
+      { label: '오후 생산', value: day => previewInput(day, 'afternoonProduction', '오후 생산') },
+      { label: '생산 합계', value: day => <strong>{day.productionTotal ?? '—'}</strong> },
+      { label: '납품 목표', value: day => day.deliveryTarget?.quantity ?? '—' },
+      { label: '납품', value: day => previewInput(day, 'delivery', '납품') },
+      { label: '불량', value: day => previewInput(day, 'defect', '불량') },
+      { label: '재고', rowClassName: 'g2-inventory-row', value: day => day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
+    ]} holidays={holidays} /></article>
+
+    {canManageTargets ? <article className="g2-card g2-target-card"><header><div><p className="eyebrow">목표 관리</p><h3>적용 시작일별 목표</h3></div></header><div className="g2-inline-form"><label>목표 종류<select value={targetType} disabled={!mutationEnabled || busy} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}><option value="DailyProduction">일 생산목표</option><option value="Delivery">납품 목표</option><option value="Inventory">재고목표</option></select></label><label className="g2-target-date-field">적용 시작일<input type="date" min={targetDateMinimum} max={targetDateMaximum} value={targetDate} disabled={!mutationEnabled || busy} required onChange={event => { setTargetDate(event.target.value); setTargetValue(''); }} /></label><label>목표 수량<input type="number" min="0" step="1" value={targetValue} disabled={!mutationEnabled || busy} required onChange={event => setTargetValue(event.target.value)} /></label><button className="primary-button" type="button" disabled={!mutationEnabled || busy || !targetDate || targetValue.trim() === ''} onClick={() => void saveTarget()}>목표 저장</button></div><small>같은 적용일을 다시 저장하면 기존 목표를 수정합니다. 이전·다음 달로 이동해 과거와 미래 목표를 관리할 수 있습니다.</small></article> : null}
+
     <article className="g2-card g2-chart-card"><header><div><p className="eyebrow">조별 생산</p><h3>오전조 · 오후조 생산량</h3></div></header><div className="g2-chart-dashboard">
       <G2ShiftProductionChart days={visibleDays} holidays={holidays} />
       <G2ChartKpiPanel label="조별 생산 핵심 지표" items={[
@@ -226,16 +268,6 @@ export function G2HomePage({
         { label: '오후조 일일 생산 평균', value: formatQuantity(afternoonAverage), tone: 'afternoon' }
       ]} />
     </div></article>
-
-    {canManageTargets ? <article className="g2-card g2-target-card"><header><div><p className="eyebrow">목표 관리</p><h3>적용 시작일별 목표</h3></div></header><div className="g2-inline-form"><label>목표 종류<select value={targetType} disabled={!mutationEnabled || busy} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}><option value="DailyProduction">일 생산목표</option><option value="Inventory">재고목표</option></select></label><label>적용 시작일<input type="date" min={targetDateMinimum} max={targetDateMaximum} value={targetDate} disabled={!mutationEnabled || busy} required onChange={event => { setTargetDate(event.target.value); setTargetValue(''); }} /></label><label>목표 수량<input type="number" min="0" step="1" value={targetValue} disabled={!mutationEnabled || busy} required onChange={event => setTargetValue(event.target.value)} /></label><button className="primary-button" type="button" disabled={!mutationEnabled || busy || !targetDate || targetValue.trim() === ''} onClick={() => void saveTarget()}>목표 저장</button></div><small>같은 적용일을 다시 저장하면 기존 목표를 수정합니다. 이전·다음 달로 이동해 과거와 미래 목표를 관리할 수 있습니다.</small></article> : null}
-
-    <article className="g2-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div></header><G2HorizontalTable days={visibleDays} caption="생산 현황" rows={[
-      { label: '오전 생산', value: day => day.morningProduction?.quantity ?? '—' },
-      { label: '오후 생산', value: day => day.afternoonProduction?.quantity ?? '—' },
-      { label: '생산 합계', value: day => <strong>{day.productionTotal ?? '—'}</strong> },
-      { label: '납품', value: day => day.delivery?.quantity ?? '—' },
-      { label: '재고', rowClassName: 'g2-inventory-row', value: day => day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
-    ]} holidays={holidays} /></article>
 
     <article className="g2-card"><header><div><p className="eyebrow">선택 기간</p><h3>제조 인원 출근 현황</h3></div></header><G2AttendanceSummaryTable days={visibleDays} holidays={holidays} /></article>
 

@@ -192,7 +192,7 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 | Implementation report | 작성·자동·독립 검증 완료 | 본 문서 |
 | SOP | 작성 | [site-access-001-sop.md](site-access-001-sop.md) |
 | User manual | 작성 | [site-access-001-user-manual.md](site-access-001-user-manual.md) |
-| Roadmap update | 작성 | `docs/00-product-roadmap.md` 3.3M·추적 97·Decision Log |
+| Roadmap update | 작성 | `docs/00-product-roadmap.md` 3.3M·추적 98·Decision Log |
 | User validation checklist | 자동 검증 완료·사용자 검수 대기 | [site-access-001-user-validation-checklist.md](site-access-001-user-validation-checklist.md) |
 
 ## 현재 Gate

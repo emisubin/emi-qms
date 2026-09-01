@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setRuntimeMutationAllowed } from '../src/api';
 import { G2ProductionDeliveryInventoryChart, G2ShiftProductionChart } from '../src/G2Charts';
 import { G2HomePage } from '../src/G2HomePage';
+import { applyG2HomePreview } from '../src/G2HomePreview';
 import { G2AttendancePage, G2OperationsPage } from '../src/G2ManagementPages';
 import { todaySeoul, type G2Day, type G2MetricValue, type G2RangeResponse } from '../src/g2';
 import { isG2RedDay } from '../src/useG2Holidays';
@@ -10,11 +11,11 @@ import { isG2RedDay } from '../src/useG2Holidays';
 function day(date = todaySeoul(), forecast = false): G2Day {
   return {
     date, isForecast: forecast,
-    morningProduction: null, afternoonProduction: null, delivery: null,
+    morningProduction: null, afternoonProduction: null, delivery: null, defect: null,
     morningEmiAttendance: null, morningContractorAttendance: null,
     afternoonEmiAttendance: null, afternoonContractorAttendance: null,
     productionTotal: null, morningAttendanceTotal: null, afternoonAttendanceTotal: null, attendanceTotal: null,
-    inventory: null, physicalCount: null, dailyProductionTarget: null, inventoryTarget: null
+    inventory: null, physicalCount: null, dailyProductionTarget: null, deliveryTarget: null, inventoryTarget: null
   };
 }
 
@@ -31,8 +32,9 @@ describe('G2 charts and daily management', () => {
   afterEach(() => { setRuntimeMutationAllowed(false); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it('provides screen-reader tables and marks forecast inventory with a separate dotted line', () => {
+    const deliveryTarget = { targetType: 'Delivery' as const, effectiveDate: '2026-08-17', quantity: 6, version: 1, updatedAtUtc: '2026-08-17T00:00:00Z', updatedByDisplayName: 'Test User' };
     const days = [
-      { ...day('2026-08-17'), inventory: 10, physicalCount: { ...metric(0), quantity: 0 }, morningProduction: metric(2), afternoonProduction: metric(2), productionTotal: 4, delivery: metric(2) },
+      { ...day('2026-08-17'), inventory: 10, physicalCount: { ...metric(0), quantity: 0 }, morningProduction: metric(2), afternoonProduction: metric(2), productionTotal: 4, delivery: metric(2), deliveryTarget },
       { ...day('2026-08-18', true), inventory: 12, morningProduction: metric(1), afternoonProduction: metric(2), productionTotal: 3, dailyProductionTarget: { targetType: 'DailyProduction' as const, effectiveDate: '2026-08-18', quantity: 5, version: 1, updatedAtUtc: '2026-08-17T00:00:00Z', updatedByDisplayName: 'Test User' } }
     ];
     const holidays = new Map([['2026-08-17', '광복절 대체공휴일']]);
@@ -65,8 +67,8 @@ describe('G2 charts and daily management', () => {
     expect(container.querySelectorAll('.g2-baseline')).toHaveLength(2);
     expect(container.querySelector('.g2-bar-production')?.tagName.toLowerCase()).toBe('path');
     expect(container.querySelector('#g2-stack-clip-0 path')).toBeInTheDocument();
-    expect(container.querySelectorAll('.g2-line-hit')).toHaveLength(4);
-    expect(container.querySelectorAll('.g2-line-halo')).toHaveLength(4);
+    expect(container.querySelectorAll('.g2-line-hit')).toHaveLength(5);
+    expect(container.querySelectorAll('.g2-line-halo')).toHaveLength(5);
     expect(container.querySelectorAll('.g2-inventory-value')).toHaveLength(2);
     expect(container.querySelectorAll('.g2-line-point-physical')).toHaveLength(1);
     expect(container.querySelector('.g2-inventory-value-physical')).toHaveTextContent('10');
@@ -119,6 +121,11 @@ describe('G2 charts and daily management', () => {
     expect(shiftChart.querySelector('.g2-tooltip-date')).toHaveTextContent('8월 18일');
     expect(shiftChart.querySelector('.g2-tooltip-value')).toHaveTextContent('일 생산목표 5대');
 
+    const deliveryTargetLine = container.querySelector('.g2-line-hit[data-series="delivery-target"]');
+    expect(deliveryTargetLine).not.toBeNull();
+    fireEvent.mouseEnter(deliveryTargetLine!);
+    expect(flowChart.querySelector('.g2-tooltip-value')).toHaveTextContent('납품 목표 6대');
+
     const productionAverageLine = container.querySelector('.g2-line-hit[data-series="production-average"]');
     expect(productionAverageLine).not.toBeNull();
     fireEvent.mouseEnter(productionAverageLine!);
@@ -133,6 +140,48 @@ describe('G2 charts and daily management', () => {
     expect(isG2RedDay('2026-08-17')).toBe(false);
     expect(isG2RedDay('2026-08-17', holidays)).toBe(true);
     expect(isG2RedDay('2026-08-18', holidays)).toBe(false);
+  });
+
+  it('recalculates preview production and inventory without changing physical-count boundaries', () => {
+    const days = [
+      { ...day('2026-08-01'), physicalCount: { ...metric(100), quantity: 100 }, inventory: 100 },
+      { ...day('2026-08-02'), morningProduction: metric(10), productionTotal: 10, delivery: metric(4), defect: metric(1), inventory: 105 }
+    ];
+
+    const preview = applyG2HomePreview(days, {
+      '2026-08-02': { morningProduction: '20', delivery: '10', defect: '3' }
+    });
+
+    expect(preview[0].inventory).toBe(100);
+    expect(preview[1].productionTotal).toBe(20);
+    expect(preview[1].inventory).toBe(107);
+  });
+
+  it('updates the home graph source from table preview inputs without sending a mutation', async () => {
+    const methods: string[] = [];
+    const days = [
+      { ...day('2026-08-01'), physicalCount: { ...metric(100), quantity: 100 }, inventory: 100 },
+      { ...day('2026-08-02'), morningProduction: metric(10), productionTotal: 10, delivery: metric(4), defect: metric(1), inventory: 105 }
+    ];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(init?.method ?? 'GET');
+      const url = new URL(String(input));
+      if (url.pathname === '/api/system/holidays') return json([]);
+      return json({ today: '2026-08-02', year: 2026, month: 8, hasInventoryBaseline: true, days });
+    }));
+
+    render(<G2HomePage developmentUserKey="dev-sales" canManageInventory={false} canManageTargets={false} mutationEnabled />);
+    const productionTable = await screen.findByRole('table', { name: '생산 현황' });
+    fireEvent.change(within(productionTable).getByLabelText('8월 2일 불량 임시 예상값'), { target: { value: '3' } });
+
+    const inventoryRow = within(productionTable).getByRole('rowheader', { name: '재고' }).closest('tr');
+    expect(inventoryRow).not.toBeNull();
+    expect(within(inventoryRow!).getByText('103')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '임시값 초기화' })).toBeInTheDocument();
+    expect(methods.every(method => method === 'GET')).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: '임시값 초기화' }));
+    expect(within(inventoryRow!).getByText('105')).toBeInTheDocument();
   });
 
   it('uses the Seoul calendar date even when UTC is still on the previous month', () => {
@@ -178,6 +227,23 @@ describe('G2 charts and daily management', () => {
     await waitFor(() => expect(savedBody).not.toBeNull());
     expect(savedBody).toEqual({ morningProduction: { quantity: 0, expectedVersion: null } });
     expect(await screen.findByText('생산·납품 수량을 저장했습니다.')).toBeInTheDocument();
+  });
+
+  it('saves a defect quantity with the production permission', async () => {
+    let savedBody: Record<string, unknown> | null = null;
+    const response: G2RangeResponse = { today: todaySeoul(), from: todaySeoul(), to: todaySeoul(), days: [day()] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/g2/days') return json(response);
+      if (url.pathname.startsWith('/api/g2/operations/')) { savedBody = JSON.parse(String(init?.body)) as Record<string, unknown>; return json({ saved: true }); }
+      return json([]);
+    }));
+
+    render(<G2OperationsPage developmentUserKey="dev-manufacturing" canEditProduction canEditDelivery={false} mutationEnabled />);
+    fireEvent.change(await screen.findByLabelText(/^불량 수량/u), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경한 값 저장' }));
+
+    await waitFor(() => expect(savedBody).toEqual({ defect: { quantity: 2, expectedVersion: null } }));
   });
 
   it('uses dates as horizontal columns, keeps forecast labels, and filters the visible range', async () => {
@@ -266,7 +332,9 @@ describe('G2 charts and daily management', () => {
     expect(within(shiftKpis).getByText('오후조 일일 생산 평균').closest('.g2-chart-kpi')).toHaveTextContent('25대');
     expect(within(flowTable).getByText('2026-08-17')).toBeInTheDocument();
     expect(within(productionTable).getByRole('rowheader', { name: '생산 합계' })).toBeInTheDocument();
+    expect(within(productionTable).getByRole('rowheader', { name: '납품 목표' })).toBeInTheDocument();
     expect(within(productionTable).getByRole('rowheader', { name: '납품' })).toBeInTheDocument();
+    expect(within(productionTable).getByRole('rowheader', { name: '불량' })).toBeInTheDocument();
     expect(within(productionTable).getByRole('rowheader', { name: '재고' })).toBeInTheDocument();
     expect(within(productionTable).getByRole('rowheader', { name: '재고' }).closest('tr')).toHaveClass('g2-inventory-row');
     expect(within(productionTable).queryByRole('rowheader', { name: '일 생산목표' })).toBeNull();
@@ -287,7 +355,7 @@ describe('G2 charts and daily management', () => {
     const productionCard = screen.getByRole('heading', { name: '생산 현황' }).closest('article');
     expect(targetCard).not.toBeNull();
     expect(productionCard).not.toBeNull();
-    expect(targetCard!.compareDocumentPosition(productionCard!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(productionCard!.compareDocumentPosition(targetCard!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const morningDisclosure = within(attendanceTable).getByRole('button', { name: '오전 합계 세부 인원 보기' });
     const afternoonDisclosure = within(attendanceTable).getByRole('button', { name: '오후 합계 세부 인원 보기' });
@@ -418,13 +486,12 @@ describe('G2 charts and daily management', () => {
       days: [{ ...day(today), morningProduction: metric(22), productionTotal: 22 }]
     })));
     const productionTable = await screen.findByRole('table', { name: '생산 현황' });
-    expect(within(productionTable).getAllByText('22').length).toBeGreaterThan(0);
+    expect(within(productionTable).getByLabelText(`${Number(today.slice(5, 7))}월 ${Number(today.slice(8, 10))}일 오전 생산 임시 예상값`)).toHaveValue(22);
 
     await act(async () => resolveOlder(json({
       today, year, month, hasInventoryBaseline: false,
       days: [{ ...day(today), morningProduction: metric(11), productionTotal: 11 }]
     })));
-    expect(within(productionTable).queryByText('11')).toBeNull();
-    expect(within(productionTable).getAllByText('22').length).toBeGreaterThan(0);
+    expect(within(productionTable).getByLabelText(`${Number(today.slice(5, 7))}월 ${Number(today.slice(8, 10))}일 오전 생산 임시 예상값`)).toHaveValue(22);
   });
 });

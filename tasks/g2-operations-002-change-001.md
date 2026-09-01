@@ -25,3 +25,4 @@ G2 홈 생산 현황표에서 바로 입력하는 박스 자체를 각 날짜 �
 - 최종 isolated Full-Stack `1/1` 통과, `appearance: textfield`와 셀 좌우 여백 차이 `1px` 이하 자동 확인
 - 열린 검수 서버에서 `display: block`, `text-align: center`, `appearance: textfield`와 증감 버튼 제거를 시각 확인
 - 입력은 계속 `type="number"`, `inputmode="numeric"`이며 synthetic 값 `24`가 박스 중앙에 표시됨을 확인
+- 최초 PR CI의 Linux Chromium에서 모바일 날짜 입력의 browser intrinsic width가 `121.15625px`로 계산되어 `120px` 상한 검증이 실패함을 확인했다. 모바일 G2 날짜 입력에 `min-width: 0`, `box-sizing: border-box`와 `116px`/`132px` 상한을 명시해 환경별 계산 차이를 제거하고 Full-Stack CI를 재검증한다.

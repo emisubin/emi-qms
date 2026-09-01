@@ -107,7 +107,7 @@ Excel/PDF/첨부파일 영향은 `N/A`다. 기존 프로젝트·생산계획·�
 | Desktop·mobile visual QA | 적용 | 통과 | synthetic 1440px·390px, date input width, 예상 파랑·휴일 빨강, page overflow `0` |
 | Migration catalog | 적용 | 통과 | `0084` latest, duplicate/missing prefix 없음, 기존 migration 수정 없음 |
 | Persistent UAT | 미실행 | `N/A` | 명시적 제외·미승인, 기존 DB/runtime 무변경 |
-| CI | 미실행 | `N/A` | commit·push·PR 미승인 |
+| PR CI | 재검증 중 | 최초 run에서 Linux Chromium 모바일 날짜 입력 intrinsic width `121.15625px` 1건 발견, scoped width 보정 후 재실행 | local 동일 Full-Stack과 새 PR run 결과를 최종 게시 gate로 사용 |
 | Azure 공개 검증 | 미실행 | `N/A` | 배포 미승인 |
 
 Full-Stack은 물류의 불량 변경 `403`, 제조·영업의 불량 변경 성공, 납품 목표 적용일 상속, 실사 다음 날 재고의 불량 차감, 홈 임시 불량 변경 후 재고 즉시 갱신, API mutation 없음과 새로고침 원상복구를 확인했다. 모바일에서는 홈·월간 생산·월간 출근의 시작일/종료일 폭, 목표 적용 시작일 폭, 예상 생산 입력과 예상 출근 합계의 파란 글자, 페이지 overflow `0`을 확인했다.
@@ -143,6 +143,7 @@ Synthetic 화면 증빙:
 | `G2-002-PLAN-003` | P3 | `RESOLVED` | 불량 전용 permission은 동일 역할 계약을 중복 | `G2.Production.Update` 재사용과 물류 `403` 검증 |
 | `G2-002-FORECAST-COLOR-001` | P2 | `RESOLVED` | Graphite 마지막 cascade가 예상 input·출근 합계의 파란색을 덮음 | wireframe semantic 예외와 mobile computed-style 검증, 휴일 빨강 우선 유지 |
 | `G2-002-E2E-LOCATOR-001` | P3 | `RESOLVED` | 첫 통합 검증의 재고 행 locator가 table scope를 잘못 결합 | rowheader parent로 고정한 뒤 동일 시나리오 재실행 통과 |
+| `G2-002-CI-DATE-WIDTH-001` | P2 | `RESOLVED` | Linux Chromium의 date input intrinsic width 때문에 `116px` grid 안의 실제 폭이 `121.15625px`로 넘침 | G2 mobile date input에 `min-width: 0`, `box-sizing: border-box`, 명시적 max-width를 적용하고 local·PR Full-Stack 재검증 |
 
 현재 Open P0/P1/P2/P3는 `0/0/0/0`이다. 자동 assertion과 검증 시나리오는 같은 구현 cycle에서 작성되었으므로 독립적인 현업 ground truth가 아니다. 자동 검증은 계약 회귀와 기술 동작의 근거이며, 사용자 직접 가독성·업무 적합성 검수를 대체하지 않는다.
 

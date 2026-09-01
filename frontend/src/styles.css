@@ -849,9 +849,25 @@
   .g2-date-range > div { grid-column: 1 / -1; }
   .g2-date-range > span { display: none; }
   .g2-date-range button { grid-column: 1 / -1; width: 100%; }
-  .g2-date-range input { min-height: 36px; padding-inline: 7px; font-size: 0.76rem; }
+  .g2-date-range input {
+    width: 100%;
+    min-width: 0;
+    max-width: 116px;
+    min-height: 36px;
+    box-sizing: border-box;
+    padding-inline: 7px;
+    font-size: 0.76rem;
+  }
   .g2-target-date-field { width: 132px; }
-  .g2-target-date-field input { min-height: 36px; padding-inline: 7px; font-size: 0.76rem; }
+  .g2-target-date-field input {
+    width: 100%;
+    min-width: 0;
+    max-width: 132px;
+    min-height: 36px;
+    box-sizing: border-box;
+    padding-inline: 7px;
+    font-size: 0.76rem;
+  }
   .g2-horizontal-table th,
   .g2-horizontal-table td { min-width: 70px; padding: 9px 8px; }
   .g2-horizontal-table th:first-child { min-width: 102px; }

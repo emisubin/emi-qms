@@ -1,5 +1,18 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 028 — G2 전일 실적 기반 재고 공개 release
+
+- 사용자 게시·운영 배포 승인: 2026-09-02 완료
+- 게시 대상: `TASK-G2-OPERATIONS-002 Change 003`
+- 기준 원격 `main`: `a8bb000dbbbe7d307bf1de96259917b750460497`
+- 배포 경계: migration 없음, Backend·Frontend, 기존 운영 인증·외부 알림·Key Vault 참조 보존
+- Git 게시: Ready PR·필수 CI·squash merge 진행 중
+- Azure 운영 release: exact merge SHA 확정 뒤 실행 대기
+- 공개 검증: health·익명 접근 차단·인증된 G2 2026-08-28 재고 `6대` 확인 대기
+- Persistent UAT·G2 원본 데이터 mutation: 제외
+- Open P0/P1/P2: `0/0/0`
+- 상세 계약: `tasks/azure-deploy-001-change-028.md`
+
 ## Change 027 — G2 일일 운영관리 공개 release
 
 - 사용자 게시·운영 배포 승인: 2026-08-19 완료

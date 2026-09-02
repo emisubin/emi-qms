@@ -150,14 +150,15 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
         await ExpireForecastMetricsAsync(connection, null, today, token);
-        var metrics = await ReadMetricsAsync(connection, from, to, token);
+        var metricsFrom = from >= G2InventoryCalculator.AvailableInventoryStartDate ? from.AddDays(-1) : from;
+        var metrics = await ReadMetricsAsync(connection, metricsFrom, to, token);
         var counts = await ReadCountsAsync(connection, from, to, token);
         var targets = await ReadTargetsAsync(connection, from, to, token);
         var balanceBefore = await ReadBalanceBeforeAsync(connection, from, token);
         var production = new Dictionary<DateOnly, long>();
         var delivery = new Dictionary<DateOnly, long>();
         var defects = new Dictionary<DateOnly, long>();
-        for (var date = from; date <= to; date = date.AddDays(1))
+        for (var date = metricsFrom; date <= to; date = date.AddDays(1))
         {
             production[date] = (long)(Metric(metrics, date, G2MetricCodes.MorningProduction)?.Quantity ?? 0) + (Metric(metrics, date, G2MetricCodes.AfternoonProduction)?.Quantity ?? 0);
             delivery[date] = Metric(metrics, date, G2MetricCodes.Delivery)?.Quantity ?? 0;
@@ -253,8 +254,37 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
             checkpointDate = reader.GetFieldValue<DateOnly>(0); balance = reader.GetInt64(1);
         }
         await using var sum = connection.CreateCommand();
-        sum.CommandText = "select coalesce(sum(case metric_code when 'MorningProduction' then coalesce(quantity,0) when 'AfternoonProduction' then coalesce(quantity,0) when 'Delivery' then -coalesce(quantity,0) when 'Defect' then -coalesce(quantity,0) else 0 end),0)::bigint from g2_daily_metrics where work_date > @checkpoint and work_date < @from;";
-        sum.Parameters.AddWithValue("checkpoint", checkpointDate); sum.Parameters.AddWithValue("from", from);
+        sum.CommandText = """
+            select coalesce(sum(delta),0)::bigint
+            from (
+              select case metric_code
+                when 'MorningProduction' then coalesce(quantity,0)
+                when 'AfternoonProduction' then coalesce(quantity,0)
+                when 'Delivery' then -coalesce(quantity,0)
+                when 'Defect' then -coalesce(quantity,0)
+                else 0 end as delta
+              from g2_daily_metrics
+              where work_date > @checkpoint
+                and work_date < @from
+                and work_date < @available_inventory_start
+              union all
+              select case metric_code
+                when 'MorningProduction' then coalesce(quantity,0)
+                when 'AfternoonProduction' then coalesce(quantity,0)
+                when 'Delivery' then -coalesce(quantity,0)
+                when 'Defect' then -coalesce(quantity,0)
+                else 0 end as delta
+              from g2_daily_metrics
+              where work_date >= @checkpoint
+                and work_date >= @available_inventory_previous
+                and work_date < @from_previous
+            ) movements;
+            """;
+        sum.Parameters.AddWithValue("checkpoint", checkpointDate);
+        sum.Parameters.AddWithValue("from", from);
+        sum.Parameters.AddWithValue("available_inventory_start", G2InventoryCalculator.AvailableInventoryStartDate);
+        sum.Parameters.AddWithValue("available_inventory_previous", G2InventoryCalculator.AvailableInventoryStartDate.AddDays(-1));
+        sum.Parameters.AddWithValue("from_previous", from.AddDays(-1));
         return checked(balance + (long)(await sum.ExecuteScalarAsync(token) ?? 0L));
     }
 

@@ -783,6 +783,61 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task G2Inventory_UsesPreviousDayMovementsForFullAndPartialRangesAfterCutover()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '82000000-0000-0000-0000-000000000003',
+                'g2-available-inventory-test',
+                'G2 Available Inventory Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var actor = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from qms_users where development_user_key='g2-available-inventory-test';",
+            TestContext.Current.CancellationToken);
+        var store = new G2OperationsStore(
+            provider,
+            new MutableTimeProvider(new DateTimeOffset(2026, 9, 2, 0, 0, 0, TimeSpan.Zero)));
+        var date = G2InventoryCalculator.AvailableInventoryStartDate;
+
+        await store.SaveInventoryCountAsync(
+            date.AddDays(-1),
+            new SaveG2InventoryCountRequest(2, null),
+            actor,
+            TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(date.AddDays(-1),
+        [
+            new(G2MetricCodes.MorningProduction, 34, null),
+            new(G2MetricCodes.Delivery, 30, null)
+        ], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(date,
+        [
+            new(G2MetricCodes.MorningProduction, 22, null),
+            new(G2MetricCodes.AfternoonProduction, 25, null),
+            new(G2MetricCodes.Delivery, 30, null)
+        ], actor, TestContext.Current.CancellationToken);
+
+        var full = await store.GetRangeAsync(date.AddDays(-1), date.AddDays(1), TestContext.Current.CancellationToken);
+        var partial = await store.GetRangeAsync(date, date.AddDays(1), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, full.Days[0].Inventory);
+        Assert.Equal(6, full.Days[1].Inventory);
+        Assert.Equal(23, full.Days[2].Inventory);
+        Assert.Equal(6, partial.Days[0].Inventory);
+        Assert.Equal(23, partial.Days[1].Inventory);
+    }
+
+    [Fact]
     public async Task G2ForecastValues_AreClearedWhenTheirSeoulDateArrivesAndActualValuesPersist()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);

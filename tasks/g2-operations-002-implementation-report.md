@@ -192,6 +192,7 @@ Synthetic 화면 증빙:
 | `G2-002-CI-NOTIFICATION-LOCATOR-001` | P3 | `RESOLVED` | 기존 알림 관리자 E2E가 전역 `G2` 문구를 찾으면서 새 G2 메뉴와 재처리 Generation 값 두 요소가 일치해 strict locator가 실패함 | 알림 상세 panel의 `재처리 Generation / G2` detail item으로 assertion scope를 제한하고 targeted·전체 PR Full-Stack 재검증 |
 | `G2-002-INVENTORY-DAY-001` | P1 | `RESOLVED` | 당일 실적을 당일 재고에 반영해 출하 가능한 시작 재고 의미와 불일치 | 2026-08-28부터 전일 실적을 다음 날짜 재고에 반영하고 pure·PostgreSQL·Frontend·Full-Stack 경계를 검증 |
 | `G2-002-INVENTORY-DAY-002` | P1 | `RESOLVED` | Change 003이 당일 납품까지 다음 날짜로 넘겨 당일 납품 후 가용재고 의미와 불일치 | 생산·불량은 전일, 납품은 당일 기준으로 분리하고 pure·PostgreSQL·Frontend·Full-Stack 회귀 완료 |
+| `G2-002-IV-001` | P2 | `RESOLVED` | 독립 검증에서 Roadmap 추적 97이 Change 003 공개 상태에 머물러 Change 004 동기화 주장과 불일치 | 추적 97을 Change 004 자동 검증·게시 승인·다음 Gate로 갱신하고 새 commit 독립 재검증 대상으로 고정 |
 
 현재 Open P0/P1/P2/P3는 `0/0/0/0`이다. 자동 assertion과 검증 시나리오는 같은 구현 cycle에서 작성되었으므로 독립적인 현업 ground truth가 아니다. 자동 검증은 계약 회귀와 기술 동작의 근거이며, 사용자 직접 가독성·업무 적합성 검수를 대체하지 않는다.
 

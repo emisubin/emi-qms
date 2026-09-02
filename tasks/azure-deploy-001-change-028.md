@@ -13,7 +13,9 @@
 - 사용자 승인: 2026-09-02 수정·원격 main 병합·Azure 공개배포 명시 승인
 - mainMergeApprovalCount: `1`
 - productionDeploymentApproved: `true`
-- 상태: `PUBLICATION_APPROVED / PR_CI_PENDING / AZURE_RELEASE_PENDING`
+- 상태: `SUPERSEDED_BY_CHANGE_029 / PUBLIC_RELEASE_COMPLETE`
+
+Change 028의 G2 게시 대상은 PR #117로 main에 병합됐다. 실제 current-main에 사이트 접속 migration `0085`가 함께 포함돼 있어 최초 release를 운영 mutation 전에 취소했고, 사용자의 전체 current-main 배포 승인과 실제 결과는 [Change 029](azure-deploy-001-change-029.md)가 canonical source다.
 
 ## 게시 대상
 

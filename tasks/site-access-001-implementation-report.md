@@ -1,6 +1,6 @@
 # TASK-SITE-ACCESS-001 — Implementation report
 
-> 상태: Latest-main integration·전체 자동/Full-Stack·independent validation complete / 사용자 검수 대기·Git 게시·원격 main 병합 승인 / Azure 배포 미승인
+> 상태: PR #116 main 병합·Azure 공개배포·자동 공개 확인 완료 / 사용자 화면·Excel 검수 대기 / Persistent UAT 미적용
 > 작업 기준선: `220d1201c9dbb881fb3e5c5061871fb943c7961b`
 > 작업공간: 대표 clone과 분리된 recovery worktree, detached HEAD
 > 검증된 제품 통합 commit: `6ca27d5f2552eb367279f2899b872f82cd03fccb`
@@ -187,9 +187,18 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 - 관리자 화면·Excel에 접속 환경이 보이지만 Task 증빙에는 실제 운영 row를 복사하지 않는다.
 - 변경 artifact secret pattern·이메일 pattern scan은 match `0`이다. Roadmap 추가 행도 실제 사용자 식별자·secret이 없음을 확인했다.
 
+## 원격 main·Azure 공개배포
+
+- 사이트 접속 기능은 PR #116으로 원격 `main` `a8bb000dbbbe7d307bf1de96259917b750460497`에 병합됐고 main CI `33493357909`을 통과했다.
+- 후속 G2 PR #117까지 포함한 exact current-main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`을 사용자가 전체 공개배포 승인했다.
+- Azure release `33577473523`에서 additive migration `0085`, Backend, Frontend, public security가 모두 `PASS`다.
+- 공개 읽기 전용 확인에서 health `200`, 익명 root·`/api/me` `401/401`, 전체 감사 이력의 사이트 접속 coverage와 양수 summary를 확인했다.
+- 실제 사용자 원문·접속 row·IP·DOM은 증빙에 기록하지 않았다. 사용자 목록·상세·선택 Excel·직접 로그아웃 화면 검수는 계속 대기한다.
+- Persistent UAT와 과거 접속 소급, 실제 외부 알림 시험 발송은 실행하지 않았다.
+
 ## Rollback·forward-fix
 
-- 사이트 접속 변경은 최신 공개본과 통합한 local commit에만 있으며 아직 원격 `main`과 운영 환경에는 반영되지 않았다.
+- 사이트 접속 변경은 PR #116과 Azure release `33577473523`으로 운영에 반영됐다. Application rollback 또는 forward-fix 시에도 적용된 감사 원장과 migration ledger를 보존한다.
 - migration `0085`는 additive이고 감사 원장은 삭제 대상이 아니다. 운영 적용 후 schema나 행을 역삭제하지 않는다.
 - Application 문제는 직전 호환 Backend/Frontend로 rollback하거나 forward-fix한다.
 - DB 함수·guard·권한 문제는 다음 번호의 additive migration으로 수정한다.
@@ -199,17 +208,17 @@ Fable planning은 원문 보존 규칙 때문에 승인 전 metadata와 checkbox
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 작성·latest-main 자동·독립 검증 완료 | 본 문서 |
-| SOP | 작성 | [site-access-001-sop.md](site-access-001-sop.md) |
+| Implementation report | main·Azure·자동 공개 확인 결과 동기화 | 본 문서 |
+| SOP | 운영 적용 기준 동기화 | [site-access-001-sop.md](site-access-001-sop.md) |
 | User manual | 작성 | [site-access-001-user-manual.md](site-access-001-user-manual.md) |
-| Roadmap update | 작성 | `docs/00-product-roadmap.md` 3.3M·추적 98·Decision Log |
-| User validation checklist | 자동 검증 완료·사용자 검수 대기 | [site-access-001-user-validation-checklist.md](site-access-001-user-validation-checklist.md) |
+| Roadmap update | PR #116·Azure 결과 동기화 | `docs/00-product-roadmap.md` 3.3M·추적 98·Decision Log |
+| User validation checklist | 자동 공개 확인 완료·사용자 화면 검수 대기 | [site-access-001-user-validation-checklist.md](site-access-001-user-validation-checklist.md) |
 
 ## 현재 Gate
 
 - Open P0/P1/P2: `0/0/0`
 - 사용자 화면 검수: 대기
-- Commit: 사이트 접속 후보·latest-main 통합·종료 artifact `b514e236728741e39905c6424d3a3acaf48061cd`와 P2 1차 문서 보정 `aea583611cc6df79d523d752eed78c2f6f98db05` 완료 / current HEAD에 최종 문서 교정 포함
-- Push/PR/Merge: 사용자 승인 / 필수 CI 뒤 실행
-- Persistent UAT/Azure 공개배포: 미실행·미승인
-- 다음 Gate: Push·Ready PR·CI Gate·원격 main squash merge
+- Commit/Push/PR/Merge: PR #116·exact main `a8bb000dbbbe7d307bf1de96259917b750460497` 완료
+- Azure 공개배포: exact current-main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`, run `33577473523` 완료
+- Persistent UAT: 미실행·미승인
+- 다음 Gate: 사용자 사이트 접속 목록·상세·선택 Excel·직접 로그아웃 화면 검수

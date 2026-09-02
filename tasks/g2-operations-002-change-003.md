@@ -1,7 +1,7 @@
 # TASK-G2-OPERATIONS-002 Change 003 — 전일 실적 기반 출하 가능 재고
 
 - taskType: `BUGFIX`
-- status: `IMPLEMENTED_VALIDATED_PUBLICATION_APPROVED`
+- status: `PUBLIC_RELEASE_COMPLETE`
 - approvedSource: `USER_EXPLICIT_REQUEST`
 - 작성일: 2026-09-02
 - instructionChainRead: `true`
@@ -46,3 +46,12 @@
 ## 독립 검증
 
 분리된 Codex 검증 세션이 기준 SHA 대비 diff, 절단일·실사·부분 조회와 Frontend 임시 계산을 read-only로 검토했다. Backend G2 `12/12`, 실제 PostgreSQL 경계 `1/1`, Frontend G2 `15/15`와 diff check가 통과했으며 Open P0/P1/P2는 `0/0/0`, 게시 판정은 `GO`다. Full-Stack은 구현 세션의 격리 실행 `1/1` 결과와 assertion을 대조했다.
+
+## 공개배포 결과
+
+- PR #117, exact main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`
+- PR CI `33573894506`, main CI `33575957041` `PASS`
+- current-main 전체 통합 Azure release `33577473523` `PASS`
+- workflow migration `0085`·Backend·Frontend·public security `PASS`
+- 인증된 공개 G2 2026-08-28 재고 `6대` 확인
+- Persistent UAT와 G2 원본 데이터 mutation 미실행

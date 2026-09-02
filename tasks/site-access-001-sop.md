@@ -1,6 +1,6 @@
 # TASK-SITE-ACCESS-001 — 사이트 접속 이력 운영 SOP
 
-> 상태: Latest-main 통합·자동/Full-Stack·독립 검증 완료 / 사용자 검수 대기 / Git 게시·원격 main 병합 승인 / Persistent UAT·Azure 배포 미승인
+> 상태: PR #116 main 병합·Azure release `33577473523` 완료 / 사용자 화면·Excel 검수 대기 / Persistent UAT 미적용
 
 ## 적용 기준
 
@@ -9,6 +9,7 @@
 - 환경별 Azure 대상·명령·승인·보안·복구 절차는 [Azure deployment SOP](azure-deploy-001-sop.md)를 사용한다. 이 문서는 사이트 접속 원장의 추가 점검만 정의한다.
 - 검수 증빙은 [Privacy-safe Evidence](../docs/development/privacy-safe-evidence.md)를 따른다.
 - 검증된 제품 통합 commit은 `6ca27d5f2552eb367279f2899b872f82cd03fccb`이고 `0274756ab300827d62ee385a83d66773d346b6ca` 독립 재확인에서 제품·통합·문서 Gate PASS, `SITE-ACCESS-FINAL-F01` RESOLVED와 Open P0/P1/P2 `0/0/0`을 확인했다. 이후 코드·migration이 달라지면 자동·독립 검증을 다시 실행한다.
+- 운영 적용 기준은 PR #116 merge SHA `a8bb000dbbbe7d307bf1de96259917b750460497`를 포함한 exact current-main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`과 Azure release `33577473523`이다. Migration `0085`·Backend·Frontend·public security가 통과했고 Persistent UAT는 적용하지 않았다.
 
 ## 운영 원칙
 

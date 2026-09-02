@@ -28,7 +28,7 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
   let balance: number | null = first.physicalCount === null && first.inventory !== null
     ? first.date < availableInventoryStartDate
       ? first.inventory - (first.productionTotal ?? 0) + (first.delivery?.quantity ?? 0) + (first.defect?.quantity ?? 0)
-      : first.inventory
+      : first.inventory + (first.delivery?.quantity ?? 0)
     : null;
   let previousMovement: { production: number; delivery: number; defect: number } | null = null;
 
@@ -50,8 +50,11 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
     if (day.physicalCount !== null) balance = day.physicalCount.quantity;
     else if (balance !== null && day.date < availableInventoryStartDate) {
       balance += currentMovement.production - currentMovement.delivery - currentMovement.defect;
-    } else if (balance !== null && index > 0 && previousMovement !== null) {
-      balance += previousMovement.production - previousMovement.delivery - previousMovement.defect;
+    } else if (balance !== null && day.date >= availableInventoryStartDate) {
+      if (index > 0 && previousMovement !== null) {
+        balance += previousMovement.production - previousMovement.defect;
+      }
+      balance -= currentMovement.delivery;
     }
 
     previousMovement = currentMovement;

@@ -783,7 +783,7 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
-    public async Task G2Inventory_UsesPreviousDayMovementsForFullAndPartialRangesAfterCutover()
+    public async Task G2Inventory_UsesPreviousDayProductionAndDefectsWithCurrentDayDeliveryForAllRanges()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
@@ -812,29 +812,37 @@ public sealed class PostgreSqlMigrationTests
 
         await store.SaveInventoryCountAsync(
             date.AddDays(-1),
-            new SaveG2InventoryCountRequest(2, null),
+            new SaveG2InventoryCountRequest(3, null),
             actor,
             TestContext.Current.CancellationToken);
         await store.SaveMetricsAsync(date.AddDays(-1),
         [
             new(G2MetricCodes.MorningProduction, 34, null),
-            new(G2MetricCodes.Delivery, 30, null)
+            new(G2MetricCodes.Delivery, 99, null),
+            new(G2MetricCodes.Defect, 1, null)
         ], actor, TestContext.Current.CancellationToken);
         await store.SaveMetricsAsync(date,
         [
             new(G2MetricCodes.MorningProduction, 22, null),
             new(G2MetricCodes.AfternoonProduction, 25, null),
-            new(G2MetricCodes.Delivery, 30, null)
+            new(G2MetricCodes.Delivery, 30, null),
+            new(G2MetricCodes.Defect, 2, null)
+        ], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(date.AddDays(1),
+        [
+            new(G2MetricCodes.Delivery, 40, null)
         ], actor, TestContext.Current.CancellationToken);
 
         var full = await store.GetRangeAsync(date.AddDays(-1), date.AddDays(1), TestContext.Current.CancellationToken);
         var partial = await store.GetRangeAsync(date, date.AddDays(1), TestContext.Current.CancellationToken);
+        var lastDayOnly = await store.GetRangeAsync(date.AddDays(1), date.AddDays(1), TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, full.Days[0].Inventory);
+        Assert.Equal(3, full.Days[0].Inventory);
         Assert.Equal(6, full.Days[1].Inventory);
-        Assert.Equal(23, full.Days[2].Inventory);
+        Assert.Equal(11, full.Days[2].Inventory);
         Assert.Equal(6, partial.Days[0].Inventory);
-        Assert.Equal(23, partial.Days[1].Inventory);
+        Assert.Equal(11, partial.Days[1].Inventory);
+        Assert.Equal(11, lastDayOnly.Days[0].Inventory);
     }
 
     [Fact]

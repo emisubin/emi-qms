@@ -5,18 +5,18 @@
 | 항목 | 결과 |
 | --- | --- |
 | Task | `TASK-G2-OPERATIONS-002` |
-| Task 유형 | `NEW_FEATURE` 완료 후 Change 003 `BUGFIX` |
-| Branch | `fix/task-g2-operations-002-inventory-lag` |
-| 기준 SHA | 최신 `origin/main` `a8bb000dbbbe7d307bf1de96259917b750460497` |
-| 검증 worktree | `/private/tmp/emi-qms-g2-inventory-lag.sep02` |
-| 구현 결과 식별 | PR #117 merge SHA `58daf6d8bfe333cb00e343a3fcc13ee4f3358183` |
+| Task 유형 | `NEW_FEATURE` 완료 후 Change 003·004 `BUGFIX` |
+| Branch | `fix/task-g2-operations-002-inventory-timing` |
+| 기준 SHA | 최신 `origin/main` `c3bf047a07be262840d30ce98311f4e3b983b7bf` |
+| 검증 worktree | `/private/tmp/emi-qms-g2-inventory-timing.0IB5yw` |
+| 구현 결과 식별 | Change 004 local release candidate, 게시 전 |
 | 구현 기준 | [Task Identity Gate](g2-operations-002-identity-gate.md), [Codex 기획안](g2-operations-002-codex-planning.md), [Codex review](g2-operations-002-codex-review.md) |
 | 자동 검증 | 완료 |
-| 사용자 검수 | 기존 기능 완료. Change 003은 사용자가 2026-08-28 재고 `6대`와 전일 생산·납품·불량 이월 수식을 확정 |
-| Commit / Push / PR / Merge | PR #117·PR CI `33573894506`·main CI `33575957041`·squash merge 완료 |
-| Persistent UAT / Azure | Persistent UAT 미적용. Azure release `33577473523`에서 current-main 전체 통합 배포 완료 |
+| 사용자 검수 | 기존 기능 완료. Change 004의 당일 납품 차감 수식과 공개배포를 사용자 명시 승인 |
+| Commit / Push / PR / Merge | Change 004 local 검증 완료, 게시 승인됨·실행 전 |
+| Persistent UAT / Azure | Persistent UAT 제외. Change 004 exact main SHA Azure 공개배포 승인됨·실행 전 |
 
-이 보고서는 최초 기능 구현과 Change 003 재고 기준일 보정을 함께 기록한다. Change 003의 local 검증 동안 운영 DB, 기존 검수 runtime과 실제 provider는 변경하지 않았다.
+이 보고서는 최초 기능 구현과 Change 003·004 재고 기준일 보정을 함께 기록한다. Change 004 local 검증 동안 운영 DB, 기존 검수 runtime과 실제 provider는 변경하지 않았다.
 
 ## 2. 해결한 업무 문제와 범위
 
@@ -26,7 +26,7 @@ G2 일일 운영에서 납품 목표와 불량 수량을 정식 데이터로 관
 
 - 적용 시작일별 정식 `납품 목표`
 - 날짜별 정식 `불량` 수량과 제조·영업·System Administrator 변경 권한
-- `전일 재고 + 오전 생산 + 오후 생산 - 납품 - 불량` 자동 재고
+- 2026-08-28 이후 `전일 재고 + 전일 오전·오후 생산 - 전일 불량 - 당일 납품` 자동 재고
 - 미래 불량의 기존 예상값 날짜 도래 초기화 계약 재사용
 - 홈 생산 현황표의 저장 없는 임시 입력, 즉시 그래프·KPI·재고 반영과 초기화
 - 첫 그래프의 주황 점선 납품 목표와 hover 정보
@@ -35,8 +35,10 @@ G2 일일 운영에서 납품 목표와 불량 수량을 정식 데이터로 관
 - 홈·생산/출하·출근 관리 모바일 날짜 입력 폭 축소
 - Change 003: 2026-08-28부터 `오늘 재고 = 전일 재고 + 전일 생산 - 전일 납품 - 전일 불량`으로 계산해 해당 날짜에 바로 출하 가능한 시작 재고 표시
 - Change 003: 홈 임시 입력도 입력 날짜가 아닌 다음 날짜 재고부터 반영하고 Backend 부분 범위 조회와 동일한 결과 유지
+- Change 004: 2026-08-28부터 `오늘 재고 = 전일 재고 + 전일 생산 - 전일 불량 - 오늘 납품`으로 교정해 당일 납품 후 남은 출하 가능 재고 표시
+- Change 004: 홈 임시 납품은 입력 날짜 재고에 즉시 반영하고 생산·불량은 다음 날짜 재고부터 반영
 
-제외 범위는 홈 임시값 저장·공유·감사, 불량 사유·유형·품목 연결, 납품 목표 달성률, 관리자 통합 입력/수정 이력, 손익관리, Excel/PDF/첨부/알림과 G2 원본 데이터 변경이다. Change 003은 migration·schema·원본 수량을 변경하지 않고 계산식만 공개배포한다.
+제외 범위는 홈 임시값 저장·공유·감사, 불량 사유·유형·품목 연결, 납품 목표 달성률, 관리자 통합 입력/수정 이력, 손익관리, Excel/PDF/첨부/알림과 G2 원본 데이터 변경이다. Change 003·004는 migration·schema·원본 수량을 변경하지 않고 계산식만 바꾼다.
 
 ## 3. 아키텍처와 기술적 결정
 
@@ -61,11 +63,15 @@ Migration은 데이터 삭제나 변환이 없는 additive forward migration이�
 
 Change 003부터 계산 기준일을 명시적으로 분기한다. 2026-08-27까지는 기존처럼 같은 날짜 생산·납품·불량을 반영하고, 2026-08-28부터는 전일 생산·납품·불량을 반영한다. 부분 범위 또는 월 첫날 조회도 전일 metric을 함께 읽고 마지막 실사 이후의 시작 잔액을 같은 경계식으로 재구성한다. 실사는 해당 날짜 재고를 그대로 덮어쓰며, 실사 날짜의 생산·납품·불량은 다음 날짜에 반영된다.
 
+Change 004는 2026-08-28 이후 납품 시점만 다시 교정한다. 생산과 불량은 전일 값을 다음 날짜로 넘기고, 납품은 표시 날짜 값을 그 날짜 재고에서 차감한다. 부분 범위 시작 잔액 SQL도 생산·불량의 전일 window와 납품의 당일 window를 분리한다. 실사는 해당 날짜의 납품 후 확인된 재고로 간주해 그대로 우선하며 그 날짜 납품을 다시 차감하지 않는다.
+
 ### Frontend와 UI·UX
 
 홈은 서버 응답을 기준값으로 두고 별도 `G2HomePreview` 파생 모델에서만 임시 입력을 계산한다. 오전 생산·오후 생산·납품·불량을 바꾸면 생산 합계, 두 그래프, KPI와 실사 경계 기반 재고가 즉시 갱신된다. 저장 API나 mutation button은 없으며 월 이동·새 조회·새로고침·`임시값 초기화`로 폐기된다.
 
 Change 003 이후 홈 임시 입력은 2026-08-28부터 입력 날짜의 재고를 바꾸지 않고 다음 날짜 재고부터 바꾼다. 조회 첫날은 서버 재고를 기준점으로 사용해 월간·부분 조회에서도 Backend와 같은 결과를 유지한다.
+
+Change 004에서는 당일 납품 임시 입력이 당일 재고부터 바뀌고, 당일 생산·불량 임시 입력은 다음 날짜 재고부터 바뀐다. 조회 첫날의 서버 재고에서 원본 당일 납품을 되돌려 납품 전 기준점을 만든 뒤 임시 납품을 차감하므로 첫 열에서도 Backend와 같은 수식을 유지한다.
 
 생산 현황표는 첫 그래프 다음에 배치하고 행을 `오전 생산 → 오후 생산 → 생산 합계 → 납품 목표 → 납품 → 불량 → 재고`로 고정했다. 납품 목표는 파스텔 주황 점선과 hover로 첫 그래프에 표시한다. 생산/출하 관리에는 불량 입력과 월간 납품 목표·불량 행을 추가했다.
 
@@ -93,6 +99,7 @@ Change 003 이후 홈 임시 입력은 2026-08-28부터 입력 날짜의 재고�
 | Frontend style | `frontend/src/styles.css`, `frontend/src/design-system/wireframe.css` — 납품 목표·예상/휴일 semantic 색과 모바일 날짜 폭 |
 | Frontend 검증 | `frontend/tests/G2Pages.test.tsx`, `frontend/e2e/full-stack/g2-operations.full-stack.spec.ts` |
 | Change 003 | `G2InventoryCalculator.cs`, `G2OperationsStore.cs`, `G2HomePreview.ts`와 관련 Backend·Frontend·Full-Stack 회귀 |
+| Change 004 | 같은 계산 경계 3개 파일과 당일 납품·전일 생산/불량·부분 조회·Full-Stack 회귀 |
 | 종료 산출물 | `tasks/g2-operations-002-*`, `docs/00-product-roadmap.md`, synthetic screenshot 4개 |
 
 Excel/PDF/첨부파일 영향은 `N/A`다. 기존 프로젝트·생산계획·물류·근태 workflow와 외부 provider도 변경하지 않았다.
@@ -133,6 +140,21 @@ Excel/PDF/첨부파일 영향은 `N/A`다. 기존 프로젝트·생산계획·�
 
 Change 003 회귀는 2026-08-28 재고 `6`, 다음 날 `23`, 실사 `10` 다음 날 생산 `47`·납품 `30`·불량 `2` 반영 결과 `25`, 전체/부분 범위 일치와 홈 임시 입력의 다음 날 반영·새로고침 원복을 확인했다. migration과 운영 데이터 mutation은 실행하지 않았다.
 
+### Change 004 추가 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| Backend G2 영향 검사 | `12/12 PASS` |
+| 실제 PostgreSQL 전체·부분·하루 단독 조회 | `1/1 PASS` |
+| Backend 전체 격리 회귀 | `573/573 PASS` |
+| Backend Release build | warning/error `0/0`, `PASS` |
+| Frontend 전체 unit | 33 files, `250/250 PASS` |
+| Frontend lint·typecheck·production build | error `0`, 기존 warning `1`, `PASS`, `PASS` |
+| G2 isolated Full-Stack | `1/1 PASS` |
+| diff check | `PASS` |
+
+Change 004 회귀는 전일 납품과 당일 납품을 서로 다른 수량으로 두어 전일 납품이 다시 차감되지 않고 당일 납품만 현재 재고에서 빠지는 것을 확인했다. 전일 생산·불량, 실사 우선, 전체·부분·하루 단독 조회와 홈의 당일 납품·다음 날 생산/불량 임시 반영도 함께 검증했다. migration과 운영 데이터 mutation은 실행하지 않았다.
+
 Full-Stack은 물류의 불량 변경 `403`, 제조·영업의 불량 변경 성공, 납품 목표 적용일 상속, 실사 다음 날 재고의 불량 차감, 홈 임시 불량 변경 후 재고 즉시 갱신, API mutation 없음과 새로고침 원상복구를 확인했다. 모바일에서는 홈·월간 생산·월간 출근의 시작일/종료일 폭, 목표 적용 시작일 폭, 예상 생산 입력과 예상 출근 합계의 파란 글자, 페이지 overflow `0`을 확인했다.
 
 재현 명령은 Repository root 기준 다음과 같다. Backend 전체와 Full-Stack 명령은 disposable PostgreSQL을 생성하고 종료 시 정리하며 외부 provider를 비활성화한다.
@@ -169,6 +191,7 @@ Synthetic 화면 증빙:
 | `G2-002-CI-DATE-WIDTH-001` | P2 | `RESOLVED` | Linux Chromium의 date input intrinsic width 때문에 `116px` grid 안의 실제 폭이 `121.15625px`로 넘침 | G2 mobile date input에 `min-width: 0`, `box-sizing: border-box`, 명시적 max-width를 적용하고 local·PR Full-Stack 재검증 |
 | `G2-002-CI-NOTIFICATION-LOCATOR-001` | P3 | `RESOLVED` | 기존 알림 관리자 E2E가 전역 `G2` 문구를 찾으면서 새 G2 메뉴와 재처리 Generation 값 두 요소가 일치해 strict locator가 실패함 | 알림 상세 panel의 `재처리 Generation / G2` detail item으로 assertion scope를 제한하고 targeted·전체 PR Full-Stack 재검증 |
 | `G2-002-INVENTORY-DAY-001` | P1 | `RESOLVED` | 당일 실적을 당일 재고에 반영해 출하 가능한 시작 재고 의미와 불일치 | 2026-08-28부터 전일 실적을 다음 날짜 재고에 반영하고 pure·PostgreSQL·Frontend·Full-Stack 경계를 검증 |
+| `G2-002-INVENTORY-DAY-002` | P1 | `RESOLVED` | Change 003이 당일 납품까지 다음 날짜로 넘겨 당일 납품 후 가용재고 의미와 불일치 | 생산·불량은 전일, 납품은 당일 기준으로 분리하고 pure·PostgreSQL·Frontend·Full-Stack 회귀 완료 |
 
 현재 Open P0/P1/P2/P3는 `0/0/0/0`이다. 자동 assertion과 검증 시나리오는 같은 구현 cycle에서 작성되었으므로 독립적인 현업 ground truth가 아니다. 자동 검증은 계약 회귀와 기술 동작의 근거이며, 사용자 직접 가독성·업무 적합성 검수를 대체하지 않는다.
 
@@ -201,7 +224,7 @@ Synthetic 화면 증빙:
 
 - `403`: 해당 역할의 생산·불량·납품·목표 권한을 확인하고 UI를 우회해 재시도하지 않는다.
 - `409`: 최신 자료를 다시 읽고 현재 version 기준으로 재입력한다.
-- 재고 불일치: 마지막 실사와 이후 생산·납품·불량을 순서대로 확인한다. 2026-08-28부터는 표시 날짜의 전일 실적이 반영됐는지 확인한다.
+- 재고 불일치: 마지막 실사와 이후 생산·납품·불량을 순서대로 확인한다. 2026-08-28부터는 표시 날짜의 전일 생산·불량과 당일 납품이 반영됐는지 확인한다.
 - migration 장애: 적용된 `0084`를 수정하지 않고 다음 additive forward-fix를 작성한다.
 - 운영 적용 전: 최신 main 재기준선화, 전체 CI, migration fresh/existing, Persistent UAT snapshot·rollback과 exact SHA release 승인을 별도로 받는다.
 - 안전한 적용 순서: `0084` migration → 같은 exact SHA Backend → 같은 exact SHA Frontend → G2 smoke test다. Migration 적용 뒤 이전 Backend로 rollback하면 새 불량 row를 재고에서 차감하지 못하므로 G2 입력을 중지하고 검증된 새 Backend 복구 또는 additive forward-fix를 우선한다.
@@ -214,7 +237,7 @@ Synthetic 화면 증빙:
 - `임시값 초기화`는 저장된 원본으로 되돌린다. 월 이동·새로고침·새 조회도 임시값을 없앤다.
 - 행 순서는 오전 생산, 오후 생산, 생산 합계, 납품 목표, 납품, 불량, 재고다.
 - 주황 점선은 납품 목표다. 마우스를 올리면 해당 날짜 목표를 확인한다.
-- 2026-08-28부터 재고는 전일 재고에 전일 생산을 더하고 전일 납품·불량을 뺀 해당 날짜의 출하 가능 시작 재고다. 실사 날짜에는 실사값이 기준이고 그 날짜 실적은 다음 날에 반영된다.
+- 2026-08-28부터 재고는 전일 재고에 전일 생산을 더하고 전일 불량과 당일 납품을 뺀 해당 날짜의 납품 후 출하 가능 재고다. 실사 날짜에는 실사값이 기준이고 그 날짜 생산·불량은 다음 날에 반영된다.
 - 미래 예상 날짜 값은 파란색이고, 토요일·일요일·공휴일은 빨간색이 우선한다.
 - 모바일에서는 축과 그래프 틀을 유지한 채 기존처럼 안쪽 날짜를 가로로 탐색한다. 시작일·종료일과 목표 적용일 입력은 좁은 폭으로 표시된다.
 
@@ -234,7 +257,7 @@ Synthetic 화면 증빙:
 
 ## 10. User validation checklist
 
-상태: `자동 검증·사용자 검수·PR #117 main 병합·Azure 공개 확인 완료`
+상태: `Change 004 자동 검증 완료·수식 및 공개배포 사용자 승인·게시 실행 전`
 
 ### 자동 검증 완료
 
@@ -249,12 +272,15 @@ Synthetic 화면 증빙:
 - [x] Backend `568/568`, Frontend `241/241`, isolated Full-Stack `1/1` 회귀
 - [x] Change 003 Backend `573/573`, Frontend `249/249`, 경계 PostgreSQL·G2 Full-Stack 회귀
 - [x] 2026-08-28 재고 `6대`, 전일 생산·납품·불량 이월과 홈 다음 날 임시 반영 확인
+- [x] Change 004 전일 생산·불량과 당일 납품 분리, 전체·부분·하루 단독 조회 일치
+- [x] 홈 당일 납품 즉시 반영과 생산·불량 다음 날 반영, 저장 없음·새로고침 원복
 
 ### 사용자 검수와 게시 결정
 
 - [x] 격리 검수 서버에서 synthetic 자료가 표시된 G2 홈과 새 표·그래프 구성 확인
 - [x] 직접 입력 박스의 셀 중앙 정렬과 browser 증감 버튼 제거 확인
 - [x] 자동 검증 결과와 남은 운영 적용 경계를 확인하고 원격 main 병합 승인
+- [x] Change 004 수식과 원격 main 병합·exact SHA Azure 공개배포 승인
 
 검수 결과는 실제 사용자명·업무 원문 없이 날짜, 환경, 익명 역할과 성공/실패만 기록한다.
 
@@ -264,6 +290,8 @@ Synthetic 화면 증빙:
 
 Change 003은 PR #117로 원격 main에 병합됐고, 사용자의 current-main 전체 승인에 따라 `TASK-AZURE-DEPLOY-001 Change 029` release `33577473523`에서 사이트 접속 migration `0085`와 함께 공개배포됐다. Workflow migration·Backend·Frontend·public security가 모두 `PASS`였고, 별도 인증된 공개 확인에서 2026-08-28 재고 `6대`를 확인했다. Persistent UAT와 운영 G2 원본 데이터 mutation은 실행하지 않았다.
 
+Change 004는 migration·원본 데이터 변경 없이 Backend·Frontend 계산식만 교체한다. 장애 시 직전 공개 image로 두 runtime을 함께 되돌리고 G2 재고 판단을 중지한다. local 검증과 사용자 게시 승인은 완료됐으며 PR·main·Azure 실제 결과는 실행 뒤 이 보고서에 추가한다.
+
 ## 12. 종료 산출물 추적
 
 | 산출물 | 상태 | 위치 |
@@ -271,7 +299,7 @@ Change 003은 PR #117로 원격 main에 병합됐고, 사용자의 current-main 
 | Implementation report | 작성 완료 | 이 문서 |
 | SOP | 작성 완료 | 이 문서 8장 |
 | User manual | 작성 완료 | 이 문서 9장 |
-| Roadmap update | PR #117·Azure release 결과 동기화 | `docs/00-product-roadmap.md` 6.5·추적 97·Decision Log |
-| User validation checklist | 자동 검증·사용자 검수·원격 main 병합·공개 재고 확인 완료 | 이 문서 10장 |
+| Roadmap update | Change 004 정책·자동 검증·게시 승인 동기화 | `docs/00-product-roadmap.md` 6.5·추적 97·Decision Log |
+| User validation checklist | Change 004 자동 검증·수식 및 게시 승인 완료, 공개 확인 실행 전 | 이 문서 10장 |
 
-코드 구현·자동 검증·사용자 검수, PR #117 main 병합과 Azure release `33577473523` 공개 확인을 완료했다. Persistent UAT와 운영 G2 원본 데이터 변경은 별도 경계로 계속 제외한다.
+Change 004 코드 구현·자동 검증과 사용자 수식·게시 승인을 완료했다. PR·main 병합·Azure 공개 확인은 실행 전이며 Persistent UAT와 운영 G2 원본 데이터 변경은 별도 경계로 계속 제외한다.

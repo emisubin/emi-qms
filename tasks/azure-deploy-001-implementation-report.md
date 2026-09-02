@@ -1,5 +1,19 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 030 — G2 당일 납품 재고 수식 공개 release
+
+- 사용자 수식·원격 main·Azure 전체 공개배포 승인: 2026-09-02 완료
+- 게시 대상: `TASK-G2-OPERATIONS-002 Change 004`
+- Git 게시: 제품 PR #119, head `ed5d0035e45f3b9388e385144ea8a9ab0d346217`, squash merge exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74`
+- CI: PR `33587777592`, exact main `33589432228` 모두 `PASS`
+- Azure run `33589472932`: Backend·Frontend·public security `PASS`, migration `SKIPPED`
+- 별도 공개 확인: health `200`, 익명 root·`/api/me` `401/401`
+- 인증된 공개 G2 확인: 2026-08-28 `2 + 34 - 0 - 30 = 6`, 표시 재고 `6`, 실사 override `false`, 수식 일치 `true`
+- 보존: 2026-08-27까지 기존 수식, 실사 우선, 운영 인증·외부 알림·Key Vault 참조·업무/G2 원본 데이터
+- 제외: Persistent UAT, 실제 외부 알림 시험 발송, migration·schema·운영 G2 원본 mutation
+- Open P0/P1/P2: `0/0/0`; 기존 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog 유지
+- 상세 계약: `tasks/azure-deploy-001-change-030.md`
+
 ## Change 029 — 최신 main 전체 통합 공개 release
 
 - 사용자 전체 current-main 공개배포 승인: 2026-09-02 완료

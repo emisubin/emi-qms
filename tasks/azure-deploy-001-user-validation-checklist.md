@@ -1,5 +1,16 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 030 — G2 당일 납품 재고 수식 공개 release
+
+- [x] 사용자가 2026-08-28부터 `전일 재고 + 전일 생산 - 전일 불량 - 당일 납품` 수식과 원격 main·Azure 전체 공개배포를 명시 승인했다.
+- [x] 제품 PR #119의 exact head `ed5d0035e45f3b9388e385144ea8a9ab0d346217`에서 CI run `33587777592`가 모두 통과했다.
+- [x] PR #119를 exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74`로 squash merge했고 main CI `33589432228`이 통과했다.
+- [x] Azure run `33589472932`에서 Backend·Frontend image와 production revision 교체·public security가 모두 통과했다.
+- [x] Migration·schema·운영 G2 원본 데이터·Persistent UAT mutation은 `0`이다.
+- [x] 공개 health `200`, 익명 root·`/api/me` `401/401`을 별도로 확인했다.
+- [x] 인증된 공개 G2에서 2026-08-28의 `2 + 34 - 0 - 30 = 6`이 표시 재고 `6`과 일치하고 실사 override가 아님을 확인했다.
+- [ ] 사용자가 공개 G2 화면에서 8월 28일 이후 재고 흐름과 일일 입력 업무를 운영 관찰한다.
+
 ## Change 029 — 최신 main 전체 통합 공개 release
 
 - [x] PR #116 사이트 접속 이력과 PR #117 G2 전일 실적 재고가 exact main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`에 함께 포함됐다.

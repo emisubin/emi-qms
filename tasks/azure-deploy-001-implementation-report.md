@@ -1,14 +1,29 @@
 # TASK-AZURE-DEPLOY-001 Implementation Report — 20일 Azure 시범 배포
 
+## Change 029 — 최신 main 전체 통합 공개 release
+
+- 사용자 전체 current-main 공개배포 승인: 2026-09-02 완료
+- 게시 대상: `TASK-SITE-ACCESS-001`, `TASK-G2-OPERATIONS-002 Change 003`
+- Git 게시: 사이트 접속 PR #116·main `a8bb000dbbbe7d307bf1de96259917b750460497`, G2 PR #117·main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`
+- CI: 사이트 접속 main `33493357909`, G2 PR `33573894506`, exact release source main `33575957041` 모두 `PASS`
+- 최초 Azure run `33576014266`: migration `0085`를 포함한 실제 범위를 확인하고 기존 승인 경계를 넘으므로 Environment 승인 전에 취소. image·DB·revision mutation `0`
+- 최종 Azure run `33577473523`: migration `0085`, Backend, Frontend, public security 모두 `PASS`
+- 별도 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 인증된 G2 2026-08-28 재고 `6대`, 사이트 접속 coverage와 양수 summary 확인
+- 보존: 기존 운영 인증·외부 알림·Key Vault 참조·업무 데이터와 G2 원본 데이터
+- 제외: Persistent UAT, 실제 외부 알림 시험 발송, 과거 접속 소급, 운영 G2 원본 mutation
+- Finding: `AZURE-CHANGE-029-SCOPE-001` P1과 `AZURE-CHANGE-029-PRIVACY-PROJECTION-001` P2 모두 `RESOLVED`
+- Open P0/P1/P2: `0/0/0`
+- 상세 계약: `tasks/azure-deploy-001-change-029.md`
+
 ## Change 028 — G2 전일 실적 기반 재고 공개 release
 
 - 사용자 게시·운영 배포 승인: 2026-09-02 완료
 - 게시 대상: `TASK-G2-OPERATIONS-002 Change 003`
 - 기준 원격 `main`: `a8bb000dbbbe7d307bf1de96259917b750460497`
-- 배포 경계: migration 없음, Backend·Frontend, 기존 운영 인증·외부 알림·Key Vault 참조 보존
-- Git 게시: Ready PR·필수 CI·squash merge 진행 중
-- Azure 운영 release: exact merge SHA 확정 뒤 실행 대기
-- 공개 검증: health·익명 접근 차단·인증된 G2 2026-08-28 재고 `6대` 확인 대기
+- Git 게시: PR #117·필수 CI·squash merge 완료, exact main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`
+- 최초 배포 경계: migration 없음, Backend·Frontend. 실제 current-main의 미배포 migration `0085`를 발견해 최초 run을 mutation 전에 취소하고 Change 029 전체 배포 승인으로 전환
+- Azure 운영 release: Change 029 run `33577473523`에서 current-main 전체 통합 배포 완료
+- 공개 검증: health·익명 접근 차단·인증된 G2 2026-08-28 재고 `6대` 확인 완료
 - Persistent UAT·G2 원본 데이터 mutation: 제외
 - Open P0/P1/P2: `0/0/0`
 - 상세 계약: `tasks/azure-deploy-001-change-028.md`

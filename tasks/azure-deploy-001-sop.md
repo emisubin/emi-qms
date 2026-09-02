@@ -2,6 +2,9 @@
 
 ## 1. 현재 판정
 
+- Latest integrated release: exact `main` `58daf6d8bfe333cb00e343a3fcc13ee4f3358183` / Azure run `33577473523` 성공 / migration `0085`·Backend·Frontend·public security `PASS`
+- 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 인증된 G2 2026-08-28 재고 `6대`, 사이트 접속 coverage·양수 summary 확인
+- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Persistent UAT와 실제 외부 알림 시험 발송은 제외
 - Deployment source: Change 026 PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료

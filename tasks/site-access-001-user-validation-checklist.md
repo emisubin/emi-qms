@@ -1,9 +1,9 @@
 # TASK-SITE-ACCESS-001 — 사용자 검수 체크리스트
 
-> 상태: Latest-main 자동/Full-Stack·독립 검증 완료 / 사용자 검수 대기 / Git 게시·원격 main 병합 승인 / Persistent UAT·Azure 배포 미승인
-> 환경: 격리된 Local Full-Stack, synthetic 사용자만 사용
+> 상태: 자동/Full-Stack·독립 검증, PR #116 main 병합과 Azure 공개배포 완료 / 사용자 화면·Excel 검수 대기 / Persistent UAT 미적용
+> 환경: 격리된 Local Full-Stack + 공개 운영 read-only 확인
 
-현재 구현 후보·기준 SHA·검증 결과는 [Implementation report](site-access-001-implementation-report.md), 기능 계약은 [Change 001](site-access-001-change-001.md), 최신 main 통합·게시 계약은 [Change 002](site-access-001-change-002.md)을 기준으로 한다. 코드·migration 변경 뒤에는 체크 결과를 재사용하지 않는다. 사용자 화면 검수는 독립 검증 통과 후 별도 local synthetic runtime URL을 준비한 다음 시작한다. 일반 synthetic 사용자로 접속 신호를 만든 뒤 `Audit.Read.All`을 가진 synthetic 감사 관리자로 전환해 조회한다.
+현재 구현·배포 기준 SHA·검증 결과는 [Implementation report](site-access-001-implementation-report.md), 기능 계약은 [Change 001](site-access-001-change-001.md), 최신 main 통합·게시 계약은 [Change 002](site-access-001-change-002.md), 운영 release는 [Azure Change 029](azure-deploy-001-change-029.md)을 기준으로 한다. 코드·migration 변경 뒤에는 체크 결과를 재사용하지 않는다. 사용자 화면 검수는 공개 PMS에서 본인 접속과 `Audit.Read.All` 관리자 조회로 진행하며 실제 사용자 원문·접속 row·IP는 Task 증빙에 복사하지 않는다.
 
 ## 자동 검증
 
@@ -43,16 +43,18 @@
 
 ## 게시·운영 검수
 
-- [ ] Git commit·push·PR·merge가 별도 승인 후 완료됐다.
-- [ ] Persistent UAT에 G2 migration `0084` 뒤 사이트 접속 migration `0085`와 Backend·Frontend가 승인 순서대로 적용됐다.
-- [ ] Azure 공개배포가 별도 승인 후 완료됐다.
-- [ ] 운영 synthetic 사용자로 신호·로그아웃·관리자 조회·Excel을 확인했다.
+- [x] Git commit·push·PR #116·main merge가 완료됐다.
+- [ ] Persistent UAT에는 적용하지 않았다. 운영 Azure와 별도 환경이라는 경계를 유지한다.
+- [x] 사용자의 current-main 전체 승인 뒤 Azure release `33577473523`에서 migration `0085`·Backend·Frontend·public security가 통과했다.
+- [x] 공개 운영에서 사이트 접속 coverage와 접속 summary 1건 이상을 privacy-safe projection으로 확인했다.
+- [ ] 사용자가 운영 화면에서 목록·상세·선택 Excel·직접 로그아웃 종료를 확인한다.
 
 ## 현재 판정
 
 - 자동 검증: PASS — latest-main 통합 tree
 - 독립 검증: PASS — 제품·통합·문서 Gate
 - 사용자 검수: 대기
-- Git 게시·원격 main 병합: 승인 / 실행 전
-- Persistent UAT·Azure 배포: 미승인
+- Git 게시·원격 main 병합: PR #116 완료
+- Azure 배포: release `33577473523` 완료
+- Persistent UAT: 미적용·미승인
 - Open P0/P1/P2: `0/0/0`

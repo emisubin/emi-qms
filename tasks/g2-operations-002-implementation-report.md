@@ -9,12 +9,12 @@
 | Branch | `fix/task-g2-operations-002-inventory-lag` |
 | 기준 SHA | 최신 `origin/main` `a8bb000dbbbe7d307bf1de96259917b750460497` |
 | 검증 worktree | `/private/tmp/emi-qms-g2-inventory-lag.sep02` |
-| 구현 결과 식별 | 기준 SHA 대비 Task diff. 최종 commit·merge SHA는 연계 PR과 종료 handoff를 canonical source로 사용 |
+| 구현 결과 식별 | PR #117 merge SHA `58daf6d8bfe333cb00e343a3fcc13ee4f3358183` |
 | 구현 기준 | [Task Identity Gate](g2-operations-002-identity-gate.md), [Codex 기획안](g2-operations-002-codex-planning.md), [Codex review](g2-operations-002-codex-review.md) |
 | 자동 검증 | 완료 |
 | 사용자 검수 | 기존 기능 완료. Change 003은 사용자가 2026-08-28 재고 `6대`와 전일 생산·납품·불량 이월 수식을 확정 |
-| Commit / Push / PR / Merge | Change 003 사용자 승인 완료. Ready PR·필수 CI·main merge 절차로 실행 |
-| Persistent UAT / Azure | Persistent UAT 미적용. Change 003 exact main 공개배포 승인·진행 중 |
+| Commit / Push / PR / Merge | PR #117·PR CI `33573894506`·main CI `33575957041`·squash merge 완료 |
+| Persistent UAT / Azure | Persistent UAT 미적용. Azure release `33577473523`에서 current-main 전체 통합 배포 완료 |
 
 이 보고서는 최초 기능 구현과 Change 003 재고 기준일 보정을 함께 기록한다. Change 003의 local 검증 동안 운영 DB, 기존 검수 runtime과 실제 provider는 변경하지 않았다.
 
@@ -112,10 +112,10 @@ Excel/PDF/첨부파일 영향은 `N/A`다. 기존 프로젝트·생산계획·�
 | Frontend production build | 적용 | 통과 | 기존 대형 chunk warning만 유지 |
 | Isolated Full-Stack | 적용 | `1/1` 통과 | disposable PostgreSQL, 실제 HTTP·Chromium, 권한·CAS·불량 차감·납품 목표·임시값 폐기 |
 | Desktop·mobile visual QA | 적용 | 통과 | synthetic 1440px·390px, date input width, 예상 파랑·휴일 빨강, page overflow `0` |
-| Migration catalog | 적용 | 통과 | `0084` latest, duplicate/missing prefix 없음, 기존 migration 수정 없음 |
+| Migration catalog | 적용 | 통과 | 최초 G2 검증 당시 `0084` latest, duplicate/missing prefix 없음. 운영 current-main은 사이트 접속 additive `0085`까지 적용 |
 | Persistent UAT | 미실행 | `N/A` | 명시적 제외·미승인, 기존 DB/runtime 무변경 |
-| PR CI | 재검증 중 | 최초 run에서 Linux Chromium 모바일 날짜 입력 intrinsic width `121.15625px` 1건 발견, scoped width 보정 후 재실행 | local 동일 Full-Stack과 새 PR run 결과를 최종 게시 gate로 사용 |
-| Azure 공개 검증 | 미실행 | `N/A` | 배포 미승인 |
+| PR·main CI | 적용 | PR #117 `33573894506`, exact main `33575957041` 통과 | 검증된 merge SHA `58daf6d8bfe333cb00e343a3fcc13ee4f3358183` |
+| Azure 공개 검증 | 적용 | release `33577473523` 통과 | migration `0085`·Backend·Frontend·public security와 G2 2026-08-28 재고 `6대` 확인 |
 
 ### Change 003 추가 검증
 
@@ -234,7 +234,7 @@ Synthetic 화면 증빙:
 
 ## 10. User validation checklist
 
-상태: `자동 검증 완료 / 사용자 검수 완료 / 원격 main 병합 승인`
+상태: `자동 검증·사용자 검수·PR #117 main 병합·Azure 공개 확인 완료`
 
 ### 자동 검증 완료
 
@@ -262,7 +262,7 @@ Synthetic 화면 증빙:
 
 최초 기능과 migration `0084`는 이미 공개 운영에 적용됐다. Change 003은 schema·원본 데이터를 바꾸지 않으므로 장애 시 직전 검증 image로 Backend·Frontend를 되돌릴 수 있다. rollback하면 재고가 다시 당일 마감 기준으로 표시되므로 G2 재고 판단을 중지하고 검증된 Change 003 image 복구 또는 forward-fix를 우선한다. 적용된 migration `0084`는 수정하지 않는다.
 
-Change 003 Git 게시·Azure 결과는 연계 PR, `TASK-AZURE-DEPLOY-001 Change 028`과 종료 handoff에서 추적한다. Persistent UAT는 적용하지 않는다.
+Change 003은 PR #117로 원격 main에 병합됐고, 사용자의 current-main 전체 승인에 따라 `TASK-AZURE-DEPLOY-001 Change 029` release `33577473523`에서 사이트 접속 migration `0085`와 함께 공개배포됐다. Workflow migration·Backend·Frontend·public security가 모두 `PASS`였고, 별도 인증된 공개 확인에서 2026-08-28 재고 `6대`를 확인했다. Persistent UAT와 운영 G2 원본 데이터 mutation은 실행하지 않았다.
 
 ## 12. 종료 산출물 추적
 
@@ -271,7 +271,7 @@ Change 003 Git 게시·Azure 결과는 연계 PR, `TASK-AZURE-DEPLOY-001 Change 
 | Implementation report | 작성 완료 | 이 문서 |
 | SOP | 작성 완료 | 이 문서 8장 |
 | User manual | 작성 완료 | 이 문서 9장 |
-| Roadmap update | 작성 완료·local 미게시 | `docs/00-product-roadmap.md` 6.5·추적 97·Decision Log |
-| User validation checklist | 자동 검증·사용자 검수 완료·원격 main 병합 승인 | 이 문서 10장 |
+| Roadmap update | PR #117·Azure release 결과 동기화 | `docs/00-product-roadmap.md` 6.5·추적 97·Decision Log |
+| User validation checklist | 자동 검증·사용자 검수·원격 main 병합·공개 재고 확인 완료 | 이 문서 10장 |
 
-코드 구현·자동 검증·사용자 검수와 원격 main 병합 승인은 완료했다. Git 게시 결과는 연계 PR·종료 handoff로 추적하고, 운영 적용은 별도 승인 전 완료로 처리하지 않는다.
+코드 구현·자동 검증·사용자 검수, PR #117 main 병합과 Azure release `33577473523` 공개 확인을 완료했다. Persistent UAT와 운영 G2 원본 데이터 변경은 별도 경계로 계속 제외한다.

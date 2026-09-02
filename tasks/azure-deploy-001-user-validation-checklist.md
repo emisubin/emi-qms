@@ -1,5 +1,17 @@
 # TASK-AZURE-DEPLOY-001 사용자 검수 체크리스트
 
+## Change 029 — 최신 main 전체 통합 공개 release
+
+- [x] PR #116 사이트 접속 이력과 PR #117 G2 전일 실적 재고가 exact main `58daf6d8bfe333cb00e343a3fcc13ee4f3358183`에 함께 포함됐다.
+- [x] 사이트 접속 main CI `33493357909`, G2 PR CI `33573894506`, exact source main CI `33575957041`이 통과했다.
+- [x] 최초 run `33576014266`은 migration `0085`를 포함한 실제 범위를 발견한 뒤 Environment 승인 전에 취소돼 운영 mutation이 없었다.
+- [x] 사용자가 current-main 전체 배포를 명시 승인한 뒤 새 run `33577473523`을 실행했다.
+- [x] migration `0085`, Backend, Frontend와 workflow public security가 모두 `PASS`다.
+- [x] 공개 health `200`, 익명 root·`/api/me` `401/401`을 별도로 확인했다.
+- [x] 인증된 G2 2026-08-28 재고가 `6대`이고 사이트 접속 coverage와 양수 summary가 보인다.
+- [x] 기존 인증·외부 알림·Key Vault 참조·업무 데이터와 G2 원본 데이터를 보존했다.
+- [ ] 사이트 접속 목록·상세·선택 Excel과 직접 로그아웃 종료를 사용자가 화면에서 확인한다.
+
 ## Change 026 — 프로젝트 전체 흐름 상태 전용 표시 운영 release
 
 - [x] PR #108의 Backend·Frontend·Full-Stack·Workflow Validation과 필수 `CI Gate`가 최종 통과했다.

@@ -2,18 +2,19 @@
 
 ## 1. 현재 판정
 
-- Latest integrated release: exact `main` `58daf6d8bfe333cb00e343a3fcc13ee4f3358183` / Azure run `33577473523` 성공 / migration `0085`·Backend·Frontend·public security `PASS`
-- 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 인증된 G2 2026-08-28 재고 `6대`, 사이트 접속 coverage·양수 summary 확인
-- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Persistent UAT와 실제 외부 알림 시험 발송은 제외
-- Deployment source: Change 026 PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
+- Latest integrated release: exact `main` `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` / Azure run `33589472932` 성공 / Backend·Frontend·public security `PASS`, migration `SKIPPED`
+- 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 인증된 G2 2026-08-28 재고 수식 `2 + 34 - 0 - 30 = 6`과 표시 재고 `6` 일치
+- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Migration·Persistent UAT·실제 외부 알림 시험 발송은 제외
+- Latest deployment source: Change 030 제품 PR #119·PR CI `33587777592`·main CI `33589432228` 완료 / exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` / 운영 release run `33589472932` 성공
+- Historical Change 026 deployment source: PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 기존 migration 기준선 유지. Change 026은 migration diff가 없어 실행 생략
+- DB role bootstrap·migration: 직전 운영 migration 기준선 유지. Change 030은 migration diff가 없어 실행 생략
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend latest revision ready·Running / exact Change 026 main image digest 적용 / ClamAV unchanged
+- Active workload: Backend·Frontend latest revision ready·Running / exact Change 030 main image digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
-- DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
+- DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
 - 로그인·권한: 현재 비상 관리자 계정의 Entra 로그인과 관리자 전용 메뉴·사용자 관리 화면 접근 확인. bootstrap 목록 순서는 권한 우선순위가 아니므로 secret 재정렬은 하지 않음
 - Frontend 사전 인증: Change 015 운영 적용·실제 계정 로그인 검수 완료. `/health/live` 외 shell·bundle·PWA·API proxy는 Entra 인증 전 제공하지 않음

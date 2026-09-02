@@ -1,7 +1,7 @@
 # TASK-G2-OPERATIONS-002 Change 004 — 당일 납품 기반 출하 후 가용재고
 
 - taskType: `BUGFIX`
-- status: `LOCAL_VALIDATION_COMPLETE_PUBLICATION_APPROVED`
+- status: `MAIN_MERGED_AZURE_RELEASED_PUBLIC_FORMULA_CHECK_COMPLETE`
 - approvedSource: `USER_EXPLICIT_REQUEST`
 - 작성일: 2026-09-02
 - instructionChainRead: `true`
@@ -64,3 +64,13 @@ Backend 영향·전체 회귀, Frontend lint·typecheck·unit·build, 격리 Ful
 분리된 Codex 독립 검증과 게시 allowlist gate는 local commit 후보를 기준으로 수행한다.
 
 변경 allowlist는 계산·부분 조회·홈 임시계산 3개 source, 관련 Backend·Frontend·Full-Stack test, 이 Change, Implementation report와 Roadmap이다. 배포 후에는 public health·익명 차단과 인증된 G2 재고 수식을 privacy-safe projection으로 확인한다. 실패하면 직전 검증 Backend·Frontend image로 함께 rollback하고 재고 판단을 중지한다.
+
+## 게시·공개배포 결과
+
+- 제품 PR #119, head `ed5d0035e45f3b9388e385144ea8a9ab0d346217`, PR CI `33587777592` `PASS`
+- squash merge exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74`, main CI `33589432228` `PASS`
+- Azure release `33589472932`: Backend·Frontend·public security `PASS`, migration `SKIPPED`
+- 별도 공개 확인: health `200`, 익명 root·`/api/me` `401/401`
+- 인증된 G2 2026-08-28: `전일 재고 2 + 전일 생산 34 - 전일 불량 0 - 당일 납품 30 = 기대 재고 6 = 표시 재고 6`, 실사 override `false`
+- 운영 G2 원본 데이터·schema·Persistent UAT mutation `0`
+- Open P0/P1/P2 `0/0/0`; 다음 Gate는 사용자 운영 관찰이다.

@@ -6,15 +6,15 @@
 | --- | --- |
 | Task | `TASK-G2-OPERATIONS-002` |
 | Task 유형 | `NEW_FEATURE` 완료 후 Change 003·004 `BUGFIX` |
-| Branch | `fix/task-g2-operations-002-inventory-timing` |
-| 기준 SHA | 최신 `origin/main` `c3bf047a07be262840d30ce98311f4e3b983b7bf` |
+| Branch | 제품 `fix/task-g2-operations-002-inventory-timing` / release 기록 `fix/task-azure-deploy-001-change-030-release-record` |
+| 기준 SHA | 제품 기준 `c3bf047a07be262840d30ce98311f4e3b983b7bf` / 공개 source exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` |
 | 검증 worktree | `/private/tmp/emi-qms-g2-inventory-timing.0IB5yw` |
-| 구현 결과 식별 | Change 004 local release candidate, 게시 전 |
+| 구현 결과 식별 | Change 004 PR #119 main 병합·Azure 공개배포 완료 |
 | 구현 기준 | [Task Identity Gate](g2-operations-002-identity-gate.md), [Codex 기획안](g2-operations-002-codex-planning.md), [Codex review](g2-operations-002-codex-review.md) |
 | 자동 검증 | 완료 |
 | 사용자 검수 | 기존 기능 완료. Change 004의 당일 납품 차감 수식과 공개배포를 사용자 명시 승인 |
-| Commit / Push / PR / Merge | Change 004 local 검증 완료, 게시 승인됨·실행 전 |
-| Persistent UAT / Azure | Persistent UAT 제외. Change 004 exact main SHA Azure 공개배포 승인됨·실행 전 |
+| Commit / Push / PR / Merge | 제품 commit·push·PR #119·squash merge 완료 |
+| Persistent UAT / Azure | Persistent UAT 제외. exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` Azure release `33589472932` 완료 |
 
 이 보고서는 최초 기능 구현과 Change 003·004 재고 기준일 보정을 함께 기록한다. Change 004 local 검증 동안 운영 DB, 기존 검수 runtime과 실제 provider는 변경하지 않았다.
 
@@ -152,6 +152,9 @@ Change 003 회귀는 2026-08-28 재고 `6`, 다음 날 `23`, 실사 `10` 다음 
 | Frontend lint·typecheck·production build | error `0`, 기존 warning `1`, `PASS`, `PASS` |
 | G2 isolated Full-Stack | `1/1 PASS` |
 | diff check | `PASS` |
+| PR·main CI | PR `33587777592`, main `33589432228` `PASS` |
+| Azure 공개 release | run `33589472932`, Backend·Frontend·public security `PASS`, migration `SKIPPED` |
+| 공개 G2 수식 | 2026-08-28 `2 + 34 - 0 - 30 = 6`, 표시 재고 `6`, 실사 override `false`, `PASS` |
 
 Change 004 회귀는 전일 납품과 당일 납품을 서로 다른 수량으로 두어 전일 납품이 다시 차감되지 않고 당일 납품만 현재 재고에서 빠지는 것을 확인했다. 전일 생산·불량, 실사 우선, 전체·부분·하루 단독 조회와 홈의 당일 납품·다음 날 생산/불량 임시 반영도 함께 검증했다. migration과 운영 데이터 mutation은 실행하지 않았다.
 
@@ -258,7 +261,7 @@ Synthetic 화면 증빙:
 
 ## 10. User validation checklist
 
-상태: `Change 004 자동 검증 완료·수식 및 공개배포 사용자 승인·게시 실행 전`
+상태: `Change 004 main 병합·Azure 공개배포·자동 공개 수식 확인 완료 / 사용자 운영 관찰`
 
 ### 자동 검증 완료
 
@@ -282,6 +285,10 @@ Synthetic 화면 증빙:
 - [x] 직접 입력 박스의 셀 중앙 정렬과 browser 증감 버튼 제거 확인
 - [x] 자동 검증 결과와 남은 운영 적용 경계를 확인하고 원격 main 병합 승인
 - [x] Change 004 수식과 원격 main 병합·exact SHA Azure 공개배포 승인
+- [x] PR #119·필수 CI·exact main squash merge와 main CI 완료
+- [x] Azure release `33589472932` Backend·Frontend·public security 통과, migration 생략
+- [x] 공개 G2 2026-08-28의 전일 재고·생산·불량과 당일 납품 수식이 표시 재고 `6`과 일치
+- [ ] 사용자가 공개 G2에서 8월 28일 이후 재고 흐름을 운영 관찰
 
 검수 결과는 실제 사용자명·업무 원문 없이 날짜, 환경, 익명 역할과 성공/실패만 기록한다.
 
@@ -291,7 +298,7 @@ Synthetic 화면 증빙:
 
 Change 003은 PR #117로 원격 main에 병합됐고, 사용자의 current-main 전체 승인에 따라 `TASK-AZURE-DEPLOY-001 Change 029` release `33577473523`에서 사이트 접속 migration `0085`와 함께 공개배포됐다. Workflow migration·Backend·Frontend·public security가 모두 `PASS`였고, 별도 인증된 공개 확인에서 2026-08-28 재고 `6대`를 확인했다. Persistent UAT와 운영 G2 원본 데이터 mutation은 실행하지 않았다.
 
-Change 004는 migration·원본 데이터 변경 없이 Backend·Frontend 계산식만 교체한다. 장애 시 직전 공개 image로 두 runtime을 함께 되돌리고 G2 재고 판단을 중지한다. local 검증과 사용자 게시 승인은 완료됐으며 PR·main·Azure 실제 결과는 실행 뒤 이 보고서에 추가한다.
+Change 004는 migration·원본 데이터 변경 없이 Backend·Frontend 계산식만 교체했다. PR #119와 exact main CI를 통과한 source를 Azure release `33589472932`로 공개배포했고, 공개 2026-08-28 재고가 `2 + 34 - 0 - 30 = 6`으로 표시 재고 `6`과 일치함을 확인했다. 장애 시 직전 Change 003 공개 image로 두 runtime을 함께 되돌리고 G2 재고 판단을 중지한다.
 
 ## 12. 종료 산출물 추적
 
@@ -300,7 +307,7 @@ Change 004는 migration·원본 데이터 변경 없이 Backend·Frontend 계산
 | Implementation report | 작성 완료 | 이 문서 |
 | SOP | 작성 완료 | 이 문서 8장 |
 | User manual | 작성 완료 | 이 문서 9장 |
-| Roadmap update | Change 004 정책·자동 검증·게시 승인 동기화 | `docs/00-product-roadmap.md` 6.5·추적 97·Decision Log |
-| User validation checklist | Change 004 자동 검증·수식 및 게시 승인 완료, 공개 확인 실행 전 | 이 문서 10장 |
+| Roadmap update | Change 004 main·Azure·공개 수식 확인 동기화 | `docs/00-product-roadmap.md` 6.2·6.5·추적 97·Decision Log |
+| User validation checklist | 자동 공개 수식 확인 완료, 사용자 운영 관찰 대기 | 이 문서 10장 |
 
-Change 004 코드 구현·자동 검증과 사용자 수식·게시 승인을 완료했다. PR·main 병합·Azure 공개 확인은 실행 전이며 Persistent UAT와 운영 G2 원본 데이터 변경은 별도 경계로 계속 제외한다.
+Change 004 코드 구현·자동 검증, 사용자 수식·게시 승인, PR·main 병합·Azure 공개 확인을 완료했다. Persistent UAT와 운영 G2 원본 데이터 변경은 별도 경계로 계속 제외하며, 다음 Gate는 사용자 운영 관찰이다.

@@ -162,11 +162,11 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   expect(tomorrowData.isForecast).toBe(true);
   expect(tomorrowData.productionTotal).toBe(5);
   expect(tomorrowData.defect!.quantity).toBe(2);
-  expect(tomorrowData.inventory).toBe(33);
+  expect(tomorrowData.inventory).toBe(29);
   expect(tomorrowData.dailyProductionTarget!.quantity).toBe(24);
   expect(tomorrowData.deliveryTarget!.quantity).toBe(15);
   expect(tomorrowData.inventoryTarget!.quantity).toBe(18);
-  expect((await getDay(request, dayAfterTomorrow, 'dev-viewer')).inventory).toBe(28);
+  expect((await getDay(request, dayAfterTomorrow, 'dev-viewer')).inventory).toBe(32);
 
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto('/g2');
@@ -208,13 +208,13 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const dayAfterTomorrowColumn = (await productionTable.locator('thead th').allTextContents()).findIndex(value => value.includes(koreanDate(dayAfterTomorrow)));
   expect(tomorrowColumn).toBeGreaterThan(0);
   expect(dayAfterTomorrowColumn).toBeGreaterThan(0);
-  await expect(inventoryRow.locator('td').nth(tomorrowColumn - 1)).toHaveText('33');
-  await expect(inventoryRow.locator('td').nth(dayAfterTomorrowColumn - 1)).toHaveText('25');
+  await expect(inventoryRow.locator('td').nth(tomorrowColumn - 1)).toHaveText('29');
+  await expect(inventoryRow.locator('td').nth(dayAfterTomorrowColumn - 1)).toHaveText('29');
   expect((await getDay(request, tomorrow, 'dev-sales')).defect!.quantity).toBe(previewBefore.defect!.quantity);
   await page.reload();
   await expect(page.getByLabel(previewLabel)).toHaveValue('2');
-  expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(33);
-  expect((await getDay(request, dayAfterTomorrow, 'dev-sales')).inventory).toBe(28);
+  expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(29);
+  expect((await getDay(request, dayAfterTomorrow, 'dev-sales')).inventory).toBe(32);
   await capture(page, '01-g2-home-desktop-1440.png');
 
   await page.goto('/g2/operations');

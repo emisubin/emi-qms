@@ -52,13 +52,13 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
     }
 
     [Fact]
-    public void InventoryCalculator_UsesPreviousDayMovementsFromAvailableInventoryStartDate()
+    public void InventoryCalculator_UsesPreviousDayProductionAndDefectsWithCurrentDayDeliveryFromCutover()
     {
         var from = G2InventoryCalculator.AvailableInventoryStartDate;
         var result = G2InventoryCalculator.Calculate(
             from,
             from.AddDays(1),
-            2,
+            3,
             new Dictionary<DateOnly, int>(),
             new Dictionary<DateOnly, long>
             {
@@ -67,13 +67,18 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             },
             new Dictionary<DateOnly, long>
             {
-                [from.AddDays(-1)] = 30,
-                [from] = 30
+                [from.AddDays(-1)] = 99,
+                [from] = 30,
+                [from.AddDays(1)] = 40
             },
-            new Dictionary<DateOnly, long>());
+            new Dictionary<DateOnly, long>
+            {
+                [from.AddDays(-1)] = 1,
+                [from] = 2
+            });
 
         Assert.Equal(6, result[from]);
-        Assert.Equal(23, result[from.AddDays(1)]);
+        Assert.Equal(11, result[from.AddDays(1)]);
     }
 
     [Fact]
@@ -86,11 +91,11 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             2,
             new Dictionary<DateOnly, int> { [from] = 10 },
             new Dictionary<DateOnly, long> { [from] = 47 },
-            new Dictionary<DateOnly, long> { [from] = 30 },
+            new Dictionary<DateOnly, long> { [from] = 30, [from.AddDays(1)] = 5 },
             new Dictionary<DateOnly, long> { [from] = 2 });
 
         Assert.Equal(10, result[from]);
-        Assert.Equal(25, result[from.AddDays(1)]);
+        Assert.Equal(50, result[from.AddDays(1)]);
     }
 
     [Theory]

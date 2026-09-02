@@ -271,13 +271,19 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
               select case metric_code
                 when 'MorningProduction' then coalesce(quantity,0)
                 when 'AfternoonProduction' then coalesce(quantity,0)
-                when 'Delivery' then -coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
               from g2_daily_metrics
               where work_date >= @checkpoint
                 and work_date >= @available_inventory_previous
                 and work_date < @from_previous
+              union all
+              select -coalesce(quantity,0) as delta
+              from g2_daily_metrics
+              where metric_code = 'Delivery'
+                and work_date > @checkpoint
+                and work_date >= @available_inventory_start
+                and work_date < @from
             ) movements;
             """;
         sum.Parameters.AddWithValue("checkpoint", checkpointDate);

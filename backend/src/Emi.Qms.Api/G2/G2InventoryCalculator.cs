@@ -4,7 +4,7 @@ public static class G2InventoryCalculator
 {
     public static readonly DateOnly AvailableInventoryStartDate = new(2026, 8, 28);
 
-    public static DateOnly MovementDateFor(DateOnly inventoryDate) =>
+    public static DateOnly ProductionDateFor(DateOnly inventoryDate) =>
         inventoryDate >= AvailableInventoryStartDate ? inventoryDate.AddDays(-1) : inventoryDate;
 
     public static IReadOnlyDictionary<DateOnly, long?> Calculate(
@@ -23,10 +23,10 @@ public static class G2InventoryCalculator
             if (physicalCounts.TryGetValue(date, out var counted)) balance = counted;
             else if (balance.HasValue)
             {
-                var movementDate = MovementDateFor(date);
-                balance += production.GetValueOrDefault(movementDate)
-                    - delivery.GetValueOrDefault(movementDate)
-                    - defects.GetValueOrDefault(movementDate);
+                var productionDate = ProductionDateFor(date);
+                balance += production.GetValueOrDefault(productionDate)
+                    - defects.GetValueOrDefault(productionDate)
+                    - delivery.GetValueOrDefault(date);
             }
             result[date] = balance;
         }

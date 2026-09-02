@@ -10,11 +10,11 @@
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
 - GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 기존 migration 기준선 유지. Change 026은 migration diff가 없어 실행 생략
+- DB role bootstrap·migration: 직전 운영 migration 기준선 유지. Change 030은 migration diff가 없어 실행 생략
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend latest revision ready·Running / exact Change 026 main image digest 적용 / ClamAV unchanged
+- Active workload: Backend·Frontend latest revision ready·Running / exact Change 030 main image digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
-- DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / 공개 root·PWA `200`, direct origin 업무 route `403`
+- DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
 - 로그인·권한: 현재 비상 관리자 계정의 Entra 로그인과 관리자 전용 메뉴·사용자 관리 화면 접근 확인. bootstrap 목록 순서는 권한 우선순위가 아니므로 secret 재정렬은 하지 않음
 - Frontend 사전 인증: Change 015 운영 적용·실제 계정 로그인 검수 완료. `/health/live` 외 shell·bundle·PWA·API proxy는 Entra 인증 전 제공하지 않음

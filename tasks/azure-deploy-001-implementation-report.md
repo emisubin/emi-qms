@@ -12,6 +12,7 @@
 - 보존: 2026-08-27까지 기존 수식, 실사 우선, 운영 인증·외부 알림·Key Vault 참조·업무/G2 원본 데이터
 - 제외: Persistent UAT, 실제 외부 알림 시험 발송, migration·schema·운영 G2 원본 mutation
 - Open P0/P1/P2: `0/0/0`; 기존 `GHA-AZURE-RUNNER-WARNINGS-001` P3 backlog 유지
+- `AZURE-CHANGE-030-DOC-STATE-001` / P2 / `RESOLVED`: SOP와 이 보고서 하단의 Change 019·026·027 현재 상태 표현을 Change 030 기준으로 동기화하고 과거 대기 상태를 historical snapshot으로 구분
 - 상세 계약: `tasks/azure-deploy-001-change-030.md`
 
 ## Change 029 — 최신 main 전체 통합 공개 release
@@ -42,15 +43,17 @@
 - Open P0/P1/P2: `0/0/0`
 - 상세 계약: `tasks/azure-deploy-001-change-028.md`
 
-## Change 027 — G2 일일 운영관리 공개 release
+## Change 027 — G2 일일 운영관리 공개 release (historical approval snapshot)
+
+> Historical approval snapshot. 아래의 게시·배포 대기는 당시 상태이며, 이후 G2 기반 기능은 후속 main·Azure 통합 release에 포함됐다. 현재 운영 source와 검증 상태는 Change 030을 따른다.
 
 - 사용자 게시·운영 배포 승인: 2026-08-19 완료
 - 게시 대상: `TASK-G2-OPERATIONS-001 Change 001~020`
 - 기준 원격 `main`: `ee54c3c377ac70e1a49cddda90afa593192cc25e`
 - 배포 경계: migration `0081`·`0082` → Backend → Frontend, 기존 운영 인증·외부 알림·Key Vault 참조 보존
-- Git 게시: Ready PR·필수 CI·squash merge 대기
-- Azure 운영 release: exact merge SHA 확정 뒤 실행 대기
-- 사용자 검수: 공개 화면 직접 확인 대기
+- 당시 Git 게시: Ready PR·필수 CI·squash merge 대기
+- 당시 Azure 운영 release: exact merge SHA 확정 뒤 실행 대기
+- 당시 사용자 검수: 공개 화면 직접 확인 대기
 - Open P0/P1/P2: `0/0/0`
 - 상세 계약: `tasks/azure-deploy-001-change-027.md`
 
@@ -1017,23 +1020,22 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 
 - Checklist: `작성됨`
 - 자동 검증: `완료`
-- 사용자 검수: `Change 003~017의 실제 운영 검수 완료 / Change 019는 별도 UI 변경 없이 actual release 자동 runtime 검증 완료`
+- 사용자 검수: `기존 운영 검수 완료 / Change 030 공개 수식 자동 확인 완료 / 8월 28일 이후 G2 일일 입력·재고 흐름 운영 관찰 대기`
 - Azure resource: `생성·readiness 확인 완료`
-- Public URL: `DNS·managed TLS·정적 화면·PWA·origin 403·readiness 200·익명 API 401 완료`
-- Change 019 운영 release: `PASS`, migration·Backend·Frontend 교체와 public security 확인 완료
-- 다음 제품 Gate: Teams SSO·새 manifest를 별도 신규 기능으로 기획한다.
-- 운영 동기화 Gate: Change 020에서 당시 최신 main의 Production Control Change 010, 지정 로그인·내부 로고까지 Azure 운영 image에 동기화했다.
+- Public URL: `DNS·managed TLS·health 200·익명 root/API 401 완료`
+- Latest 운영 release: Change 030 exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74`, run `33589472932` `PASS`; Backend·Frontend 교체와 public security 확인 완료, migration `SKIPPED`
+- 다음 Gate: 사용자가 공개 G2에서 8월 28일 이후 일일 입력과 재고 흐름을 운영 관찰한다.
 - 비용·장애·응답시간·DB·첨부 증가량은 20일 시범 기간 동안 계속 기록한다.
 
 ## 13. 종료 산출물
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 019 source·CI·actual release·Finding 반영 완료 |
-| SOP | `tasks/azure-deploy-001-sop.md` | 최신 main SHA·migration 우선·rollback·actual release 결과 반영 완료 |
+| Implementation report | `tasks/azure-deploy-001-implementation-report.md` | Change 030 source·CI·actual release·Finding 반영 완료 |
+| SOP | `tasks/azure-deploy-001-sop.md` | Change 030 exact main SHA·migration skip·rollback·actual release 결과 반영 완료 |
 | User manual | `infrastructure/azure-pilot/README.md` | GitHub 수동 운영 release 사용자 동선과 최소 권한 반영 완료 |
-| Roadmap update | `docs/00-product-roadmap.md` | Change 019 main·runtime 완료와 다음 Gate 반영 완료 |
-| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | 자동 검증과 actual release 완료 상태 반영 완료 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 030 main·runtime 완료와 다음 Gate 반영 완료 |
+| User validation checklist | `tasks/azure-deploy-001-user-validation-checklist.md` | 자동 공개 확인 완료와 사용자 운영 관찰 대기 상태 반영 완료 |
 
 ## 14. Git와 게시 상태
 
@@ -1050,4 +1052,6 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 019: PR #79 원격 `main` squash merge, PR CI `3/3`, merge SHA main CI 최종 `3/3`, 운영 release run `31145661267` 성공. 정상 revision 상태 판정 P1과 main CI 일시 표시 지연 P2를 해소했고 action/CLI 경고 2건은 P3 backlog로 분리했다.
 - Change 020: PR #83·#84 원격 main squash merge, 최종 main SHA CI `3/3`, 운영 release run `31354814082` 성공. 지정 로그인·내부 공통 logo와 Production Control Change 010까지 운영 image에 동기화했다.
 - Change 024: PR #101 필수 CI 통과 뒤 원격 `main`에 squash merge하고 exact main SHA `8b19483e40655ce99c13cb470217ccddf444b1c0`로 운영 release run `31774236257`을 완료했다. Backend·Frontend ready와 public security smoke가 통과했고 migration은 변경 없음으로 실행하지 않았다.
-- Change 024 이외 원격 main에 아직 병합되지 않은 별도 branch는 이번 release에 포함하지 않았다.
+- Change 027: 위 절의 게시·배포 대기 문구는 historical approval snapshot이다. G2 기반 기능은 후속 main·Azure 통합 release에 포함됐으며 현재 대기 상태가 아니다.
+- Change 028~029: G2 Change 003과 사이트 접속을 exact current-main에 통합해 Azure release `33577473523`으로 배포했다.
+- Change 030: G2 Change 004 제품 PR #119를 exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74`로 병합하고 Azure release `33589472932`으로 Backend·Frontend를 교체했다. Migration은 생략했고 공개 health·익명 차단·G2 2026-08-28 수식 일치를 확인했다.

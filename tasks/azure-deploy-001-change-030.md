@@ -62,6 +62,7 @@
 ## Finding
 
 - 신규 Open P0/P1/P2: `0/0/0`
+- `AZURE-CHANGE-030-DOC-STATE-001` / P2 / `RESOLVED`: 독립 검증에서 SOP와 장기 Implementation report 하단의 Change 019·026·027 과거 상태가 현재 판정처럼 남은 점을 발견했다. Change 030 기준으로 동기화하고 과거 대기 상태를 historical snapshot으로 구분했다.
 - `GHA-AZURE-RUNNER-WARNINGS-001` / P3 / `BACKLOG`: 기존 action runner 유지보수 항목을 계속 추적한다. 이번 변경에서는 별도 보정하지 않았으며 release workflow는 성공했다.
 - 실제 운영 G2 원본 데이터와 Persistent UAT를 수정하지 않았으므로 별도 데이터 보정 검증은 적용 대상이 아니다.
 

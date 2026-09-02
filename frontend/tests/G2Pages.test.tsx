@@ -157,6 +157,22 @@ describe('G2 charts and daily management', () => {
     expect(preview[1].inventory).toBe(107);
   });
 
+  it('applies preview movements to the next day from the available-inventory cutover', () => {
+    const days = [
+      { ...day('2026-08-27'), morningProduction: metric(34), productionTotal: 34, delivery: metric(30), inventory: 2 },
+      { ...day('2026-08-28'), morningProduction: metric(22), afternoonProduction: metric(25), productionTotal: 47, delivery: metric(30), inventory: 6 },
+      { ...day('2026-08-29'), inventory: 23 }
+    ];
+
+    const preview = applyG2HomePreview(days, {
+      '2026-08-28': { morningProduction: '30', delivery: '35', defect: '2' }
+    });
+
+    expect(preview[0].inventory).toBe(2);
+    expect(preview[1].inventory).toBe(6);
+    expect(preview[2].inventory).toBe(24);
+  });
+
   it('updates the home graph source from table preview inputs without sending a mutation', async () => {
     const methods: string[] = [];
     const days = [

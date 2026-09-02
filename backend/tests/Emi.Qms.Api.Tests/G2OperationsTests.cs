@@ -51,6 +51,48 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
         Assert.Equal(before[from.AddDays(4)], corrected[from.AddDays(4)]);
     }
 
+    [Fact]
+    public void InventoryCalculator_UsesPreviousDayMovementsFromAvailableInventoryStartDate()
+    {
+        var from = G2InventoryCalculator.AvailableInventoryStartDate;
+        var result = G2InventoryCalculator.Calculate(
+            from,
+            from.AddDays(1),
+            2,
+            new Dictionary<DateOnly, int>(),
+            new Dictionary<DateOnly, long>
+            {
+                [from.AddDays(-1)] = 34,
+                [from] = 47
+            },
+            new Dictionary<DateOnly, long>
+            {
+                [from.AddDays(-1)] = 30,
+                [from] = 30
+            },
+            new Dictionary<DateOnly, long>());
+
+        Assert.Equal(6, result[from]);
+        Assert.Equal(23, result[from.AddDays(1)]);
+    }
+
+    [Fact]
+    public void InventoryCalculator_PhysicalCountRemainsTheBoundaryForNextDayMovements()
+    {
+        var from = G2InventoryCalculator.AvailableInventoryStartDate;
+        var result = G2InventoryCalculator.Calculate(
+            from,
+            from.AddDays(1),
+            2,
+            new Dictionary<DateOnly, int> { [from] = 10 },
+            new Dictionary<DateOnly, long> { [from] = 47 },
+            new Dictionary<DateOnly, long> { [from] = 30 },
+            new Dictionary<DateOnly, long> { [from] = 2 });
+
+        Assert.Equal(10, result[from]);
+        Assert.Equal(25, result[from.AddDays(1)]);
+    }
+
     [Theory]
     [InlineData("dev-admin", true, true, true, true, true)]
     [InlineData("dev-sales", true, true, true, true, true)]

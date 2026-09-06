@@ -33,7 +33,9 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         if (!hasSelectedLocalProfile)
         {
             if (context.Request.Path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(selection.Status, BusinessUnitAccessStatuses.SelectionDenied, StringComparison.Ordinal))
+                || context.Request.Path.StartsWithSegments("/api/admin/business-unit-access")
+                || (selection.IsOverallAdministrator
+                    && context.Request.Path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)))
             {
                 await next(context);
                 return;
@@ -51,7 +53,7 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         }
 
         if (string.Equals(selection.Target!.Code, BusinessUnitCodes.Osan, StringComparison.Ordinal)
-            && !IsOsanAllowedPath(context.Request.Path))
+            && !IsOsanAllowedRequest(context.Request))
         {
             await DenyAsync(context, "business_unit_capability_disabled");
             return;
@@ -60,9 +62,32 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         await next(context);
     }
 
-    private static bool IsOsanAllowedPath(PathString path) =>
-        path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/api/business-units");
+    private static bool IsOsanAllowedRequest(HttpRequest request)
+    {
+        var path = request.Path;
+        if (path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/me/profile-photo")
+            || path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/business-units")
+            || path.StartsWithSegments("/api/admin/business-unit-access"))
+        {
+            return true;
+        }
+
+        if (HttpMethods.IsGet(request.Method)
+            && path.Equals("/api/admin/users", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!HttpMethods.IsPatch(request.Method)
+            || !path.StartsWithSegments("/api/admin/users", out var remaining))
+        {
+            return false;
+        }
+
+        return Guid.TryParse(remaining.Value?.Trim('/'), out _);
+    }
 
     private static Task DenyAsync(HttpContext context, string errorCode)
     {

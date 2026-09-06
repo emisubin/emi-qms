@@ -35,6 +35,121 @@
     sans-serif;
 }
 
+.business-unit-selector {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 9rem;
+  color: var(--text-secondary, #5b6472);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.business-unit-selector select {
+  min-height: 2.4rem;
+  padding: 0.45rem 2rem 0.45rem 0.7rem;
+  border: 1px solid var(--border-color, #d8dde5);
+  border-radius: 0.65rem;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #172033);
+}
+
+.business-unit-selector small {
+  max-width: 14rem;
+  color: #9b4b17;
+  font-weight: 500;
+}
+
+.business-unit-selector--compact {
+  min-width: 6.5rem;
+}
+
+.business-unit-selector--compact > span,
+.business-unit-selector--compact small {
+  display: none;
+}
+
+.business-unit-access-gate .auth-gate-card {
+  max-width: 38rem;
+}
+
+.business-unit-choice-list,
+.auth-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.osan-area-placeholder {
+  min-height: 20rem;
+}
+
+.business-unit-access-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.business-unit-access-card {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1.2fr) minmax(14rem, 1.5fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #d8dde5);
+  border-radius: 0.8rem;
+  background: var(--surface, #fff);
+}
+
+.business-unit-access-card > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.business-unit-access-card small {
+  color: var(--text-secondary, #667085);
+}
+
+.business-unit-access-card fieldset {
+  display: flex;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.business-unit-access-card legend {
+  margin-bottom: 0.35rem;
+  color: var(--text-secondary, #667085);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.business-unit-access-card label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.business-unit-overall-status {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #39465a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 780px) {
+  .business-unit-access-card {
+    grid-template-columns: 1fr;
+  }
+
+  .business-unit-access-card fieldset {
+    flex-wrap: wrap;
+  }
+}
+
 /* TASK-PANEL-DESIGN-001: existing monochrome wireframe language, without accent rails. */
 .panel-required-guide {
   display: grid;

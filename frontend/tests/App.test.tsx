@@ -17,6 +17,7 @@ vi.mock('@microsoft/teams-js', () => ({
 
 import { App } from '../src/App';
 import { HomePage } from '../src/HomePage';
+import { resetBusinessUnitRequestContext } from '../src/api';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const projectId = '71000000-0000-0000-0000-000000000010';
@@ -48,6 +49,8 @@ describe('App', () => {
     teamsJsMock.initialize.mockResolvedValue(undefined);
     teamsJsMock.getContext.mockImplementation(async () => teamsJsMock.context ?? {});
     window.localStorage.clear();
+    window.sessionStorage.clear();
+    resetBusinessUnitRequestContext(true);
     window.history.pushState(null, '', '/projects');
     Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     vi.stubGlobal('fetch', vi.fn(mockFetch));
@@ -273,28 +276,23 @@ describe('App', () => {
     window.history.pushState(null, '', '/');
     render(<App />);
 
-    const userSelector = await screen.findByLabelText('개발 사용자');
-    const navigation = screen.getByRole('navigation', { name: '공통 메뉴' });
-    expect(within(navigation).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: '공통 메뉴' })).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument();
 
-    fireEvent.change(userSelector, { target: { value: 'dev-quality' } });
-    await waitFor(() => expect(userSelector).toHaveValue('dev-quality'));
-    expect(await within(navigation).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
+    await switchToDevelopmentUser('dev-quality');
+    expect(await within(screen.getByRole('navigation', { name: '공통 메뉴' })).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
 
-    fireEvent.change(userSelector, { target: { value: 'dev-manufacturing' } });
-    await waitFor(() => expect(userSelector).toHaveValue('dev-manufacturing'));
-    await waitFor(() => expect(within(navigation).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument());
+    await switchToDevelopmentUser('dev-manufacturing');
+    await waitFor(() => expect(within(screen.getByRole('navigation', { name: '공통 메뉴' })).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument());
 
-    fireEvent.change(userSelector, { target: { value: 'dev-production' } });
-    await waitFor(() => expect(userSelector).toHaveValue('dev-production'));
-    expect(await within(navigation).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
+    await switchToDevelopmentUser('dev-production');
+    expect(await within(screen.getByRole('navigation', { name: '공통 메뉴' })).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
   });
 
   it('opens the customer-supplied overdue material queue from the Materials Home metric', async () => {
     window.history.pushState(null, '', '/');
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    await switchToDevelopmentUser('dev-materials');
     const metric = await screen.findByRole('button', { name: /사급 제공 지연/ });
     expect(metric).toHaveTextContent('1');
     fireEvent.click(metric);
@@ -1188,7 +1186,7 @@ describe('App', () => {
   it('hides business action buttons from System Administrator while showing sales amount', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
 
     await waitFor(() => expect(screen.queryByRole('button', { name: '신규 프로젝트' })).not.toBeInTheDocument());
     expect(screen.getAllByText('KRW 1,250,000.5').length).toBeGreaterThan(0);
@@ -1197,7 +1195,7 @@ describe('App', () => {
   it('shows calendar holiday admin page for System Administrator', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
     fireEvent.click(await screen.findByRole('button', { name: '공휴일' }));
@@ -1217,7 +1215,7 @@ describe('App', () => {
   it('shows admin dashboard and system management pages for System Administrator', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
 
@@ -1358,7 +1356,7 @@ describe('App', () => {
   it('shows Processing lease state and disables admin actions', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     window.history.pushState(null, '', '/admin/system/notification-deliveries?status=Processing');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
@@ -1376,7 +1374,7 @@ describe('App', () => {
   it('shows masked delivery attempt audit in admin detail', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     window.history.pushState(null, '', '/admin/system/notification-deliveries/79000000-0000-0000-0000-000000000101');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
@@ -1839,8 +1837,7 @@ describe('App', () => {
     });
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -1857,8 +1854,7 @@ describe('App', () => {
   it('shows panel template download only to panel information editors', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     expect(await screen.findByRole('button', { name: '패널명·사이즈 수정' })).toBeInTheDocument();
@@ -1887,8 +1883,7 @@ describe('App', () => {
 
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
 
@@ -1988,8 +1983,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -2020,8 +2014,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -2055,8 +2048,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -2138,8 +2130,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -3355,6 +3346,15 @@ function fillCreateForm(projectCode: string, projectTitle: string) {
   fireEvent.change(screen.getByLabelText('영업담당자*'), { target: { value: salesOwnerId } });
   fireEvent.change(screen.getByLabelText('포장방식*'), { target: { value: 'WoodenCrate' } });
   fireEvent.change(screen.getByLabelText('판매금액'), { target: { value: '1250000.5' } });
+}
+
+async function switchToDevelopmentUser(userKey: string) {
+  fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: userKey } });
+  await waitFor(() => {
+    const accountTrigger = document.querySelector('.account-identity-trigger');
+    expect(accountTrigger).not.toBeNull();
+    expect(accountTrigger).toHaveTextContent(userKey);
+  });
 }
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

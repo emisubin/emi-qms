@@ -43,6 +43,7 @@ import {
   bulkRestoreAdminCalendarHolidays,
   bulkRestoreAdminDepartments,
   bulkRestoreAdminUsers,
+  BusinessUnitRequestInvalidatedError,
   changePanelCount,
   changeProjectStatus,
   acknowledgeAdminNotificationDeliveries,
@@ -76,6 +77,7 @@ import {
   getOwnProfilePhoto,
   listProjectPanelQrs,
   getAdminUsers,
+  getBusinessUnitAccessUsers,
   getDeletedProject,
   getPanel,
   getPanelInformation,
@@ -156,9 +158,14 @@ import {
   setAccessTokenProvider,
   setAuditSessionHeaders,
   setRuntimeMutationAllowed,
+  getBusinessUnitRequestState,
+  resetBusinessUnitRequestContext,
+  selectBusinessUnit,
+  subscribeBusinessUnitRequestState,
   updateAdminCalendarHoliday,
   updateAdminDepartment,
   updateAdminUser,
+  updateBusinessUnitMemberships,
   updateProjectProductionPlanSetDefault,
   updateProjectProductionPlanSetScope,
   updateProjectDepartmentAssignees,
@@ -171,7 +178,7 @@ import {
   updateProject
 } from './api';
 import type { MaterialCategory } from './formTemplates';
-import type { RuntimeMode } from './api';
+import type { BusinessUnitRequestState, RuntimeMode } from './api';
 import {
   acquireAccessToken,
   beginInteractiveLoginAudit,
@@ -219,7 +226,15 @@ import {
   DsSecondaryTools,
   DsStatePanel
 } from './design-system';
-import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
+import type {
+  AdminUser,
+  AdminUsersResponse,
+  BusinessUnitAccess,
+  BusinessUnitAccessAdministrationResponse,
+  BusinessUnitAccessAdministrationUser,
+  BusinessUnitCode,
+  CurrentUser
+} from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
   AdminBulkActionResponse,
@@ -336,6 +351,7 @@ type View =
   | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'pending-types' }
   | { kind: 'admin-dashboard' }
+  | { kind: 'admin-business-unit-access' }
   | { kind: 'admin-users'; filter?: 'approval-pending' }
   | { kind: 'admin-user-notification-preferences'; userId: string }
   | { kind: 'admin-departments' }
@@ -349,6 +365,7 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
+  | { kind: 'osan-progress' }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
@@ -363,6 +380,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
     case 'teams-activity-detail':
     case 'teams-notification-detail': return 'TeamsActivity';
     case 'list':
+    case 'osan-progress':
     case 'create':
     case 'detail':
     case 'deleted-detail':
@@ -401,6 +419,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
       } as const)[view.area];
     case 'qr-scan': return 'Projects';
     case 'pending-types':
+    case 'admin-business-unit-access':
     case 'admin-dashboard':
     case 'admin-users':
     case 'admin-user-notification-preferences':
@@ -776,9 +795,17 @@ function initialViewFromLocation(): View {
     return { kind: 'admin-dashboard' };
   }
 
+  if (window.location.pathname === '/admin/business-unit-access') {
+    return { kind: 'admin-business-unit-access' };
+  }
+
   if (window.location.pathname === '/admin/users') {
     const filter = new URLSearchParams(window.location.search).get('filter');
     return { kind: 'admin-users', filter: filter === 'approval-pending' ? filter : undefined };
+  }
+
+  if (window.location.pathname === '/progress') {
+    return { kind: 'osan-progress' };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1362,6 +1389,8 @@ function pathForView(view: View) {
       return '/admin/pending-types';
     case 'admin-dashboard':
       return '/admin';
+    case 'admin-business-unit-access':
+      return '/admin/business-unit-access';
     case 'admin-users':
       return `/admin/users${view.filter === 'approval-pending' ? '?filter=approval-pending' : ''}`;
     case 'admin-user-notification-preferences':
@@ -1396,6 +1425,8 @@ function pathForView(view: View) {
         status: view.status ?? undefined,
         level: view.level ?? undefined
       })}`;
+    case 'osan-progress':
+      return '/progress';
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}${view.section && view.section !== 'summary' ? `?tab=${view.section}` : ''}`;
     case 'list':
@@ -1500,6 +1531,7 @@ function EntraAuthenticatedApp({
     setAuditSessionHeaders(null);
     instance.setActiveAccount(null);
     setAccessTokenProvider(null);
+    resetBusinessUnitRequestContext(true);
     void instance.logoutRedirect();
   };
 
@@ -1734,15 +1766,24 @@ type QmsAppShellProps = {
 
 function QmsAppShell(props: QmsAppShellProps) {
   const { setAutomaticGuideReady } = usePwaInstallExperience();
+  const [businessUnitRequestState, setBusinessUnitRequestState] = useState(
+    getBusinessUnitRequestState
+  );
 
   useEffect(() => {
     setAutomaticGuideReady(true);
     return () => setAutomaticGuideReady(false);
   }, [setAutomaticGuideReady]);
 
+  useEffect(() => subscribeBusinessUnitRequestState(setBusinessUnitRequestState), []);
+
   return (
     <AdaptiveLayoutProvider>
-      <QmsAppShellContent {...props} />
+      <QmsAppShellContent
+        key={`${businessUnitRequestState.generation}:${businessUnitRequestState.selectedBusinessUnit ?? 'legacy-business-unit'}`}
+        {...props}
+        businessUnitRequestState={businessUnitRequestState}
+      />
     </AdaptiveLayoutProvider>
   );
 }
@@ -1750,8 +1791,9 @@ function QmsAppShell(props: QmsAppShellProps) {
 function QmsAppShellContent({
   authMode,
   onLogout,
-  onReauthenticate
-}: QmsAppShellProps) {
+  onReauthenticate,
+  businessUnitRequestState
+}: QmsAppShellProps & { businessUnitRequestState: BusinessUnitRequestState }) {
   const layout = useAdaptiveLayout();
   const isDevMode = authMode === 'Dev';
   const [developmentUserKey, setDevelopmentUserKey] = useState(() => {
@@ -1786,22 +1828,31 @@ function QmsAppShellContent({
   const profilePhotoGeneration = useRef(0);
   const restoredAdminTestUser = useRef(false);
   const user = currentUser.kind === 'ready' ? currentUser.data : null;
+  const businessUnitAccess = resolveBusinessUnitAccess(user);
+  const selectedBusinessUnit = businessUnitAccess.selectedBusinessUnit;
+  const isOsan = selectedBusinessUnit === 'OSAN';
+  const hasSelectedBusinessUnit = businessUnitAccess.status === 'selected';
   const isAccessBlocked = isOperationalAccessBlocked(user);
-  const canLoadBusinessData = isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked);
+  const canLoadBusinessData = hasSelectedBusinessUnit
+    && !isOsan
+    && (isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked));
   const displayedShellBadges = canLoadBusinessData
     ? shellBadges
     : { requestedWorkCount: 0, unreadNotificationCount: 0 };
   const canUseAdminTestUserSwitch = !isDevMode && user?.canUseAdminTestUserSwitch === true;
-  const actualProfileUserId = user?.actualUser.userId ?? '';
-  const actualProfilePhotoVersion = user?.actualUser.profilePhotoVersion ?? '';
+  const actualProfileUserId = user?.actualUser?.userId ?? '';
+  const actualProfilePhotoVersion = user?.actualUser?.profilePhotoVersion ?? '';
   const profilePhotoKey = `${actualProfileUserId}:${actualProfilePhotoVersion}:${profilePhotoNonce}`;
   const profilePhotoUrl = profilePhotoState?.key === profilePhotoKey ? profilePhotoState.url : null;
-  const formTemplateScopeUserId = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
-  const formTemplateScopeBlocked = currentUser.kind !== 'ready' || currentUser.data.approvalPending;
-  const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
+  const formTemplateScopeUserId = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
+  const formTemplateScopeBlocked = currentUser.kind !== 'ready'
+    || currentUser.data.approvalPending
+    || !hasSelectedBusinessUnit
+    || isOsan;
+  const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
 
   useEffect(() => {
-    if (currentUser.kind !== 'ready') return;
+    if (currentUser.kind !== 'ready' || !hasSelectedBusinessUnit || isOsan) return;
 
     let cancelled = false;
     void getSiteAccessBrowserClientId()
@@ -1816,7 +1867,7 @@ function QmsAppShellContent({
       .catch(() => undefined);
 
     return () => { cancelled = true; };
-  }, [currentUser.kind, developmentUserKey, siteAccessActorKey, view]);
+  }, [currentUser.kind, developmentUserKey, hasSelectedBusinessUnit, isOsan, siteAccessActorKey, view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1881,15 +1932,7 @@ function QmsAppShellContent({
 
   const loadShell = useCallback(() => {
     setRuntimeMutationAllowed(false);
-    getRuntimeMode(developmentUserKey)
-      .then((data) => {
-        setRuntimeMutationAllowed(data.mutationAllowed);
-        setRuntimeMode({ kind: 'ready', data });
-      })
-      .catch((error: unknown) => {
-        setRuntimeMutationAllowed(false);
-        setRuntimeMode(toLoadError(error, '실행 모드를 확인할 수 없어 변경 작업을 차단했습니다.'));
-      });
+    setRuntimeMode({ kind: 'loading' });
 
     getReadyHealth()
       .then((data) => setHealth({ kind: 'ready', data }))
@@ -1898,6 +1941,21 @@ function QmsAppShellContent({
     getCurrentUser(developmentUserKey)
       .then((data) => {
         setCurrentUser({ kind: 'ready', data });
+        const resolvedAccess = resolveBusinessUnitAccess(data);
+        if (resolvedAccess.status === 'selected' || resolvedAccess.isOverallAdministrator) {
+          getRuntimeMode(developmentUserKey)
+            .then((runtimeData) => {
+              setRuntimeMutationAllowed(runtimeData.mutationAllowed);
+              setRuntimeMode({ kind: 'ready', data: runtimeData });
+            })
+            .catch((error: unknown) => {
+              if (error instanceof BusinessUnitRequestInvalidatedError) {
+                return;
+              }
+              setRuntimeMutationAllowed(false);
+              setRuntimeMode(toLoadError(error, '실행 모드를 확인할 수 없어 변경 작업을 차단했습니다.'));
+            });
+        }
         if (!isDevMode && !adminTestUserKey && !restoredAdminTestUser.current && data.canUseAdminTestUserSwitch) {
           restoredAdminTestUser.current = true;
           const stored = window.localStorage.getItem(adminTestUserStorageKey);
@@ -1906,8 +1964,28 @@ function QmsAppShellContent({
           }
         }
       })
-      .catch((error: unknown) => setCurrentUser(toAuthenticationLoadError(error, isDevMode)));
-  }, [adminTestUserKey, developmentUserKey, isDevMode]);
+      .catch((error: unknown) => {
+        if (error instanceof BusinessUnitRequestInvalidatedError) {
+          return;
+        }
+        if (error instanceof ApiError
+          && businessUnitRequestState.selectedBusinessUnit
+          && [
+            'business_unit_membership_denied',
+            'business_unit_alternate_selection_denied',
+            'business_unit_selector_invalid'
+          ].includes(error.errorCode ?? '')) {
+          resetBusinessUnitRequestContext();
+          return;
+        }
+        if (error instanceof ApiError
+          && error.status === 401
+          && businessUnitRequestState.selectedBusinessUnit) {
+          resetBusinessUnitRequestContext();
+        }
+        setCurrentUser(toAuthenticationLoadError(error, isDevMode));
+      });
+  }, [adminTestUserKey, businessUnitRequestState.selectedBusinessUnit, developmentUserKey, isDevMode]);
 
   const refreshShellBadges = useCallback(() => {
     Promise.all([
@@ -2015,6 +2093,22 @@ function QmsAppShellContent({
     };
   }, [setView, view.kind]);
 
+  const switchBusinessUnitContext = useCallback((businessUnit: BusinessUnitCode) => {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/');
+    }
+    selectBusinessUnit(businessUnit);
+  }, []);
+
+  useEffect(() => {
+    if (currentUser.kind !== 'ready'
+      || !isOsan
+      || isOsanViewAllowed(view, currentUser.data)) {
+      return;
+    }
+    replaceView({ kind: 'home' });
+  }, [currentUser, isOsan, replaceView, view]);
+
   if (!isDevMode
     && (view.kind === 'teams-activity'
       || view.kind === 'teams-activity-detail'
@@ -2060,7 +2154,25 @@ function QmsAppShellContent({
     );
   }
 
-  if (!isDevMode && isAccessBlocked) {
+  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
+  const membershipMutationDisabledReason = businessUnitMembershipMutationDisabledReason(runtimeMode);
+
+  if (currentUser.kind === 'ready' && businessUnitAccess.status !== 'selected') {
+    return (
+      <BusinessUnitAccessGate
+        user={currentUser.data}
+        access={businessUnitAccess}
+        developmentUserKey={developmentUserKey}
+        mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
+        membershipMutationAllowed={mutationEnabled}
+        membershipMutationDisabledReason={membershipMutationDisabledReason}
+        onSelect={switchBusinessUnitContext}
+        onLogout={onLogout}
+      />
+    );
+  }
+
+  if (!isDevMode && isAccessBlocked && !businessUnitAccess.isOverallAdministrator) {
     return (
       <AuthenticationRequiredPage
         user={user}
@@ -2070,7 +2182,6 @@ function QmsAppShellContent({
   }
 
   const permissions = user?.permissions ?? [];
-  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
   const canCreate = permissions.includes('Project.Create');
   const canUpdate = permissions.includes('Project.Update');
   const canHold = permissions.includes('Project.Hold');
@@ -2109,6 +2220,7 @@ function QmsAppShellContent({
     window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
     setDevelopmentUserKey(nextUserKey);
     setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+    resetBusinessUnitRequestContext(true);
   };
   const switchAdminTestUser = (nextUserKey: string) => {
     if (nextUserKey) {
@@ -2118,11 +2230,13 @@ function QmsAppShellContent({
     }
     setAdminTestUserKeyState(nextUserKey);
     setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+    resetBusinessUnitRequestContext(true);
   };
   const resetAdminTestUser = () => {
     window.localStorage.removeItem(adminTestUserStorageKey);
     setAdminTestUserKeyState('');
     setView({ kind: 'home' });
+    resetBusinessUnitRequestContext(true);
   };
   const departmentNavigationLabel = navigationLabelForDepartment(user?.effectiveUser.department);
   // Department parents route straight to their first workspace; the old
@@ -2147,7 +2261,7 @@ function QmsAppShellContent({
       { label: '영업', view: { kind: 'sales-kpi' } as View, active: view.kind === 'sales-kpi' || view.kind === 'sales-billing' }
     ] : [])
   ];
-  const navigationItems: NavigationItem[] = [
+  const cheongjuNavigationItems: NavigationItem[] = [
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount, group: '내 업무' },
     { label: 'Pending', view: { kind: 'pending' }, active: view.kind === 'pending' || view.kind === 'pending-detail', group: '내 업무' },
@@ -2176,6 +2290,33 @@ function QmsAppShellContent({
       { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view), group: '관리' as const }
     ] : [])
   ];
+  const navigationItems: NavigationItem[] = isOsan
+    ? [
+        { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
+        { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
+        { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
+        ...(canManageUsers ? [{
+          label: '현재 사업부 사용자 관리',
+          view: { kind: 'admin-users' } as View,
+          active: view.kind === 'admin-users',
+          group: '관리' as const
+        }] : []),
+        ...(businessUnitAccess.isOverallAdministrator ? [{
+          label: '사업부 소속 관리',
+          view: { kind: 'admin-business-unit-access' } as View,
+          active: view.kind === 'admin-business-unit-access',
+          group: '관리' as const
+        }] : [])
+      ]
+    : [
+        ...cheongjuNavigationItems,
+        ...(businessUnitAccess.isOverallAdministrator ? [{
+          label: '사업부 소속 관리',
+          view: { kind: 'admin-business-unit-access' } as View,
+          active: view.kind === 'admin-business-unit-access',
+          group: '관리' as const
+        }] : [])
+      ];
 
   const activeNavigationLabel = view.kind === 'privacy-notice'
     ? '개인정보·이용 안내'
@@ -2203,7 +2344,7 @@ function QmsAppShellContent({
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
-        {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
+        {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan ? (
           <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
         ) : null}
         <header className="mobile-app-bar">
@@ -2222,6 +2363,14 @@ function QmsAppShellContent({
               <strong>{activeNavigationLabel}</strong>
             </span>
           </div>
+          {businessUnitAccess.isOverallAdministrator && businessUnitAccess.allowedBusinessUnits.length > 1 ? (
+            <BusinessUnitSelector
+              access={businessUnitAccess}
+              mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
+              onSelect={switchBusinessUnitContext}
+              compact
+            />
+          ) : null}
           <button
             ref={mobileStatusTriggerRef}
             type="button"
@@ -2267,7 +2416,7 @@ function QmsAppShellContent({
               <span>조회·검색·필터만 가능하며 변경 action은 차단됩니다.</span>
             </div>
           ) : null}
-          {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
+          {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan ? (
             <button
               type="button"
               className="mobile-status-action"
@@ -2288,6 +2437,13 @@ function QmsAppShellContent({
             <h1>EMI PMS</h1>
           </div>
           <div className="topbar-actions">
+            {businessUnitAccess.isOverallAdministrator && businessUnitAccess.allowedBusinessUnits.length > 1 ? (
+              <BusinessUnitSelector
+                access={businessUnitAccess}
+                mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
+                onSelect={switchBusinessUnitContext}
+              />
+            ) : null}
             {user ? (
               <DesktopAccountMenu
                 user={user}
@@ -2368,12 +2524,20 @@ function QmsAppShellContent({
         <StateMessage state={currentUser} />
       ) : null}
 
-      {currentUser.kind === 'ready' && currentUser.data.approvalPending ? (
-        <ApprovalPendingPage user={currentUser.data} onLogout={onLogout} />
+      {currentUser.kind === 'ready'
+        && currentUser.data.approvalPending
+        && view.kind !== 'admin-business-unit-access' ? (
+        <ApprovalPendingPage
+          user={currentUser.data}
+          onOpenBusinessUnitAccess={businessUnitAccess.isOverallAdministrator
+            ? () => setView({ kind: 'admin-business-unit-access' })
+            : undefined}
+          onLogout={onLogout}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        <HomePage
+        isOsan ? <OsanAreaPlaceholder area="home" /> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
@@ -2460,6 +2624,10 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && view.kind === 'osan-progress' ? (
+        <OsanAreaPlaceholder area="progress" />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'pending-types' ? (
         <PendingTypeManagementPage developmentUserKey={developmentUserKey} canManage={canManagePendingTypes} />
       ) : null}
@@ -2479,7 +2647,7 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'list' ? (
-        <ProjectListPage
+        isOsan ? <OsanAreaPlaceholder area="projects" /> : <ProjectListPage
           developmentUserKey={developmentUserKey}
           canCreate={canCreate}
             canReadDeleted={canReadDeleted}
@@ -2832,9 +3000,25 @@ function QmsAppShellContent({
         <AdminUsersPage
           developmentUserKey={developmentUserKey}
           filter={view.filter}
-          onOpenNotificationSettings={(userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
+          restrictedToLocalProfile={isOsan}
+          onOpenNotificationSettings={isOsan
+            ? undefined
+            : (userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
         />
       ) : null}
+
+      {currentUser.kind === 'ready'
+        && businessUnitAccess.isOverallAdministrator
+        && view.kind === 'admin-business-unit-access' ? (
+          <BusinessUnitAccessAdministrationPage
+            currentUserId={currentUser.data.userId}
+            developmentUserKey={developmentUserKey}
+            selectedBusinessUnit={selectedBusinessUnit}
+            mutationAllowed={mutationEnabled}
+            mutationDisabledReason={membershipMutationDisabledReason}
+            onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
+          />
+        ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-user-notification-preferences' ? (
         <NotificationPreferencesPage
@@ -3846,14 +4030,352 @@ function AuthenticationRequiredPage({ user, message, onLogout }: { user?: Curren
   );
 }
 
-function ApprovalPendingPage({ user, onLogout }: { user: CurrentUser; onLogout?: () => void }) {
+function resolveBusinessUnitAccess(user: CurrentUser | null): BusinessUnitAccess {
+  if (user?.businessUnitAccess) {
+    return user.businessUnitAccess;
+  }
+
+  return {
+    status: user ? 'selected' : 'no_membership',
+    selectedBusinessUnit: user ? 'CHEONGJU' : null,
+    allowedBusinessUnits: user ? ['CHEONGJU'] : [],
+    isOverallAdministrator: false,
+    errorCode: null
+  };
+}
+
+function businessUnitLabel(code: BusinessUnitCode) {
+  return code === 'OSAN' ? '오산' : '청주';
+}
+
+function BusinessUnitSelector({
+  access,
+  mutationInFlight,
+  onSelect,
+  compact = false
+}: {
+  access: BusinessUnitAccess;
+  mutationInFlight: boolean;
+  onSelect: (businessUnit: BusinessUnitCode) => void;
+  compact?: boolean;
+}) {
+  return (
+    <label className={`business-unit-selector${compact ? ' business-unit-selector--compact' : ''}`}>
+      <span>사업부</span>
+      <select
+        aria-label="사업부 선택"
+        value={access.selectedBusinessUnit ?? ''}
+        disabled={mutationInFlight}
+        title={mutationInFlight ? '저장 작업이 끝난 뒤 사업부를 변경할 수 있습니다.' : undefined}
+        onChange={(event) => onSelect(event.target.value as BusinessUnitCode)}
+      >
+        {!access.selectedBusinessUnit ? <option value="">선택</option> : null}
+        {access.allowedBusinessUnits.map((businessUnit) => (
+          <option key={businessUnit} value={businessUnit}>{businessUnitLabel(businessUnit)}</option>
+        ))}
+      </select>
+      {mutationInFlight ? <small role="status">저장 중에는 변경할 수 없습니다.</small> : null}
+    </label>
+  );
+}
+
+function BusinessUnitAccessGate({
+  user,
+  access,
+  developmentUserKey,
+  mutationInFlight,
+  membershipMutationAllowed,
+  membershipMutationDisabledReason,
+  onSelect,
+  onLogout
+}: {
+  user: CurrentUser;
+  access: BusinessUnitAccess;
+  developmentUserKey: string;
+  mutationInFlight: boolean;
+  membershipMutationAllowed: boolean;
+  membershipMutationDisabledReason: string | null;
+  onSelect: (businessUnit: BusinessUnitCode) => void;
+  onLogout?: () => void;
+}) {
+  const copy = access.status === 'no_membership'
+    ? {
+        eyebrow: '사업부 소속 대기',
+        title: '사용할 수 있는 사업부가 없습니다.',
+        message: '총괄 관리자가 계정에 사업부 소속을 지정하면 해당 사업부로 접속할 수 있습니다.'
+      }
+    : access.status === 'local_profile_pending'
+      ? {
+          eyebrow: '사업부 사용자 승인 대기',
+          title: `${access.selectedBusinessUnit ? businessUnitLabel(access.selectedBusinessUnit) : '선택한 사업부'} 사용자 등록이 필요합니다.`,
+          message: '사업부의 System Administrator가 부서와 역할을 지정하면 업무 화면을 사용할 수 있습니다.'
+        }
+      : access.status === 'selection_denied'
+        ? {
+            eyebrow: '사업부 선택 거부',
+            title: '이 계정으로 선택할 수 없는 사업부입니다.',
+            message: '현재 탭의 사업부 선택을 지웠습니다. 허용된 소속과 총괄 관리자 권한을 확인해 주세요.'
+          }
+        : {
+            eyebrow: '사업부 선택',
+            title: '이 탭에서 사용할 사업부를 선택해 주세요.',
+            message: '사업부를 선택하면 해당 사업부의 사용자 역할과 데이터 범위가 적용됩니다.'
+          };
+  const canSelect = access.isOverallAdministrator && access.allowedBusinessUnits.length > 0;
+
+  return (
+    <main className="auth-gate business-unit-access-gate">
+      <section className="auth-gate-card">
+        <p className="eyebrow">{copy.eyebrow}</p>
+        <h1>{copy.title}</h1>
+        <p>{copy.message}</p>
+        <p className="muted-text">현재 계정: {user.displayName}{user.email ? ` (${user.email})` : ''}</p>
+        {canSelect ? (
+          <div className="business-unit-choice-list" aria-label="선택 가능한 사업부">
+            {access.allowedBusinessUnits.map((businessUnit) => (
+              <button
+                key={businessUnit}
+                type="button"
+                disabled={mutationInFlight}
+                onClick={() => onSelect(businessUnit)}
+              >
+                {businessUnitLabel(businessUnit)} 사업부로 이동
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {mutationInFlight ? <p role="status">저장 작업이 끝난 뒤 사업부를 변경할 수 있습니다.</p> : null}
+        <div className="auth-gate-actions">
+          {access.status === 'selection_denied' ? (
+            <button type="button" onClick={() => resetBusinessUnitRequestContext(true)}>선택 초기화</button>
+          ) : null}
+          {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+        </div>
+      </section>
+      {access.isOverallAdministrator ? (
+        <BusinessUnitAccessAdministrationPage
+          developmentUserKey={developmentUserKey}
+          currentUserId={user.userId}
+          selectedBusinessUnit={access.selectedBusinessUnit}
+          mutationAllowed={membershipMutationAllowed}
+          mutationDisabledReason={membershipMutationDisabledReason}
+          onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
+        />
+      ) : null}
+    </main>
+  );
+}
+
+function OsanAreaPlaceholder({ area }: { area: 'home' | 'projects' | 'progress' }) {
+  const content = area === 'home'
+    ? ['오산 사업부 홈', '프로젝트와 진행 관리 메뉴에서 오산 사업부의 준비된 업무 범위를 확인할 수 있습니다.']
+    : area === 'projects'
+      ? ['오산 프로젝트', '프로젝트 업무는 후속 Task에서 열립니다. 현재는 사업부 소속과 사용자 역할을 먼저 준비합니다.']
+      : ['오산 진행 관리', '오산에서는 G2, Pending, 보류와 취소를 사용하지 않습니다. 승인된 7단계 진행 화면은 후속 진행 Task에서 열립니다.'];
+
+  return (
+    <section className="panel-section osan-area-placeholder">
+      <DsPageHeader className="page-header" eyebrow="OSAN" title={content[0]} />
+      <DsEmptyState title="준비 중인 업무입니다." description={content[1]} />
+    </section>
+  );
+}
+
+function BusinessUnitAccessAdministrationPage({
+  developmentUserKey,
+  currentUserId,
+  selectedBusinessUnit,
+  mutationAllowed,
+  mutationDisabledReason,
+  onCurrentSelectionRemoved
+}: {
+  developmentUserKey: string;
+  currentUserId: string;
+  selectedBusinessUnit: BusinessUnitCode | null;
+  mutationAllowed: boolean;
+  mutationDisabledReason: string | null;
+  onCurrentSelectionRemoved: () => void;
+}) {
+  const [state, setState] = useState<LoadState<BusinessUnitAccessAdministrationResponse>>({ kind: 'loading' });
+  const [drafts, setDrafts] = useState<Record<string, BusinessUnitCode[]>>({});
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getBusinessUnitAccessUsers(developmentUserKey)
+      .then((data) => {
+        setState(data.users.length > 0 ? { kind: 'ready', data } : { kind: 'empty' });
+        setDrafts(Object.fromEntries(data.users.map((directoryUser) => [directoryUser.userId, directoryUser.memberships])));
+      })
+      .catch((error: unknown) => setState(toLoadError(error, '사업부 소속 목록을 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const toggleMembership = (directoryUser: BusinessUnitAccessAdministrationUser, businessUnit: BusinessUnitCode) => {
+    if (!mutationAllowed) {
+      setFeedback(mutationDisabledReason ?? '현재 사업부 소속을 변경할 수 없습니다.');
+      return;
+    }
+    setDrafts((current) => {
+      const memberships = current[directoryUser.userId] ?? directoryUser.memberships;
+      return {
+        ...current,
+        [directoryUser.userId]: memberships.includes(businessUnit)
+          ? memberships.filter((item) => item !== businessUnit)
+          : [...memberships, businessUnit]
+      };
+    });
+    setFeedback(null);
+  };
+
+  const save = async (directoryUser: BusinessUnitAccessAdministrationUser) => {
+    if (!mutationAllowed) {
+      setFeedback(mutationDisabledReason ?? '현재 사업부 소속을 변경할 수 없습니다.');
+      return;
+    }
+    const memberships = drafts[directoryUser.userId] ?? directoryUser.memberships;
+    setSavingUserId(directoryUser.userId);
+    setFeedback(null);
+    try {
+      const result = await updateBusinessUnitMemberships(
+        developmentUserKey,
+        directoryUser.userId,
+        memberships);
+      setState(result.snapshot.users.length > 0 ? { kind: 'ready', data: result.snapshot } : { kind: 'empty' });
+      setDrafts(Object.fromEntries(result.snapshot.users.map((item) => [item.userId, item.memberships])));
+      setFeedback(result.changed ? '사업부 소속을 저장했습니다.' : '변경된 사업부 소속이 없습니다.');
+      if (directoryUser.userId === currentUserId
+        && selectedBusinessUnit
+        && !memberships.includes(selectedBusinessUnit)) {
+        onCurrentSelectionRemoved();
+      }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : '사업부 소속을 저장할 수 없습니다.');
+    } finally {
+      setSavingUserId(null);
+    }
+  };
+
+  return (
+    <section className="panel-section business-unit-access-admin">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="전체 사업부 관리"
+        title="사업부 소속 관리"
+        description="계정의 청주·오산 소속을 지정합니다. 총괄 관리자 지정은 여기서 변경할 수 없습니다."
+        actions={<button type="button" onClick={load}>새로고침</button>}
+      />
+      {mutationDisabledReason ? (
+        <p className="account-review-safe-note" role="status">{mutationDisabledReason}</p>
+      ) : null}
+      {feedback ? <p className="action-feedback" role="status">{feedback}</p> : null}
+      {state.kind === 'loading' ? <p role="status">사업부 소속을 불러오는 중입니다.</p> : null}
+      {state.kind === 'empty' ? <DsEmptyState title="관리할 계정이 없습니다." description="활성 디렉터리 계정이 등록되면 여기에 표시됩니다." /> : null}
+      {state.kind === 'forbidden' || state.kind === 'not-found' || state.kind === 'error' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="business-unit-access-list">
+          {state.data.users.map((directoryUser) => {
+            const memberships = drafts[directoryUser.userId] ?? directoryUser.memberships;
+            const changed = state.data.availableBusinessUnits.some(
+              (businessUnit) => memberships.includes(businessUnit) !== directoryUser.memberships.includes(businessUnit));
+            return (
+              <article key={directoryUser.userId} className="business-unit-access-card">
+                <div>
+                  <strong>{directoryUser.displayName}</strong>
+                  <small>{directoryUser.email
+                    ?? (directoryUser.authProvider === 'Dev' ? '개발 계정' : 'Microsoft 365 계정')}</small>
+                </div>
+                <fieldset>
+                  <legend>소속 사업부</legend>
+                  {state.data.availableBusinessUnits.map((businessUnit) => (
+                    <label key={businessUnit}>
+                      <input
+                        type="checkbox"
+                        checked={memberships.includes(businessUnit)}
+                        disabled={!mutationAllowed || savingUserId === directoryUser.userId}
+                        title={!mutationAllowed ? mutationDisabledReason ?? undefined : undefined}
+                        onChange={() => toggleMembership(directoryUser, businessUnit)}
+                      />
+                      {businessUnitLabel(businessUnit)}
+                    </label>
+                  ))}
+                </fieldset>
+                <span className="business-unit-overall-status">
+                  {directoryUser.isOverallAdministrator ? '총괄 관리자' : '일반 사용자'}
+                </span>
+                <button
+                  type="button"
+                  disabled={!mutationAllowed || !changed || savingUserId !== null}
+                  title={!mutationAllowed ? mutationDisabledReason ?? undefined : undefined}
+                  onClick={() => void save(directoryUser)}
+                >
+                  {savingUserId === directoryUser.userId ? '저장 중…' : '소속 저장'}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function businessUnitMembershipMutationDisabledReason(runtimeMode: LoadState<RuntimeMode>): string | null {
+  if (runtimeMode.kind === 'loading') {
+    return '실행 모드를 확인하는 동안에는 사업부 소속을 변경할 수 없습니다.';
+  }
+  if (runtimeMode.kind !== 'ready') {
+    return '실행 모드를 확인할 수 없어 사업부 소속 변경을 차단했습니다.';
+  }
+  if (runtimeMode.data.mutationAllowed) {
+    return null;
+  }
+  return runtimeMode.data.reviewSafe
+    ? '검수 전용 읽기 모드에서는 사업부 소속을 변경할 수 없습니다.'
+    : '현재 실행 모드에서는 사업부 소속을 변경할 수 없습니다.';
+}
+
+function isOsanViewAllowed(view: View, user: CurrentUser) {
+  if (view.kind === 'home'
+    || view.kind === 'privacy-notice'
+    || view.kind === 'list'
+    || view.kind === 'osan-progress') {
+    return true;
+  }
+  if (view.kind === 'admin-users') {
+    return user.permissions.includes('users.manage');
+  }
+  return view.kind === 'admin-business-unit-access'
+    && resolveBusinessUnitAccess(user).isOverallAdministrator;
+}
+
+function ApprovalPendingPage({
+  user,
+  onOpenBusinessUnitAccess,
+  onLogout
+}: {
+  user: CurrentUser;
+  onOpenBusinessUnitAccess?: () => void;
+  onLogout?: () => void;
+}) {
   return (
     <section className="panel-section">
       <DsPageHeader
         className="page-header"
         eyebrow="승인 대기"
         title="사용자 승인이 필요합니다."
-        actions={onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+        actions={(
+          <>
+            {onOpenBusinessUnitAccess ? (
+              <button type="button" onClick={onOpenBusinessUnitAccess}>사업부 소속 관리</button>
+            ) : null}
+            {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+          </>
+        )}
       />
       <p className="muted-text">
         {user.displayName}{user.email ? ` (${user.email})` : ''} 계정은 아직 역할이 부여되지 않았습니다.
@@ -3978,11 +4500,13 @@ function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) 
 function AdminUsersPage({
   developmentUserKey,
   filter,
+  restrictedToLocalProfile = false,
   onOpenNotificationSettings
 }: {
   developmentUserKey: string;
   filter?: 'approval-pending';
-  onOpenNotificationSettings: (userId: string) => void;
+  restrictedToLocalProfile?: boolean;
+  onOpenNotificationSettings?: (userId: string) => void;
 }) {
   const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -4185,12 +4709,16 @@ function AdminUsersPage({
     <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
       <DsPageHeader
         className="page-header"
-        eyebrow="System Administrator"
-        title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
+        eyebrow={restrictedToLocalProfile ? '사업부 관리자' : 'System Administrator'}
+        title={restrictedToLocalProfile
+          ? '현재 사업부 사용자 관리'
+          : filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
       <p className="muted-text">
-        {filter === 'approval-pending'
+        {restrictedToLocalProfile
+          ? '현재 사업부에 등록된 사용자의 부서, 부서장 여부, 역할과 활성 상태를 관리합니다.'
+          : filter === 'approval-pending'
           ? '역할이 아직 부여되지 않은 활성 Microsoft 사용자만 표시합니다. 부서와 역할을 지정하면 승인 대기 목록에서 제외됩니다.'
           : '부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.'}
       </p>
@@ -4206,7 +4734,7 @@ function AdminUsersPage({
         </button>
       ) : null}
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
-      {state.kind === 'ready' && visibleUsers.length > 0 ? (
+      {!restrictedToLocalProfile && state.kind === 'ready' && visibleUsers.length > 0 ? (
         <SelectedExportTray
           developmentUserKey={developmentUserKey}
           screen="admin-users"
@@ -4219,7 +4747,7 @@ function AdminUsersPage({
           onClear={() => setSelectedUserIds([])}
         />
       ) : null}
-      {state.kind === 'ready' && visibleUsers.length > 0 ? (
+      {!restrictedToLocalProfile && state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedUserIds.length}건</span>
           <button type="button" onClick={() => void bulkDeleteUsers()} disabled={selectedUserIds.length === 0}>선택 삭제</button>
@@ -4238,15 +4766,17 @@ function AdminUsersPage({
           <table>
             <thead>
               <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    aria-label="사용자 전체 선택"
-                    checked={allUsersSelected}
-                    disabled={selectableUserIds.length === 0}
-                    onChange={(event) => setSelectedUserIds(event.target.checked ? selectableUserIds : [])}
-                  />
-                </th>
+                {!restrictedToLocalProfile ? (
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="사용자 전체 선택"
+                      checked={allUsersSelected}
+                      disabled={selectableUserIds.length === 0}
+                      onChange={(event) => setSelectedUserIds(event.target.checked ? selectableUserIds : [])}
+                    />
+                  </th>
+                ) : null}
                 <th>사용자</th>
                 <th>구분</th>
                 <th>상태</th>
@@ -4261,19 +4791,21 @@ function AdminUsersPage({
                 const editing = editingUserId === user.userId;
                 return (
                   <tr key={user.userId}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label={`${user.displayName} 선택`}
-                        checked={selectedUserIds.includes(user.userId)}
-                        disabled={user.isReadOnly}
-                        onChange={(event) => setSelectedUserIds((current) => (
-                          event.target.checked
-                            ? [...current, user.userId]
-                            : current.filter((id) => id !== user.userId)
-                        ))}
-                      />
-                    </td>
+                    {!restrictedToLocalProfile ? (
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`${user.displayName} 선택`}
+                          checked={selectedUserIds.includes(user.userId)}
+                          disabled={user.isReadOnly}
+                          onChange={(event) => setSelectedUserIds((current) => (
+                            event.target.checked
+                              ? [...current, user.userId]
+                              : current.filter((id) => id !== user.userId)
+                          ))}
+                        />
+                      </td>
+                    ) : null}
                     <td>
                       <strong>{user.displayName}</strong>
                       <div className="muted-text">{user.email ?? user.developmentUserKey}</div>
@@ -4289,6 +4821,10 @@ function AdminUsersPage({
                           />
                           활성
                         </label>
+                      ) : restrictedToLocalProfile ? (
+                        <span className={`status-badge${user.approvalPending ? ' warning' : ''}`}>
+                          {user.approvalPending ? '승인 대기' : user.isActive ? '활성' : '비활성'}
+                        </span>
                       ) : (
                         <DeletionStatusDisplay
                           isActive={user.isActive}
@@ -4350,7 +4886,7 @@ function AdminUsersPage({
                       )}
                     </td>
                     <td>
-                      {user.isActive ? (
+                      {!restrictedToLocalProfile && user.isActive && onOpenNotificationSettings ? (
                         <button
                           type="button"
                           className="compact-link-button"
@@ -4360,7 +4896,7 @@ function AdminUsersPage({
                         </button>
                       ) : null}
                       {user.isReadOnly ? (
-                        <span className="muted-text">개발 사용자는 삭제할 수 없습니다.</span>
+                        <span className="muted-text">읽기 전용</span>
                       ) : editing ? (
                         <div className="button-row">
                           <button type="button" onClick={() => void save(user)}>저장</button>
@@ -4369,8 +4905,10 @@ function AdminUsersPage({
                       ) : (
                         <div className="button-row">
                           <button type="button" onClick={() => startEdit(user)}>수정</button>
-                          {isDeletionPending(user) ? <button type="button" onClick={() => void restoreUser(user)}>복구</button> : null}
-                          <button type="button" className="danger-button" onClick={() => void deleteUser(user)}>{isDeletionPending(user) ? '즉시 삭제' : '삭제'}</button>
+                          {!restrictedToLocalProfile && isDeletionPending(user) ? <button type="button" onClick={() => void restoreUser(user)}>복구</button> : null}
+                          {!restrictedToLocalProfile ? (
+                            <button type="button" className="danger-button" onClick={() => void deleteUser(user)}>{isDeletionPending(user) ? '즉시 삭제' : '삭제'}</button>
+                          ) : null}
                         </div>
                       )}
                     </td>
@@ -7073,6 +7611,7 @@ function isProcurementWorkspace(view: View) {
 function isAdminWorkspace(view: View) {
   return view.kind === 'admin-dashboard'
     || view.kind === 'pending-types'
+    || view.kind === 'admin-business-unit-access'
     || view.kind === 'admin-users'
     || view.kind === 'admin-user-notification-preferences'
     || view.kind === 'admin-departments'
@@ -19026,7 +19565,8 @@ function sanitizeUserMessage(message: string, fallback: string) {
 }
 
 function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError';
+  return error instanceof BusinessUnitRequestInvalidatedError
+    || (error instanceof DOMException && error.name === 'AbortError');
 }
 
 function mapValidationErrorsToFieldErrors(errors: Record<string, string[]>) {

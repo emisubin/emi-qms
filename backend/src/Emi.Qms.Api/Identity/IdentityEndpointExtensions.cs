@@ -60,7 +60,8 @@ public static class IdentityEndpointExtensions
                 principal,
                 adminUserSwitchEnabled,
                 effectivePhotoVersion,
-                actualPhotoVersion));
+                actualPhotoVersion,
+                businessUnit));
         })
         .RequireAuthorization("AuthenticatedIdentity")
         .WithName("GetCurrentUser");
@@ -367,7 +368,8 @@ public sealed record CurrentBusinessUnitAccessPendingResponse(
     string BusinessUnitAccessStatus,
     IReadOnlyList<string> AllowedBusinessUnits,
     bool IsOverallAdministrator,
-    string ErrorCode)
+    string ErrorCode,
+    BusinessUnitAccessResponse BusinessUnitAccess)
 {
     public static CurrentBusinessUnitAccessPendingResponse From(
         ClaimsPrincipal principal,
@@ -394,6 +396,33 @@ public sealed record CurrentBusinessUnitAccessPendingResponse(
             accessStatus,
             context?.AllowedBusinessUnits ?? [],
             context?.IsOverallAdministrator == true,
+            errorCode,
+            BusinessUnitAccessResponse.From(context, accessStatus, errorCode));
+    }
+}
+
+public sealed record BusinessUnitAccessResponse(
+    string Status,
+    string? SelectedBusinessUnit,
+    IReadOnlyList<string> AllowedBusinessUnits,
+    bool IsOverallAdministrator,
+    string? ErrorCode)
+{
+    public static BusinessUnitAccessResponse From(
+        BusinessUnitRequestContext? context,
+        string? status = null,
+        string? errorCode = null)
+    {
+        var effectiveStatus = status
+            ?? context?.Status
+            ?? BusinessUnitAccessStatuses.Selected;
+        return new BusinessUnitAccessResponse(
+            effectiveStatus,
+            context?.Target?.Code
+                ?? (context is null ? BusinessUnitCodes.Cheongju : null),
+            context?.AllowedBusinessUnits
+                ?? [BusinessUnitCodes.Cheongju],
+            context?.IsOverallAdministrator == true,
             errorCode);
     }
 }
@@ -416,7 +445,8 @@ public sealed record CurrentUserResponse(
     string? TestUserKey,
     bool CanUseAdminTestUserSwitch,
     CurrentUserPrincipalResponse ActualUser,
-    CurrentUserPrincipalResponse EffectiveUser)
+    CurrentUserPrincipalResponse EffectiveUser,
+    BusinessUnitAccessResponse BusinessUnitAccess)
 {
     public static CurrentUserResponse From(
         UserAuthorizationProfile effectiveProfile,
@@ -424,7 +454,8 @@ public sealed record CurrentUserResponse(
         ClaimsPrincipal principal,
         bool adminUserSwitchEnabled,
         string? effectivePhotoVersion,
-        string? actualPhotoVersion)
+        string? actualPhotoVersion,
+        BusinessUnitRequestContext? businessUnit)
     {
         var effectiveApprovalPending = IsApprovalPending(effectiveProfile);
         var actualApprovalPending = IsApprovalPending(actualProfile);
@@ -453,7 +484,8 @@ public sealed record CurrentUserResponse(
             principal.FindFirst(QmsClaimTypes.TestUserKey)?.Value,
             canUseAdminTestUserSwitch,
             CurrentUserPrincipalResponse.From(actualProfile, actualApprovalPending, actualPhotoVersion),
-            CurrentUserPrincipalResponse.From(effectiveProfile, effectiveApprovalPending, effectivePhotoVersion));
+            CurrentUserPrincipalResponse.From(effectiveProfile, effectiveApprovalPending, effectivePhotoVersion),
+            BusinessUnitAccessResponse.From(businessUnit));
     }
 
     private static bool IsApprovalPending(UserAuthorizationProfile profile)

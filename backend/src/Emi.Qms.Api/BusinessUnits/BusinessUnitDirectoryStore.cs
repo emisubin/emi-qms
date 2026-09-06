@@ -1,4 +1,5 @@
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Emi.Qms.Api.BusinessUnits;
 
@@ -11,6 +12,56 @@ public sealed class BusinessUnitDirectoryStore(
     DatabaseConnectionStringProvider connectionStringProvider,
     BusinessUnitDirectoryMigrationCatalog directoryMigrationCatalog)
 {
+    public async Task<Guid> RegisterOrUpdatePendingEntraIdentityAsync(
+        string externalSubject,
+        string displayName,
+        string? email,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(externalSubject))
+        {
+            throw new ArgumentException("Entra object id is required.", nameof(externalSubject));
+        }
+
+        var directory = connectionStringProvider.BusinessUnits.Directory
+            ?? throw new BusinessUnitContextUnavailableException("directory_not_configured");
+        var connectionString = connectionStringProvider.GetConnectionString(
+            directory,
+            BusinessUnitConnectionPurpose.Runtime);
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var ledger = await directoryMigrationCatalog.InspectAsync(connection, cancellationToken);
+        if (!ledger.MigrationLedgerReady
+            || !await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, directory, cancellationToken))
+        {
+            throw new BusinessUnitContextUnavailableException("directory_database_contract_mismatch");
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select register_or_update_pending_entra_directory_identity(
+                @proposed_user_id,
+                @external_subject,
+                @display_name,
+                @email);
+            """;
+        command.Parameters.AddWithValue("proposed_user_id", Guid.NewGuid());
+        command.Parameters.AddWithValue("external_subject", externalSubject.Trim());
+        command.Parameters.AddWithValue(
+            "display_name",
+            string.IsNullOrWhiteSpace(displayName) ? "Microsoft 365 사용자" : displayName.Trim());
+        command.Parameters.Add(new NpgsqlParameter("email", NpgsqlDbType.Text)
+        {
+            Value = string.IsNullOrWhiteSpace(email) ? DBNull.Value : email.Trim()
+        });
+
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid userId
+            ? userId
+            : throw new BusinessUnitContextUnavailableException("directory_identity_registration_failed");
+    }
+
     public async Task<BusinessUnitDirectorySnapshot?> FindAsync(
         string authProvider,
         string externalSubject,

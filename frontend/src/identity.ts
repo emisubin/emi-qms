@@ -17,6 +17,43 @@ export interface CurrentUser {
   canUseAdminTestUserSwitch: boolean;
   actualUser: CurrentUserPrincipal;
   effectiveUser: CurrentUserPrincipal;
+  businessUnitAccess?: BusinessUnitAccess;
+}
+
+export type BusinessUnitCode = 'CHEONGJU' | 'OSAN';
+
+export type BusinessUnitAccessStatus =
+  | 'selected'
+  | 'no_membership'
+  | 'selection_required'
+  | 'selection_denied'
+  | 'local_profile_pending';
+
+export interface BusinessUnitAccess {
+  status: BusinessUnitAccessStatus;
+  selectedBusinessUnit: BusinessUnitCode | null;
+  allowedBusinessUnits: BusinessUnitCode[];
+  isOverallAdministrator: boolean;
+  errorCode: string | null;
+}
+
+export interface BusinessUnitAccessAdministrationResponse {
+  users: BusinessUnitAccessAdministrationUser[];
+  availableBusinessUnits: BusinessUnitCode[];
+}
+
+export interface BusinessUnitAccessAdministrationUser {
+  userId: string;
+  authProvider: 'Dev' | 'EntraId';
+  displayName: string;
+  email: string | null;
+  memberships: BusinessUnitCode[];
+  isOverallAdministrator: boolean;
+}
+
+export interface BusinessUnitMembershipUpdateResponse {
+  changed: boolean;
+  snapshot: BusinessUnitAccessAdministrationResponse;
 }
 
 export interface CurrentUserPrincipal {

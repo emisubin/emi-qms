@@ -121,6 +121,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddSingleton<BusinessUnitDirectoryStore>();
+builder.Services.AddSingleton<BusinessUnitAccessAdministrationStore>();
 builder.Services.AddSingleton<BusinessUnitDatabaseBoundaryValidator>();
 builder.Services.AddSingleton<BusinessUnitResolver>();
 builder.Services.AddSingleton<BusinessUnitMembershipBackfillRunner>();
@@ -454,6 +455,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 .WithName("RuntimeMode");
 
 app.MapIdentityEndpoints();
+app.MapBusinessUnitAccessEndpoints();
 app.MapAuditEndpoints();
 app.MapHomeMetricsEndpoints();
 app.MapG2OperationsEndpoints();

@@ -12,7 +12,8 @@ public sealed class EntraClaimsTransformation(
     IConfiguration configuration,
     IHostEnvironment environment,
     IHttpContextAccessor httpContextAccessor,
-    BusinessUnitResolver businessUnitResolver)
+    BusinessUnitResolver businessUnitResolver,
+    BusinessUnitDirectoryStore businessUnitDirectoryStore)
     : IClaimsTransformation
 {
     private const string MicrosoftObjectIdClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
@@ -38,10 +39,19 @@ public sealed class EntraClaimsTransformation(
         var email = FindFirstValue(principal, "preferred_username", ClaimTypes.Email, "email", UpnClaimType);
 
         BusinessUnitRequestContext? businessUnit = null;
+        var reviewSafe = ReviewSafeMode.IsEnabled(configuration);
         if (businessUnitResolver.IsEnabled)
         {
             var httpContext = httpContextAccessor.HttpContext
                 ?? throw new BusinessUnitContextUnavailableException("http_context_missing");
+            if (!reviewSafe)
+            {
+                await businessUnitDirectoryStore.RegisterOrUpdatePendingEntraIdentityAsync(
+                    objectId,
+                    displayName,
+                    email,
+                    httpContext.RequestAborted);
+            }
             businessUnit = await businessUnitResolver.ResolveAsync(
                 httpContext,
                 QmsAuthProviders.EntraId,
@@ -58,10 +68,18 @@ public sealed class EntraClaimsTransformation(
         }
 
         var profile = businessUnitResolver.IsEnabled
-            ? await dbIdentityStore.GetProfileByEntraObjectIdAsync(
-                objectId,
-                httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None)
-            : ReviewSafeMode.IsEnabled(configuration)
+            ? reviewSafe
+                ? await dbIdentityStore.GetDirectoryBoundEntraProfileAsync(
+                    businessUnit!.DirectoryUserId!.Value,
+                    objectId,
+                    httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None)
+                : await dbIdentityStore.GetOrCreateDirectoryBoundEntraProfileAsync(
+                    businessUnit!.DirectoryUserId!.Value,
+                    objectId,
+                    displayName,
+                    email,
+                    httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None)
+            : reviewSafe
                 ? await dbIdentityStore.GetProfileByEntraObjectIdAsync(objectId, CancellationToken.None)
                 : await dbIdentityStore.GetOrCreateEntraProfileAsync(
                     objectId,

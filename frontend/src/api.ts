@@ -25,7 +25,15 @@ import type {
   ProductionControlPlanItem,
   ProductionControlTemplateCatalog
 } from './productionControlTemplates';
-import type { AdminUsersResponse, CurrentUser, ProfilePhotoMetadata, UpdateAdminUserRequest } from './identity';
+import type {
+  AdminUsersResponse,
+  BusinessUnitAccessAdministrationResponse,
+  BusinessUnitCode,
+  BusinessUnitMembershipUpdateResponse,
+  CurrentUser,
+  ProfilePhotoMetadata,
+  UpdateAdminUserRequest
+} from './identity';
 import type { HomeMetricsResponse } from './home';
 import type {
   CreateNoticeRequest,
@@ -269,6 +277,9 @@ export async function getPanelQrImage(
       developmentUserKey
     );
   } catch (error: unknown) {
+    if (error instanceof BusinessUnitRequestInvalidatedError) {
+      throw error;
+    }
     if (isInteractionRequiredAuthError(error)) {
       throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
     }
@@ -573,6 +584,104 @@ let currentSiteAccess: SiteAccessSessionResponse | null = null;
 let currentSiteAccessDevelopmentUserKey: string | undefined;
 let siteAccessSignalChain: Promise<void> = Promise.resolve();
 const siteAccessDeadlineMs = 1_500;
+const businessUnitStorageKey = 'emi.qms.business-unit';
+const safeRequestMethods = new Set(['GET', 'HEAD', 'OPTIONS']);
+const businessUnitContextDenialCodes = new Set([
+  'business_unit_membership_denied',
+  'business_unit_alternate_selection_denied',
+  'business_unit_selector_invalid',
+  'directory_membership_required'
+]);
+const businessUnitSubscribers = new Set<(state: BusinessUnitRequestState) => void>();
+const businessUnitReadControllers = new Set<AbortController>();
+let businessUnitGeneration = 0;
+let selectedBusinessUnit = readStoredBusinessUnit();
+let inFlightMutationCount = 0;
+let implicitBusinessUnitSelectionBlocked = false;
+
+export type BusinessUnitRequestState = {
+  selectedBusinessUnit: BusinessUnitCode | null;
+  generation: number;
+  inFlightMutationCount: number;
+};
+
+export function getBusinessUnitRequestState(): BusinessUnitRequestState {
+  return {
+    selectedBusinessUnit,
+    generation: businessUnitGeneration,
+    inFlightMutationCount
+  };
+}
+
+export function subscribeBusinessUnitRequestState(
+  subscriber: (state: BusinessUnitRequestState) => void
+) {
+  businessUnitSubscribers.add(subscriber);
+  subscriber(getBusinessUnitRequestState());
+  return () => {
+    businessUnitSubscribers.delete(subscriber);
+  };
+}
+
+export function selectBusinessUnit(businessUnit: BusinessUnitCode) {
+  if (inFlightMutationCount > 0) {
+    throw new ApiError(409, '저장 작업이 끝난 뒤 사업부를 변경해 주세요.', undefined, 'business_unit_switch_mutation_in_flight');
+  }
+  if (selectedBusinessUnit === businessUnit) return;
+
+  implicitBusinessUnitSelectionBlocked = false;
+  selectedBusinessUnit = businessUnit;
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.setItem(businessUnitStorageKey, businessUnit);
+  }
+  invalidateBusinessUnitReads();
+}
+
+export function resetBusinessUnitRequestContext(forceInvalidate = false) {
+  implicitBusinessUnitSelectionBlocked = false;
+  clearBusinessUnitSelection(forceInvalidate);
+}
+
+function invalidateDeniedBusinessUnitContext() {
+  if (implicitBusinessUnitSelectionBlocked && selectedBusinessUnit === null) {
+    return;
+  }
+  implicitBusinessUnitSelectionBlocked = true;
+  clearBusinessUnitSelection(true);
+}
+
+function clearBusinessUnitSelection(forceInvalidate: boolean) {
+  if (selectedBusinessUnit === null && !forceInvalidate) return;
+
+  selectedBusinessUnit = null;
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem(businessUnitStorageKey);
+  }
+  invalidateBusinessUnitReads();
+}
+
+function readStoredBusinessUnit(): BusinessUnitCode | null {
+  if (typeof window === 'undefined') return null;
+  const value = window.sessionStorage.getItem(businessUnitStorageKey);
+  return value === 'CHEONGJU' || value === 'OSAN' ? value : null;
+}
+
+function invalidateBusinessUnitReads() {
+  businessUnitGeneration += 1;
+  businessUnitReadControllers.forEach((controller) => controller.abort());
+  businessUnitReadControllers.clear();
+  notifyBusinessUnitSubscribers();
+}
+
+function setInFlightMutationCount(next: number) {
+  inFlightMutationCount = Math.max(0, next);
+  notifyBusinessUnitSubscribers();
+}
+
+function notifyBusinessUnitSubscribers() {
+  const state = getBusinessUnitRequestState();
+  businessUnitSubscribers.forEach((subscriber) => subscriber(state));
+}
 
 export type AuditSessionHeaders = {
   loginCorrelationId: string;
@@ -791,9 +900,17 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly errors?: Record<string, string[]>
+    public readonly errors?: Record<string, string[]>,
+    public readonly errorCode?: string
   ) {
     super(message);
+  }
+}
+
+export class BusinessUnitRequestInvalidatedError extends Error {
+  constructor() {
+    super('Business-unit request invalidated by a context change.');
+    this.name = 'BusinessUnitRequestInvalidatedError';
   }
 }
 
@@ -806,12 +923,43 @@ export async function getRuntimeMode(developmentUserKey?: string): Promise<Runti
 }
 
 export async function getCurrentUser(developmentUserKey?: string): Promise<CurrentUser> {
-  return fetchJson<CurrentUser>('/api/me', developmentUserKey);
+  const currentUser = await fetchJson<CurrentUser>('/api/me', developmentUserKey);
+  const status = currentUser.businessUnitAccess?.status;
+  const resolvedBusinessUnit = currentUser.businessUnitAccess?.selectedBusinessUnit ?? null;
+  if (status === 'selected' && resolvedBusinessUnit) {
+    if (selectedBusinessUnit === null) {
+      if (implicitBusinessUnitSelectionBlocked) {
+        return {
+          ...currentUser,
+          businessUnitAccess: {
+            ...currentUser.businessUnitAccess!,
+            status: 'selection_denied',
+            selectedBusinessUnit: null,
+            errorCode: 'business_unit_context_reconfirmation_required'
+          }
+        };
+      }
+      selectBusinessUnit(resolvedBusinessUnit);
+      throw new BusinessUnitRequestInvalidatedError();
+    }
+    if (selectedBusinessUnit !== resolvedBusinessUnit) {
+      invalidateDeniedBusinessUnitContext();
+      throw new BusinessUnitRequestInvalidatedError();
+    }
+  }
+  if (selectedBusinessUnit && (status === 'selection_denied' || status === 'no_membership')) {
+    invalidateDeniedBusinessUnitContext();
+    throw new BusinessUnitRequestInvalidatedError();
+  }
+  return currentUser;
 }
 
 export async function getOwnProfilePhoto(developmentUserKey?: string): Promise<Blob | null> {
   const response = await fetchWithAuth('/api/me/profile-photo', developmentUserKey);
-  if (response.status === 404) return null;
+  if (response.status === 404) {
+    await response.arrayBuffer();
+    return null;
+  }
   if (!response.ok) {
     const problem = await readProblem(response);
     throw new ApiError(response.status, problem.message, problem.errors);
@@ -835,10 +983,16 @@ export async function removeOwnProfilePhoto(developmentUserKey?: string): Promis
   if (!mutationAllowed) {
     throw new ApiError(423, '현재 UAT는 검수 전용 읽기 모드입니다. 프로필 사진을 변경할 수 없습니다.');
   }
-  const response = await fetchWithAuth('/api/me/profile-photo', developmentUserKey, { method: 'DELETE' });
-  if (!response.ok) {
-    const problem = await readProblem(response);
-    throw new ApiError(response.status, problem.message, problem.errors);
+
+  setInFlightMutationCount(inFlightMutationCount + 1);
+  try {
+    const response = await fetchWithAuth('/api/me/profile-photo', developmentUserKey, { method: 'DELETE' });
+    if (!response.ok) {
+      const problem = await readProblem(response);
+      throw new ApiError(response.status, problem.message, problem.errors);
+    }
+  } finally {
+    setInFlightMutationCount(inFlightMutationCount - 1);
   }
 }
 
@@ -855,6 +1009,30 @@ export async function getAdminUsers(
   return fetchJson<AdminUsersResponse>(
     `/api/admin/users${filter === 'approval-pending' ? '?filter=approval-pending' : ''}`,
     developmentUserKey
+  );
+}
+
+export async function getBusinessUnitAccessUsers(
+  developmentUserKey?: string
+): Promise<BusinessUnitAccessAdministrationResponse> {
+  return fetchJson<BusinessUnitAccessAdministrationResponse>(
+    '/api/admin/business-unit-access/users',
+    developmentUserKey
+  );
+}
+
+export async function updateBusinessUnitMemberships(
+  developmentUserKey: string | undefined,
+  userId: string,
+  businessUnitCodes: BusinessUnitCode[]
+): Promise<BusinessUnitMembershipUpdateResponse> {
+  return fetchJson<BusinessUnitMembershipUpdateResponse>(
+    `/api/admin/business-unit-access/users/${encodeURIComponent(userId)}/memberships`,
+    developmentUserKey,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ businessUnitCodes })
+    }
   );
 }
 
@@ -3415,6 +3593,9 @@ export async function downloadNoticeAttachment(
       developmentUserKey
     );
   } catch (error: unknown) {
+    if (error instanceof BusinessUnitRequestInvalidatedError) {
+      throw error;
+    }
     if (isInteractionRequiredAuthError(error)) {
       throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
     }
@@ -3445,27 +3626,40 @@ async function downloadExcelExport(
   fallbackFileName: string,
   init?: RequestInit
 ): Promise<ExcelExportDownload> {
-  let response: Response;
+  const locksBusinessUnitSwitch = !safeRequestMethods.has((init?.method ?? 'GET').toUpperCase());
+  if (locksBusinessUnitSwitch) {
+    setInFlightMutationCount(inFlightMutationCount + 1);
+  }
   try {
-    response = await fetchWithAuth(path, developmentUserKey, init);
-  } catch (error: unknown) {
-    if (isInteractionRequiredAuthError(error)) {
-      throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+    let response: Response;
+    try {
+      response = await fetchWithAuth(path, developmentUserKey, init);
+    } catch (error: unknown) {
+      if (error instanceof BusinessUnitRequestInvalidatedError) {
+        throw error;
+      }
+      if (isInteractionRequiredAuthError(error)) {
+        throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+      }
+      throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
     }
-    throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
-  }
 
-  if (!response.ok) {
-    const problem = await readProblem(response);
-    throw new ApiError(response.status, problem.message, problem.errors);
-  }
+    if (!response.ok) {
+      const problem = await readProblem(response);
+      throw new ApiError(response.status, problem.message, problem.errors);
+    }
 
-  const rowCount = Number(response.headers.get('X-Export-Row-Count'));
-  return {
-    blob: await response.blob(),
-    fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? fallbackFileName,
-    rowCount: Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : -1
-  };
+    const rowCount = Number(response.headers.get('X-Export-Row-Count'));
+    return {
+      blob: await response.blob(),
+      fileName: readContentDispositionFileName(response.headers.get('Content-Disposition')) ?? fallbackFileName,
+      rowCount: Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : -1
+    };
+  } finally {
+    if (locksBusinessUnitSwitch) {
+      setInFlightMutationCount(inFlightMutationCount - 1);
+    }
+  }
 }
 
 async function fetchWithAuth(
@@ -3474,35 +3668,137 @@ async function fetchWithAuth(
   init?: RequestInit,
   options: { includeAdminSwitch?: boolean; includeAuditSession?: boolean } = {}
 ): Promise<Response> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const isSafeRequest = safeRequestMethods.has(method);
+  if (!isSafeRequest && implicitBusinessUnitSelectionBlocked) {
+    throw new BusinessUnitRequestInvalidatedError();
+  }
+  const requestGeneration = businessUnitGeneration;
+  const requestBusinessUnit = selectedBusinessUnit;
   const headers = new Headers(init?.headers);
 
-  if (developmentUserKey) {
-    headers.set('X-Dev-User', developmentUserKey);
-  } else if (accessTokenProvider && !headers.has('Authorization')) {
-    const accessToken = await accessTokenProvider();
-    if (accessToken) {
-      headers.set('Authorization', `Bearer ${accessToken}`);
-    }
-
-    if (adminTestUserKey && options.includeAdminSwitch !== false) {
-      headers.set('X-Qms-Test-User', adminTestUserKey);
-    }
+  if (requestBusinessUnit) {
+    headers.set('X-Qms-Business-Unit', requestBusinessUnit);
   }
 
-  const method = (init?.method ?? 'GET').toUpperCase();
-  if (auditSession
-    && options.includeAuditSession !== false
-    && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    headers.set('X-Qms-Audit-Correlation', auditSession.loginCorrelationId);
-    headers.set('X-Qms-Audit-Receipt', auditSession.idempotencyReceipt);
+  const controller = isSafeRequest ? new AbortController() : null;
+  const requestedSignal = init?.signal;
+  const abortFromRequestedSignal = () => controller?.abort();
+  if (controller) {
+    if (requestedSignal?.aborted) {
+      controller.abort();
+    } else {
+      requestedSignal?.addEventListener('abort', abortFromRequestedSignal, { once: true });
+    }
+    businessUnitReadControllers.add(controller);
   }
 
-  return fetch(buildApiUrl(path), { ...init, headers });
+  let responseOwnsReadController = false;
+  try {
+    if (developmentUserKey) {
+      headers.set('X-Dev-User', developmentUserKey);
+    } else if (accessTokenProvider && !headers.has('Authorization')) {
+      const accessToken = await accessTokenProvider();
+      if (controller?.signal.aborted || requestGeneration !== businessUnitGeneration) {
+        throw new BusinessUnitRequestInvalidatedError();
+      }
+      if (accessToken) {
+        headers.set('Authorization', `Bearer ${accessToken}`);
+      }
+
+      if (adminTestUserKey && options.includeAdminSwitch !== false) {
+        headers.set('X-Qms-Test-User', adminTestUserKey);
+      }
+    }
+
+    if (auditSession
+      && options.includeAuditSession !== false
+      && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      headers.set('X-Qms-Audit-Correlation', auditSession.loginCorrelationId);
+      headers.set('X-Qms-Audit-Receipt', auditSession.idempotencyReceipt);
+    }
+
+    if (!controller) {
+      return fetch(buildApiUrl(path), { ...init, headers });
+    }
+
+    const response = await fetch(buildApiUrl(path), { ...init, headers, signal: controller.signal });
+    if (controller.signal.aborted || requestGeneration !== businessUnitGeneration) {
+      throw new BusinessUnitRequestInvalidatedError();
+    }
+    responseOwnsReadController = true;
+    return trackBusinessUnitResponseBody(response, requestGeneration, controller, requestedSignal, abortFromRequestedSignal);
+  } catch (error: unknown) {
+    if (controller?.signal.aborted || requestGeneration !== businessUnitGeneration) {
+      throw new BusinessUnitRequestInvalidatedError();
+    }
+    throw error;
+  } finally {
+    if (controller && !responseOwnsReadController) {
+      requestedSignal?.removeEventListener('abort', abortFromRequestedSignal);
+      businessUnitReadControllers.delete(controller);
+    }
+  }
+}
+
+function trackBusinessUnitResponseBody(
+  response: Response,
+  requestGeneration: number,
+  controller: AbortController,
+  requestedSignal: AbortSignal | null | undefined,
+  abortFromRequestedSignal: () => void
+): Response {
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    requestedSignal?.removeEventListener('abort', abortFromRequestedSignal);
+    businessUnitReadControllers.delete(controller);
+  };
+
+  const consume = async <T>(reader: () => Promise<T>): Promise<T> => {
+    try {
+      const value = await reader();
+      if (controller.signal.aborted || requestGeneration !== businessUnitGeneration) {
+        throw new BusinessUnitRequestInvalidatedError();
+      }
+      return value;
+    } catch (error: unknown) {
+      if (controller.signal.aborted || requestGeneration !== businessUnitGeneration) {
+        throw new BusinessUnitRequestInvalidatedError();
+      }
+      throw error;
+    } finally {
+      release();
+    }
+  };
+
+  return new Proxy(response, {
+    get(target, property) {
+      switch (property) {
+        case 'arrayBuffer':
+          return () => consume(() => target.arrayBuffer());
+        case 'blob':
+          return () => consume(() => target.blob());
+        case 'formData':
+          return () => consume(() => target.formData());
+        case 'json':
+          return () => consume(() => target.json());
+        case 'text':
+          return () => consume(() => target.text());
+        default: {
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+      }
+    }
+  });
 }
 
 async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !mutationAllowed) {
+  const isMutation = !safeRequestMethods.has(method);
+  if (isMutation && !mutationAllowed) {
     throw new ApiError(423, '현재 UAT는 검수 전용 읽기 모드입니다. 저장, 삭제, 발송 또는 상태 변경을 수행할 수 없습니다.');
   }
 
@@ -3512,11 +3808,25 @@ async function fetchJson<T>(path: string, developmentUserKey?: string, init?: Re
     headers.set('Content-Type', 'application/json');
   }
 
-  let response: Response;
+  const requestGeneration = businessUnitGeneration;
+  if (isMutation) {
+    setInFlightMutationCount(inFlightMutationCount + 1);
+  }
   try {
-    response = await fetchWithAuth(path, developmentUserKey, { ...init, headers });
+    const response = await fetchWithAuth(path, developmentUserKey, { ...init, headers });
+
+    if (!response.ok) {
+      const problem = await readProblem(response);
+      throw new ApiError(response.status, problem.message, problem.errors, problem.errorCode);
+    }
+
+    const payload = await response.json() as T;
+    if (!isMutation && requestGeneration !== businessUnitGeneration) {
+      throw new BusinessUnitRequestInvalidatedError();
+    }
+    return payload;
   } catch (error: unknown) {
-    if (error instanceof ApiError) {
+    if (error instanceof ApiError || error instanceof BusinessUnitRequestInvalidatedError) {
       throw error;
     }
 
@@ -3525,14 +3835,11 @@ async function fetchJson<T>(path: string, developmentUserKey?: string, init?: Re
     }
 
     throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
+  } finally {
+    if (isMutation) {
+      setInFlightMutationCount(inFlightMutationCount - 1);
+    }
   }
-
-  if (!response.ok) {
-    const problem = await readProblem(response);
-    throw new ApiError(response.status, problem.message, problem.errors);
-  }
-
-  return response.json() as Promise<T>;
 }
 
 function readContentDispositionFileName(value: string | null): string | null {
@@ -3554,7 +3861,7 @@ function readContentDispositionFileName(value: string | null): string | null {
   return plainMatch?.[1]?.trim() ?? null;
 }
 
-async function readProblem(response: Response): Promise<{ message: string; errors?: Record<string, string[]> }> {
+async function readProblem(response: Response): Promise<{ message: string; errors?: Record<string, string[]>; errorCode?: string }> {
   try {
     const payload = await response.json() as {
       title?: string;
@@ -3562,13 +3869,22 @@ async function readProblem(response: Response): Promise<{ message: string; error
       errors?: Record<string, string[]>;
       fieldErrors?: Record<string, string[]>;
       message?: string;
+      errorCode?: string;
     };
     const errors = localizeProblemErrors(payload.fieldErrors ?? payload.errors);
+    if (response.status === 403
+      && businessUnitContextDenialCodes.has(payload.errorCode ?? '')) {
+      invalidateDeniedBusinessUnitContext();
+    }
     return {
       message: chooseProblemMessage(response.status, payload.detail ?? payload.message, payload.title, errors),
-      errors
+      errors,
+      errorCode: payload.errorCode
     };
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof BusinessUnitRequestInvalidatedError) {
+      throw error;
+    }
     return { message: statusMessage(response.status) };
   }
 }

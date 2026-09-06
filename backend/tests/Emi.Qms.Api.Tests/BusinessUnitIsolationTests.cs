@@ -1,0 +1,1988 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using Emi.Qms.Api.Admin;
+using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.ReviewSafe;
+using Emi.Qms.Api.Security;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Npgsql;
+using Xunit;
+
+namespace Emi.Qms.Api.Tests;
+
+public sealed class BusinessUnitIsolationTests
+{
+    private static readonly Guid AdminUserId = Guid.Parse("50000000-0000-0000-0000-000000000001");
+    private static readonly Guid SalesUserId = Guid.Parse("50000000-0000-0000-0000-000000000002");
+    private static readonly Guid CollisionUserId = Guid.Parse("50000000-0000-0000-0000-000000000005");
+    private static readonly Guid PurgeUserId = Guid.Parse("72000000-0000-0000-0000-000000000001");
+    private static readonly Guid NoMembershipUserId = Guid.Parse("71000000-0000-0000-0000-000000000001");
+    private static readonly Guid BoundaryProjectId = Guid.Parse("74000000-0000-0000-0000-000000000001");
+    private static readonly Guid BoundaryNoticeId = Guid.Parse("74000000-0000-0000-0000-000000000002");
+    private static readonly Guid BoundaryAttachmentId = Guid.Parse("74000000-0000-0000-0000-000000000003");
+
+    [Fact]
+    public void Configuration_SeparatesRuntimeSecretsFromPrivilegedOperationsAndPreservesLegacyFallback()
+    {
+        var dockerfile = File.ReadAllText(
+            Path.Combine(FindRepositoryRoot(), "backend", "Dockerfile.production"));
+        Assert.Contains(
+            "COPY database/directory-migrations database/directory-migrations",
+            dockerfile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "COPY --from=build /src/database/directory-migrations ./database/directory-migrations",
+            dockerfile,
+            StringComparison.Ordinal);
+
+        var values = IsolationDatabaseSet.BuildConfigurationValues(
+            "dir_db",
+            "cheongju_db",
+            "osan_db",
+            "dir_migrator",
+            "dir_runtime",
+            "cheongju_migrator",
+            "cheongju_runtime",
+            "osan_migrator",
+            "osan_runtime",
+            "Host=db.internal;Port=5432;Database=dir_db;Username=admin;Password=test-only",
+            "test-only");
+        foreach (var key in values.Keys
+                     .Where(key => key.StartsWith("ConnectionStrings:", StringComparison.Ordinal)
+                                   && (key.EndsWith("Migration", StringComparison.Ordinal)
+                                       || key.EndsWith("Admin", StringComparison.Ordinal)))
+                     .ToList())
+        {
+            values.Remove(key);
+        }
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        var businessUnits = BusinessUnitConfiguration.Read(configuration);
+
+        Assert.True(businessUnits.IsValid);
+        Assert.Empty(businessUnits.ValidateOperationConnections(
+            configuration,
+            BusinessUnitConnectionPurpose.Runtime));
+        Assert.Equal(
+            3,
+            businessUnits.ValidateOperationConnections(
+                configuration,
+                BusinessUnitConnectionPurpose.Migration).Count);
+
+        var wrongDatabaseValues = new Dictionary<string, string?>(values);
+        var wrongDatabase = new NpgsqlConnectionStringBuilder(
+            wrongDatabaseValues["ConnectionStrings:OsanRuntime"])
+        {
+            Database = "cheongju_db"
+        };
+        wrongDatabaseValues["ConnectionStrings:OsanRuntime"] = wrongDatabase.ConnectionString;
+        var wrongDatabaseConfiguration = new ConfigurationBuilder()
+            .AddInMemoryCollection(wrongDatabaseValues)
+            .Build();
+        Assert.Contains(
+            "OSAN:runtime_database_mismatch",
+            BusinessUnitConfiguration.Read(wrongDatabaseConfiguration)
+                .ValidateOperationConnections(
+                    wrongDatabaseConfiguration,
+                    BusinessUnitConnectionPurpose.Runtime));
+
+        var wrongSchemaValues = new Dictionary<string, string?>(values)
+        {
+            ["BusinessUnits:Units:Osan:ExpectedSchemaVersion"] = "0085_site_access_sessions"
+        };
+        Assert.Contains(
+            "Units:Osan:schema_version_invalid",
+            BusinessUnitConfiguration.Read(
+                new ConfigurationBuilder().AddInMemoryCollection(wrongSchemaValues).Build()).Errors);
+
+        values["BusinessUnits:Units:Osan:RuntimeRoleName"] = "cheongju_migrator";
+        var invalidRoles = BusinessUnitConfiguration.Read(
+            new ConfigurationBuilder().AddInMemoryCollection(values).Build());
+        Assert.Contains("database_roles_cross_category_not_distinct", invalidRoles.Errors);
+
+        var managedValues = IsolationDatabaseSet.BuildConfigurationValues(
+            "dir_db",
+            "cheongju_db",
+            "osan_db",
+            "dir_migrator",
+            "dir_runtime",
+            "cheongju_migrator",
+            "cheongju_runtime",
+            "osan_migrator",
+            "osan_runtime",
+            new NpgsqlConnectionStringBuilder
+            {
+                Host = "db.internal",
+                Port = 5432,
+                Database = "dir_db",
+                Username = "multi_admin",
+                Password = new string('a', 40),
+                SslMode = SslMode.VerifyFull
+            }.ConnectionString,
+            new string('z', 40));
+        var credentialIndex = 0;
+        foreach (var key in managedValues.Keys
+                     .Where(key => key.StartsWith("ConnectionStrings:", StringComparison.Ordinal))
+                     .Order(StringComparer.Ordinal)
+                     .ToList())
+        {
+            var builder = new NpgsqlConnectionStringBuilder(managedValues[key]);
+            builder.SslMode = SslMode.VerifyFull;
+            if (!key.EndsWith("Admin", StringComparison.Ordinal))
+            {
+                builder.Password = $"{credentialIndex++:D2}{new string('p', 38)}";
+            }
+            managedValues[key] = builder.ConnectionString;
+        }
+        Assert.Empty(DatabaseOperationSecurityPolicy.Evaluate(
+            new ConfigurationBuilder().AddInMemoryCollection(managedValues).Build(),
+            DatabaseOperationMode.RoleBootstrap));
+
+        var sharedPassword = new NpgsqlConnectionStringBuilder(
+            managedValues["ConnectionStrings:DirectoryMigration"]).Password;
+        var sharedRuntime = new NpgsqlConnectionStringBuilder(
+            managedValues["ConnectionStrings:OsanRuntime"])
+        {
+            Password = sharedPassword
+        };
+        managedValues["ConnectionStrings:OsanRuntime"] = sharedRuntime.ConnectionString;
+        Assert.Contains(
+            "database_credentials_passwords_not_distinct",
+            DatabaseOperationSecurityPolicy.Evaluate(
+                new ConfigurationBuilder().AddInMemoryCollection(managedValues).Build(),
+                DatabaseOperationMode.RoleBootstrap));
+
+        var legacyConfiguration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["DATABASE_HOST"] = "127.0.0.1",
+                ["DATABASE_PORT"] = "35432",
+                ["DATABASE_NAME"] = "legacy_database",
+                ["DATABASE_USER"] = "legacy_runtime",
+                ["DATABASE_PASSWORD"] = "synthetic-local-only"
+            })
+            .Build();
+        var legacyProvider = new DatabaseConnectionStringProvider(legacyConfiguration);
+        var implicitLegacy = new NpgsqlConnectionStringBuilder(legacyProvider.GetConnectionString());
+        var explicitLegacy = new NpgsqlConnectionStringBuilder(
+            legacyProvider.GetConnectionString(
+                legacyProvider.BusinessUnits.Businesses.Single(),
+                BusinessUnitConnectionPurpose.Runtime));
+        Assert.Equal(implicitLegacy.ConnectionString, explicitLegacy.ConnectionString);
+    }
+
+    [Fact]
+    public async Task ThreeDatabaseBoundary_EnforcesRoutingRolesWorkersAndPendingLogin()
+    {
+        await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = databases.Configuration;
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var environment = new TestEnvironment(databases.RepositoryRoot);
+        var migrationCatalog = new DatabaseMigrationCatalog(environment);
+        var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
+        var inspector = new MigrationLedgerInspector(migrationCatalog);
+
+        await new DatabaseRoleBootstrapper(
+                configuration,
+                new DatabaseRuntimePrivilegeManager(),
+                NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(TestContext.Current.CancellationToken);
+        await AssertInheritedRoleMembershipFailsBeforeBootstrapMutationAsync(databases);
+        await ApplyExistingCheongjuSchemaAsync(
+            databases,
+            migrationCatalog,
+            TestContext.Current.CancellationToken);
+        await ApplyPartialOsanSchemaAsync(
+            databases,
+            migrationCatalog,
+            TestContext.Current.CancellationToken);
+        await new DatabaseMigrationRunner(
+                provider,
+                migrationCatalog,
+                new DatabaseRuntimePrivilegeManager(),
+                configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            migrationCatalog.GetMigrationFiles().Count + 1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from schema_migrations where version = '{MigrationLedgerCompatibilityPolicy.LegacyTeamsActivityVersion}';",
+                TestContext.Current.CancellationToken));
+
+        await AssertRuntimeRoleBoundariesAsync(databases);
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select count(*)
+                from user_roles ur
+                join roles r on r.id = ur.role_id
+                where ur.user_id = '{AdminUserId:D}' and r.code = 'system-administrator';
+                """,
+                TestContext.Current.CancellationToken));
+
+        var seeder = new DevelopmentIdentitySeeder(
+            provider,
+            configuration,
+            environment,
+            NullLogger<DevelopmentIdentitySeeder>.Instance,
+            inspector);
+        Assert.True(seeder.IsEnabled());
+        await seeder.SeedAsync(TestContext.Current.CancellationToken);
+        databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
+
+        var roleCountBeforeBackfill = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select count(*) from user_roles where user_id = '{AdminUserId:D}';",
+            TestContext.Current.CancellationToken);
+        var backfilled = await new BusinessUnitMembershipBackfillRunner(
+                provider,
+                configuration,
+                NullLogger<BusinessUnitMembershipBackfillRunner>.Instance,
+                inspector,
+                directoryCatalog)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(1, backfilled);
+        await AssertReviewSafeBackfillDoesNotMutateAsync(
+            databases,
+            inspector,
+            directoryCatalog);
+        Assert.Equal(
+            roleCountBeforeBackfill,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from user_roles where user_id = '{AdminUserId:D}';",
+                TestContext.Current.CancellationToken));
+
+        await PrepareDirectoryAndBusinessFixturesAsync(databases);
+        await PrepareEntityIsolationFixturesAsync(databases);
+        await AssertUserAdministrationUsesOnlySelectedBusinessDatabaseAsync(databases);
+        await AssertHealthAndReviewSafeCheckEveryTargetAsync(
+            databases,
+            migrationCatalog,
+            directoryCatalog,
+            inspector);
+        await AssertEntityAndAttachmentIsolationAsync(databases);
+        await AssertPublicRequestRoutingAsync(databases);
+        await AssertEntraSubjectCollisionIsPendingAsync(
+            databases,
+            migrationCatalog,
+            directoryCatalog,
+            inspector);
+        await AssertConcurrentResolutionAndCancellationAsync(
+            databases,
+            migrationCatalog,
+            directoryCatalog,
+            inspector);
+        await AssertDatabaseContractFailuresBlockRequestsAsync(databases);
+        await AssertOsanNotificationBoundariesAsync(databases);
+        await AssertWorkerFailureDoesNotSkipOtherUnitAsync(databases);
+        await AssertMigrationPreflightRejectsBeforeMutationAsync(
+            databases,
+            migrationCatalog);
+    }
+
+    private static async Task AssertInheritedRoleMembershipFailsBeforeBootstrapMutationAsync(
+        IsolationDatabaseSet databases)
+    {
+        var cheongju = databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Cheongju);
+        var osan = databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Osan);
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Administrator,
+            $"""
+            grant {QuoteIdentifier(osan.MigrationRoleName)} to {QuoteIdentifier(cheongju.RuntimeRoleName)};
+            alter role {QuoteIdentifier(cheongju.RuntimeRoleName)} noinherit;
+            """,
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DatabaseRoleBootstrapper(
+                        databases.Configuration,
+                        new DatabaseRuntimePrivilegeManager(),
+                        NullLogger<DatabaseRoleBootstrapper>.Instance)
+                    .BootstrapAsync(TestContext.Current.CancellationToken));
+            Assert.Contains("role memberships", exception.Message, StringComparison.Ordinal);
+            Assert.False(await databases.ReadScalarAsync<bool>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Administrator,
+                $"select rolinherit from pg_roles where rolname = '{cheongju.RuntimeRoleName}';",
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            await databases.ExecuteAsync(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Administrator,
+                $"""
+                revoke {QuoteIdentifier(osan.MigrationRoleName)} from {QuoteIdentifier(cheongju.RuntimeRoleName)};
+                alter role {QuoteIdentifier(cheongju.RuntimeRoleName)} inherit;
+                """,
+                CancellationToken.None);
+        }
+    }
+
+    private static async Task AssertReviewSafeBackfillDoesNotMutateAsync(
+        IsolationDatabaseSet databases,
+        MigrationLedgerInspector inspector,
+        BusinessUnitDirectoryMigrationCatalog directoryCatalog)
+    {
+        var before = await databases.ReadScalarAsync<long>(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from directory_membership_audit_events;",
+            TestContext.Current.CancellationToken);
+        var reviewValues = new Dictionary<string, string?>(databases.ConfigurationValues)
+        {
+            ["ReviewSafe:Enabled"] = "true"
+        };
+        var reviewConfiguration = new ConfigurationBuilder()
+            .AddInMemoryCollection(reviewValues)
+            .Build();
+        var runner = new BusinessUnitMembershipBackfillRunner(
+            new DatabaseConnectionStringProvider(reviewConfiguration),
+            reviewConfiguration,
+            NullLogger<BusinessUnitMembershipBackfillRunner>.Instance,
+            inspector,
+            directoryCatalog);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => runner.ApplyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            before,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from directory_membership_audit_events;",
+                TestContext.Current.CancellationToken));
+    }
+
+    private static async Task AssertHealthAndReviewSafeCheckEveryTargetAsync(
+        IsolationDatabaseSet databases,
+        DatabaseMigrationCatalog migrationCatalog,
+        BusinessUnitDirectoryMigrationCatalog directoryCatalog,
+        MigrationLedgerInspector inspector)
+    {
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var health = await new DatabaseHealthChecker(provider, inspector, directoryCatalog)
+            .CheckAsync(TestContext.Current.CancellationToken);
+        Assert.True(health.IsReady);
+
+        var reviewValues = new Dictionary<string, string?>(databases.ConfigurationValues)
+        {
+            ["ReviewSafe:Enabled"] = "true"
+        };
+        var reviewConfiguration = new ConfigurationBuilder()
+            .AddInMemoryCollection(reviewValues)
+            .Build();
+        var reviewEnvironment = new TestEnvironment(databases.RepositoryRoot)
+        {
+            EnvironmentName = "UAT"
+        };
+        var reviewProvider = new DatabaseConnectionStringProvider(reviewConfiguration);
+        var reviewStatus = await new ReviewSafeStatusService(
+                reviewProvider,
+                migrationCatalog,
+                new MigrationLedgerInspector(migrationCatalog),
+                directoryCatalog,
+                reviewConfiguration,
+                reviewEnvironment)
+            .CheckAsync(TestContext.Current.CancellationToken);
+        Assert.True(reviewStatus.Ready);
+        Assert.True(reviewStatus.DatabaseReadOnly);
+        Assert.False(reviewStatus.MutationAllowed);
+    }
+
+    private static async Task ApplyExistingCheongjuSchemaAsync(
+        IsolationDatabaseSet databases,
+        DatabaseMigrationCatalog migrationCatalog,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await databases.OpenAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            cancellationToken);
+        await using (var ledger = connection.CreateCommand())
+        {
+            ledger.CommandText = """
+                create table schema_migrations (
+                    version text primary key,
+                    applied_at_utc timestamptz not null default now());
+                """;
+            await ledger.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var migrationFile in migrationCatalog.GetMigrationFiles()
+                     .Where(file => !Path.GetFileName(file).StartsWith("0086_", StringComparison.Ordinal)))
+        {
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await using (var migration = connection.CreateCommand())
+            {
+                migration.Transaction = transaction;
+                migration.CommandText = await File.ReadAllTextAsync(migrationFile, cancellationToken);
+                await migration.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using (var record = connection.CreateCommand())
+            {
+                record.Transaction = transaction;
+                record.CommandText = "insert into schema_migrations(version) values (@version);";
+                record.Parameters.AddWithValue("version", Path.GetFileNameWithoutExtension(migrationFile));
+                await record.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        await using var fixture = connection.CreateCommand();
+        fixture.CommandText = $"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('73000000-0000-0000-0000-000000000001', 'existing', 'Existing', true, 1);
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider)
+            values (
+                '{AdminUserId:D}', 'dev-admin', 'Existing Cheongju Admin',
+                '73000000-0000-0000-0000-000000000001', true, 'Dev');
+            insert into user_roles (user_id, role_id)
+            select '{AdminUserId:D}', id from roles where code = 'system-administrator';
+            """;
+        await fixture.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ApplyPartialOsanSchemaAsync(
+        IsolationDatabaseSet databases,
+        DatabaseMigrationCatalog migrationCatalog,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await databases.OpenAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            cancellationToken);
+        await using (var ledger = connection.CreateCommand())
+        {
+            ledger.CommandText = """
+                create table schema_migrations (
+                    version text primary key,
+                    applied_at_utc timestamptz not null default now());
+                """;
+            await ledger.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var migrationFile in migrationCatalog.GetMigrationFiles())
+        {
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await using (var migration = connection.CreateCommand())
+            {
+                migration.Transaction = transaction;
+                migration.CommandText = await File.ReadAllTextAsync(migrationFile, cancellationToken);
+                await migration.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using (var record = connection.CreateCommand())
+            {
+                record.Transaction = transaction;
+                record.CommandText = "insert into schema_migrations(version) values (@version);";
+                record.Parameters.AddWithValue("version", Path.GetFileNameWithoutExtension(migrationFile));
+                await record.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await transaction.CommitAsync(cancellationToken);
+            if (string.Equals(
+                    Path.GetFileNameWithoutExtension(migrationFile),
+                    MigrationLedgerCompatibilityPolicy.CanonicalTeamsActivitySuccessor,
+                    StringComparison.Ordinal))
+            {
+                break;
+            }
+        }
+
+        await using var approvedLegacy = connection.CreateCommand();
+        approvedLegacy.CommandText = "insert into schema_migrations(version) values (@version);";
+        approvedLegacy.Parameters.AddWithValue(
+            "version",
+            MigrationLedgerCompatibilityPolicy.LegacyTeamsActivityVersion);
+        await approvedLegacy.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task AssertRuntimeRoleBoundariesAsync(IsolationDatabaseSet databases)
+    {
+        foreach (var code in new[] { "DIRECTORY", BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
+        {
+            var target = databases.BusinessUnits.AllTargets().Single(target => target.Code == code);
+            await using var connection = await databases.OpenAsync(
+                code,
+                BusinessUnitConnectionPurpose.Runtime,
+                TestContext.Current.CancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                select rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls
+                from pg_roles
+                where rolname = @role_name;
+                """;
+            command.Parameters.AddWithValue("role_name", target.RuntimeRoleName);
+            await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken));
+            Assert.False(reader.GetBoolean(0));
+            Assert.False(reader.GetBoolean(1));
+            Assert.False(reader.GetBoolean(2));
+            Assert.False(reader.GetBoolean(3));
+            Assert.False(reader.GetBoolean(4));
+        }
+
+        await AssertCrossDatabaseConnectionDeniedAsync(
+            databases,
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitCodes.Osan);
+        await AssertCrossDatabaseConnectionDeniedAsync(
+            databases,
+            BusinessUnitCodes.Osan,
+            BusinessUnitCodes.Cheongju);
+        await AssertCrossDatabaseConnectionDeniedAsync(
+            databases,
+            "DIRECTORY",
+            BusinessUnitCodes.Cheongju);
+
+        await using (var directory = await databases.OpenAsync(
+                         "DIRECTORY",
+                         BusinessUnitConnectionPurpose.Runtime,
+                         TestContext.Current.CancellationToken))
+        {
+            var exception = await Assert.ThrowsAsync<PostgresException>(async () =>
+            {
+                await using var command = directory.CreateCommand();
+                command.CommandText = $"""
+                    insert into directory_business_unit_memberships (user_id, business_unit_code)
+                    values ('{Guid.NewGuid():D}', 'CHEONGJU');
+                    """;
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            });
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, exception.SqlState);
+        }
+
+        await using (var cheongju = await databases.OpenAsync(
+                         BusinessUnitCodes.Cheongju,
+                         BusinessUnitConnectionPurpose.Runtime,
+                         TestContext.Current.CancellationToken))
+        {
+            var exception = await Assert.ThrowsAsync<PostgresException>(async () =>
+            {
+                await using var command = cheongju.CreateCommand();
+                command.CommandText = "update qms_database_identity set business_unit_code = 'OSAN';";
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            });
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, exception.SqlState);
+
+            var createRoleException = await Assert.ThrowsAsync<PostgresException>(async () =>
+            {
+                await using var command = cheongju.CreateCommand();
+                command.CommandText = "create role qms_isolation_forbidden_role;";
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            });
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, createRoleException.SqlState);
+        }
+    }
+
+    private static async Task AssertCrossDatabaseConnectionDeniedAsync(
+        IsolationDatabaseSet databases,
+        string sourceCode,
+        string destinationCode)
+    {
+        var source = databases.GetBuilder(sourceCode, BusinessUnitConnectionPurpose.Runtime);
+        source.Database = databases.BusinessUnits.AllTargets()
+            .Single(target => target.Code == destinationCode)
+            .ExpectedDatabaseName;
+        await using var dataSource = NpgsqlDataSource.Create(source.ConnectionString);
+        var exception = await Assert.ThrowsAsync<PostgresException>(
+            () => dataSource.OpenConnectionAsync(TestContext.Current.CancellationToken).AsTask());
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, exception.SqlState);
+    }
+
+    private static async Task PrepareDirectoryAndBusinessFixturesAsync(IsolationDatabaseSet databases)
+    {
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Runtime,
+            $"update qms_users set display_name = 'Cheongju Admin' where id = '{AdminUserId:D}';",
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Runtime,
+            $"""
+            update qms_users set display_name = 'Osan Admin' where id = '{AdminUserId:D}';
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active, auth_provider,
+                deletion_requested_at_utc, scheduled_hard_delete_at_utc)
+            values (
+                '{PurgeUserId:D}', 'worker-purge-user', 'Worker Purge User', null, false, 'Dev',
+                now() - interval '10 days', now() - interval '1 day');
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
+            values ('{AdminUserId:D}', 'OSAN', true);
+
+            insert into directory_identities (user_id, auth_provider, external_subject, is_active)
+            values
+                ('{SalesUserId:D}', 'Dev', 'dev-sales', true),
+                ('{NoMembershipUserId:D}', 'Dev', 'dev-no-membership', true),
+                ('{CollisionUserId:D}', 'EntraId', 'entra-collision-subject', true);
+
+            insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
+            values
+                ('{SalesUserId:D}', 'CHEONGJU', true),
+                ('{CollisionUserId:D}', 'OSAN', true);
+            """,
+            TestContext.Current.CancellationToken);
+    }
+
+    private static async Task PrepareEntityIsolationFixturesAsync(IsolationDatabaseSet databases)
+    {
+        foreach (var (code, label, attachmentBytes) in new[]
+                 {
+                     (
+                         BusinessUnitCodes.Cheongju,
+                         "Cheongju",
+                         Encoding.UTF8.GetBytes("%PDF-1.4\nsynthetic-cheongju-boundary\n")),
+                     (
+                         BusinessUnitCodes.Osan,
+                         "Osan",
+                         Encoding.UTF8.GetBytes("%PDF-1.4\nsynthetic-osan-boundary\n"))
+                 })
+        {
+            var attachmentHex = Convert.ToHexString(attachmentBytes).ToLowerInvariant();
+            var attachmentHash = Convert.ToHexString(SHA256.HashData(attachmentBytes)).ToLowerInvariant();
+            await databases.ExecuteAsync(
+                code,
+                BusinessUnitConnectionPurpose.Runtime,
+                $"""
+                insert into projects (
+                    id, project_key, project_number, name, customer_name, item,
+                    project_code, project_title, project_title_normalized, delivery_date,
+                    sales_owner_user_id, status, created_by_user_id)
+                values (
+                    '{BoundaryProjectId:D}', 'boundary-{label.ToLowerInvariant()}',
+                    'BOUNDARY-{label.ToUpperInvariant()}', '{label} Boundary Project',
+                    '{label} Customer', 'UL891', 'BOUNDARY-{label.ToUpperInvariant()}',
+                    '{label} Boundary Project', '{label.ToUpperInvariant()} BOUNDARY PROJECT',
+                    current_date + 30, '{SalesUserId:D}', 'Active', '{SalesUserId:D}');
+
+                insert into notice_posts (
+                    id, title, body, author_user_id, author_display_name_snapshot, request_id)
+                values (
+                    '{BoundaryNoticeId:D}', '{label} Boundary Notice', 'Synthetic boundary attachment',
+                    '{AdminUserId:D}', '{label} Admin', '{BoundaryNoticeId:D}');
+
+                insert into notice_attachments (
+                    id, notice_post_id, original_file_name, normalized_mime, byte_size,
+                    sha256, content, created_by_user_id)
+                values (
+                    '{BoundaryAttachmentId:D}', '{BoundaryNoticeId:D}', '{label.ToLowerInvariant()}-boundary.pdf',
+                    'application/pdf', {attachmentBytes.Length}, '{attachmentHash}',
+                    decode('{attachmentHex}', 'hex'), '{AdminUserId:D}');
+                """,
+                TestContext.Current.CancellationToken);
+        }
+    }
+
+    private static async Task AssertUserAdministrationUsesOnlySelectedBusinessDatabaseAsync(
+        IsolationDatabaseSet databases)
+    {
+        var accessor = new HttpContextAccessor();
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration, accessor);
+        var administration = new UserAdministrationStore(
+            provider,
+            new DbIdentityStore(provider, databases.Configuration),
+            TimeProvider.System);
+
+        foreach (var (code, expectedDisplayName, excludedDisplayName) in new[]
+                 {
+                     (BusinessUnitCodes.Cheongju, "Cheongju Admin", "Osan Admin"),
+                     (BusinessUnitCodes.Osan, "Osan Admin", "Cheongju Admin")
+                 })
+        {
+            accessor.HttpContext = new DefaultHttpContext();
+            var target = databases.BusinessUnits.GetBusiness(code);
+            BusinessUnitRequestContextFeature.Set(
+                accessor.HttpContext,
+                new BusinessUnitRequestContext(
+                    BusinessUnitAccessStatuses.Selected,
+                    AdminUserId,
+                    target,
+                    [code],
+                    true,
+                    "test_selected"));
+
+            var snapshot = await administration.GetSnapshotAsync(
+                TestContext.Current.CancellationToken);
+            Assert.Contains(
+                snapshot.Users,
+                user => user.UserId == AdminUserId
+                    && string.Equals(user.DisplayName, expectedDisplayName, StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                snapshot.Users,
+                user => string.Equals(user.DisplayName, excludedDisplayName, StringComparison.Ordinal)
+                    || string.Equals(user.DisplayName, "Dev System Administrator", StringComparison.Ordinal));
+        }
+    }
+
+    private static async Task AssertPublicRequestRoutingAsync(IsolationDatabaseSet databases)
+    {
+        using var factory = QmsWebApplicationFactory.Create(
+            DevelopmentFeaturePolicy.TestingEnvironmentName,
+            databases.ConfigurationValues,
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = factory.CreateClient();
+
+        using (var selectionRequired = Request(HttpMethod.Get, "/api/me", "dev-admin"))
+        {
+            var response = await client.SendAsync(selectionRequired, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<PendingResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(BusinessUnitAccessStatuses.SelectionRequired, body?.BusinessUnitAccessStatus);
+        }
+
+        using (var cheongju = Request(HttpMethod.Get, "/api/me", "dev-admin", BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(cheongju, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<MeResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal("Cheongju Admin", body?.DisplayName);
+        }
+
+        using (var osan = Request(HttpMethod.Get, "/api/me", "dev-admin", BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(osan, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<MeResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal("Osan Admin", body?.DisplayName);
+        }
+
+        foreach (var (method, route) in new[]
+                 {
+                     (HttpMethod.Get, "/api/projects"),
+                     (HttpMethod.Get, "/api/projects/export"),
+                     (HttpMethod.Get, "/api/g2/home"),
+                     (HttpMethod.Get, "/api/pending"),
+                     (HttpMethod.Post, $"/api/projects/{Guid.NewGuid():D}/hold"),
+                     (HttpMethod.Post, $"/api/projects/{Guid.NewGuid():D}/cancel")
+                 })
+        {
+            using var request = Request(method, route, "dev-admin", BusinessUnitCodes.Osan);
+            var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        using (var forged = Request(HttpMethod.Get, "/api/me", "dev-sales", BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(forged, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        var noBusinessConnections = new Dictionary<string, string?>(databases.ConfigurationValues);
+        foreach (var target in databases.BusinessUnits.Businesses)
+        {
+            var builder = databases.GetBuilder(target.Code, BusinessUnitConnectionPurpose.Runtime);
+            builder.Password = "intentionally-wrong-synthetic-password";
+            noBusinessConnections[$"ConnectionStrings:{target.RuntimeConnectionName}"] = builder.ConnectionString;
+        }
+        using (var pendingFactory = QmsWebApplicationFactory.Create(
+                   DevelopmentFeaturePolicy.TestingEnvironmentName,
+                   noBusinessConnections,
+                   includeDefaultDevelopmentAuthentication: true))
+        using (var pendingClient = pendingFactory.CreateClient())
+        using (var noMembership = Request(HttpMethod.Get, "/api/me", "dev-no-membership"))
+        {
+            var response = await pendingClient.SendAsync(noMembership, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<PendingResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(BusinessUnitAccessStatuses.NoMembership, body?.BusinessUnitAccessStatus);
+        }
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            update directory_business_unit_memberships
+            set is_active = false
+            where user_id = '{AdminUserId:D}' and business_unit_code = 'OSAN';
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'CHEONGJU';",
+            TestContext.Current.CancellationToken);
+        using (var revoked = Request(HttpMethod.Get, "/api/me", "dev-admin", BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(revoked, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'OSAN';",
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            update directory_business_unit_memberships
+            set is_active = true
+            where user_id = '{AdminUserId:D}' and business_unit_code = 'OSAN';
+            """,
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            "update directory_business_units set is_active = false where code = 'OSAN';",
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'CHEONGJU';",
+            TestContext.Current.CancellationToken);
+        using (var inactiveUnit = Request(HttpMethod.Get, "/api/me", "dev-admin", BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(inactiveUnit, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'OSAN';",
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            "update directory_business_units set is_active = true where code = 'OSAN';",
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Runtime,
+            $"update qms_users set development_user_key = 'different-local-subject' where id = '{SalesUserId:D}';",
+            TestContext.Current.CancellationToken);
+        using (var mismatch = Request(HttpMethod.Get, "/api/me", "dev-sales", BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(mismatch, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<PendingResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(BusinessUnitAccessStatuses.LocalProfilePending, body?.BusinessUnitAccessStatus);
+        }
+        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Put, HttpMethod.Delete })
+        {
+            using var photo = Request(
+                method,
+                "/api/me/profile-photo",
+                "dev-sales",
+                BusinessUnitCodes.Cheongju);
+            var response = await client.SendAsync(photo, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
+    private static async Task AssertEntityAndAttachmentIsolationAsync(IsolationDatabaseSet databases)
+    {
+        using var factory = QmsWebApplicationFactory.Create(
+            DevelopmentFeaturePolicy.TestingEnvironmentName,
+            databases.ConfigurationValues,
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = factory.CreateClient();
+
+        using (var readCheongju = Request(
+                   HttpMethod.Get,
+                   $"/api/projects/{BoundaryProjectId:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(
+                readCheongju,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var project = await response.Content.ReadFromJsonAsync<ProjectBoundaryResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Equal(BoundaryProjectId, project?.ProjectId);
+            Assert.Equal("Cheongju Boundary Project", project?.ProjectTitle);
+            Assert.Equal("Active", project?.Status);
+        }
+
+        using (var readOsan = Request(
+                   HttpMethod.Get,
+                   $"/api/projects/{BoundaryProjectId:D}",
+                   "dev-admin",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(
+                readOsan,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        var osanAuditCountBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select count(*) from project_audit_events where project_id = '{BoundaryProjectId:D}';",
+            TestContext.Current.CancellationToken);
+        using (var holdCheongju = Request(
+                   HttpMethod.Post,
+                   $"/api/projects/{BoundaryProjectId:D}/hold",
+                   "dev-sales",
+                   BusinessUnitCodes.Cheongju))
+        {
+            holdCheongju.Content = JsonContent.Create(new { reason = "Synthetic isolation proof" });
+            var response = await client.SendAsync(
+                holdCheongju,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using (var holdOsan = Request(
+                   HttpMethod.Post,
+                   $"/api/projects/{BoundaryProjectId:D}/hold",
+                   "dev-admin",
+                   BusinessUnitCodes.Osan))
+        {
+            holdOsan.Content = JsonContent.Create(new { reason = "Forged cross-unit mutation" });
+            var response = await client.SendAsync(
+                holdOsan,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        Assert.Equal(
+            "OnHold",
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select status from projects where id = '{BoundaryProjectId:D}';",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "Osan Boundary Project:Active",
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            osanAuditCountBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from project_audit_events where project_id = '{BoundaryProjectId:D}';",
+                TestContext.Current.CancellationToken));
+
+        var expectedCheongjuBytes = Encoding.UTF8.GetBytes(
+            "%PDF-1.4\nsynthetic-cheongju-boundary\n");
+        var expectedOsanBytes = Encoding.UTF8.GetBytes(
+            "%PDF-1.4\nsynthetic-osan-boundary\n");
+        using (var downloadCheongju = Request(
+                   HttpMethod.Get,
+                   $"/api/notices/{BoundaryNoticeId:D}/attachments/{BoundaryAttachmentId:D}/content",
+                   "dev-sales",
+                   BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(
+                downloadCheongju,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(
+                expectedCheongjuBytes,
+                await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        }
+
+        using (var downloadOsan = Request(
+                   HttpMethod.Get,
+                   $"/api/notices/{BoundaryNoticeId:D}/attachments/{BoundaryAttachmentId:D}/content",
+                   "dev-admin",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(
+                downloadOsan,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        Assert.Equal(
+            expectedOsanBytes,
+            await databases.ReadScalarAsync<byte[]>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select content from notice_attachments where id = '{BoundaryAttachmentId:D}';",
+                TestContext.Current.CancellationToken));
+    }
+
+    private static async Task AssertEntraSubjectCollisionIsPendingAsync(
+        IsolationDatabaseSet databases,
+        DatabaseMigrationCatalog migrationCatalog,
+        BusinessUnitDirectoryMigrationCatalog directoryCatalog,
+        MigrationLedgerInspector inspector)
+    {
+        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
+        accessor.HttpContext.Request.Headers[BusinessUnitHeaderNames.Selection] = BusinessUnitCodes.Osan;
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration, accessor);
+        var directoryStore = new BusinessUnitDirectoryStore(provider, directoryCatalog);
+        var validator = new BusinessUnitDatabaseBoundaryValidator(provider, inspector, directoryCatalog);
+        var resolver = new BusinessUnitResolver(provider, directoryStore, validator);
+        var transformation = new EntraClaimsTransformation(
+            new DbIdentityStore(provider, databases.Configuration),
+            new InMemoryIdentityStore(),
+            databases.Configuration,
+            new TestEnvironment(databases.RepositoryRoot),
+            accessor,
+            resolver);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("oid", "entra-collision-subject"), new Claim("name", "Collision")],
+            QmsAuthenticationSchemes.EntraBearer));
+
+        var transformed = await transformation.TransformAsync(principal);
+
+        Assert.Equal(
+            BusinessUnitAccessStatuses.LocalProfilePending,
+            transformed.FindFirst(QmsClaimTypes.BusinessUnitAccessStatus)?.Value);
+        Assert.DoesNotContain(
+            transformed.Claims,
+            claim => claim.Type == ClaimTypes.Role);
+
+        var feature = BusinessUnitRequestContextFeature.Get(accessor.HttpContext);
+        Assert.NotNull(feature);
+        foreach (var method in new[] { HttpMethods.Get, HttpMethods.Put, HttpMethods.Delete })
+        {
+            var nextCalled = false;
+            var context = new DefaultHttpContext
+            {
+                User = transformed
+            };
+            context.Request.Method = method;
+            context.Request.Path = "/api/me/profile-photo";
+            BusinessUnitRequestContextFeature.Set(context, feature);
+            await new BusinessUnitCapabilityMiddleware(_ =>
+                {
+                    nextCalled = true;
+                    return Task.CompletedTask;
+                })
+                .InvokeAsync(context, provider);
+            Assert.False(nextCalled);
+            Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        }
+    }
+
+    private static async Task AssertConcurrentResolutionAndCancellationAsync(
+        IsolationDatabaseSet databases,
+        DatabaseMigrationCatalog migrationCatalog,
+        BusinessUnitDirectoryMigrationCatalog directoryCatalog,
+        MigrationLedgerInspector inspector)
+    {
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var resolver = new BusinessUnitResolver(
+            provider,
+            new BusinessUnitDirectoryStore(provider, directoryCatalog),
+            new BusinessUnitDatabaseBoundaryValidator(provider, inspector, directoryCatalog));
+        var resolutions = await Task.WhenAll(
+            Enumerable.Range(0, 20).Select(async index =>
+            {
+                var code = index % 2 == 0 ? BusinessUnitCodes.Cheongju : BusinessUnitCodes.Osan;
+                var context = new DefaultHttpContext();
+                context.Request.Headers[BusinessUnitHeaderNames.Selection] = code;
+                return await resolver.ResolveAsync(
+                    context,
+                    QmsAuthProviders.Dev,
+                    "dev-admin",
+                    TestContext.Current.CancellationToken);
+            }));
+        Assert.Equal(10, resolutions.Count(item => item.Target?.Code == BusinessUnitCodes.Cheongju));
+        Assert.Equal(10, resolutions.Count(item => item.Target?.Code == BusinessUnitCodes.Osan));
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            resolver.ResolveAsync(
+                new DefaultHttpContext(),
+                QmsAuthProviders.Dev,
+                "dev-admin",
+                cancelled.Token));
+    }
+
+    private static async Task AssertDatabaseContractFailuresBlockRequestsAsync(IsolationDatabaseSet databases)
+    {
+        using var factory = QmsWebApplicationFactory.Create(
+            DevelopmentFeaturePolicy.TestingEnvironmentName,
+            databases.ConfigurationValues,
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = factory.CreateClient();
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            "delete from schema_migrations where version = '0001_business_unit_directory';",
+            TestContext.Current.CancellationToken);
+        using (var missingDirectoryLedger = Request(HttpMethod.Get, "/api/me", "dev-admin"))
+        {
+            var response = await client.SendAsync(
+                missingDirectoryLedger,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            "insert into schema_migrations(version) values ('0001_business_unit_directory');",
+            TestContext.Current.CancellationToken);
+
+        var directory = databases.BusinessUnits.Directory!;
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Administrator,
+            $"""
+            revoke connect on database {QuoteIdentifier(directory.ExpectedDatabaseName)}
+            from {QuoteIdentifier(directory.RuntimeRoleName)};
+            """,
+            TestContext.Current.CancellationToken);
+        using (var directoryUnavailable = Request(HttpMethod.Get, "/api/me", "dev-admin"))
+        {
+            var response = await client.SendAsync(
+                directoryUnavailable,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Administrator,
+            $"""
+            grant connect on database {QuoteIdentifier(directory.ExpectedDatabaseName)}
+            to {QuoteIdentifier(directory.RuntimeRoleName)};
+            """,
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "delete from schema_migrations where version = '0086_business_unit_database_identity';",
+            TestContext.Current.CancellationToken);
+        using (var missingLedger = Request(HttpMethod.Get, "/api/me", "dev-admin", BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(missingLedger, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+            var responseText = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.DoesNotContain(databases.RuntimePasswords, password => responseText.Contains(password, StringComparison.Ordinal));
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "insert into schema_migrations(version) values ('0086_business_unit_database_identity');",
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'CHEONGJU';",
+            TestContext.Current.CancellationToken);
+        using (var wrongIdentity = Request(HttpMethod.Get, "/api/me", "dev-admin", BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(wrongIdentity, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'OSAN';",
+            TestContext.Current.CancellationToken);
+
+        foreach (var log in factory.Logs.Entries)
+        {
+            var rendered = $"{log.Message} {log.Exception}";
+            Assert.DoesNotContain(databases.RuntimePasswords, password => rendered.Contains(password, StringComparison.Ordinal));
+        }
+    }
+
+    private static async Task AssertOsanNotificationBoundariesAsync(IsolationDatabaseSet databases)
+    {
+        var osan = databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Osan);
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var deliveryStore = new NotificationDeliveryStore(
+            provider,
+            TimeProvider.System,
+            databases.Configuration);
+        Assert.Equal(
+            0,
+            await deliveryStore.CreateImmediateDeliveriesAsync(
+                new NotificationOptions(),
+                TestContext.Current.CancellationToken,
+                osan));
+
+        var escalationStore = new WorkItemEscalationStore(provider, TimeProvider.System);
+        var candidate = new WorkItemEscalationCandidate(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Synthetic Project",
+            "SYNTHETIC",
+            "ManufacturingWork",
+            "Manufacturing",
+            "ManufacturingPrimary",
+            AdminUserId,
+            "Osan Admin",
+            true,
+            DateOnly.FromDateTime(DateTime.UtcNow),
+            "Synthetic Work",
+            "Requested",
+            null,
+            null,
+            null,
+            null,
+            null);
+        var escalation = await escalationStore.CreateEscalationAsync(
+            candidate,
+            WorkItemEscalationLevels.L1,
+            new NotificationEscalationOptions { Enabled = true },
+            TestContext.Current.CancellationToken,
+            osan);
+        Assert.Equal(0, escalation.NotificationCount);
+        Assert.Equal(0, escalation.DeliveryCount);
+        Assert.Equal(
+            0L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from notifications where notification_type like 'WorkItemEscalation%';",
+                TestContext.Current.CancellationToken));
+
+        await using var osanRuntime = await databases.OpenAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Runtime,
+            TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            await using var command = osanRuntime.CreateCommand();
+            command.CommandText = """
+                insert into notification_deliveries (channel, delivery_type, dedupe_key)
+                values ('Mail', 'ManualTest', 'osan-forbidden-enqueue');
+                """;
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        });
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, exception.SqlState);
+        Assert.Equal("external_notification_delivery_disabled_for_business_unit", exception.MessageText);
+
+        var requestContext = new DefaultHttpContext();
+        BusinessUnitRequestContextFeature.Set(
+            requestContext,
+            new BusinessUnitRequestContext(
+                BusinessUnitAccessStatuses.Selected,
+                AdminUserId,
+                osan,
+                [BusinessUnitCodes.Osan],
+                true,
+                "test_selected"));
+        var requestProvider = new DatabaseConnectionStringProvider(
+            databases.Configuration,
+            new HttpContextAccessor { HttpContext = requestContext });
+        var handler = new CountingExternalNotificationHandler();
+        var migrationCatalog = new DatabaseMigrationCatalog(
+            new TestEnvironment(databases.RepositoryRoot));
+        var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
+        var dispatcher = new NotificationDispatcher(
+            new NotificationDeliveryStore(
+                requestProvider,
+                TimeProvider.System,
+                databases.Configuration),
+            [handler],
+            new StaticOptionsMonitor<NotificationOptions>(new NotificationOptions()),
+            new NotificationWorkerIdentity("osan-boundary-test"),
+            requestProvider,
+            new BusinessUnitDatabaseBoundaryValidator(
+                requestProvider,
+                new MigrationLedgerInspector(migrationCatalog),
+                directoryCatalog),
+            NullLogger<NotificationDispatcher>.Instance);
+        var dispatch = await dispatcher.DispatchDeliveryAsync(
+            Guid.NewGuid(),
+            preparedMessage: null,
+            retryCount: 1,
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(NotificationDeliveryStatuses.Disabled, dispatch.Status);
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    private static async Task AssertWorkerFailureDoesNotSkipOtherUnitAsync(IsolationDatabaseSet databases)
+    {
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'OSAN';",
+            TestContext.Current.CancellationToken);
+        using var factory = QmsWebApplicationFactory.Create(
+            DevelopmentFeaturePolicy.TestingEnvironmentName,
+            databases.ConfigurationValues,
+            includeDefaultDevelopmentAuthentication: true);
+        _ = factory.CreateClient();
+        var purge = factory.Services.GetRequiredService<IAdminDeletionPurgeService>();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => purge.PurgeDueAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("1 target(s)", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            0L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from qms_users where id = '{PurgeUserId:D}';",
+                TestContext.Current.CancellationToken));
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            "update qms_database_identity set business_unit_code = 'CHEONGJU';",
+            TestContext.Current.CancellationToken);
+    }
+
+    private static async Task AssertMigrationPreflightRejectsBeforeMutationAsync(
+        IsolationDatabaseSet databases,
+        DatabaseMigrationCatalog migrationCatalog)
+    {
+        var runner = new DatabaseMigrationRunner(
+            new DatabaseConnectionStringProvider(databases.Configuration),
+            migrationCatalog,
+            new DatabaseRuntimePrivilegeManager(),
+            databases.Configuration,
+            NullLogger<DatabaseMigrationRunner>.Instance);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"delete from schema_migrations where version = '{MigrationLedgerCompatibilityPolicy.CanonicalTeamsActivitySuccessor}';",
+            TestContext.Current.CancellationToken);
+        var missingSuccessorLedgerBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            missingSuccessorLedgerBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"insert into schema_migrations(version) values ('{MigrationLedgerCompatibilityPolicy.CanonicalTeamsActivitySuccessor}');",
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "insert into schema_migrations(version) values ('0099_unknown_migration');",
+            TestContext.Current.CancellationToken);
+        var unknownLedgerBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            unknownLedgerBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "delete from schema_migrations where version = '0099_unknown_migration';",
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "delete from schema_migrations where version = '0085_site_access_sessions';",
+            TestContext.Current.CancellationToken);
+        var nonPrefixLedgerBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            nonPrefixLedgerBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "insert into schema_migrations(version) values ('0085_site_access_sessions');",
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            alter table notification_deliveries drop constraint ck_notification_deliveries_channel;
+            alter table notification_deliveries add constraint ck_notification_deliveries_channel
+                check (channel in ('TeamsChannel', 'TeamsDirectMessage', 'TeamsActivity', 'Mail'));
+            """,
+            TestContext.Current.CancellationToken);
+        var schemaMismatchLedgerBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            schemaMismatchLedgerBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        Assert.False((await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            select pg_get_constraintdef(constraint_row.oid)
+            from pg_constraint constraint_row
+            join pg_class table_row on table_row.oid = constraint_row.conrelid
+            where table_row.relname = 'notification_deliveries'
+              and constraint_row.conname = 'ck_notification_deliveries_channel';
+            """,
+            TestContext.Current.CancellationToken)).Contains("WebPush", StringComparison.Ordinal));
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            alter table notification_deliveries drop constraint ck_notification_deliveries_channel;
+            alter table notification_deliveries add constraint ck_notification_deliveries_channel
+                check (channel in ('TeamsChannel', 'TeamsDirectMessage', 'TeamsActivity', 'Mail', 'WebPush'));
+            """,
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            update qms_database_identity set business_unit_code = 'CHEONGJU';
+            delete from schema_migrations where version = '0086_business_unit_database_identity';
+            """,
+            TestContext.Current.CancellationToken);
+        var wrongBindingLedgerBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken);
+        var wrongBindingSchemaBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from information_schema.tables where table_schema = 'public';",
+            TestContext.Current.CancellationToken);
+        var wrongBindingProjectBefore = await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
+            TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            wrongBindingLedgerBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            wrongBindingSchemaBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from information_schema.tables where table_schema = 'public';",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            wrongBindingProjectBefore,
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
+                TestContext.Current.CancellationToken));
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            update qms_database_identity set business_unit_code = 'OSAN';
+            insert into schema_migrations(version)
+            values ('0086_business_unit_database_identity');
+            """,
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            drop trigger if exists trg_prevent_osan_external_notification_delivery on notification_deliveries;
+            drop function if exists prevent_osan_external_notification_delivery();
+            drop table qms_database_identity;
+            delete from schema_migrations where version = '0086_business_unit_database_identity';
+            """,
+            TestContext.Current.CancellationToken);
+        var unboundLedgerBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from schema_migrations;",
+            TestContext.Current.CancellationToken);
+        var unboundSchemaBefore = await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from information_schema.tables where table_schema = 'public';",
+            TestContext.Current.CancellationToken);
+        var unboundProjectBefore = await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
+            TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            unboundLedgerBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from schema_migrations;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            unboundSchemaBefore,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from information_schema.tables where table_schema = 'public';",
+                TestContext.Current.CancellationToken));
+        Assert.True(await databases.ReadScalarAsync<bool>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select to_regclass('public.qms_database_identity') is null;",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(
+            unboundProjectBefore,
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
+                TestContext.Current.CancellationToken));
+    }
+
+    private static HttpRequestMessage Request(
+        HttpMethod method,
+        string path,
+        string developmentUser,
+        string? businessUnit = null)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.Headers.Add(DevelopmentAuthenticationDefaults.UserHeader, developmentUser);
+        if (businessUnit is not null)
+        {
+            request.Headers.Add(BusinessUnitHeaderNames.Selection, businessUnit);
+        }
+        return request;
+    }
+
+    private static string QuoteIdentifier(string value) =>
+        new NpgsqlCommandBuilder().QuoteIdentifier(value);
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (Directory.Exists(Path.Combine(directory.FullName, "database", "migrations"))
+                && Directory.Exists(Path.Combine(directory.FullName, "database", "directory-migrations")))
+            {
+                return directory.FullName;
+            }
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find repository root.");
+    }
+
+    private sealed record PendingResponse(string BusinessUnitAccessStatus);
+    private sealed record MeResponse(string DisplayName);
+    private sealed record ProjectBoundaryResponse(Guid ProjectId, string ProjectTitle, string Status);
+
+    private sealed class CountingExternalNotificationHandler : INotificationChannelHandler
+    {
+        private int callCount;
+
+        public string Channel => NotificationDeliveryChannels.Mail;
+        public int CallCount => Volatile.Read(ref callCount);
+        public bool WillCallExternalProvider(NotificationDeliveryMessage message) => true;
+
+        public Task<NotificationChannelResult> SendAsync(
+            NotificationDeliveryMessage message,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref callCount);
+            return Task.FromResult(NotificationChannelResult.Sent("synthetic-provider"));
+        }
+    }
+
+    private sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>
+    {
+        public T CurrentValue => value;
+        public T Get(string? name) => value;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
+    }
+
+    private sealed class IsolationDatabaseSet : IAsyncDisposable
+    {
+        private readonly NpgsqlConnectionStringBuilder admin;
+        private readonly IReadOnlyDictionary<(string Code, BusinessUnitConnectionPurpose Purpose), string> connections;
+
+        private IsolationDatabaseSet(
+            string repositoryRoot,
+            NpgsqlConnectionStringBuilder admin,
+            Dictionary<string, string?> configurationValues,
+            IConfiguration configuration,
+            IReadOnlyDictionary<(string Code, BusinessUnitConnectionPurpose Purpose), string> connections,
+            IReadOnlyList<string> databaseNames,
+            IReadOnlyList<string> runtimePasswords)
+        {
+            RepositoryRoot = repositoryRoot;
+            this.admin = admin;
+            ConfigurationValues = configurationValues;
+            Configuration = configuration;
+            this.connections = connections;
+            DatabaseNames = databaseNames;
+            RuntimePasswords = runtimePasswords;
+            BusinessUnits = BusinessUnitConfiguration.Read(configuration);
+        }
+
+        public string RepositoryRoot { get; }
+        public Dictionary<string, string?> ConfigurationValues { get; }
+        public IConfiguration Configuration { get; }
+        public BusinessUnitConfiguration BusinessUnits { get; }
+        public IReadOnlyList<string> DatabaseNames { get; }
+        public IReadOnlyList<string> RuntimePasswords { get; }
+
+        public static async Task<IsolationDatabaseSet> CreateAsync(CancellationToken cancellationToken)
+        {
+            var repositoryRoot = FindRepositoryRoot();
+            var admin = ReadSyntheticHarnessConnection();
+            var suffix = Guid.NewGuid().ToString("N")[..10];
+            var directoryDatabase = $"emi_qms_e2e_{suffix}_directory";
+            var cheongjuDatabase = $"emi_qms_e2e_{suffix}_cheongju";
+            var osanDatabase = $"emi_qms_e2e_{suffix}_osan";
+            var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+            var rolePrefix = $"iso_{suffix}";
+            var values = BuildConfigurationValues(
+                directoryDatabase,
+                cheongjuDatabase,
+                osanDatabase,
+                $"{rolePrefix}_dir_m",
+                $"{rolePrefix}_dir_r",
+                $"{rolePrefix}_cj_m",
+                $"{rolePrefix}_cj_r",
+                $"{rolePrefix}_osan_m",
+                $"{rolePrefix}_osan_r",
+                admin.ConnectionString,
+                password);
+
+            var connections = BuildConnections(values);
+            await using var dataSource = NpgsqlDataSource.Create(admin.ConnectionString);
+            foreach (var databaseName in new[] { directoryDatabase, cheongjuDatabase, osanDatabase })
+            {
+                await using var command = dataSource.CreateCommand(
+                    $"create database {QuoteIdentifier(databaseName)};");
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(values)
+                .Build();
+            return new IsolationDatabaseSet(
+                repositoryRoot,
+                admin,
+                values,
+                configuration,
+                connections,
+                [directoryDatabase, cheongjuDatabase, osanDatabase],
+                connections
+                    .Where(item => item.Key.Purpose == BusinessUnitConnectionPurpose.Runtime)
+                    .Select(item => new NpgsqlConnectionStringBuilder(item.Value).Password!)
+                    .ToList());
+        }
+
+        public static Dictionary<string, string?> BuildConfigurationValues(
+            string directoryDatabase,
+            string cheongjuDatabase,
+            string osanDatabase,
+            string directoryMigrator,
+            string directoryRuntime,
+            string cheongjuMigrator,
+            string cheongjuRuntime,
+            string osanMigrator,
+            string osanRuntime,
+            string adminConnectionString,
+            string password)
+        {
+            var admin = new NpgsqlConnectionStringBuilder(adminConnectionString);
+            var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["BusinessUnits:Enabled"] = "true",
+                ["BusinessUnits:Directory:Code"] = "DIRECTORY",
+                ["BusinessUnits:Directory:RuntimeConnection"] = "DirectoryRuntime",
+                ["BusinessUnits:Directory:MigrationConnection"] = "DirectoryMigration",
+                ["BusinessUnits:Directory:AdministratorConnection"] = "DirectoryAdmin",
+                ["BusinessUnits:Directory:ExpectedDatabaseName"] = directoryDatabase,
+                ["BusinessUnits:Directory:MigrationRoleName"] = directoryMigrator,
+                ["BusinessUnits:Directory:RuntimeRoleName"] = directoryRuntime,
+                ["BusinessUnits:Directory:ExpectedSchemaVersion"] = BusinessUnitConfiguration.DirectorySchemaVersion,
+                ["BusinessUnits:Units:Cheongju:Code"] = BusinessUnitCodes.Cheongju,
+                ["BusinessUnits:Units:Cheongju:RuntimeConnection"] = "CheongjuRuntime",
+                ["BusinessUnits:Units:Cheongju:MigrationConnection"] = "CheongjuMigration",
+                ["BusinessUnits:Units:Cheongju:AdministratorConnection"] = "CheongjuAdmin",
+                ["BusinessUnits:Units:Cheongju:ExpectedDatabaseName"] = cheongjuDatabase,
+                ["BusinessUnits:Units:Cheongju:MigrationRoleName"] = cheongjuMigrator,
+                ["BusinessUnits:Units:Cheongju:RuntimeRoleName"] = cheongjuRuntime,
+                ["BusinessUnits:Units:Cheongju:ExpectedSchemaVersion"] = BusinessUnitConfiguration.BusinessSchemaVersion,
+                ["BusinessUnits:Units:Osan:Code"] = BusinessUnitCodes.Osan,
+                ["BusinessUnits:Units:Osan:RuntimeConnection"] = "OsanRuntime",
+                ["BusinessUnits:Units:Osan:MigrationConnection"] = "OsanMigration",
+                ["BusinessUnits:Units:Osan:AdministratorConnection"] = "OsanAdmin",
+                ["BusinessUnits:Units:Osan:ExpectedDatabaseName"] = osanDatabase,
+                ["BusinessUnits:Units:Osan:MigrationRoleName"] = osanMigrator,
+                ["BusinessUnits:Units:Osan:RuntimeRoleName"] = osanRuntime,
+                ["BusinessUnits:Units:Osan:ExpectedSchemaVersion"] = BusinessUnitConfiguration.BusinessSchemaVersion,
+                ["BusinessUnits:DevelopmentSeedUnits:0"] = BusinessUnitCodes.Cheongju,
+                ["BusinessUnits:DevelopmentSeedUnits:1"] = BusinessUnitCodes.Osan,
+                ["BusinessUnits:MembershipBackfill:ApprovedUserIds:0"] = AdminUserId.ToString("D"),
+                ["BusinessUnits:MembershipBackfill:OverallAdministratorUserIds:0"] = AdminUserId.ToString("D"),
+                ["DevelopmentData:SeedEnabled"] = "true",
+                ["DevAuthentication:Enabled"] = "true",
+                ["Database:ApplyMigrationsOnStartup"] = "false",
+                ["Notifications:Dispatch:Enabled"] = "false",
+                ["Notifications:Escalation:Enabled"] = "false",
+                ["Notifications:Teams:Enabled"] = "false",
+                ["Notifications:Teams:DryRun"] = "true",
+                ["Notifications:TeamsActivity:Enabled"] = "false",
+                ["Notifications:TeamsActivity:DryRun"] = "true",
+                ["Notifications:Mail:Enabled"] = "false",
+                ["Notifications:Mail:DryRun"] = "true",
+                ["Notifications:WebPush:Enabled"] = "false",
+                ["Notifications:WebPush:DryRun"] = "true",
+                ["AdminDeletionPurge:Enabled"] = "false",
+                ["RateLimiting:Enabled"] = "false"
+            };
+
+            AddConnections(values, "Directory", directoryDatabase, directoryMigrator, directoryRuntime, admin, password);
+            AddConnections(values, "Cheongju", cheongjuDatabase, cheongjuMigrator, cheongjuRuntime, admin, password);
+            AddConnections(values, "Osan", osanDatabase, osanMigrator, osanRuntime, admin, password);
+            return values;
+        }
+
+        private static void AddConnections(
+            IDictionary<string, string?> values,
+            string prefix,
+            string database,
+            string migrator,
+            string runtime,
+            NpgsqlConnectionStringBuilder admin,
+            string password)
+        {
+            values[$"ConnectionStrings:{prefix}Admin"] = WithDatabase(admin, database).ConnectionString;
+            values[$"ConnectionStrings:{prefix}Migration"] =
+                WithRole(admin, database, migrator, $"{password}-m").ConnectionString;
+            values[$"ConnectionStrings:{prefix}Runtime"] =
+                WithRole(admin, database, runtime, $"{password}-r").ConnectionString;
+        }
+
+        private static Dictionary<(string Code, BusinessUnitConnectionPurpose Purpose), string> BuildConnections(
+            IReadOnlyDictionary<string, string?> values)
+        {
+            return new Dictionary<(string Code, BusinessUnitConnectionPurpose Purpose), string>
+            {
+                [("DIRECTORY", BusinessUnitConnectionPurpose.Administrator)] = values["ConnectionStrings:DirectoryAdmin"]!,
+                [("DIRECTORY", BusinessUnitConnectionPurpose.Migration)] = values["ConnectionStrings:DirectoryMigration"]!,
+                [("DIRECTORY", BusinessUnitConnectionPurpose.Runtime)] = values["ConnectionStrings:DirectoryRuntime"]!,
+                [(BusinessUnitCodes.Cheongju, BusinessUnitConnectionPurpose.Administrator)] = values["ConnectionStrings:CheongjuAdmin"]!,
+                [(BusinessUnitCodes.Cheongju, BusinessUnitConnectionPurpose.Migration)] = values["ConnectionStrings:CheongjuMigration"]!,
+                [(BusinessUnitCodes.Cheongju, BusinessUnitConnectionPurpose.Runtime)] = values["ConnectionStrings:CheongjuRuntime"]!,
+                [(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Administrator)] = values["ConnectionStrings:OsanAdmin"]!,
+                [(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration)] = values["ConnectionStrings:OsanMigration"]!,
+                [(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Runtime)] = values["ConnectionStrings:OsanRuntime"]!
+            };
+        }
+
+        public NpgsqlConnectionStringBuilder GetBuilder(
+            string code,
+            BusinessUnitConnectionPurpose purpose) =>
+            new(connections[(code, purpose)]);
+
+        public async Task<NpgsqlConnection> OpenAsync(
+            string code,
+            BusinessUnitConnectionPurpose purpose,
+            CancellationToken cancellationToken)
+        {
+            var connection = new NpgsqlConnection(connections[(code, purpose)]);
+            await connection.OpenAsync(cancellationToken);
+            return connection;
+        }
+
+        public async Task ExecuteAsync(
+            string code,
+            BusinessUnitConnectionPurpose purpose,
+            string sql,
+            CancellationToken cancellationToken)
+        {
+            await using var connection = await OpenAsync(code, purpose, cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public async Task<T> ReadScalarAsync<T>(
+            string code,
+            BusinessUnitConnectionPurpose purpose,
+            string sql,
+            CancellationToken cancellationToken)
+        {
+            await using var connection = await OpenAsync(code, purpose, cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            return (T)(await command.ExecuteScalarAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Synthetic test query returned null."));
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            var cleanup = new NpgsqlConnectionStringBuilder(admin.ConnectionString)
+            {
+                Database = "postgres",
+                Pooling = false
+            };
+            await using var dataSource = NpgsqlDataSource.Create(cleanup.ConnectionString);
+            foreach (var databaseName in DatabaseNames)
+            {
+                await using var command = dataSource.CreateCommand(
+                    $"drop database if exists {QuoteIdentifier(databaseName)} with (force);");
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+
+        private static NpgsqlConnectionStringBuilder ReadSyntheticHarnessConnection()
+        {
+            var host = Environment.GetEnvironmentVariable("DATABASE_HOST");
+            var port = Environment.GetEnvironmentVariable("DATABASE_PORT");
+            var database = Environment.GetEnvironmentVariable("DATABASE_NAME");
+            var username = Environment.GetEnvironmentVariable("DATABASE_USER");
+            var password = Environment.GetEnvironmentVariable("DATABASE_PASSWORD");
+            if (string.IsNullOrWhiteSpace(host)
+                || !int.TryParse(port, out var portNumber)
+                || string.IsNullOrWhiteSpace(database)
+                || string.IsNullOrWhiteSpace(username)
+                || string.IsNullOrWhiteSpace(password)
+                || !database.StartsWith("emi_qms_e2e_", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Business-unit database tests require the owned isolated PostgreSQL harness.");
+            }
+
+            return new NpgsqlConnectionStringBuilder
+            {
+                Host = host,
+                Port = portNumber,
+                Database = "postgres",
+                Username = username,
+                Password = password,
+                Pooling = false,
+                Timeout = 5
+            };
+        }
+
+        private static NpgsqlConnectionStringBuilder WithDatabase(
+            NpgsqlConnectionStringBuilder source,
+            string database) =>
+            new(source.ConnectionString)
+            {
+                Database = database,
+                Pooling = false
+            };
+
+        private static NpgsqlConnectionStringBuilder WithRole(
+            NpgsqlConnectionStringBuilder source,
+            string database,
+            string username,
+            string password) =>
+            new(source.ConnectionString)
+            {
+                Database = database,
+                Username = username,
+                Password = password,
+                Pooling = false
+            };
+
+        private static string QuoteIdentifier(string value) =>
+            new NpgsqlCommandBuilder().QuoteIdentifier(value);
+
+        private static string FindRepositoryRoot()
+        {
+            var directory = new DirectoryInfo(AppContext.BaseDirectory);
+            while (directory is not null)
+            {
+                if (Directory.Exists(Path.Combine(directory.FullName, "database", "migrations"))
+                    && Directory.Exists(Path.Combine(directory.FullName, "database", "directory-migrations")))
+                {
+                    return directory.FullName;
+                }
+                directory = directory.Parent;
+            }
+            throw new DirectoryNotFoundException("Could not find repository root.");
+        }
+    }
+
+    private sealed class TestEnvironment(string contentRootPath) : IWebHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = DevelopmentFeaturePolicy.TestingEnvironmentName;
+        public string ApplicationName { get; set; } = "Emi.Qms.Api.Tests";
+        public string WebRootPath { get; set; } = contentRootPath;
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string ContentRootPath { get; set; } = contentRootPath;
+        public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(contentRootPath);
+    }
+}

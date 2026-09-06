@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ProductionPlanning;
 using Npgsql;
@@ -14,13 +15,17 @@ public sealed class NotificationDeliveryStore(
 {
     private const string SystemName = "EMI PMS";
 
-    public async Task<int> CreateImmediateDeliveriesAsync(NotificationOptions options, CancellationToken cancellationToken)
+    public async Task<int> CreateImmediateDeliveriesAsync(
+        NotificationOptions options,
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
+        if (!CanUseExternalNotifications(target)) return 0;
         var now = timeProvider.GetUtcNow();
         var dedupeAfter = now.AddHours(-Math.Max(1, options.Dispatch.DedupeWindowHours));
         var batchWindowSeconds = Math.Max(1, options.Dispatch.BatchWindowSeconds);
 
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -59,8 +64,12 @@ public sealed class NotificationDeliveryStore(
         return created;
     }
 
-    public async Task<int> CreateDailyDigestDeliveriesIfDueAsync(NotificationOptions options, CancellationToken cancellationToken)
+    public async Task<int> CreateDailyDigestDeliveriesIfDueAsync(
+        NotificationOptions options,
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
+        if (!CanUseExternalNotifications(target)) return 0;
         if (!options.DailyDigest.Enabled)
         {
             return 0;
@@ -77,7 +86,7 @@ public sealed class NotificationDeliveryStore(
             return 0;
         }
 
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         if (await IsHolidayAsync(connection, digestDate, cancellationToken))
         {
@@ -210,9 +219,14 @@ public sealed class NotificationDeliveryStore(
         int retryCount,
         string workerInstanceId,
         TimeSpan leaseDuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        return ClaimDeliveriesAsync(null, limit, retryCount, workerInstanceId, leaseDuration, cancellationToken);
+        if (!CanUseExternalNotifications(target))
+        {
+            return Task.FromResult<IReadOnlyList<ClaimedNotificationDelivery>>([]);
+        }
+        return ClaimDeliveriesAsync(null, limit, retryCount, workerInstanceId, leaseDuration, cancellationToken, target);
     }
 
     public async Task<ClaimedNotificationDelivery?> ClaimDeliveryAsync(
@@ -220,9 +234,11 @@ public sealed class NotificationDeliveryStore(
         int retryCount,
         string workerInstanceId,
         TimeSpan leaseDuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        var claimed = await ClaimDeliveriesAsync(deliveryId, 1, retryCount, workerInstanceId, leaseDuration, cancellationToken);
+        if (!CanUseExternalNotifications(target)) return null;
+        var claimed = await ClaimDeliveriesAsync(deliveryId, 1, retryCount, workerInstanceId, leaseDuration, cancellationToken, target);
         return claimed.SingleOrDefault();
     }
 
@@ -232,7 +248,8 @@ public sealed class NotificationDeliveryStore(
         int retryCount,
         string workerInstanceId,
         TimeSpan leaseDuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target)
     {
         if (string.IsNullOrWhiteSpace(workerInstanceId))
         {
@@ -248,7 +265,7 @@ public sealed class NotificationDeliveryStore(
         var leaseExpiresAtUtc = now.Add(leaseDuration);
         var maxAttempts = Math.Max(1, retryCount);
 
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -499,10 +516,12 @@ public sealed class NotificationDeliveryStore(
     public async Task<bool> MarkProviderCallStartedAsync(
         Guid deliveryId,
         Guid claimToken,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
+        if (!CanUseExternalNotifications(target)) return false;
         var now = timeProvider.GetUtcNow();
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             update notification_delivery_attempts attempt
             set provider_call_started_at_utc = @now,
@@ -527,8 +546,10 @@ public sealed class NotificationDeliveryStore(
         Guid claimToken,
         NotificationChannelResult result,
         int retryCount,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
+        if (!CanUseExternalNotifications(target)) return false;
         var now = timeProvider.GetUtcNow();
         var terminalResult = (result.Status is NotificationDeliveryStatuses.Sent
             or NotificationDeliveryStatuses.DryRunSent
@@ -537,7 +558,7 @@ public sealed class NotificationDeliveryStore(
             || IsNonRetryableNotificationFailure(result.ErrorCode);
         var maxAttempts = Math.Max(1, retryCount);
 
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
@@ -1521,11 +1542,18 @@ public sealed class NotificationDeliveryStore(
             reader.GetBoolean(5));
     }
 
-    public async Task<NotificationDeliveryMessage> RenderMessageAsync(NotificationDeliveryRecord delivery, CancellationToken cancellationToken)
+    public async Task<NotificationDeliveryMessage> RenderMessageAsync(
+        NotificationDeliveryRecord delivery,
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
+        if (!CanUseExternalNotifications(target))
+        {
+            throw new BusinessUnitContextUnavailableException("external_notifications_disabled");
+        }
         if (delivery.DeliveryType == NotificationDeliveryTypes.DailyDigest && delivery.RecipientUserId is not null)
         {
-            return await RenderDailyDigestAsync(delivery, cancellationToken);
+            return await RenderDailyDigestAsync(delivery, cancellationToken, target);
         }
 
         if (delivery.DeliveryType == NotificationDeliveryTypes.ManualTest)
@@ -1877,7 +1905,10 @@ public sealed class NotificationDeliveryStore(
         };
     }
 
-    private async Task<NotificationDeliveryMessage> RenderDailyDigestAsync(NotificationDeliveryRecord delivery, CancellationToken cancellationToken)
+    private async Task<NotificationDeliveryMessage> RenderDailyDigestAsync(
+        NotificationDeliveryRecord delivery,
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target)
     {
         var kindLabel = DeliveryTypeLabel(NotificationDeliveryTypes.DailyDigest);
         var digestTitle = $"{ResolveDailyDigestDateLabel(delivery)} 업무 요약";
@@ -1905,7 +1936,7 @@ public sealed class NotificationDeliveryStore(
                 RecipientUserIsActive: delivery.RecipientUserIsActive);
         }
 
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var lines = new List<string>
         {
@@ -3341,9 +3372,17 @@ public sealed class NotificationDeliveryStore(
             reader.GetInt32(59));
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private bool CanUseExternalNotifications(BusinessUnitDatabaseTarget? target)
     {
-        var connectionString = connectionStringProvider.GetConnectionString();
+        return !connectionStringProvider.BusinessUnits.Enabled
+            || connectionStringProvider.ExternalNotificationsEnabled(target);
+    }
+
+    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    {
+        var connectionString = target is null
+            ? connectionStringProvider.GetConnectionString()
+            : connectionStringProvider.GetConnectionString(target, BusinessUnitConnectionPurpose.Runtime);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");

@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Security;
 using Npgsql;
 
@@ -13,6 +14,27 @@ public sealed class DatabaseRuntimePrivilegeManager
         string databaseName,
         string migrationRoleName,
         string runtimeRoleName,
+        CancellationToken cancellationToken)
+    {
+        await ConfigureBootstrapPrivilegesAsync(
+            connection,
+            transaction,
+            databaseName,
+            migrationRoleName,
+            runtimeRoleName,
+            BusinessUnitDatabaseKind.Business,
+            [],
+            cancellationToken);
+    }
+
+    public async Task ConfigureBootstrapPrivilegesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string databaseName,
+        string migrationRoleName,
+        string runtimeRoleName,
+        BusinessUnitDatabaseKind databaseKind,
+        IReadOnlyCollection<string> deniedRoleNames,
         CancellationToken cancellationToken)
     {
         var database = QuoteIdentifier(databaseName);
@@ -32,7 +54,6 @@ public sealed class DatabaseRuntimePrivilegeManager
             revoke all privileges on schema public from {runtime};
             grant usage on schema public to {runtime};
 
-            create extension if not exists "uuid-ossp";
             revoke execute on all functions in schema public from public;
             grant execute on all functions in schema public to {migrator}, {runtime};
 
@@ -46,13 +67,36 @@ public sealed class DatabaseRuntimePrivilegeManager
                 grant execute on functions to {runtime};
             """,
             cancellationToken);
+
+        if (databaseKind == BusinessUnitDatabaseKind.Business)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                "create extension if not exists \"uuid-ossp\";",
+                cancellationToken);
+        }
+
+        foreach (var deniedRoleName in deniedRoleNames
+                     .Where(role => !string.Equals(role, migrationRoleName, StringComparison.Ordinal)
+                                    && !string.Equals(role, runtimeRoleName, StringComparison.Ordinal))
+                     .Distinct(StringComparer.Ordinal))
+        {
+            var deniedRole = QuoteIdentifier(deniedRoleName);
+            await ExecuteAsync(
+                connection,
+                transaction,
+                $"revoke connect, temporary on database {database} from {deniedRole};",
+                cancellationToken);
+        }
     }
 
     public async Task ReconcileAfterMigrationAsync(
         NpgsqlConnection connection,
         string? configuredMigrationRoleName,
         string? configuredRuntimeRoleName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseKind databaseKind = BusinessUnitDatabaseKind.Business)
     {
         if (string.IsNullOrWhiteSpace(configuredMigrationRoleName)
             && string.IsNullOrWhiteSpace(configuredRuntimeRoleName))
@@ -85,10 +129,27 @@ public sealed class DatabaseRuntimePrivilegeManager
         var runtime = QuoteIdentifier(configuredRuntimeRoleName);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        await ExecuteAsync(
-            connection,
-            transaction,
-            $"""
+        var objectGrants = databaseKind == BusinessUnitDatabaseKind.Directory
+            ? $"""
+              revoke all privileges on all tables in schema public from {runtime};
+              grant select on all tables in schema public to {runtime};
+
+                  revoke insert, update, delete, truncate, references, trigger
+                  on table public.schema_migrations, public.qms_database_identity,
+                      public.directory_business_units, public.directory_identities,
+                      public.directory_business_unit_memberships, public.directory_overall_administrators,
+                      public.directory_membership_audit_events
+                  from {runtime};
+              grant select
+                  on table public.schema_migrations, public.qms_database_identity,
+                      public.directory_business_units, public.directory_identities,
+                      public.directory_business_unit_memberships, public.directory_overall_administrators,
+                      public.directory_membership_audit_events
+                  to {runtime};
+
+              revoke all privileges on all sequences in schema public from {runtime};
+              """
+            : $"""
             revoke all privileges on all tables in schema public from {runtime};
             grant select, insert, update, delete on all tables in schema public to {runtime};
             revoke insert, update, delete, truncate, references, trigger
@@ -105,17 +166,47 @@ public sealed class DatabaseRuntimePrivilegeManager
 
             revoke all privileges on all sequences in schema public from {runtime};
             grant usage, select on all sequences in schema public to {runtime};
+            """;
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            $"""
+            {objectGrants}
 
             alter default privileges in schema public
                 revoke execute on functions from public;
             alter default privileges in schema public
-                grant select, insert, update, delete on tables to {runtime};
+                {(databaseKind == BusinessUnitDatabaseKind.Directory
+                    ? $"grant select on tables to {runtime};"
+                    : $"grant select, insert, update, delete on tables to {runtime};")}
             alter default privileges in schema public
-                grant usage, select on sequences to {runtime};
+                {(databaseKind == BusinessUnitDatabaseKind.Directory
+                    ? $"revoke all privileges on sequences from {runtime};"
+                    : $"grant usage, select on sequences to {runtime};")}
             alter default privileges in schema public
                 grant execute on functions to {runtime};
             """,
             cancellationToken);
+
+        if (databaseKind == BusinessUnitDatabaseKind.Business)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                $"""
+                do $database_identity_privileges$
+                begin
+                    if to_regclass('public.qms_database_identity') is not null then
+                        execute 'revoke insert, update, delete, truncate, references, trigger '
+                            || 'on table public.qms_database_identity from {runtime}';
+                        execute 'grant select on table public.qms_database_identity to {runtime}';
+                    end if;
+                end
+                $database_identity_privileges$;
+                """,
+                cancellationToken);
+        }
 
         var functionGrantStatements = new List<string>();
         await using (var command = connection.CreateCommand())

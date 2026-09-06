@@ -16,7 +16,9 @@ public sealed class UserAdministrationStore(
 
     public async Task<UserAdministrationSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
-        var developmentUsers = BuildDevelopmentUsers();
+        var developmentUsers = connectionStringProvider.BusinessUnits.Enabled
+            ? []
+            : BuildDevelopmentUsers();
         if (string.IsNullOrWhiteSpace(connectionStringProvider.GetConnectionString()))
         {
             return new UserAdministrationSnapshot(
@@ -25,7 +27,13 @@ public sealed class UserAdministrationStore(
                 SeedIdentityData.Roles);
         }
 
-        var dbSnapshot = await dbIdentityStore.ReadUserAdministrationSnapshotAsync(cancellationToken);
+        var dbSnapshot = await dbIdentityStore.ReadUserAdministrationSnapshotAsync(
+            includeDevUsers: connectionStringProvider.BusinessUnits.Enabled,
+            cancellationToken);
+        if (connectionStringProvider.BusinessUnits.Enabled)
+        {
+            return dbSnapshot;
+        }
         return dbSnapshot with
         {
             Users = developmentUsers.Concat(dbSnapshot.Users)

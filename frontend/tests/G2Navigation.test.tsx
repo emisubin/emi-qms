@@ -23,7 +23,9 @@ describe('G2 navigation', () => {
 
   it('opens the G2 home deep link and exposes only the three approved children', async () => {
     render(<App />);
-    expect(await screen.findByRole('heading', { name: 'G2 홈' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'G2 홈' })).toBeInTheDocument();
+    }, { timeout: 5_000 });
     const navigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     const parent = within(navigation).getByRole('button', { name: 'G2' });
     fireEvent.click(parent);

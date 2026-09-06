@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.ReviewSafe;
@@ -6,9 +7,26 @@ public sealed class ReviewSafeStatusService(
     DatabaseConnectionStringProvider connectionStringProvider,
     DatabaseMigrationCatalog migrationCatalog,
     MigrationLedgerInspector migrationLedgerInspector,
+    BusinessUnitDirectoryMigrationCatalog directoryMigrationCatalog,
     IConfiguration configuration,
     IHostEnvironment environment)
 {
+    public ReviewSafeStatusService(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        DatabaseMigrationCatalog migrationCatalog,
+        MigrationLedgerInspector migrationLedgerInspector,
+        IConfiguration configuration,
+        IHostEnvironment environment)
+        : this(
+            connectionStringProvider,
+            migrationCatalog,
+            migrationLedgerInspector,
+            new BusinessUnitDirectoryMigrationCatalog(migrationCatalog),
+            configuration,
+            environment)
+    {
+    }
+
     public async Task<ReviewSafeRuntimeStatus> CheckAsync(CancellationToken cancellationToken)
     {
         var enabled = ReviewSafeMode.IsEnabled(configuration);
@@ -50,6 +68,13 @@ public sealed class ReviewSafeStatusService(
                 catalogState.LatestVersion,
                 catalogState.ExpectedCount,
                 catalogState.LedgerStatus);
+        }
+
+        if (connectionStringProvider.BusinessUnits.Enabled)
+        {
+            return await CheckBusinessUnitDatabasesAsync(
+                catalogState,
+                cancellationToken);
         }
 
         var connectionString = connectionStringProvider.GetConnectionString();
@@ -121,6 +146,110 @@ public sealed class ReviewSafeStatusService(
                 catalogState.ExpectedCount,
                 MigrationLedgerInspector.UnavailableStatus);
         }
+    }
+
+    private async Task<ReviewSafeRuntimeStatus> CheckBusinessUnitDatabasesAsync(
+        (bool Valid, int ExpectedCount, string LatestVersion, string Reason, string LedgerStatus) businessCatalogState,
+        CancellationToken cancellationToken)
+    {
+        var expectedApplicationNamePrefix = ReviewSafeMode.ResolveDatabaseApplicationName(configuration);
+        var expectedCount = directoryMigrationCatalog.Catalog.GetSnapshot().ExpectedCount
+            + (businessCatalogState.ExpectedCount * connectionStringProvider.BusinessUnits.Businesses.Count);
+        var actualCount = 0;
+        var missing = new List<string>();
+        var unexpected = new List<string>();
+        var approvedLegacy = new List<string>();
+        var allReadOnly = true;
+        var allApplicationNamesMatch = true;
+        var allLedgersReady = true;
+        var allIdentitiesMatch = true;
+        var allReachable = true;
+
+        foreach (var target in connectionStringProvider.BusinessUnits.AllTargets())
+        {
+            try
+            {
+                var connectionString = connectionStringProvider.GetConnectionString(
+                    target,
+                    BusinessUnitConnectionPurpose.Runtime);
+                await using var dataSource = NpgsqlDataSource.Create(connectionString);
+                await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+                var readOnly = await ReadSettingAsync(connection, "transaction_read_only", cancellationToken);
+                var applicationName = await ReadSettingAsync(connection, "application_name", cancellationToken);
+                var ledger = target.Kind == BusinessUnitDatabaseKind.Directory
+                    ? await directoryMigrationCatalog.InspectAsync(connection, cancellationToken)
+                    : await migrationLedgerInspector.InspectAsync(connection, cancellationToken);
+
+                allReadOnly &= string.Equals(readOnly, "on", StringComparison.OrdinalIgnoreCase);
+                allApplicationNamesMatch &= string.Equals(
+                    applicationName,
+                    $"{expectedApplicationNamePrefix}-{target.Code.ToLowerInvariant()}",
+                    StringComparison.Ordinal);
+                allLedgersReady &= ledger.MigrationLedgerReady;
+                allIdentitiesMatch &= await BusinessUnitDatabaseIdentity.IsExpectedAsync(
+                    connection,
+                    target,
+                    cancellationToken);
+                actualCount += ledger.ActualMigrationCount ?? 0;
+                missing.AddRange(ledger.MissingMigrations.Select(version => $"{target.Code}:{version}"));
+                unexpected.AddRange(ledger.UnexpectedMigrations.Select(version => $"{target.Code}:{version}"));
+                approvedLegacy.AddRange(ledger.ApprovedLegacyMigrations.Select(version => $"{target.Code}:{version}"));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Continue probing every isolated target without disclosing connection
+                // details or substituting a healthy database for a failed one.
+                allReachable = false;
+                allReadOnly = false;
+            }
+        }
+
+        var ready = allReachable
+            && allReadOnly
+            && allApplicationNamesMatch
+            && allLedgersReady
+            && allIdentitiesMatch;
+        var reason = !allReachable
+            ? "database_unreachable"
+            : !allReadOnly
+                ? "database_not_read_only"
+                : !allApplicationNamesMatch
+                    ? "database_application_name_mismatch"
+                    : !allIdentitiesMatch
+                        ? "business_unit_database_identity_mismatch"
+                        : !allLedgersReady
+                            ? "migration_ledger_mismatch"
+                            : "ready";
+
+        return new ReviewSafeRuntimeStatus(
+            "ReviewSafe",
+            true,
+            false,
+            false,
+            false,
+            allReadOnly,
+            false,
+            environment.EnvironmentName,
+            ready,
+            reason,
+            businessCatalogState.LatestVersion,
+            ready ? businessCatalogState.LatestVersion : null,
+            ready ? MigrationLedgerInspector.ExactStatus : MigrationLedgerInspector.MismatchStatus,
+            expectedCount,
+            allReachable ? actualCount : null,
+            missing,
+            unexpected,
+            approvedLegacy,
+            allIdentitiesMatch,
+            allLedgersReady,
+            false,
+            false,
+            false,
+            false);
     }
 
     private (bool Valid, int ExpectedCount, string LatestVersion, string Reason, string LedgerStatus) ReadCatalogState()

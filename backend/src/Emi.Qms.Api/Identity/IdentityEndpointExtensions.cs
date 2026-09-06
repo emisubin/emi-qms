@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.BusinessUnits;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.Identity;
@@ -12,16 +13,34 @@ public static class IdentityEndpointExtensions
         var api = app.MapGroup("/api");
 
         api.MapGet("/me", async (
+            HttpContext httpContext,
             ClaimsPrincipal principal,
             IIdentityStore identityStore,
             UserProfilePhotoStore profilePhotoStore,
+            DatabaseConnectionStringProvider connectionStringProvider,
             IConfiguration configuration,
             IHostEnvironment environment,
             CancellationToken cancellationToken) =>
         {
+            var businessUnit = BusinessUnitRequestContextFeature.Get(httpContext);
+            var businessUnitAccessStatus = principal.FindFirst(QmsClaimTypes.BusinessUnitAccessStatus)?.Value;
+            if (connectionStringProvider.BusinessUnits.Enabled
+                && (businessUnit?.IsSelected != true
+                    || !string.Equals(
+                        businessUnitAccessStatus,
+                        BusinessUnitAccessStatuses.Selected,
+                        StringComparison.Ordinal)))
+            {
+                return Results.Ok(CurrentBusinessUnitAccessPendingResponse.From(principal, businessUnit));
+            }
+
             var effectiveProfile = await GetProfileByClaimAsync(principal, identityStore, QmsClaimTypes.UserId, cancellationToken);
             if (effectiveProfile is null)
             {
+                if (connectionStringProvider.BusinessUnits.Enabled)
+                {
+                    return Results.Ok(CurrentBusinessUnitAccessPendingResponse.From(principal, businessUnit));
+                }
                 return Results.Unauthorized();
             }
 
@@ -336,6 +355,46 @@ public static class IdentityEndpointExtensions
             result.Status == "Failed" ? 1 : 0,
             0,
             [new AdminBulkActionItemResponse(id, result.Status, result.Message)]);
+    }
+}
+
+public sealed record CurrentBusinessUnitAccessPendingResponse(
+    Guid? UserId,
+    string DisplayName,
+    string AuthProvider,
+    bool IsActive,
+    bool ApprovalPending,
+    string BusinessUnitAccessStatus,
+    IReadOnlyList<string> AllowedBusinessUnits,
+    bool IsOverallAdministrator,
+    string ErrorCode)
+{
+    public static CurrentBusinessUnitAccessPendingResponse From(
+        ClaimsPrincipal principal,
+        BusinessUnitRequestContext? context)
+    {
+        var userId = Guid.TryParse(principal.FindFirst(QmsClaimTypes.UserId)?.Value, out var parsed)
+            ? parsed
+            : (Guid?)null;
+        var accessStatus = principal.FindFirst(QmsClaimTypes.BusinessUnitAccessStatus)?.Value
+            ?? context?.Status
+            ?? BusinessUnitAccessStatuses.SelectionRequired;
+        var errorCode = string.Equals(
+            accessStatus,
+            BusinessUnitAccessStatuses.LocalProfilePending,
+            StringComparison.Ordinal)
+            ? "business_unit_local_profile_pending"
+            : context?.Reason ?? "business_unit_context_missing";
+        return new CurrentBusinessUnitAccessPendingResponse(
+            userId,
+            principal.Identity?.Name ?? "Microsoft 365 사용자",
+            principal.FindFirst(QmsClaimTypes.AuthProvider)?.Value ?? QmsAuthProviders.EntraId,
+            true,
+            true,
+            accessStatus,
+            context?.AllowedBusinessUnits ?? [],
+            context?.IsOverallAdministrator == true,
+            errorCode);
     }
 }
 

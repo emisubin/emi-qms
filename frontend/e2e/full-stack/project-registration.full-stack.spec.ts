@@ -1286,7 +1286,15 @@ test('full-stack: project registration, permissions, status, and panel count use
 
   await page.getByRole('button', { name: '재활성' }).click();
   await page.getByLabel('사유*').fill('Full-stack 재활성');
+  const reactivationMutation = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/projects/${projectId}/reactivate`);
+  const reactivationRefresh = page.waitForResponse((response) =>
+    response.request().method() === 'GET'
+      && new URL(response.url()).pathname === `/api/projects/${projectId}`);
   await page.getByRole('button', { name: '확인' }).click();
+  expect((await reactivationMutation).ok()).toBeTruthy();
+  expect((await reactivationRefresh).ok()).toBeTruthy();
   await expect(page.locator('.status-badge', { hasText: '진행' })).toBeVisible();
 
   await page.getByRole('button', { name: '삭제' }).click();

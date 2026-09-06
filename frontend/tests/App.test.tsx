@@ -55,9 +55,9 @@ describe('App', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
   });
 
-  it('uses Home for / and /home while keeping the project list at /projects', async () => {
+  it('uses Home for / and keeps the company and privacy navigation available', async () => {
     window.history.pushState(null, '', '/');
-    const { unmount } = render(<App />);
+    render(<App />);
 
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
     expect(screen.getByAltText('EMI PMS - Project Management System')).toBeInTheDocument();
@@ -77,6 +77,11 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: '공지사항' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '알림' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Pending' })).toBeInTheDocument();
+  });
+
+  it('keeps the project list at /projects while shared navigation returns Home to /', async () => {
+    window.history.pushState(null, '', '/');
+    render(<App />);
 
     const navigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     expect(within(navigation).getByRole('button', { name: '홈' })).toHaveClass('active');
@@ -91,9 +96,12 @@ describe('App', () => {
     fireEvent.click(within(navigation).getByRole('button', { name: '홈' }));
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
+  });
 
-    const desktopNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '프로젝트' }));
+  it('uses Home for browser history and a direct /home load', async () => {
+    window.history.pushState(null, '', '/projects');
+    const { unmount } = render(<App />);
+
     expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     act(() => {
       window.history.pushState(null, '', '/home');

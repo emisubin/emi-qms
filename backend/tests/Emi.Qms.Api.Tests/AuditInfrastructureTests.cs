@@ -15,6 +15,9 @@ public sealed class AuditInfrastructureTests
                 audit_coverage_state audit_event_changes audit_events
                 site_access_coverage_state site_access_sessions
                 """),
+            ["DatabaseBoundaryMetadata"] = ParseRelationNames("""
+                qms_database_identity
+                """),
             ["ExistingCanonicalLedger"] = ParseRelationNames("""
                 admin_master_change_logs authorization_audit_events data_export_events
                 form_template_audit_events lqc_item_setting_audit_events material_category_audit_events
@@ -168,7 +171,7 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(94, trackedRelations.Count);
-        Assert.Equal(53, excludedRelations.Length);
+        Assert.Equal(54, excludedRelations.Length);
     }
 
     [Fact]

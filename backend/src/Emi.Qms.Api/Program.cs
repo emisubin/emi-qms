@@ -2,6 +2,7 @@ using Emi.Qms.Api;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Audit;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Calendar;
 using Emi.Qms.Api.DataExports;
 using Emi.Qms.Api.Home;
@@ -43,6 +44,9 @@ var uploadSecurityConfiguration = builder.Configuration
     ?? new UploadSecurityOptions();
 
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+
+var businessUnitConfiguration = BusinessUnitConfiguration.Read(builder.Configuration);
+businessUnitConfiguration.ThrowIfInvalid();
 
 builder.Services.AddHostFiltering(options =>
 {
@@ -116,9 +120,14 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
+builder.Services.AddSingleton<BusinessUnitDirectoryStore>();
+builder.Services.AddSingleton<BusinessUnitDatabaseBoundaryValidator>();
+builder.Services.AddSingleton<BusinessUnitResolver>();
+builder.Services.AddSingleton<BusinessUnitMembershipBackfillRunner>();
 builder.Services.AddSingleton<DatabaseHealthChecker>();
 builder.Services.AddSingleton<DatabaseMigrationCatalog>();
 builder.Services.AddSingleton<MigrationLedgerInspector>();
+builder.Services.AddSingleton<BusinessUnitDirectoryMigrationCatalog>();
 builder.Services.AddSingleton<DatabaseRuntimePrivilegeManager>();
 builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<DatabaseRoleBootstrapper>();
@@ -240,14 +249,15 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     app.Environment);
 var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
 var bootstrapDatabaseRolesOnly = args.Contains("--bootstrap-database-roles", StringComparer.Ordinal);
+var backfillBusinessUnitMembershipsOnly = args.Contains("--backfill-business-unit-memberships", StringComparer.Ordinal);
 var splitDatabaseRolesEnabled = !string.IsNullOrWhiteSpace(app.Configuration["Database:MigrationRoleName"])
     || !string.IsNullOrWhiteSpace(app.Configuration["Database:RuntimeRoleName"]);
-if (migrateOnly && bootstrapDatabaseRolesOnly)
+if (new[] { migrateOnly, bootstrapDatabaseRolesOnly, backfillBusinessUnitMembershipsOnly }.Count(selected => selected) > 1)
 {
     throw new InvalidOperationException("Only one database operation mode can be selected.");
 }
 
-if (migrateOnly && splitDatabaseRolesEnabled)
+if (migrateOnly && (splitDatabaseRolesEnabled || businessUnitConfiguration.Enabled))
 {
     DatabaseOperationSecurityPolicy.ThrowIfInvalid(
         app.Environment,
@@ -261,8 +271,33 @@ else if (bootstrapDatabaseRolesOnly)
         app.Configuration,
         DatabaseOperationMode.RoleBootstrap);
 }
+else if (backfillBusinessUnitMembershipsOnly)
+{
+    DatabaseOperationSecurityPolicy.ThrowIfInvalid(
+        app.Environment,
+        app.Configuration,
+        DatabaseOperationMode.MembershipBackfill);
+}
 else
 {
+    if (businessUnitConfiguration.Enabled)
+    {
+        var databaseConfigurationErrors = businessUnitConfiguration
+            .ValidateOperationConnections(
+                app.Configuration,
+                BusinessUnitConnectionPurpose.Runtime,
+                requireSsl: app.Environment.IsProduction())
+            .Concat(businessUnitConfiguration.ValidateSameServer(
+                app.Configuration,
+                BusinessUnitConnectionPurpose.Runtime))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (databaseConfigurationErrors.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Business-unit runtime database configuration is invalid ({databaseConfigurationErrors.Count} validation error(s)).");
+        }
+    }
     QmsAuthenticationModePolicy.ThrowIfInvalidConfiguration(app.Environment, app.Configuration);
     ProductionSecurityPolicy.ThrowIfInvalid(
         app.Environment,
@@ -287,6 +322,17 @@ if (migrateOnly)
     app.Logger.LogInformation(
         "Database migration completed with {ExpectedMigrationCount} verified migrations.",
         inspection.ExpectedMigrationCount);
+    return;
+}
+
+if (backfillBusinessUnitMembershipsOnly)
+{
+    var count = await app.Services
+        .GetRequiredService<BusinessUnitMembershipBackfillRunner>()
+        .ApplyAsync(CancellationToken.None);
+    app.Logger.LogInformation(
+        "Business-unit membership backfill completed with {IdentityCount} approved identities.",
+        count);
     return;
 }
 
@@ -337,6 +383,7 @@ app.UseExceptionHandler(exceptionApp =>
 app.UseCors("FrontendDevelopment");
 app.UseMiddleware<ReviewSafeMutationGuardMiddleware>();
 app.UseAuthentication();
+app.UseMiddleware<BusinessUnitCapabilityMiddleware>();
 if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
 {
     app.UseRateLimiter();

@@ -28,9 +28,11 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/projects');
-  await expect(page.getByRole('heading', { name: '오산 프로젝트' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
   await expect(page.getByText('등록된 프로젝트가 없습니다.')).toBeVisible();
-  await page.getByRole('button', { name: '프로젝트 등록' }).first().click();
+  const emptyCreateActions = page.getByRole('button', { name: '신규 프로젝트' });
+  await expect(emptyCreateActions).toHaveCount(2);
+  await emptyCreateActions.nth(1).click();
 
   const expectedFields = ['프로젝트 Title', '프로젝트 코드', '거래처', 'PO No', 'W/O No', '납기일', '제품명', '수량'];
   for (const field of expectedFields) {
@@ -175,6 +177,21 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(mobileList.getByText('시작 전')).toBeVisible();
   await expect(mobileList.getByText('0%')).toBeVisible();
+  const osanMobilePage = page.locator('[data-presentation-contract="project-list-page-v1"]');
+  await expect(osanMobilePage).toHaveAttribute('data-presentation-layout', 'mobile');
+  await expect(osanMobilePage).toContainText('납기를 먼저 보고 필요한 프로젝트를 선택하세요.');
+  await expect(osanMobilePage).not.toContainText('병목');
+  await expect(osanMobilePage.getByRole('button', { name: '+ 프로젝트', exact: true })).toBeVisible();
+  await expect(osanMobilePage.locator(':scope > .mobile-filter-trigger')).toBeVisible();
+  await expect(osanMobilePage.locator(':scope > .project-kpi-grid .dashboard-kpi-card')).toHaveCount(3);
+  await expect(osanMobilePage.getByRole('tab')).toHaveCount(3);
+  await expect(osanMobilePage.getByRole('tab', { name: '시작 전' })).toBeVisible();
+  await expect(osanMobilePage.getByText('Excel')).toHaveCount(0);
+  await expect(osanMobilePage.getByText('Pending')).toHaveCount(0);
+  await expect(osanMobilePage.getByRole('checkbox')).toHaveCount(0);
+  const osanMobilePageContract = await projectListPageContract(page);
+  expect(osanMobilePageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
+  expect(osanMobilePageContract.structure.commonOrderValid).toBe(true);
   const osanMobileListContract = await projectListContract(page);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-mobile-390.png'), fullPage: true });
@@ -197,6 +214,14 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   expect(await desktopListCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(desktopProjectRow.getByText('시작 전')).toBeVisible();
   await expect(desktopProjectRow.getByText('0%')).toBeVisible();
+  const osanDesktopPage = page.locator('[data-presentation-contract="project-list-page-v1"]');
+  await expect(osanDesktopPage).toHaveAttribute('data-presentation-layout', 'desktop');
+  await expect(osanDesktopPage.locator(':scope > form.toolbar')).toBeVisible();
+  await expect(osanDesktopPage.locator(':scope > .project-kpi-grid .dashboard-kpi-card')).toHaveCount(3);
+  await expect(osanDesktopPage.getByRole('tab')).toHaveCount(3);
+  const osanDesktopPageContract = await projectListPageContract(page);
+  expect(osanDesktopPageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
+  expect(osanDesktopPageContract.structure.commonOrderValid).toBe(true);
   const osanDesktopListContract = await projectListContract(page);
   expect(osanDesktopListContract.geometry.rowHeight).toBeGreaterThanOrEqual(60);
   expect(osanDesktopListContract.geometry.headerBodyAligned).toBe(true);
@@ -211,6 +236,14 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   const cheongjuDesktopProjectRow = cheongjuDesktopList.locator('[data-presentation-row="project"]');
   await expect(cheongjuDesktopProjectRow).toHaveCount(1);
   await expect(cheongjuDesktopProjectRow.locator(':scope > .project-selection-cell')).toHaveCount(1);
+  const cheongjuDesktopPage = page.locator('[data-presentation-contract="project-list-page-v1"]');
+  await expect(cheongjuDesktopPage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
+  await expect(cheongjuDesktopPage.getByRole('button', { name: '프로젝트 Excel 양식', includeHidden: true })).toHaveCount(1);
+  await expect(cheongjuDesktopPage.getByRole('button', { name: '프로젝트 Excel 업로드', includeHidden: true })).toHaveCount(1);
+  await expect(cheongjuDesktopPage.getByRole('button', { name: '선택 Excel 내보내기' })).toBeVisible();
+  await expect(cheongjuDesktopPage.getByRole('tab', { name: '삭제 보관함' })).toBeVisible();
+  const cheongjuDesktopPageContract = await projectListPageContract(page);
+  expect(cheongjuDesktopPageContract).toEqual(osanDesktopPageContract);
   const cheongjuDesktopListContract = await projectListContract(page);
   expect(cheongjuDesktopListContract.geometry.headerBodyAligned).toBe(true);
   expect(cheongjuDesktopListContract).toEqual(osanDesktopListContract);
@@ -253,6 +286,12 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   const cheongjuMobileList = page.getByTestId('project-list-mobile');
   await expect(cheongjuMobileList).toBeVisible();
   await expect(cheongjuMobileList.locator('[data-presentation-row="project"]')).toHaveCount(1);
+  const cheongjuMobilePage = page.locator('[data-presentation-contract="project-list-page-v1"]');
+  await expect(cheongjuMobilePage).toHaveAttribute('data-presentation-layout', 'mobile');
+  await expect(cheongjuMobilePage.getByRole('button', { name: '+ 프로젝트', exact: true })).toBeVisible();
+  await expect(cheongjuMobilePage.locator(':scope > .mobile-filter-trigger')).toBeVisible();
+  const cheongjuMobilePageContract = await projectListPageContract(page);
+  expect(cheongjuMobilePageContract).toEqual(osanMobilePageContract);
   expect(await projectListContract(page)).toEqual(osanMobileListContract);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-mobile-390.png'), fullPage: true });
@@ -392,7 +431,7 @@ function currentUser(selectedBusinessUnit: 'CHEONGJU' | 'OSAN') {
   };
   return {
     ...principal,
-    permissions: ['projects.read', 'Project.Create', 'Project.Read.All'],
+    permissions: ['projects.read', 'Project.Create', 'Project.Read.All', 'Project.Deleted.Read'],
     projectAccess: [],
     isTestUserSwitch: false,
     testUserKey: null,
@@ -645,6 +684,64 @@ function projectListContract(page: Page) {
               && Math.abs(cell.width - bodyColumnGeometry[index].width) <= 1
             ))
           : null
+      }
+    };
+  });
+}
+
+function projectListPageContract(page: Page) {
+  return page.locator('[data-presentation-contract="project-list-page-v1"]').evaluate((root) => {
+    const layout = root.getAttribute('data-presentation-layout');
+    const header = root.querySelector(':scope > .page-header') as HTMLElement;
+    const filter = root.querySelector(layout === 'mobile' ? ':scope > .mobile-filter-trigger' : ':scope > form.toolbar') as HTMLElement;
+    const kpis = root.querySelector(':scope > .project-kpi-grid') as HTMLElement;
+    const tabs = root.querySelector(':scope > .tab-row') as HTMLElement;
+    const list = root.querySelector(':scope > [data-presentation-contract="project-list-v1"]') as HTMLElement;
+    const rootStyle = getComputedStyle(root);
+    const filterStyle = getComputedStyle(filter);
+    const kpiStyle = getComputedStyle(kpis);
+    const tabsStyle = getComputedStyle(tabs);
+    const commonSections = [header, filter, kpis, tabs, list];
+    const sectionNames = new Map<Element, string>([
+      [header, 'header'],
+      [filter, 'filter'],
+      [kpis, 'kpi'],
+      [tabs, 'tabs'],
+      [list, 'list']
+    ]);
+    const commonOrder = Array.from(root.children)
+      .map((element) => sectionNames.get(element))
+      .filter((value): value is string => Boolean(value));
+    return {
+      contract: root.getAttribute('data-presentation-contract'),
+      layout,
+      structure: {
+        root: [root.tagName, root.className],
+        header: [header.tagName, header.className],
+        filter: [filter.tagName, filter.className],
+        kpis: [kpis.tagName, kpis.className],
+        tabs: [tabs.tagName, tabs.className],
+        list: [list.tagName, list.className],
+        commonOrder,
+        commonOrderValid: commonSections.every((section, index) => (
+          index === 0 || section.compareDocumentPosition(commonSections[index - 1]) === Node.DOCUMENT_POSITION_PRECEDING
+        ))
+      },
+      styles: {
+        rootDisplay: rootStyle.display,
+        rootGap: rootStyle.gap,
+        rootPadding: rootStyle.padding,
+        filterDisplay: filterStyle.display,
+        filterGap: filterStyle.gap,
+        filterPadding: filterStyle.padding,
+        filterBorder: filterStyle.border,
+        filterBorderRadius: filterStyle.borderRadius,
+        kpiDisplay: kpiStyle.display,
+        kpiGap: kpiStyle.gap,
+        tabsDisplay: tabsStyle.display,
+        tabsGap: tabsStyle.gap,
+        tabsPadding: tabsStyle.padding,
+        tabsBorder: tabsStyle.border
       }
     };
   });

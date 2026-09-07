@@ -546,6 +546,10 @@ describe('App', () => {
     expect(commonNavigation).toHaveTextContent('구매');
     expect(screen.getAllByRole('button', { name: '프로젝트' }).some((button) => button.getAttribute('aria-current') === 'page')).toBe(true);
     const projectSummary = await screen.findByLabelText('프로젝트 요약');
+    const sharedPage = projectSummary.closest('[data-presentation-contract="project-list-page-v1"]');
+    expect(sharedPage).not.toBeNull();
+    expect(sharedPage).toHaveAttribute('data-presentation-layout', 'desktop');
+    expect(sharedPage).toHaveClass('page-surface', 'project-list-page');
     expect(projectSummary).toHaveTextContent('전체 프로젝트');
     expect(projectSummary).not.toHaveTextContent('QR 가능 패널');
     expect(projectSummary).toHaveTextContent('제조 완료 프로젝트');
@@ -554,6 +558,11 @@ describe('App', () => {
     const tabs = await screen.findAllByRole('tab');
     expect(tabs.slice(0, 5).map((tab) => tab.textContent)).toEqual(['전체', '진행', '보류', '완료', '취소']);
     expect(screen.getByRole('tab', { name: '전체' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: '신규 프로젝트' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '프로젝트 Excel 양식' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '프로젝트 Excel 업로드' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '선택 Excel 내보내기' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '삭제 보관함' })).toBeInTheDocument();
 
     const table = await screen.findByRole('table', { name: '프로젝트 목록' });
     const sharedList = table.closest('[data-presentation-contract="project-list-v1"]');

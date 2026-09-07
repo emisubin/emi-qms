@@ -144,6 +144,10 @@ describe('Osan project registration', () => {
     render(<App />);
 
     const table = await screen.findByRole('table', { name: '오산 프로젝트 목록' });
+    const sharedPage = table.closest('[data-presentation-contract="project-list-page-v1"]');
+    expect(sharedPage).not.toBeNull();
+    expect(sharedPage).toHaveAttribute('data-presentation-layout', 'desktop');
+    expect(sharedPage).toHaveClass('page-surface', 'project-list-page');
     expect(table).toHaveClass('project-list-table', 'project-list-desktop');
     const sharedList = table.closest('[data-presentation-contract="project-list-v1"]');
     expect(sharedList).not.toBeNull();
@@ -171,6 +175,96 @@ describe('Osan project registration', () => {
     expect(await screen.findByRole('heading', { name: '저장된 Title' })).toBeInTheDocument();
   });
 
+  it('uses the shared page composition and filters loaded projects without Osan-only mutations', async () => {
+    const completedProjectId = '91000000-0000-0000-0000-000000000002';
+    const earlyProjectId = '91000000-0000-0000-0000-000000000003';
+    const completedProject = {
+      ...projectDetail(1),
+      projectId: completedProjectId,
+      title: '완료 검색명',
+      projectCode: 'Done-Code',
+      customerName: '두번째 거래처',
+      productName: '완료 제품',
+      deliveryDate: '2027-01-15',
+      status: 'Completed'
+    };
+    const earlyProject = {
+      ...projectDetail(1),
+      projectId: earlyProjectId,
+      title: '납기 이전 프로젝트',
+      projectCode: 'Early-Code',
+      customerName: '세번째 거래처',
+      productName: '초기 제품',
+      deliveryDate: '2026-06-30'
+    };
+    const fetchMock = shellFetch((url, init) => {
+      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
+        return json({ items: [projectDetail(), completedProject, earlyProject] });
+      }
+      return undefined;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    const table = await screen.findByRole('table', { name: '오산 프로젝트 목록' });
+    const page = table.closest('[data-presentation-contract="project-list-page-v1"]');
+    expect(page).not.toBeNull();
+    const directChildren = Array.from(page?.children ?? []);
+    const directIndex = (selector: string) => directChildren.findIndex((element) => element.matches(selector));
+    expect(directIndex('.page-header')).toBeLessThan(directIndex('form.toolbar'));
+    expect(directIndex('form.toolbar')).toBeLessThan(directIndex('.project-kpi-grid'));
+    expect(directIndex('.project-kpi-grid')).toBeLessThan(directIndex('.tab-row'));
+    expect(directIndex('.tab-row')).toBeLessThan(directIndex('[data-presentation-contract="project-list-v1"]'));
+
+    const summary = within(page as HTMLElement).getByLabelText('프로젝트 요약');
+    const kpiCards = within(summary).getAllByRole('article');
+    expect(kpiCards).toHaveLength(3);
+    expect(kpiCards[0]).toHaveTextContent('전체 프로젝트3등록 프로젝트');
+    expect(kpiCards[1]).toHaveTextContent('시작 전2진행 시작 전');
+    expect(kpiCards[2]).toHaveTextContent('완료1전체 단계 완료');
+
+    const pageQueries = within(page as HTMLElement);
+    const statusTabs = pageQueries.getByRole('tablist', { name: '프로젝트 상태' });
+    expect(within(statusTabs).getAllByRole('tab').map((item) => item.textContent)).toEqual(['전체', '시작 전', '완료']);
+    expect(pageQueries.queryByRole('tab', { name: '보류' })).not.toBeInTheDocument();
+    expect(pageQueries.queryByRole('tab', { name: '취소' })).not.toBeInTheDocument();
+    expect(pageQueries.queryByRole('tab', { name: '삭제' })).not.toBeInTheDocument();
+    expect(pageQueries.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(page).not.toHaveTextContent('Excel');
+    expect(page).not.toHaveTextContent('Pending');
+    expect(page).not.toHaveTextContent('병목');
+
+    const searchInput = pageQueries.getByPlaceholderText('거래처, 제품명, 프로젝트 코드, 프로젝트 Title 검색');
+    for (const query of ['완료 검색명', 'done-code', '두번째 거래처', '완료 제품']) {
+      fireEvent.change(searchInput, { target: { value: query } });
+      expect(within(table).getAllByRole('row')).toHaveLength(2);
+      expect(within(table).getByText('완료 검색명')).toBeInTheDocument();
+    }
+
+    fireEvent.change(searchInput, { target: { value: '' } });
+    fireEvent.change(pageQueries.getByLabelText('시작일'), { target: { value: '2027-01-01' } });
+    fireEvent.change(pageQueries.getByLabelText('종료일'), { target: { value: '2027-12-31' } });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(within(table).getByText('완료 검색명')).toBeInTheDocument();
+
+    fireEvent.click(pageQueries.getByRole('button', { name: '필터 초기화' }));
+    fireEvent.click(pageQueries.getByRole('tab', { name: '시작 전' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    expect(within(table).queryByText('완료 검색명')).not.toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: '일치하지 않는 검색어' } });
+    expect(await screen.findByText('조건에 맞는 프로젝트가 없습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '검색 조건 초기화' }));
+    expect(await screen.findByRole('table', { name: '오산 프로젝트 목록' })).toBeInTheDocument();
+    expect(pageQueries.getByRole('tab', { name: '전체' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(screen.getByRole('table', { name: '오산 프로젝트 목록' })).getAllByRole('row')).toHaveLength(4);
+
+    expect(fetchMock.mock.calls.filter(([input, init]) => (
+      new URL(String(input)).pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET'
+    ))).toHaveLength(1);
+  });
+
   it('lists projects and completes the exact eight-field create-to-detail flow once', async () => {
     let releaseCreate: ((response: Response) => void) | undefined;
     const pendingCreate = new Promise<Response>((resolve) => {
@@ -194,9 +288,11 @@ describe('Osan project registration', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '오산 프로젝트' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     expect(await screen.findByText('등록된 프로젝트가 없습니다.')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: '프로젝트 등록' })[0]);
+    const emptyCreateActions = screen.getAllByRole('button', { name: '신규 프로젝트' });
+    expect(emptyCreateActions).toHaveLength(2);
+    fireEvent.click(emptyCreateActions[1]);
     expect(await screen.findByRole('heading', { name: '프로젝트 등록' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/projects/create');
 
@@ -289,8 +385,8 @@ describe('Osan project registration', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
-    await screen.findByRole('heading', { name: '오산 프로젝트' });
-    fireEvent.click(screen.getAllByRole('button', { name: '프로젝트 등록' })[0]);
+    await screen.findByRole('heading', { name: '프로젝트 목록' });
+    fireEvent.click(screen.getAllByRole('button', { name: '신규 프로젝트' })[0]);
     fillCreateForm();
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
 
@@ -323,8 +419,8 @@ describe('Osan project registration', () => {
     }));
 
     render(<App />);
-    await screen.findByRole('heading', { name: '오산 프로젝트' });
-    fireEvent.click(screen.getAllByRole('button', { name: '프로젝트 등록' })[0]);
+    await screen.findByRole('heading', { name: '프로젝트 목록' });
+    fireEvent.click(screen.getAllByRole('button', { name: '신규 프로젝트' })[0]);
     fillCreateForm();
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
 
@@ -344,8 +440,8 @@ describe('Osan project registration', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    await screen.findByRole('heading', { name: '오산 프로젝트' });
-    fireEvent.click(screen.getAllByRole('button', { name: '프로젝트 등록' })[0]);
+    await screen.findByRole('heading', { name: '프로젝트 목록' });
+    fireEvent.click(screen.getAllByRole('button', { name: '신규 프로젝트' })[0]);
     fillCreateForm();
 
     for (const quantity of ['1.5', '0', '-1', '501']) {
@@ -369,7 +465,7 @@ describe('Osan project registration', () => {
 
     render(<App />);
     expect(await screen.findByText('프로젝트를 볼 권한이 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '프로젝트 등록' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '신규 프로젝트' })).not.toBeInTheDocument();
   });
 
   it('requires projects.read as well as Project.Create for the button and direct create route', async () => {
@@ -384,7 +480,7 @@ describe('Osan project registration', () => {
 
     const listRender = render(<App />);
     expect(await screen.findByText('프로젝트를 볼 권한이 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '프로젝트 등록' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '신규 프로젝트' })).not.toBeInTheDocument();
     listRender.unmount();
 
     window.history.replaceState(null, '', '/projects/create');

@@ -4191,6 +4191,186 @@ function BusinessUnitAccessGate({
   );
 }
 
+type ProjectListPageKpi = {
+  title: string;
+  value: number;
+  helperText: string;
+  variant?: 'positive' | 'warning';
+};
+
+type ProjectListPageTabItem = {
+  value: string;
+  label: string;
+};
+
+type ProjectListPageFilterProps = {
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+  disabled?: boolean;
+  desktopSearchPlaceholder: string;
+  mobileSearchPlaceholder: string;
+  onSearchChange: (value: string) => void;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onDesktopSubmit?: () => void;
+  onReset: () => void;
+};
+
+function ProjectListPageComposition({
+  desktopTitle,
+  mobileTitle,
+  desktopDescription,
+  mobileDescription,
+  renderActions,
+  filters,
+  kpis,
+  tabs,
+  activeTab,
+  onTabChange,
+  tabsDisabled = false,
+  tools,
+  children
+}: {
+  desktopTitle: string;
+  mobileTitle: string;
+  desktopDescription?: string;
+  mobileDescription?: string;
+  renderActions?: (isMobile: boolean) => ReactNode;
+  filters: ProjectListPageFilterProps;
+  kpis?: ProjectListPageKpi[];
+  tabs: ProjectListPageTabItem[];
+  activeTab: string;
+  onTabChange: (value: string) => void;
+  tabsDisabled?: boolean;
+  tools?: ReactNode;
+  children: ReactNode;
+}) {
+  const isMobile = useIsMobileViewport();
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [draftSearch, setDraftSearch] = useState('');
+  const [draftDateFrom, setDraftDateFrom] = useState('');
+  const [draftDateTo, setDraftDateTo] = useState('');
+  const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <section
+      className={isMobile ? 'page-surface project-list-page mobile-first-page mobile-project-list-page' : 'page-surface project-list-page'}
+      data-presentation-contract="project-list-page-v1"
+      data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
+    >
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
+        eyebrow={isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}
+        title={isMobile ? mobileTitle : desktopTitle}
+        description={isMobile ? mobileDescription : desktopDescription}
+        actions={renderActions?.(isMobile)}
+      />
+
+      {isMobile ? (
+        <>
+          <button
+            ref={mobileFilterTriggerRef}
+            type="button"
+            className="mobile-filter-trigger"
+            aria-expanded={mobileFiltersOpen}
+            disabled={filters.disabled}
+            onClick={() => {
+              setDraftSearch(filters.search);
+              setDraftDateFrom(filters.dateFrom);
+              setDraftDateTo(filters.dateTo);
+              setMobileFiltersOpen(true);
+            }}
+          >
+            <span><strong>검색·필터</strong><small>{[filters.search, filters.dateFrom, filters.dateTo].filter(Boolean).length > 0 ? `${[filters.search, filters.dateFrom, filters.dateTo].filter(Boolean).length}개 조건 적용 중` : '전체 프로젝트 표시 중'}</small></span>
+            <span aria-hidden="true">⌕</span>
+          </button>
+          <MobileSheet
+            open={mobileFiltersOpen}
+            title="프로젝트 검색·필터"
+            eyebrow="PROJECT FILTER"
+            description="조건을 고른 뒤 적용하면 목록이 갱신됩니다. 취소하면 기존 조건을 유지합니다."
+            onClose={() => setMobileFiltersOpen(false)}
+            triggerRef={mobileFilterTriggerRef}
+            fullScreen
+            footer={(
+              <>
+                <button type="button" disabled={filters.disabled} onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
+                <button type="button" disabled={filters.disabled} onClick={() => setMobileFiltersOpen(false)}>취소</button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={filters.disabled}
+                  onClick={() => {
+                    filters.onSearchChange(draftSearch);
+                    filters.onDateFromChange(draftDateFrom);
+                    filters.onDateToChange(draftDateTo);
+                    setMobileFiltersOpen(false);
+                  }}
+                >
+                  조건 적용
+                </button>
+              </>
+            )}
+          >
+            <div className="mobile-filter-form">
+              <label><span>검색어</span><input data-autofocus value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder={filters.mobileSearchPlaceholder} /></label>
+              <label><span>납기 시작일</span><input type="date" value={draftDateFrom} onChange={(event) => setDraftDateFrom(event.target.value)} /></label>
+              <label><span>납기 종료일</span><input type="date" value={draftDateTo} onChange={(event) => setDraftDateTo(event.target.value)} /></label>
+            </div>
+          </MobileSheet>
+        </>
+      ) : (
+        <form
+          className="toolbar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            filters.onDesktopSubmit?.();
+          }}
+        >
+          <input
+            value={filters.search}
+            disabled={filters.disabled}
+            onChange={(event) => filters.onSearchChange(event.target.value)}
+            placeholder={filters.desktopSearchPlaceholder}
+          />
+          <label className="date-filter-field">
+            <span>시작일</span>
+            <input type="date" value={filters.dateFrom} disabled={filters.disabled} onChange={(event) => filters.onDateFromChange(event.target.value)} />
+          </label>
+          <label className="date-filter-field">
+            <span>종료일</span>
+            <input type="date" value={filters.dateTo} disabled={filters.disabled} onChange={(event) => filters.onDateToChange(event.target.value)} />
+          </label>
+          <button type="button" disabled={filters.disabled} onClick={filters.onReset}>필터 초기화</button>
+          <button type="submit" disabled={filters.disabled}>검색</button>
+        </form>
+      )}
+
+      {kpis ? <ProjectListKpiGrid items={kpis} /> : null}
+
+      <div className="tab-row" role="tablist" aria-label="프로젝트 상태">
+        {tabs.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === item.value}
+            className={activeTab === item.value ? 'tab-button active' : 'tab-button'}
+            disabled={tabsDisabled}
+            onClick={() => onTabChange(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tools}
+      {children}
+    </section>
+  );
+}
+
 function OsanProjectListPage({
   developmentUserKey,
   canCreate,
@@ -4202,7 +4382,10 @@ function OsanProjectListPage({
   onCreate: () => void;
   onOpen: (projectId: string) => void;
 }) {
-  const isMobile = useIsMobileViewport();
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [tab, setTab] = useState<'All' | 'Active' | 'Completed'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4222,18 +4405,57 @@ function OsanProjectListPage({
 
   useEffect(() => load(), [load]);
 
-  return (
-    <section className={isMobile ? 'page-surface project-list-page mobile-first-page mobile-project-list-page' : 'page-surface project-list-page'}>
-      <DsPageHeader
-        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
-        eyebrow={isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}
-        title="오산 프로젝트"
-        description="등록된 프로젝트와 수량을 확인합니다."
-        actions={canCreate ? <div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
-          <button type="button" className="primary-button" onClick={onCreate}>프로젝트 등록</button>
-        </div> : undefined}
-      />
+  const projects = state.kind === 'ready' ? state.data : [];
+  const normalizedSearch = search.trim().toLocaleLowerCase('ko-KR');
+  const filteredProjects = projects.filter((project) => {
+    const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
+      .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
+    const matchesDateFrom = !dateFrom || project.deliveryDate >= dateFrom;
+    const matchesDateTo = !dateTo || project.deliveryDate <= dateTo;
+    const matchesStatus = tab === 'All' || project.status === tab;
+    return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
+  });
+  const resetFilters = () => {
+    setSearch('');
+    setDateFrom('');
+    setDateTo('');
+    setTab('All');
+  };
 
+  return (
+    <ProjectListPageComposition
+      desktopTitle="프로젝트 목록"
+      mobileTitle="현장 프로젝트"
+      mobileDescription="납기를 먼저 보고 필요한 프로젝트를 선택하세요."
+      renderActions={(isMobile) => canCreate ? (
+        <div className={isMobile ? 'mobile-page-actions' : 'button-row page-export-actions'}>
+          <button type="button" className="primary-button" onClick={onCreate}>{isMobile ? '+ 프로젝트' : '신규 프로젝트'}</button>
+        </div>
+      ) : undefined}
+      filters={{
+        search,
+        dateFrom,
+        dateTo,
+        desktopSearchPlaceholder: '거래처, 제품명, 프로젝트 코드, 프로젝트 Title 검색',
+        mobileSearchPlaceholder: '거래처, 제품명, 코드, Title',
+        onSearchChange: setSearch,
+        onDateFromChange: setDateFrom,
+        onDateToChange: setDateTo,
+        onReset: resetFilters
+      }}
+      kpis={[
+        { title: '전체 프로젝트', value: projects.length, helperText: '등록 프로젝트' },
+        { title: '시작 전', value: projects.filter((project) => project.status === 'Active').length, helperText: '진행 시작 전' },
+        { title: '완료', value: projects.filter((project) => project.status === 'Completed').length, helperText: '전체 단계 완료', variant: 'positive' }
+      ]}
+      tabs={[
+        { value: 'All', label: '전체' },
+        { value: 'Active', label: '시작 전' },
+        { value: 'Completed', label: '완료' }
+      ]}
+      activeTab={tab}
+      onTabChange={(value) => setTab(value as 'All' | 'Active' | 'Completed')}
+    >
       {state.kind === 'loading' ? (
         <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
       ) : null}
@@ -4242,7 +4464,7 @@ function OsanProjectListPage({
           kind="empty"
           title="등록된 프로젝트가 없습니다."
           description={canCreate ? '첫 프로젝트를 등록해 주세요.' : '등록 권한이 있는 담당자에게 문의해 주세요.'}
-          action={canCreate ? <button type="button" className="primary-button" onClick={onCreate}>프로젝트 등록</button> : undefined}
+          action={canCreate ? <button type="button" className="primary-button" onClick={onCreate}>신규 프로젝트</button> : undefined}
         />
       ) : null}
       {state.kind === 'forbidden' ? (
@@ -4256,7 +4478,14 @@ function OsanProjectListPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && filteredProjects.length === 0 ? (
+        <DsEmptyState
+          title="조건에 맞는 프로젝트가 없습니다."
+          description="검색 조건을 초기화해 전체 프로젝트를 확인하세요."
+          primaryAction={{ label: '검색 조건 초기화', onClick: resetFilters }}
+        />
+      ) : null}
+      {state.kind === 'ready' && filteredProjects.length > 0 ? (
         <ProjectListPresentation
           ariaLabel="오산 프로젝트 목록"
           testIdPrefix="osan-project-list"
@@ -4270,7 +4499,7 @@ function OsanProjectListPage({
             { label: '상태', align: 'center' },
             { label: '진행률', align: 'center' }
           ]}
-          rows={state.data.map((project) => ({
+          rows={filteredProjects.map((project) => ({
             key: project.projectId,
             title: project.title,
             openAriaLabel: `${project.title} 상세 열기`,
@@ -4297,7 +4526,7 @@ function OsanProjectListPage({
           }))}
         />
       ) : null}
-    </section>
+    </ProjectListPageComposition>
   );
 }
 
@@ -9639,16 +9868,10 @@ function ProjectListPage({
   const [purgeAllConfirmText, setPurgeAllConfirmText] = useState('');
   const [isPurgingAll, setIsPurgingAll] = useState(false);
   const [isDownloadingProjectTemplate, setIsDownloadingProjectTemplate] = useState(false);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [draftSearch, setDraftSearch] = useState('');
-  const [draftDateFrom, setDraftDateFrom] = useState('');
-  const [draftDateTo, setDraftDateTo] = useState('');
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [isSelectedExportBusy, setIsSelectedExportBusy] = useState(false);
-  const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
     const requestId = requestIdRef.current + 1;
@@ -9783,13 +10006,12 @@ function ProjectListPage({
   }
 
   return (
-    <section className={isMobile ? 'page-surface project-list-page mobile-first-page mobile-project-list-page' : 'page-surface project-list-page'}>
-      <DsPageHeader
-        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
-        eyebrow={isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}
-        title={isMobile ? '현장 프로젝트' : '프로젝트 목록'}
-        description={isMobile ? '병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.' : undefined}
-        actions={<div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
+    <ProjectListPageComposition
+      desktopTitle="프로젝트 목록"
+      mobileTitle="현장 프로젝트"
+      mobileDescription="병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요."
+      renderActions={(isMobile) => (
+        <div className={isMobile ? 'mobile-page-actions' : 'button-row page-export-actions'}>
           {canCreate ? (
             isMobile ? (
               <>
@@ -9814,123 +10036,63 @@ function ProjectListPage({
               </>
             )
           ) : null}
-        </div>}
-      />
-
-      {isMobile ? (
-        <>
-          <button
-            ref={mobileFilterTriggerRef}
-            type="button"
-            className="mobile-filter-trigger"
-            aria-expanded={mobileFiltersOpen}
-            disabled={isSelectedExportBusy}
-            onClick={() => {
-              setDraftSearch(search);
-              setDraftDateFrom(dateFrom);
-              setDraftDateTo(dateTo);
-              setMobileFiltersOpen(true);
-            }}
-          >
-            <span><strong>검색·필터</strong><small>{[search, dateFrom, dateTo].filter(Boolean).length > 0 ? `${[search, dateFrom, dateTo].filter(Boolean).length}개 조건 적용 중` : '전체 프로젝트 표시 중'}</small></span>
-            <span aria-hidden="true">⌕</span>
-          </button>
-          <MobileSheet
-            open={mobileFiltersOpen}
-            title="프로젝트 검색·필터"
-            eyebrow="PROJECT FILTER"
-            description="조건을 고른 뒤 적용하면 목록이 갱신됩니다. 취소하면 기존 조건을 유지합니다."
-            onClose={() => setMobileFiltersOpen(false)}
-            triggerRef={mobileFilterTriggerRef}
-            fullScreen
-            footer={(
-              <>
-                <button type="button" disabled={isSelectedExportBusy} onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
-                <button type="button" disabled={isSelectedExportBusy} onClick={() => setMobileFiltersOpen(false)}>취소</button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={isSelectedExportBusy}
-                  onClick={() => {
-                    setSearch(draftSearch);
-                    setDateFrom(draftDateFrom);
-                    setDateTo(draftDateTo);
-                    setMobileFiltersOpen(false);
-                  }}
-                >
-                  조건 적용
-                </button>
-              </>
-            )}
-          >
-            <div className="mobile-filter-form">
-              <label><span>검색어</span><input data-autofocus value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="고객사, Item, Code, Title" /></label>
-              <label><span>납기 시작일</span><input type="date" value={draftDateFrom} onChange={(event) => setDraftDateFrom(event.target.value)} /></label>
-              <label><span>납기 종료일</span><input type="date" value={draftDateTo} onChange={(event) => setDraftDateTo(event.target.value)} /></label>
-            </div>
-          </MobileSheet>
-        </>
-      ) : (
-        <form
-          className="toolbar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            load();
-          }}
-        >
-          <input
-            value={search}
-            disabled={isSelectedExportBusy}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="고객사, Item, PJT Code, PJT Title 검색"
-          />
-          <label className="date-filter-field">
-            <span>시작일</span>
-            <input type="date" value={dateFrom} disabled={isSelectedExportBusy} onChange={(event) => setDateFrom(event.target.value)} />
-          </label>
-          <label className="date-filter-field">
-            <span>종료일</span>
-            <input type="date" value={dateTo} disabled={isSelectedExportBusy} onChange={(event) => setDateTo(event.target.value)} />
-          </label>
-          <button type="button" disabled={isSelectedExportBusy} onClick={() => { setSelectedProjectIds(new Set()); setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
-          <button type="submit" disabled={isSelectedExportBusy}>검색</button>
-        </form>
+        </div>
       )}
-
-      {summaryState.kind === 'ready' ? <ProjectKpiGrid summary={summaryState.data} /> : null}
+      filters={{
+        search,
+        dateFrom,
+        dateTo,
+        disabled: isSelectedExportBusy,
+        desktopSearchPlaceholder: '고객사, Item, PJT Code, PJT Title 검색',
+        mobileSearchPlaceholder: '고객사, Item, Code, Title',
+        onSearchChange: setSearch,
+        onDateFromChange: setDateFrom,
+        onDateToChange: setDateTo,
+        onDesktopSubmit: load,
+        onReset: () => { setSelectedProjectIds(new Set()); setDateFrom(''); setDateTo(''); }
+      }}
+      kpis={summaryState.kind === 'ready' ? projectKpiItems(summaryState.data) : undefined}
+      tabs={projectTabs(canReadDeleted)}
+      activeTab={tab}
+      onTabChange={(value) => setTab(value as ProjectListTab)}
+      tabsDisabled={isSelectedExportBusy}
+      tools={(
+        <>
+          {tab === 'Deleted' && canPurgeDeletedProjects ? (
+            <section className="danger-zone" aria-label="삭제 보관함 비우기">
+              <div>
+                <strong>삭제 보관함 비우기</strong>
+                <p className="muted-text">삭제 보관함의 모든 프로젝트와 관련 데이터를 완전히 삭제합니다. 되돌릴 수 없습니다.</p>
+              </div>
+              <label className="form-field compact-field">
+                <span>확인 문구: 삭제 보관함 비우기</span>
+                <input value={purgeAllConfirmText} onChange={(event) => setPurgeAllConfirmText(event.target.value)} />
+              </label>
+              <button type="button" className="danger-button" disabled={isPurgingAll || purgeAllConfirmText !== '삭제 보관함 비우기'} onClick={purgeAllDeleted}>
+                {isPurgingAll ? '삭제 중' : '삭제 보관함 비우기'}
+              </button>
+            </section>
+          ) : null}
+          {state.kind === 'ready' && tab !== 'Deleted' ? (
+            <SelectedExportTray
+              developmentUserKey={developmentUserKey}
+              screen="projects"
+              ariaLabel="선택 프로젝트 내보내기"
+              label="선택 Excel 내보내기"
+              visibleIds={state.data.map((project) => project.projectId)}
+              selectedIds={selectedProjectIds}
+              allSelected={state.data.length > 0 && state.data.every((project) => selectedProjectIds.has(project.projectId))}
+              busy={isSelectedExportBusy}
+              filters={{ search, status: tab === 'All' ? undefined : tab, deliveryDateFrom: dateFrom, deliveryDateTo: dateTo }}
+              onBusyChange={setIsSelectedExportBusy}
+              onToggleAll={setAllVisibleProjectsSelected}
+              onClear={() => setSelectedProjectIds(new Set())}
+            />
+          ) : null}
+        </>
+      )}
+    >
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && summaryState.kind !== 'empty' ? <StateMessage state={summaryState} /> : null}
-
-      <div className="tab-row" role="tablist" aria-label="프로젝트 상태">
-        {projectTabs(canReadDeleted).map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.value}
-            className={tab === item.value ? 'tab-button active' : 'tab-button'}
-            disabled={isSelectedExportBusy}
-            onClick={() => setTab(item.value)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'Deleted' && canPurgeDeletedProjects ? (
-        <section className="danger-zone" aria-label="삭제 보관함 비우기">
-          <div>
-            <strong>삭제 보관함 비우기</strong>
-            <p className="muted-text">삭제 보관함의 모든 프로젝트와 관련 데이터를 완전히 삭제합니다. 되돌릴 수 없습니다.</p>
-          </div>
-          <label className="form-field compact-field">
-            <span>확인 문구: 삭제 보관함 비우기</span>
-            <input value={purgeAllConfirmText} onChange={(event) => setPurgeAllConfirmText(event.target.value)} />
-          </label>
-          <button type="button" className="danger-button" disabled={isPurgingAll || purgeAllConfirmText !== '삭제 보관함 비우기'} onClick={purgeAllDeleted}>
-            {isPurgingAll ? '삭제 중' : '삭제 보관함 비우기'}
-          </button>
-        </section>
-      ) : null}
 
       {state.kind === 'loading' ? <p className="muted-text">프로젝트 정보를 불러오는 중입니다.</p> : null}
       {state.kind === 'empty' ? (
@@ -9943,23 +10105,6 @@ function ProjectListPage({
         />
       ) : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
-
-      {state.kind === 'ready' && tab !== 'Deleted' ? (
-        <SelectedExportTray
-          developmentUserKey={developmentUserKey}
-          screen="projects"
-          ariaLabel="선택 프로젝트 내보내기"
-          label="선택 Excel 내보내기"
-          visibleIds={state.data.map((project) => project.projectId)}
-          selectedIds={selectedProjectIds}
-          allSelected={state.data.length > 0 && state.data.every((project) => selectedProjectIds.has(project.projectId))}
-          busy={isSelectedExportBusy}
-          filters={{ search, status: tab === 'All' ? undefined : tab, deliveryDateFrom: dateFrom, deliveryDateTo: dateTo }}
-          onBusyChange={setIsSelectedExportBusy}
-          onToggleAll={setAllVisibleProjectsSelected}
-          onClear={() => setSelectedProjectIds(new Set())}
-        />
-      ) : null}
 
       {state.kind === 'ready' ? (
         <ProjectListView
@@ -9989,7 +10134,7 @@ function ProjectListPage({
           }}
         />
       ) : null}
-    </section>
+    </ProjectListPageComposition>
   );
 }
 
@@ -10532,15 +10677,21 @@ function ProjectExcelPreviewMobile({ rows }: { rows: ProjectExcelPreviewResponse
   );
 }
 
-function ProjectKpiGrid({ summary }: { summary: ProjectDashboardSummary }) {
+function projectKpiItems(summary: ProjectDashboardSummary): ProjectListPageKpi[] {
+  return [
+    { title: '전체 프로젝트', value: summary.totalProjectCount, helperText: '완료·삭제 제외' },
+    { title: '진행', value: summary.activeProjectCount, helperText: '진행 프로젝트', variant: 'positive' },
+    { title: '보류', value: summary.onHoldProjectCount, helperText: '보류 프로젝트', variant: 'warning' },
+    { title: '취소 프로젝트', value: summary.cancelledProjectCount, helperText: '취소 프로젝트' },
+    { title: '제조 완료 프로젝트', value: summary.manufacturingCompletedProjectCount, helperText: '모든 패널 제조 완료' },
+    { title: '검사 완료 프로젝트', value: summary.inspectionCompletedProjectCount, helperText: '모든 패널 검사 완료' }
+  ];
+}
+
+function ProjectListKpiGrid({ items }: { items: ProjectListPageKpi[] }) {
   return (
     <div className="dashboard-kpi-grid project-kpi-grid" aria-label="프로젝트 요약">
-      <DashboardKpiCard title="전체 프로젝트" value={summary.totalProjectCount} helperText="완료·삭제 제외" />
-      <DashboardKpiCard title="진행" value={summary.activeProjectCount} helperText="진행 프로젝트" variant="positive" />
-      <DashboardKpiCard title="보류" value={summary.onHoldProjectCount} helperText="보류 프로젝트" variant="warning" />
-      <DashboardKpiCard title="취소 프로젝트" value={summary.cancelledProjectCount} helperText="취소 프로젝트" />
-      <DashboardKpiCard title="제조 완료 프로젝트" value={summary.manufacturingCompletedProjectCount} helperText="모든 패널 제조 완료" />
-      <DashboardKpiCard title="검사 완료 프로젝트" value={summary.inspectionCompletedProjectCount} helperText="모든 패널 검사 완료" />
+      {items.map((item) => <DashboardKpiCard key={item.title} {...item} />)}
     </div>
   );
 }

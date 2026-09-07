@@ -92,6 +92,19 @@ run_admin_scalar() {
     --command "${sql}" | tr -d '[:space:]'
 }
 
+run_admin_database_scalar() {
+  local database_name="$1"
+  local sql="$2"
+  e2e_compose exec -T "${E2E_POSTGRES_SERVICE}" psql \
+    --username "${E2E_DATABASE_USER}" \
+    --dbname "${database_name}" \
+    --no-psqlrc \
+    --tuples-only \
+    --no-align \
+    --set ON_ERROR_STOP=1 \
+    --command "${sql}" | tr -d '[:space:]'
+}
+
 read_process_cwd() {
   local process_id="$1"
   lsof -a -p "${process_id}" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
@@ -192,6 +205,17 @@ wait_for_port_to_close() {
   return 1
 }
 
+wait_for_process_to_exit() {
+  local process_id="$1"
+  for _ in $(seq 1 20); do
+    if ! kill -0 "${process_id}" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 assert_owned_frontend_process() {
   local listener_pids
   [[ "${frontend_pid}" =~ ^[0-9]+$ && -f "${frontend_pid_file}" ]] || return "${process_ownership_exit_code}"
@@ -231,6 +255,8 @@ cleanup() {
     if assert_owned_frontend_process; then
       kill "${frontend_pid}" >/dev/null 2>&1
       wait "${frontend_pid}" >/dev/null 2>&1
+    elif e2e_port_is_available "${E2E_FRONTEND_PORT}" && wait_for_process_to_exit "${frontend_pid}"; then
+      wait "${frontend_pid}" >/dev/null 2>&1
     else
       e2e_safety_error "Frontend ownership changed during cleanup; the process was not terminated."
       cleanup_exit_code="${process_ownership_exit_code}"
@@ -239,6 +265,8 @@ cleanup() {
   if [[ -n "${backend_pid}" ]] && kill -0 "${backend_pid}" 2>/dev/null; then
     if assert_owned_backend_process true; then
       kill "${backend_pid}" >/dev/null 2>&1
+      wait "${backend_pid}" >/dev/null 2>&1
+    elif e2e_port_is_available "${E2E_BACKEND_PORT}" && wait_for_process_to_exit "${backend_pid}"; then
       wait "${backend_pid}" >/dev/null 2>&1
     else
       e2e_safety_error "Backend ownership changed during cleanup; the process was not terminated."
@@ -363,15 +391,12 @@ run_admin_psql "${directory_database}" "
 insert into directory_identities (user_id, auth_provider, external_subject, display_name, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'Dev', 'dev-admin', 'Synthetic Overall Admin', true),
-  ('50000000-0000-0000-0000-000000000002', 'Dev', 'dev-sales', 'Synthetic Sales User', true),
-  ('50000000-0000-0000-0000-000000000005', 'Dev', 'dev-quality', 'Synthetic Osan User', true),
-  ('71000000-0000-0000-0000-000000000003', 'EntraId', 'synthetic-pending-user', 'Synthetic Pending User', true);
+  ('50000000-0000-0000-0000-000000000002', 'EntraId', 'synthetic-cheongju-approval', 'Synthetic Cheongju Approval', true),
+  ('50000000-0000-0000-0000-000000000005', 'EntraId', 'synthetic-osan-approval', 'Synthetic Osan Approval', true);
 insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'CHEONGJU', true),
-  ('50000000-0000-0000-0000-000000000001', 'OSAN', true),
-  ('50000000-0000-0000-0000-000000000002', 'CHEONGJU', true),
-  ('50000000-0000-0000-0000-000000000005', 'OSAN', true);
+  ('50000000-0000-0000-0000-000000000001', 'OSAN', true);
 insert into directory_overall_administrators (user_id, is_active)
 values ('50000000-0000-0000-0000-000000000001', true);"
 
@@ -407,12 +432,69 @@ wait_for_owned_backend_ready "http://127.0.0.1:${E2E_BACKEND_PORT}/health/ready"
 
 run_admin_psql "${cheongju_database}" "
 update qms_users set display_name = 'Cheongju Admin' where id = '50000000-0000-0000-0000-000000000001';
+update qms_users
+set display_name = 'Synthetic Cheongju Approval', auth_provider = 'EntraId',
+    entra_object_id = 'synthetic-cheongju-approval', email = 'review-cheongju@example.invalid',
+    department_id = null, is_active = false, is_department_head = false
+where id = '50000000-0000-0000-0000-000000000002';
+update qms_users
+set display_name = 'Synthetic Osan Approval', auth_provider = 'EntraId',
+    entra_object_id = 'synthetic-osan-approval', email = 'review-osan@example.invalid',
+    department_id = null, is_active = false, is_department_head = false
+where id = '50000000-0000-0000-0000-000000000005';
+delete from user_roles where user_id in (
+  '50000000-0000-0000-0000-000000000002',
+  '50000000-0000-0000-0000-000000000005');
 insert into qms_users (id, development_user_key, display_name, department_id, is_active, auth_provider)
 values ('79000000-0000-0000-0000-000000000001', 'boundary-profile', 'Cheongju Boundary Profile', null, true, 'Dev');"
 run_admin_psql "${osan_database}" "
 update qms_users set display_name = 'Osan Admin' where id = '50000000-0000-0000-0000-000000000001';
+update qms_users
+set display_name = 'Synthetic Cheongju Approval', auth_provider = 'EntraId',
+    entra_object_id = 'synthetic-cheongju-approval', email = 'review-cheongju@example.invalid',
+    department_id = null, is_active = false, is_department_head = false
+where id = '50000000-0000-0000-0000-000000000002';
+update qms_users
+set display_name = 'Synthetic Osan Approval', auth_provider = 'EntraId',
+    entra_object_id = 'synthetic-osan-approval', email = 'review-osan@example.invalid',
+    department_id = null, is_active = false, is_department_head = false
+where id = '50000000-0000-0000-0000-000000000005';
+delete from user_roles where user_id in (
+  '50000000-0000-0000-0000-000000000002',
+  '50000000-0000-0000-0000-000000000005');
 insert into qms_users (id, development_user_key, display_name, department_id, is_active, auth_provider)
 values ('79000000-0000-0000-0000-000000000001', 'boundary-profile', 'Osan Boundary Profile', null, true, 'Dev');"
+
+convert_approved_review_persona() {
+  local user_id="$1"
+  local required_business_unit="$2"
+  local development_user_key="$3"
+  local current_provider
+  current_provider="$(run_admin_database_scalar "${directory_database}" "
+    select auth_provider
+    from directory_identities
+    where user_id = '${user_id}';")"
+  [[ "${current_provider}" == "EntraId" ]] || return 0
+  [[ "$(run_admin_database_scalar "${directory_database}" "
+    select count(*)
+    from directory_business_unit_memberships
+    where user_id = '${user_id}'
+      and business_unit_code = '${required_business_unit}'
+      and is_active = true;")" == "1" ]] || return 0
+
+  for database_name in "${cheongju_database}" "${osan_database}"; do
+    run_admin_psql "${database_name}" "
+      update qms_users
+      set auth_provider = 'Dev', entra_object_id = null, email = null,
+          development_user_key = '${development_user_key}'
+      where id = '${user_id}' and auth_provider = 'EntraId';" >/dev/null
+  done
+  run_admin_psql "${directory_database}" "
+    update directory_identities
+    set auth_provider = 'Dev', external_subject = '${development_user_key}'
+    where user_id = '${user_id}' and auth_provider = 'EntraId';" >/dev/null
+  echo "Synthetic approved persona is ready for development-user login: ${development_user_key}."
+}
 
 if [[ "${review_server_mode}" == "--review-server" ]]; then
   (
@@ -428,10 +510,12 @@ if [[ "${review_server_mode}" == "--review-server" ]]; then
   wait_for_frontend_ready "http://127.0.0.1:${E2E_FRONTEND_PORT}/admin/users"
   echo "Synthetic exact-source review server is ready."
   echo "Frontend URL: http://127.0.0.1:${E2E_FRONTEND_PORT}/admin/users"
-  echo "Personas: dev-admin (overall), dev-sales (Cheongju only), dev-quality (Osan only)."
-  echo "Pending user: Synthetic Pending User. External providers and workers are disabled."
+  echo "Personas: dev-admin (overall); after approval, dev-sales (Cheongju only) and dev-quality (Osan only)."
+  echo "Pending users: Synthetic Cheongju Approval and Synthetic Osan Approval. External providers and workers are disabled."
   while kill -0 "${backend_pid}" 2>/dev/null && kill -0 "${frontend_pid}" 2>/dev/null; do
-    sleep 5
+    convert_approved_review_persona '50000000-0000-0000-0000-000000000002' 'CHEONGJU' 'dev-sales'
+    convert_approved_review_persona '50000000-0000-0000-0000-000000000005' 'OSAN' 'dev-quality'
+    sleep 1
   done
   e2e_safety_error "A review server component exited unexpectedly."
   exit 1

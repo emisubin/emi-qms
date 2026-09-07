@@ -52,7 +52,7 @@ test('overall administrator selects Osan, sees the restricted shell, and manages
           });
     }
     if (path === '/api/admin/user-access/users') {
-      return fulfillJson(route, membershipSnapshot());
+      return fulfillJson(route, membershipSnapshot([]));
     }
     if (path.endsWith('/access') && request.method() === 'PUT') {
       markMembershipMutationStarted();
@@ -80,29 +80,39 @@ test('overall administrator selects Osan, sees the restricted shell, and manages
   await navigation.getByRole('button', { name: '사용자 관리' }).click();
   await expect(page.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
   await expect(navigation.getByRole('button', { name: '사업부 소속 관리' })).toHaveCount(0);
-  const adminCard = page.locator('article').filter({ hasText: 'Synthetic Overall Admin' });
-  await expect(adminCard.getByText('Synthetic Overall Admin')).toBeVisible();
-  await expect(page.getByText('총괄 관리자', { exact: true })).toBeVisible();
+  await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
+    '', '활성 상태', '사업부', '부서', '역할', '부서장', ''
+  ]);
+  const adminRow = page.getByRole('row').filter({ hasText: 'Synthetic Overall Admin' });
+  await expect(adminRow.getByText('Synthetic Overall Admin')).toBeVisible();
+  await expect(adminRow.getByText('총괄', { exact: true })).toBeVisible();
 
-  const userCard = page.locator('article').filter({ hasText: 'Synthetic New User' });
-  const unitGroups = userCard.getByRole('group');
-  await unitGroups.filter({ hasText: '청주' }).getByRole('checkbox', { name: '소속·활성' }).uncheck();
-  const osanGroup = unitGroups.filter({ hasText: '오산' });
-  await osanGroup.getByRole('checkbox', { name: '소속·활성' }).check();
-  await osanGroup.getByRole('combobox', { name: '부서' })
+  const userRow = page.getByRole('row').filter({ hasText: 'Synthetic New User' });
+  await userRow.getByRole('combobox', { name: 'Synthetic New User 사업부' }).selectOption('OSAN');
+  await userRow.getByRole('checkbox', { name: 'Synthetic New User 활성 상태' }).check();
+  await userRow.getByRole('combobox', { name: 'Synthetic New User 부서' })
     .selectOption('10000000-0000-0000-0000-000000000005');
-  await osanGroup.getByRole('checkbox', { name: '품질' }).check();
-  await userCard.getByRole('button', { name: '사용자 저장' }).click();
+  await expect(userRow.getByLabel('Synthetic New User 역할')).toHaveText('품질');
+  const desktopRowBox = await userRow.boundingBox();
+  expect(desktopRowBox?.height).toBeLessThanOrEqual(48);
+  await userRow.getByRole('button', { name: '승인' }).click();
   await membershipMutationStarted;
-  await expect(page.getByLabel('사업부 선택').first()).toBeDisabled();
+  await expect(page.getByLabel('Synthetic New User 사업부')).toBeDisabled();
   releaseMembershipMutation();
   await expect(page.getByRole('status').filter({ hasText: '사용자 접근 정보를 저장했습니다.' })).toBeVisible();
-  await expect(page.getByLabel('사업부 선택').first()).toBeEnabled();
+  await expect(page.getByLabel('Synthetic New User 사업부')).toBeEnabled();
 
   await page.screenshot({ path: testInfo.outputPath('business-unit-access-desktop.png'), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByLabel('사업부 선택').first()).toHaveValue('OSAN');
+  await expect(page.getByLabel('Synthetic New User 사업부')).toHaveValue('OSAN');
+  const mobileLayout = await page.locator('.business-unit-access-table-scroll').evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth
+  }));
+  expect(mobileLayout.scrollWidth).toBeGreaterThan(mobileLayout.clientWidth);
+  const mobileRowBox = await userRow.boundingBox();
+  expect(mobileRowBox?.height).toBeLessThanOrEqual(48);
   await page.screenshot({ path: testInfo.outputPath('business-unit-access-mobile.png'), fullPage: true });
 
   await page.goto('/pending');

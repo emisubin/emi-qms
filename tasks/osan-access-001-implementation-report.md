@@ -405,7 +405,22 @@ Change 003 사용자 검수 항목:
 - [ ] 총괄에게 청주·오산 selector가 보이고 단일 청주·단일 오산 사용자에게 selector·빈 label이 보이지 않는다.
 - [ ] 왼쪽 관리자 메뉴에는 `사용자 관리`만 있고 `사업부 소속 관리`가 없다.
 - [ ] 첫 로그인 승인 대기 사용자가 사용자 관리 목록에 표시된다.
-- [ ] 한 화면에서 사업부, 해당 사업부 부서, 역할, 부서장 여부를 지정해 한 번 저장할 수 있다.
+- [ ] 한 행에서 활성 상태, 사업부, 해당 사업부 부서와 부서장 여부를 지정하면 부서 기본 역할이 자동 표시되고 한 번 승인할 수 있다.
 - [ ] 이미 승인된 사용자의 사업부별 부서·역할·부서장·활성을 같은 화면에서 수정할 수 있다.
 - [ ] 일반 사용자는 두 사업부를 동시에 활성화할 수 없고 총괄 표시는 local 역할과 별도로 보인다.
 - [ ] 오산 shell에는 G2, Pending, hold/cancel 등 phase 1 제외 기능이 나타나지 않는다.
+
+## 14. Change 003 compact table 후속 구현
+
+사용자가 첫 검수 화면에서 계정별 카드 높이를 줄이고 선택 칸 중심의 UI로 바꾸라고 지시했다. 통합 승인 backend와 별도 메뉴 제거는 유지하고 Frontend를 기존 청주 사용자 관리 표의 시각 언어로 다시 구현했다.
+
+- 한 계정은 desktop과 narrow viewport 모두 기본 한 행이다. 왼쪽 두 줄 row header에 이름·이메일과 짧은 승인 상태를 압축 표시한다.
+- 편집 헤더는 `활성 상태`, `사업부`, `부서`, `역할`, `부서장` 순서다. 승인/저장은 무헤더 끝 셀이다.
+- 역할 select와 multiselect는 제거했다. 선택한 부서의 `defaultRoleCode`를 payload에 자동 반영하고 읽기 전용 한 줄로 표시한다.
+- 부서 변경 시 다른 부서 default role만 교체하며 기존 특수·추가 역할을 보존한다. Default role이 없으면 그 행의 저장을 막고 한 줄 오류를 연결한다.
+- 일반 사용자의 활성 사업부 선택은 다른 사업부 draft를 자동 해제한다. 지정 총괄은 business-unit select로 각 profile을 오가며 여러 사업부를 유지할 수 있다.
+- 정상 셀은 `4px 8px`, select/button은 `32px`, checkbox는 `16px`이며 browser 측정 정상 행은 `48px 이하`다. 390px에서는 동일 표를 수평 스크롤한다.
+
+검수 전 테스트 정책을 지켜 TypeScript typecheck와 영향 component/browser만 수행했다. Typecheck는 PASS했다. Targeted component 첫 실행 20건 중 17건이 통과했고 새 test fixture/matcher 3건만 실패해 실패 filter로 보정 검증했다. 자동 default role·특수 역할 보존, default role 부재 fail-closed, ReviewSafe 차단이 모두 PASS다. 단일 mock Chromium은 최초 `48.48px` 높이 실패 뒤 CSS 1px 보정과 같은 1건 재실행으로 PASS했고 desktop/narrow screenshot을 직접 확인했다. Backend/Frontend/Full-Stack 전체와 CI는 추가 실행하지 않았다.
+
+Exact-head 검수 harness에는 초기 membership 0인 `Synthetic Cheongju Approval`과 `Synthetic Osan Approval`을 runtime-only fixture로 둔다. 각각 청주와 오산으로 승인된 뒤 같은 UUID의 `dev-sales`, `dev-quality`가 되어 해당 승인 계정으로 다시 접속할 수 있다. `dev-admin`은 양쪽 사업부를 선택할 수 있다. 외부 provider·worker·Azure·운영 DB는 사용하지 않는다.

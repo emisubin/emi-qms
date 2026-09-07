@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const pendingUserId = '71000000-0000-0000-0000-000000000003';
+const pendingUserId = '50000000-0000-0000-0000-000000000002';
 
 test('three databases keep tab context, integrated user-access mutation locks, and reset isolated', async ({ browser }) => {
   const implicitContext = await browser.newContext();
@@ -35,8 +35,8 @@ test('three databases keep tab context, integrated user-access mutation locks, a
   await cheongjuPage.goto('/admin/business-unit-access');
   await expect(cheongjuPage.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
   await cheongjuPage.waitForLoadState('networkidle');
-  const pendingCard = cheongjuPage.locator('article').filter({ hasText: 'Synthetic Pending User' });
-  await expect(pendingCard).toBeVisible();
+  const pendingRow = cheongjuPage.getByRole('row').filter({ hasText: 'Synthetic Cheongju Approval' });
+  await expect(pendingRow).toBeVisible();
 
   let markMutationStarted!: () => void;
   let releaseMutation!: () => void;
@@ -48,14 +48,13 @@ test('three databases keep tab context, integrated user-access mutation locks, a
     await mutationReleased;
     await route.fulfill({ response });
   });
-  const cheongjuProfile = pendingCard.getByRole('group').filter({ hasText: '청주' });
-  const cheongjuMembership = cheongjuProfile.getByRole('checkbox', { name: '소속·활성' });
-  const saveMembership = pendingCard.getByRole('button', { name: '사용자 저장' });
+  const cheongjuMembership = pendingRow.getByRole('checkbox', { name: 'Synthetic Cheongju Approval 활성 상태' });
+  const saveMembership = pendingRow.getByRole('button', { name: '승인' });
   await expect(cheongjuMembership).not.toBeChecked();
   await cheongjuMembership.check();
-  await cheongjuProfile.getByRole('combobox', { name: '부서' })
+  await pendingRow.getByRole('combobox', { name: 'Synthetic Cheongju Approval 부서' })
     .selectOption('10000000-0000-0000-0000-000000000005');
-  await cheongjuProfile.getByRole('checkbox', { name: 'Quality User' }).check();
+  await expect(pendingRow.getByLabel('Synthetic Cheongju Approval 역할')).toContainText('Quality User');
   await expect(cheongjuMembership).toBeChecked();
   await expect(saveMembership).toBeEnabled();
   await saveMembership.click();

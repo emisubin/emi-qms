@@ -146,3 +146,15 @@ Allowlist의 기존 test 파일이 실제 checkout에 없거나 더 좁은 기�
 - push, PR #121 갱신, CI, `main` merge, Azure와 운영 DB mutation은 실행하지 않는다.
 - Migration 0003은 additive이며 down migration을 제공하지 않는다. 이전 image의 독립 membership write는 `integrated_user_access_required`로 fail closed한다. 이전 image가 새 ledger를 수용한다고 주장하지 않으며 운영 적용 전 Change 031에서 새 image 재배포/forward-fix 경로를 고정한다.
 - Change 002는 자동·시각 증거가 있지만 사용자 직접 검수 완료 기록은 없다. Change 003 검수 화면에서 selector 세 경우와 통합 승인 흐름을 함께 확인한다.
+
+## 9. 사용자 UI 피드백 반영 — compact table
+
+사용자는 첫 검수 화면에서 계정별 카드 높이가 과도하다고 판단하고 기존 청주 관리자 사용자 관리와 같은 조밀한 선택형 표로 변경하라고 명시했다. 후속 구현은 한 계정을 한 표 행으로 만들고 편집 헤더를 정확히 `활성 상태`, `사업부`, `부서`, `역할`, `부서장` 순서로 고정했다. 이름·이메일과 짧은 승인 상태는 왼쪽 row header의 두 줄 안에 두고 승인/저장은 무헤더 끝 셀로 최소화했다. 정상 행의 설명·도움말·카드·큰 배지는 제거했으며 RetryRequired와 오류만 해당 행 다음 한 줄에 표시한다.
+
+역할은 별도 선택 UI를 없앴다. 부서를 선택하면 기존 `departments.defaultRoleCode` 계약으로 그 부서의 기본 역할을 자동 적용하고 읽기 전용 한 줄로 보여준다. 부서를 바꿀 때 사업부 catalog의 다른 부서 기본 역할만 교체하며 `system-administrator`처럼 부서 기본 역할이 아닌 기존 특수·추가 역할은 보존한다. 기본 역할이 없는 부서는 역할을 추정하지 않고 저장을 비활성화한다. 일반 사용자가 활성 체크한 사업부는 다른 사업부 draft를 자동 비활성화하며, 지정 총괄은 사업부 select로 각 사업부 profile을 전환해 독립적으로 유지한다.
+
+Desktop 표의 정상 셀 padding은 `4px 8px`, select/button 높이는 `32px`, checkbox는 `16px`다. 390px 화면에서도 카드를 만들지 않고 같은 compact table을 유지하며 수평 스크롤로 모든 열을 제공한다. Mock Chromium에서 정상 행 높이 `48px 이하`, narrow viewport의 `scrollWidth > clientWidth`, 정확한 헤더·role 자동 기입·해당 행만 loading 잠금을 확인했다.
+
+검수 전 추가 검증은 사용자 정책에 따라 Frontend typecheck, `BusinessUnitAccess.test.tsx`와 단일 mock browser 시나리오로 제한했다. Typecheck는 최종 PASS다. Component 첫 실행은 20건 중 17 PASS/3 FAIL이었고 모두 새 test fixture·matcher 결함이었다. 실패 3건만 좁혀 재실행해 자동 역할과 특수 역할 보존, ReviewSafe mutation 차단이 PASS했고, 행별 오류 matcher 보정 뒤 fail-closed 1건도 PASS했다. Browser smoke는 첫 실행에서 행 높이 `48.48px`로 기준을 `0.48px` 초과해 셀 padding을 1px 줄였고, 같은 1건만 재실행해 PASS했다. 전체 suite는 추가 실행하지 않았다.
+
+격리 review harness는 서로 다른 pending synthetic 계정 두 개를 제공한다. `Synthetic Cheongju Approval`은 청주, `Synthetic Osan Approval`은 오산으로 승인되면 동일 Directory UUID를 유지한 채 runtime-only Dev identity `dev-sales`, `dev-quality`로 전환되어 승인한 계정 자체로 각 사업부 shell을 확인할 수 있다. 이 전환은 격리된 tmpfs 3-DB fixture에만 적용되며 tracked product identity나 운영 데이터 계약을 바꾸지 않는다. `dev-admin`은 계속 청주·오산 양쪽을 선택하는 총괄 fixture다.

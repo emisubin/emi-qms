@@ -79,8 +79,20 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
     businessUnits: ['CHEONGJU', 'OSAN'].map((code) => ({
       code,
       canManage: true,
-      departments: [{ departmentId, code: 'management-support', name: '경영지원', defaultRoleCode: 'management-support' }],
-      roles: [{ roleId: '20000000-0000-0000-0000-000000000001', code: 'management-support', name: '경영지원' }]
+      departments: [
+        { departmentId, code: 'management-support', name: '경영지원', defaultRoleCode: 'management-support' },
+        {
+          departmentId: '10000000-0000-0000-0000-000000000005',
+          code: 'quality',
+          name: '품질',
+          defaultRoleCode: 'quality'
+        }
+      ],
+      roles: [
+        { roleId: '20000000-0000-0000-0000-000000000001', code: 'management-support', name: '경영지원' },
+        { roleId: '20000000-0000-0000-0000-000000000005', code: 'quality', name: '품질' },
+        { roleId: '20000000-0000-0000-0000-000000000009', code: 'system-administrator', name: '시스템 관리자' }
+      ]
     }))
   };
 }
@@ -438,32 +450,102 @@ describe('business-unit access shell', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '사용자 관리' })).toBeInTheDocument();
-    expect(screen.getByText(/총괄 관리자 지정은 별도 관리됩니다/)).toBeInTheDocument();
     expect(screen.queryByText('사업부 소속 관리')).not.toBeInTheDocument();
-    const adminCard = (await screen.findByText('총괄 관리자')).closest('article');
-    expect(adminCard).not.toBeNull();
-    expect(within(adminCard!).getByText('총괄 관리자')).toBeInTheDocument();
-    expect(within(adminCard!).getAllByLabelText('소속·활성')).toHaveLength(2);
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
+      '', '활성 상태', '사업부', '부서', '역할', '부서장', ''
+    ]);
+    const adminRow = (await screen.findByText('Synthetic Overall Admin')).closest('tr');
+    expect(adminRow).not.toBeNull();
+    expect(within(adminRow!).getByText('총괄')).toBeInTheDocument();
 
-    const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
-    expect(newUserCard).not.toBeNull();
-    const unitGroups = within(newUserCard!).getAllByRole('group');
-    const cheongjuGroup = unitGroups.find((group) => within(group).queryByText('청주'))!;
-    const osanGroup = unitGroups.find((group) => within(group).queryByText('오산'))!;
-    const cheongjuMembership = within(cheongjuGroup).getByLabelText('소속·활성');
-    const osanMembership = within(osanGroup).getByLabelText('소속·활성');
-    await waitFor(() => expect(osanMembership).toBeEnabled());
-    fireEvent.click(cheongjuMembership);
-    fireEvent.click(osanMembership);
-    fireEvent.change(within(osanGroup).getByLabelText('부서'), { target: { value: '10000000-0000-0000-0000-000000000001' } });
-    fireEvent.click(within(osanGroup).getByLabelText('경영지원'));
-    const saveMembership = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
+    const newUserRow = (await screen.findByText('Synthetic New User')).closest('tr');
+    expect(newUserRow).not.toBeNull();
+    const businessUnit = within(newUserRow!).getByRole('combobox', { name: 'Synthetic New User 사업부' });
+    fireEvent.change(businessUnit, { target: { value: 'OSAN' } });
+    const active = within(newUserRow!).getByRole('checkbox', { name: 'Synthetic New User 활성 상태' });
+    await waitFor(() => expect(active).toBeEnabled());
+    fireEvent.click(active);
+    fireEvent.change(within(newUserRow!).getByRole('combobox', { name: 'Synthetic New User 부서' }), {
+      target: { value: '10000000-0000-0000-0000-000000000001' }
+    });
+    expect(within(newUserRow!).getByLabelText('Synthetic New User 역할')).toHaveTextContent('경영지원');
+    const saveMembership = within(newUserRow!).getByRole('button', { name: '저장' });
     expect(saveMembership).toBeEnabled();
     fireEvent.click(saveMembership);
-    expect(await screen.findByRole('status')).toHaveTextContent('사용자 접근 정보를 저장했습니다.');
+    expect(await screen.findByText('사용자 접근 정보를 저장했습니다.')).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input, init]) => (
       new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(1);
+  });
+
+  it('auto-fills a department role while preserving special roles', async () => {
+    selectBusinessUnit('CHEONGJU');
+    window.history.replaceState(null, '', '/admin/users');
+    const snapshot = membershipAdministrationResponse(['CHEONGJU']);
+    snapshot.users[1].profiles[0].roles = ['management-support', 'system-administrator'];
+    const fallbackFetch = shellFetch(selectedUser({
+      status: 'selected',
+      selectedBusinessUnit: 'CHEONGJU',
+      allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+      isOverallAdministrator: true,
+      errorCode: null
+    }));
+    let submittedProfiles: Array<{ businessUnitCode: string; roleCodes: string[] }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/admin/user-access/users') {
+        return json(snapshot);
+      }
+      if (url.pathname.endsWith('/access') && init?.method === 'PUT') {
+        submittedProfiles = JSON.parse(String(init.body)).profiles;
+        return json({ changed: true, accessVersion: 1, snapshot });
+      }
+      return fallbackFetch(input, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    const userRow = (await screen.findByText('Synthetic New User')).closest('tr');
+    expect(userRow).not.toBeNull();
+    fireEvent.change(within(userRow!).getByRole('combobox', { name: 'Synthetic New User 부서' }), {
+      target: { value: '10000000-0000-0000-0000-000000000005' }
+    });
+    expect(within(userRow!).getByLabelText('Synthetic New User 역할')).toHaveTextContent('품질, 시스템 관리자');
+    fireEvent.click(within(userRow!).getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(submittedProfiles).not.toHaveLength(0));
+    const cheongju = submittedProfiles.find((profile) => profile.businessUnitCode === 'CHEONGJU');
+    expect(cheongju?.roleCodes).toEqual(['quality', 'system-administrator']);
+  });
+
+  it('fails closed when an active department has no default role', async () => {
+    selectBusinessUnit('CHEONGJU');
+    window.history.replaceState(null, '', '/admin/users');
+    const snapshot = membershipAdministrationResponse(['CHEONGJU']);
+    (snapshot.businessUnits[0].departments[0] as { defaultRoleCode: string | null }).defaultRoleCode = null;
+    snapshot.users[1].profiles[0].roles = [];
+    const fallbackFetch = shellFetch(selectedUser({
+      status: 'selected',
+      selectedBusinessUnit: 'CHEONGJU',
+      allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+      isOverallAdministrator: true,
+      errorCode: null
+    }));
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/admin/user-access/users') {
+        return json(snapshot);
+      }
+      return fallbackFetch(input, init);
+    }));
+
+    render(<App />);
+
+    const userRow = (await screen.findByText('Synthetic New User')).closest('tr');
+    expect(userRow).not.toBeNull();
+    const feedbackId = userRow!.getAttribute('aria-describedby');
+    expect(feedbackId).not.toBeNull();
+    expect(document.getElementById(feedbackId!)).toHaveTextContent('이 부서는 기본 역할이 없어 저장할 수 없습니다.');
+    expect(within(userRow!).getByRole('button', { name: '저장' })).toBeDisabled();
   });
 
   it('blocks gate membership mutations in ReviewSafe even when disabled controls are invoked', async () => {
@@ -486,11 +568,11 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
-    expect(newUserCard).not.toBeNull();
+    const newUserRow = (await screen.findByText('Synthetic New User')).closest('tr');
+    expect(newUserRow).not.toBeNull();
     expect(screen.getByText('검수 전용 읽기 모드에서는 사업부 소속을 변경할 수 없습니다.')).toBeInTheDocument();
-    const checkbox = within(newUserCard!).getAllByLabelText('소속·활성')[1];
-    const save = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
+    const checkbox = within(newUserRow!).getByRole('checkbox', { name: 'Synthetic New User 활성 상태' });
+    const save = within(newUserRow!).getByRole('button', { name: '저장' });
     expect(checkbox).toBeDisabled();
     expect(save).toBeDisabled();
 
@@ -499,7 +581,7 @@ describe('business-unit access shell', () => {
     save.removeAttribute('disabled');
     fireEvent.click(save);
 
-    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toBeChecked();
     expect(fetchMock.mock.calls.filter(([input, init]) => (
       new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
@@ -520,13 +602,13 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
-    expect(newUserCard).not.toBeNull();
+    const newUserRow = (await screen.findByText('Synthetic New User')).closest('tr');
+    expect(newUserRow).not.toBeNull();
     expect(screen.getByText('실행 모드를 확인하는 동안에는 사업부 소속을 변경할 수 없습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
-    const checkbox = within(newUserCard!).getAllByLabelText('소속·활성')[1];
-    const save = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
+    const checkbox = within(newUserRow!).getByRole('checkbox', { name: 'Synthetic New User 활성 상태' });
+    const save = within(newUserRow!).getByRole('button', { name: '저장' });
     expect(checkbox).toBeDisabled();
     expect(save).toBeDisabled();
     checkbox.removeAttribute('disabled');
@@ -551,13 +633,13 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
-    expect(newUserCard).not.toBeNull();
+    const newUserRow = (await screen.findByText('Synthetic New User')).closest('tr');
+    expect(newUserRow).not.toBeNull();
     expect(await screen.findByText('실행 모드를 확인할 수 없어 사업부 소속 변경을 차단했습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
-    const checkbox = within(newUserCard!).getAllByLabelText('소속·활성')[1];
-    const save = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
+    const checkbox = within(newUserRow!).getByRole('checkbox', { name: 'Synthetic New User 활성 상태' });
+    const save = within(newUserRow!).getByRole('button', { name: '저장' });
     expect(checkbox).toBeDisabled();
     expect(save).toBeDisabled();
     checkbox.removeAttribute('disabled');

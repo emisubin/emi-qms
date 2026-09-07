@@ -121,3 +121,7 @@ Backend resolver/API schema, DB/migration, 관리자 권한 확대, 새 route/pa
 - Backend 실패는 Change 003 통합 저장으로 완전한 활성 Osan local profile을 받은 Entra onboarding 사용자를 뒤의 ReviewSafe 무변경 검증에서 여전히 `ApprovalPending=True`로 기대한 legacy assertion이었다. Directory와 local row 무변경 assertion은 유지하고 현재 승인 결과에 맞게 `ApprovalPending=False`를 기대하도록 보정했다. Test project targeted build는 경고 0·오류 0, 해당 3-DB fact는 `1/1 PASS`했고 owned DB·container·network를 정리했다.
 
 보정 allowlist는 `backend/tests/Emi.Qms.Api.Tests/BusinessUnitIsolationTests.cs`, `frontend/e2e/full-stack/iqc-digital-report.full-stack.spec.ts`와 이 CI 기록을 위한 Change 004·implementation report다. 보정 commit의 non-force push가 새 전체 PR CI를 자동 시작하는 것은 실패 수정 뒤 최종 head를 검증하기 위한 불가피한 재실행이며, 별도 수동 dispatch나 첫 run retry는 하지 않는다.
+
+첫 보정 commit `b8c6a2dcf73341ed980e31a833c30f497c1490aa`의 자동 CI run `34140283892`에서는 Backend `584/584 PASS`, Frontend PASS, 일반 Full-Stack `64/64 PASS`로 두 보정이 확인됐다. 이어진 business-unit access 격리 spec은 Change 003이 초기 `dev-sales` fixture를 승인 전 Entra pending으로 만든 뒤에도 단일 청주 선택을 기대했고, Change 004가 제거한 dual-admin 선택 화면과 reset 뒤 선택 화면도 계속 기대한 test drift 때문에 실패했다. Osan 격리는 선행 실패로 skip됐고 CI Gate는 FAIL했다.
+
+`frontend/e2e/full-stack/business-unit-access.full-stack.spec.ts`를 실제 흐름인 membership 0 대기, 총괄의 청주 자동 fallback, 통합 승인, 별도 tab의 청주 자동 진입과 selector 오산 전환, reset 뒤 청주 자동 복구로 갱신했다. 이 격리 3-DB spec만 로컬에서 재실행해 `1/1 PASS`했고 synthetic database·bounded role·process·Compose cleanup을 확인했다. 이 후속 test-only commit push가 자동 생성하는 다음 PR CI가 최종 전체 검증이며 수동 dispatch나 이전 run retry는 하지 않는다.

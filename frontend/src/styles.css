@@ -1912,6 +1912,205 @@
   .billing-history-list button { min-height: 34px; font-size: 11px; }
 }
 
+.osan-project-page {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.osan-project-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr));
+  gap: .85rem;
+}
+
+.osan-project-card {
+  display: grid;
+  min-width: 0;
+  gap: .35rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border, #d9e1e6);
+  border-radius: .85rem;
+  background: var(--color-surface, #fff);
+  color: inherit;
+  text-align: left;
+}
+
+.osan-project-card:enabled:hover {
+  border-color: var(--color-action-primary, #176b87);
+}
+
+.osan-project-card strong,
+.osan-project-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.osan-project-card__code {
+  color: var(--color-action-primary, #176b87);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.osan-project-code-value {
+  white-space: break-spaces;
+}
+
+.osan-project-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .9rem 1rem;
+}
+
+.osan-project-field {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: .35rem .55rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.osan-project-field__number {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-surface-subtle, #f5f8fa);
+  color: var(--color-text-muted, #5d6b76);
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.osan-project-field__label {
+  font-weight: 650;
+}
+
+.osan-project-field input {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.osan-project-field__error {
+  grid-column: 1 / -1;
+  font-size: .78rem;
+}
+
+.osan-project-form__message,
+.osan-project-form__actions {
+  grid-column: 1 / -1;
+}
+
+.osan-project-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .6rem;
+  padding-top: .4rem;
+}
+
+.osan-project-detail {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.osan-project-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border, #d9e1e6);
+  border-radius: .85rem;
+  background: var(--color-border, #d9e1e6);
+}
+
+.osan-project-values > div {
+  min-width: 0;
+  padding: .85rem;
+  background: var(--color-surface, #fff);
+}
+
+.osan-project-values dt {
+  color: var(--color-text-muted, #5d6b76);
+  font-size: .75rem;
+}
+
+.osan-project-values dd {
+  margin: .3rem 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.osan-project-targets,
+.osan-project-target-card {
+  min-width: 0;
+}
+
+.osan-project-targets > header,
+.osan-project-target-card > header {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  align-items: center;
+}
+
+.osan-project-target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
+  gap: .85rem;
+}
+
+.osan-project-target-card {
+  padding: 1rem;
+  border: 1px solid var(--color-border, #d9e1e6);
+  border-radius: .85rem;
+  background: var(--color-surface, #fff);
+}
+
+.osan-project-target-card ol {
+  display: grid;
+  gap: .4rem;
+  margin: .8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.osan-project-target-card li {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .5rem .6rem;
+  border-radius: .5rem;
+  background: var(--color-surface-subtle, #f5f8fa);
+}
+
+.osan-project-target-card li b,
+.osan-project-target-card > header span {
+  color: var(--color-text-muted, #5d6b76);
+  font-size: .78rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .osan-project-form,
+  .osan-project-values {
+    grid-template-columns: 1fr;
+  }
+
+  .osan-project-form__actions {
+    position: sticky;
+    bottom: 0;
+    padding: .75rem 0;
+    background: var(--color-surface, #fff);
+  }
+
+  .osan-project-form__actions button {
+    flex: 1;
+  }
+}
+
 /* Project-wide department context and continuous material processing. */
 .project-department-tabs {
   display: flex;

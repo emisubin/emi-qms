@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
@@ -453,7 +454,7 @@ public sealed class BusinessUnitIsolationTests
         }
 
         foreach (var migrationFile in migrationCatalog.GetMigrationFiles()
-                     .Where(file => !Path.GetFileName(file).StartsWith("0086_", StringComparison.Ordinal)))
+                     .TakeWhile(file => !Path.GetFileName(file).StartsWith("0086_", StringComparison.Ordinal)))
         {
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
             await using (var migration = connection.CreateCommand())
@@ -1517,6 +1518,57 @@ public sealed class BusinessUnitIsolationTests
 
     private static async Task AssertPublicRequestRoutingAsync(IsolationDatabaseSet databases)
     {
+        using (var cheongjuFactory = QmsWebApplicationFactory.Create(
+                   DevelopmentFeaturePolicy.TestingEnvironmentName,
+                   databases.ConfigurationValues,
+                   includeDefaultDevelopmentAuthentication: true))
+        using (var cheongjuClient = cheongjuFactory.CreateClient())
+        using (var cheongjuCreatesOsanProject = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Cheongju))
+        {
+            cheongjuCreatesOsanProject.Content = JsonContent.Create(new
+            {
+                title = "Rejected Cheongju project",
+                projectCode = "CJ-OSAN-REJECT",
+                customerName = "Customer",
+                deliveryDate = new DateOnly(2026, 12, 31),
+                productName = "Product",
+                quantity = 1,
+                operationId = Guid.NewGuid()
+            });
+            var response = await cheongjuClient.SendAsync(
+                cheongjuCreatesOsanProject,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Contains(
+                "business_unit_capability_disabled",
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+                StringComparison.Ordinal);
+        }
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            update directory_business_unit_memberships
+            set is_active = false
+            where user_id = '{SalesUserId:D}' and business_unit_code = 'CHEONGJU';
+            insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
+            values ('{SalesUserId:D}', 'OSAN', true);
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            delete from role_permissions
+            where role_id = (select id from roles where code = 'sales')
+              and permission_id = (select id from permissions where code = 'Project.Read.All');
+            """,
+            TestContext.Current.CancellationToken);
         using var factory = QmsWebApplicationFactory.Create(
             DevelopmentFeaturePolicy.TestingEnvironmentName,
             databases.ConfigurationValues,
@@ -1550,12 +1602,236 @@ public sealed class BusinessUnitIsolationTests
             Assert.Equal("Osan Admin", body?.DisplayName);
         }
 
+        Guid osanProjectId;
+        var osanCreateOperationId = Guid.NewGuid();
+        var osanCreatePayload = new
+        {
+            title = "  Osan routed project  ",
+            projectCode = " OSAN-ROUTED-001 ",
+            customerName = " Routed customer ",
+            poNumber = " 001-PO ",
+            workOrderNumber = " WO/001 ",
+            deliveryDate = new DateOnly(2026, 12, 31),
+            productName = " Routed product ",
+            quantity = 2,
+            operationId = osanCreateOperationId
+        };
+        using (var createOsanProject = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            createOsanProject.Content = JsonContent.Create(osanCreatePayload);
+            var response = await client.SendAsync(createOsanProject, TestContext.Current.CancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.True(
+                response.StatusCode == HttpStatusCode.Created,
+                $"Expected Osan project create to return Created, got {response.StatusCode}. Body: {responseBody}");
+            using var body = JsonDocument.Parse(responseBody);
+            osanProjectId = body.RootElement.GetProperty("project").GetProperty("projectId").GetGuid();
+            Assert.Equal(2, body.RootElement.GetProperty("project").GetProperty("targets").GetArrayLength());
+        }
+
+        using (var listOsanProjects = Request(
+                   HttpMethod.Get,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(listOsanProjects, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Contains(
+                "OSAN-ROUTED-001",
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+                StringComparison.Ordinal);
+        }
+
+        using (var getOsanProject = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(getOsanProject, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from user_project_access
+            where user_id = '{SalesUserId:D}' and project_id = '{osanProjectId:D}';
+            """,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select count(*) from user_project_access where user_id = '{SalesUserId:D}' and project_id = '{osanProjectId:D}';",
+            TestContext.Current.CancellationToken));
+
+        using (var getRevokedOsanProject = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(getRevokedOsanProject, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        var stateBeforeRevokedReplay = await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select concat_ws(':',
+                (select count(*) from projects where id = '{osanProjectId:D}'),
+                (select count(*) from user_project_access where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_targets where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_target_steps where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_events where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_create_operations where project_id = '{osanProjectId:D}'));
+            """,
+            TestContext.Current.CancellationToken);
+        using (var replayWithoutAccess = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            replayWithoutAccess.Content = JsonContent.Create(osanCreatePayload);
+            var response = await client.SendAsync(replayWithoutAccess, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        Assert.Equal(stateBeforeRevokedReplay, await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select concat_ws(':',
+                (select count(*) from projects where id = '{osanProjectId:D}'),
+                (select count(*) from user_project_access where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_targets where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_target_steps where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_events where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_create_operations where project_id = '{osanProjectId:D}'));
+            """,
+            TestContext.Current.CancellationToken));
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into user_project_access (user_id, project_id)
+            values ('{SalesUserId:D}', '{osanProjectId:D}');
+            """,
+            TestContext.Current.CancellationToken);
+        using (var replayWithRestoredAccess = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            replayWithRestoredAccess.Content = JsonContent.Create(osanCreatePayload);
+            var response = await client.SendAsync(replayWithRestoredAccess, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            using var body = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.True(body.RootElement.GetProperty("replayed").GetBoolean());
+            Assert.Equal(
+                osanProjectId,
+                body.RootElement.GetProperty("project").GetProperty("projectId").GetGuid());
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from user_project_access
+            where user_id = '{SalesUserId:D}' and project_id = '{osanProjectId:D}';
+            insert into role_permissions (role_id, permission_id)
+            select roles.id, permissions.id
+            from roles
+            cross join permissions
+            where roles.code = 'sales' and permissions.code = 'Project.Read.All'
+            on conflict do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+        using (var replayWithProjectReadAll = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            replayWithProjectReadAll.Content = JsonContent.Create(osanCreatePayload);
+            var response = await client.SendAsync(replayWithProjectReadAll, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            using var body = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.True(body.RootElement.GetProperty("replayed").GetBoolean());
+            Assert.Equal(
+                osanProjectId,
+                body.RootElement.GetProperty("project").GetProperty("projectId").GetGuid());
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into user_project_access (user_id, project_id)
+            values ('{SalesUserId:D}', '{osanProjectId:D}');
+            """,
+            TestContext.Current.CancellationToken);
+
+        using (var cheongjuCallsOsanRoute = Request(
+                   HttpMethod.Get,
+                   "/api/osan/projects",
+                   "dev-admin",
+                   BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(cheongjuCallsOsanRoute, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        using (var decimalQuantity = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            decimalQuantity.Content = JsonContent.Create(new
+            {
+                title = "Invalid quantity",
+                projectCode = "OSAN-INVALID-DECIMAL",
+                customerName = "Customer",
+                deliveryDate = new DateOnly(2026, 12, 31),
+                productName = "Product",
+                quantity = 1.5,
+                operationId = Guid.NewGuid()
+            });
+            var response = await client.SendAsync(decimalQuantity, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from directory_business_unit_memberships
+            where user_id = '{SalesUserId:D}' and business_unit_code = 'OSAN';
+            update directory_business_unit_memberships
+            set is_active = true
+            where user_id = '{SalesUserId:D}' and business_unit_code = 'CHEONGJU';
+            """,
+            TestContext.Current.CancellationToken);
+
         foreach (var (method, route) in new[]
                  {
                      (HttpMethod.Get, "/api/projects"),
                      (HttpMethod.Get, "/api/projects/export"),
                      (HttpMethod.Get, "/api/g2/home"),
                      (HttpMethod.Get, "/api/pending"),
+                     (HttpMethod.Put, "/api/osan/projects"),
+                     (HttpMethod.Delete, $"/api/osan/projects/{Guid.NewGuid():D}"),
                      (HttpMethod.Post, $"/api/projects/{Guid.NewGuid():D}/hold"),
                      (HttpMethod.Post, $"/api/projects/{Guid.NewGuid():D}/cancel")
                  })
@@ -1565,9 +1841,14 @@ public sealed class BusinessUnitIsolationTests
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
 
+        using (var revokedFactory = QmsWebApplicationFactory.Create(
+                   DevelopmentFeaturePolicy.TestingEnvironmentName,
+                   databases.ConfigurationValues,
+                   includeDefaultDevelopmentAuthentication: true))
+        using (var revokedClient = revokedFactory.CreateClient())
         using (var forged = Request(HttpMethod.Get, "/api/me", "dev-sales", BusinessUnitCodes.Osan))
         {
-            var response = await client.SendAsync(forged, TestContext.Current.CancellationToken);
+            var response = await revokedClient.SendAsync(forged, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var body = await response.Content.ReadFromJsonAsync<PendingResponse>(
                 cancellationToken: TestContext.Current.CancellationToken);

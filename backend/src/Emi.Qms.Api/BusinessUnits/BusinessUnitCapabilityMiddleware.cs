@@ -65,6 +65,20 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
     private static bool IsOsanAllowedRequest(HttpRequest request)
     {
         var path = request.Path;
+        if ((HttpMethods.IsGet(request.Method) || HttpMethods.IsPost(request.Method))
+            && (path.Equals("/api/osan/projects", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/osan/projects/", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (HttpMethods.IsGet(request.Method)
+            && path.StartsWithSegments("/api/osan/projects", out var osanProjectRemaining)
+            && Guid.TryParse(osanProjectRemaining.Value?.Trim('/'), out _))
+        {
+            return true;
+        }
+
         if (path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/api/me/profile-photo")
             || path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)

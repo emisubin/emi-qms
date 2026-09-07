@@ -1,5 +1,61 @@
 export const maxPanelsPerProject = 500;
 
+export interface CreateOsanProjectRequest {
+  title: string;
+  projectCode: string;
+  customerName: string;
+  poNumber: string | null;
+  workOrderNumber: string | null;
+  deliveryDate: string;
+  productName: string;
+  quantity: number;
+  operationId: string;
+}
+
+export interface OsanProjectListResponse {
+  items: OsanProjectListItem[];
+}
+
+export interface OsanProjectListItem {
+  projectId: string;
+  title: string;
+  projectCode: string;
+  customerName: string;
+  poNumber: string | null;
+  workOrderNumber: string | null;
+  deliveryDate: string;
+  productName: string;
+  quantity: number;
+  status: string;
+  createdAtUtc: string;
+}
+
+export interface OsanProjectDetail extends OsanProjectListItem {
+  targets: OsanProjectTarget[];
+}
+
+export interface OsanProjectTarget {
+  targetId: string;
+  sequenceNumber: number;
+  displayName: string;
+  status: string;
+  steps: OsanProjectStep[];
+}
+
+export interface OsanProjectStep {
+  stepId: string;
+  sequenceNumber: number;
+  stepCode: string;
+  stepName: string;
+  status: string;
+}
+
+export interface OsanProjectCreateResponse {
+  operationId: string;
+  replayed: boolean;
+  project: OsanProjectDetail;
+}
+
 export interface ProjectListResponse {
   items: ProjectListItem[];
   page: number;

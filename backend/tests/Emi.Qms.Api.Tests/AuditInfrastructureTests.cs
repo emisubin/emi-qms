@@ -8,6 +8,11 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class AuditInfrastructureTests
 {
+    private static readonly IReadOnlySet<string> PostGlobalAuditMigrationTrackedRelations =
+        ParseRelationNames("""
+            osan_project_target_steps osan_project_targets
+            """);
+
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ExplicitRelationExclusions =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
         {
@@ -26,6 +31,7 @@ public sealed class AuditInfrastructureTests
                 production_plan_template_audit_events project_audit_events project_workflow_events
                 sales_monthly_target_audit_events ul891_recovery_case_events
                 user_notification_preference_audit_events user_profile_photo_audit_events
+                osan_project_events
                 """),
             ["ProviderWorkerOrGeneratedArtifact"] = ParseRelationNames("""
                 iqc_report_pdf_artifacts notification_deliveries notification_delivery_attempts
@@ -40,7 +46,7 @@ public sealed class AuditInfrastructureTests
                 procurement_excel_import_batch_projects procurement_excel_import_batches
                 production_planning_excel_import_batches sales_billing_request_download_events
                 sales_billing_request_operations sales_monthly_billing_operations
-                sales_settlement_operations ul891_set_operations
+                sales_settlement_operations ul891_set_operations osan_project_create_operations
                 """),
             ["SeedReferenceData"] = ParseRelationNames("""
                 permissions roles
@@ -150,11 +156,15 @@ public sealed class AuditInfrastructureTests
             registryStart,
             StringComparison.Ordinal);
         Assert.True(registryStart >= 0 && registryEnd > registryStart);
-        var trackedRelations = Regex.Matches(
+        var migrationTrackedRelations = Regex.Matches(
                 auditMigration[registryStart..registryEnd],
                 "'([a-z_][a-z0-9_]*)'",
                 RegexOptions.CultureInvariant)
             .Select(match => match.Groups[1].Value)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Empty(migrationTrackedRelations.Intersect(PostGlobalAuditMigrationTrackedRelations, StringComparer.Ordinal));
+        var trackedRelations = migrationTrackedRelations
+            .Concat(PostGlobalAuditMigrationTrackedRelations)
             .ToHashSet(StringComparer.Ordinal);
         var excludedRelations = ExplicitRelationExclusions.Values
             .SelectMany(relations => relations)
@@ -170,8 +180,8 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(94, trackedRelations.Count);
-        Assert.Equal(54, excludedRelations.Length);
+        Assert.Equal(96, trackedRelations.Count);
+        Assert.Equal(56, excludedRelations.Length);
     }
 
     [Fact]

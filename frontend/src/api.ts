@@ -146,6 +146,7 @@ import type {
   ChangePanelCountRequest,
   CreateAdminDepartmentRequest,
   CreateProjectRequest,
+  CreateOsanProjectRequest,
   DeletedProjectDetail,
   DeletedProjectListResponse,
   DeleteProjectRequest,
@@ -189,6 +190,9 @@ import type {
   PurgeDeletedProjectsResponse,
   ProjectListResponse,
   ProjectListTab,
+  OsanProjectCreateResponse,
+  OsanProjectDetail,
+  OsanProjectListResponse,
   ProjectStatusChangeRequest,
   SalesOwner,
   SystemHoliday,
@@ -1452,6 +1456,35 @@ export async function listProjects(
   }
   const query = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<ProjectListResponse>(`/api/projects${query}`, developmentUserKey, { signal: options.signal });
+}
+
+export async function listOsanProjects(
+  developmentUserKey: string | undefined,
+  options: { signal?: AbortSignal } = {}
+): Promise<OsanProjectListResponse> {
+  return fetchJson<OsanProjectListResponse>('/api/osan/projects', developmentUserKey, { signal: options.signal });
+}
+
+export async function getOsanProject(
+  developmentUserKey: string | undefined,
+  projectId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<OsanProjectDetail> {
+  return fetchJson<OsanProjectDetail>(
+    `/api/osan/projects/${encodeURIComponent(projectId)}`,
+    developmentUserKey,
+    { signal: options.signal }
+  );
+}
+
+export async function createOsanProject(
+  developmentUserKey: string | undefined,
+  request: CreateOsanProjectRequest
+): Promise<OsanProjectCreateResponse> {
+  return fetchJson<OsanProjectCreateResponse>('/api/osan/projects', developmentUserKey, {
+    method: 'POST',
+    body: JSON.stringify(request)
+  });
 }
 
 export async function exportProjectsExcel(

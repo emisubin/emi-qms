@@ -64,4 +64,29 @@ public sealed class AuditMutationCoverageTests
         Assert.True(AuditMutationRegistry.TryResolve(context, out var definition));
         Assert.False(definition.Included);
     }
+
+    [Fact]
+    public void OsanProjectCreate_IsKnownAndIncludedInProjectAudit()
+    {
+        using var factory = new QmsWebApplicationFactory();
+        var endpoint = factory.Services
+            .GetRequiredService<EndpointDataSource>()
+            .Endpoints
+            .OfType<RouteEndpoint>()
+            .Single(candidate => string.Equals(
+                candidate.RoutePattern.RawText,
+                "/api/osan/projects/",
+                StringComparison.Ordinal)
+                && candidate.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                    HttpMethods.Post,
+                    StringComparer.OrdinalIgnoreCase) == true);
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Post;
+        context.SetEndpoint(endpoint);
+
+        Assert.True(AuditMutationRegistry.TryResolve(context, out var definition));
+        Assert.True(definition.Included);
+        Assert.Equal("Projects", definition.Domain);
+        Assert.Equal("CreateOsanProject", definition.Action);
+    }
 }

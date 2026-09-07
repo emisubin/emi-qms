@@ -50,6 +50,7 @@ import {
   createAdminDepartment,
   createAdminCalendarHoliday,
   createProject,
+  createOsanProject,
   defaultDevelopmentUserKey,
   deleteProject,
   deactivateAdminCalendarHoliday,
@@ -83,6 +84,7 @@ import {
   getPanelInformation,
   getPanelInformationHistory,
   getProject,
+  getOsanProject,
   getProjectDepartmentAssignees,
   getUl891SetStructure,
   getProjectWorkflow,
@@ -127,6 +129,7 @@ import {
   listDeletedProjects,
   listPanels,
   listProjects,
+  listOsanProjects,
   previewAdminCalendarHolidayExcel,
   previewPanelInformationExcel,
   previewProductionPlanningExcel,
@@ -290,6 +293,8 @@ import type {
   NotificationItem,
   NotificationListResponse,
   NotificationSummary,
+  OsanProjectDetail,
+  OsanProjectListItem,
   ProjectAssignee,
   ProjectDetail,
   ProjectDashboardSummary,
@@ -722,6 +727,10 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/projects') {
     return { kind: 'list' };
+  }
+
+  if (window.location.pathname === '/projects/create') {
+    return { kind: 'create' };
   }
 
   if (window.location.pathname === '/my-work') {
@@ -1286,6 +1295,8 @@ function pathForView(view: View) {
       return `/teams/activity/notifications/${view.notificationId}`;
     case 'detail':
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
+    case 'create':
+      return '/projects/create';
     case 'sales-settlement':
       return `/projects/${view.projectId}/settlement`;
     case 'sales-kpi': {
@@ -2647,7 +2658,12 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'list' ? (
-        isOsan ? <OsanAreaPlaceholder area="projects" /> : <ProjectListPage
+        isOsan ? <OsanProjectListPage
+          developmentUserKey={developmentUserKey}
+          canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
+          onCreate={() => setView({ kind: 'create' })}
+          onOpen={(projectId) => setView({ kind: 'detail', projectId })}
+        /> : <ProjectListPage
           developmentUserKey={developmentUserKey}
           canCreate={canCreate}
             canReadDeleted={canReadDeleted}
@@ -2679,7 +2695,12 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'create' ? (
-        <ProjectCreatePage
+        isOsan ? <OsanProjectCreatePage
+          developmentUserKey={developmentUserKey}
+          canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
+          onCancel={() => setView({ kind: 'list' })}
+          onCreated={(projectId) => setView({ kind: 'detail', projectId })}
+        /> : <ProjectCreatePage
           developmentUserKey={developmentUserKey}
           onCancel={() => setView({ kind: 'list' })}
           onCreated={(projectId) => setView({ kind: 'detail', projectId })}
@@ -2687,7 +2708,11 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'detail' ? (
-        <>
+        isOsan ? <OsanProjectDetailPage
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          onBack={() => setView({ kind: 'list' })}
+        /> : <>
           {projectActionFeedback?.projectId === view.projectId ? (
             <section className="page-action-feedback route-action-feedback" aria-label="최근 저장 결과">
               <ActionFeedback
@@ -4166,12 +4191,412 @@ function BusinessUnitAccessGate({
   );
 }
 
-function OsanAreaPlaceholder({ area }: { area: 'home' | 'projects' | 'progress' }) {
+function OsanProjectListPage({
+  developmentUserKey,
+  canCreate,
+  onCreate,
+  onOpen
+}: {
+  developmentUserKey: string;
+  canCreate: boolean;
+  onCreate: () => void;
+  onOpen: (projectId: string) => void;
+}) {
+  const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    const controller = new AbortController();
+    setState({ kind: 'loading' });
+    listOsanProjects(developmentUserKey, { signal: controller.signal })
+      .then((response) => setState(response.items.length > 0
+        ? { kind: 'ready', data: response.items }
+        : { kind: 'empty' }))
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) {
+          setState(toLoadError(error, '오산 프로젝트 목록을 불러올 수 없습니다.'));
+        }
+      });
+    return () => controller.abort();
+  }, [developmentUserKey]);
+
+  useEffect(() => load(), [load]);
+
+  return (
+    <section className="panel-section osan-project-page">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="OSAN"
+        title="오산 프로젝트"
+        description="등록된 프로젝트와 수량을 확인합니다."
+        actions={canCreate ? (
+          <button type="button" className="primary-button" onClick={onCreate}>프로젝트 등록</button>
+        ) : undefined}
+      />
+
+      {state.kind === 'loading' ? (
+        <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
+      ) : null}
+      {state.kind === 'empty' ? (
+        <DsStatePanel
+          kind="empty"
+          title="등록된 프로젝트가 없습니다."
+          description={canCreate ? '첫 프로젝트를 등록해 주세요.' : '등록 권한이 있는 담당자에게 문의해 주세요.'}
+          action={canCreate ? <button type="button" className="primary-button" onClick={onCreate}>프로젝트 등록</button> : undefined}
+        />
+      ) : null}
+      {state.kind === 'forbidden' ? (
+        <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} />
+      ) : null}
+      {state.kind === 'error' ? (
+        <DsStatePanel
+          kind="error"
+          title="프로젝트를 불러오지 못했습니다."
+          description={state.message}
+          action={<button type="button" onClick={load}>다시 시도</button>}
+        />
+      ) : null}
+      {state.kind === 'ready' ? (
+        <div className="osan-project-list" aria-label="오산 프로젝트 목록">
+          {state.data.map((project) => (
+            <button
+              type="button"
+              className="osan-project-card"
+              key={project.projectId}
+              onClick={() => onOpen(project.projectId)}
+            >
+              <span className="osan-project-card__code osan-project-code-value">{project.projectCode}</span>
+              <strong>{project.title}</strong>
+              <span>{project.customerName}</span>
+              <span>{project.productName} · {project.quantity.toLocaleString()}개</span>
+              <span>납기 {project.deliveryDate}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+type OsanProjectDraft = {
+  title: string;
+  projectCode: string;
+  customerName: string;
+  poNumber: string;
+  workOrderNumber: string;
+  deliveryDate: string;
+  productName: string;
+  quantity: string;
+};
+
+const emptyOsanProjectDraft: OsanProjectDraft = {
+  title: '',
+  projectCode: '',
+  customerName: '',
+  poNumber: '',
+  workOrderNumber: '',
+  deliveryDate: '',
+  productName: '',
+  quantity: ''
+};
+
+const osanProjectVisibleFields = new Set<keyof OsanProjectDraft>([
+  'title',
+  'projectCode',
+  'customerName',
+  'poNumber',
+  'workOrderNumber',
+  'deliveryDate',
+  'productName',
+  'quantity'
+]);
+
+const osanProjectFieldLimits: Partial<Record<keyof OsanProjectDraft, number>> = {
+  title: 200,
+  projectCode: 80,
+  customerName: 200,
+  poNumber: 100,
+  workOrderNumber: 100,
+  productName: 100
+};
+
+function OsanProjectCreatePage({
+  developmentUserKey,
+  canCreate,
+  onCancel,
+  onCreated
+}: {
+  developmentUserKey: string;
+  canCreate: boolean;
+  onCancel: () => void;
+  onCreated: (projectId: string) => void;
+}) {
+  const [draft, setDraft] = useState<OsanProjectDraft>(emptyOsanProjectDraft);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const operationIdRef = useRef(globalThis.crypto.randomUUID());
+
+  if (!canCreate) {
+    return (
+      <section className="panel-section osan-project-page">
+        <DsPageHeader className="page-header" eyebrow="OSAN" title="프로젝트 등록" />
+        <DsStatePanel
+          kind="forbidden"
+          title="프로젝트를 등록할 수 없습니다."
+          description="등록 권한 또는 저장 가능 상태를 확인해 주세요."
+          action={<button type="button" onClick={onCancel}>목록으로</button>}
+        />
+      </section>
+    );
+  }
+
+  const setField = (field: keyof OsanProjectDraft, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setMessage('');
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving) return;
+
+    const nextErrors: Record<string, string> = {};
+    for (const field of ['title', 'projectCode', 'customerName', 'deliveryDate', 'productName'] as const) {
+      if (!draft[field].trim()) {
+        nextErrors[field] = '필수 입력값입니다.';
+      }
+    }
+    for (const [field, maxLength] of Object.entries(osanProjectFieldLimits) as Array<[keyof OsanProjectDraft, number]>) {
+      if (draft[field].trim().length > maxLength) {
+        nextErrors[field] = `${maxLength}자 이하로 입력해 주세요.`;
+      }
+    }
+    const quantity = Number(draft.quantity);
+    if (!draft.quantity.trim() || !Number.isInteger(quantity) || quantity < 1 || quantity > 500) {
+      nextErrors.quantity = '수량은 1 이상 500 이하의 정수로 입력해 주세요.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      setMessage('입력값을 확인해 주세요.');
+      return;
+    }
+
+    setSaving(true);
+    setErrors({});
+    setMessage('');
+    try {
+      const response = await createOsanProject(developmentUserKey, {
+        title: draft.title.trim(),
+        projectCode: draft.projectCode.trim(),
+        customerName: draft.customerName.trim(),
+        poNumber: draft.poNumber.trim() || null,
+        workOrderNumber: draft.workOrderNumber.trim() || null,
+        deliveryDate: draft.deliveryDate,
+        productName: draft.productName.trim(),
+        quantity,
+        operationId: operationIdRef.current
+      });
+      onCreated(response.project.projectId);
+    } catch (error: unknown) {
+      let hasFieldErrors = false;
+      if (error instanceof ApiError && error.errors) {
+        const mappedErrors = mapValidationErrorsToFieldErrors(error.errors);
+        const visibleFieldErrors = Object.fromEntries(Object.entries(mappedErrors).filter(([field]) => (
+          osanProjectVisibleFields.has(field as keyof OsanProjectDraft)
+        )));
+        hasFieldErrors = Object.keys(visibleFieldErrors).length > 0;
+        setErrors(visibleFieldErrors);
+      }
+      if (error instanceof ApiError && error.errorCode === 'osan_project_operation_conflict') {
+        operationIdRef.current = globalThis.crypto.randomUUID();
+      }
+      setMessage(hasFieldErrors ? '' : friendlyErrorMessage(error, '프로젝트를 등록할 수 없습니다.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fieldError = (field: keyof OsanProjectDraft) => errors[field];
+  return (
+    <section className="panel-section osan-project-page">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="OSAN"
+        title="프로젝트 등록"
+        description="프로젝트 기본 정보와 진행 대상을 한 번에 준비합니다."
+      />
+      <DsInputFlow title="오산 프로젝트 정보" description="아래 8개 항목을 순서대로 입력해 주세요.">
+        <form className="osan-project-form" onSubmit={submit} noValidate>
+          <OsanProjectField number={1} label="프로젝트 Title" required error={fieldError('title')}>
+            <input aria-label="프로젝트 Title" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
+          </OsanProjectField>
+          <OsanProjectField number={2} label="프로젝트 코드" required error={fieldError('projectCode')}>
+            <input aria-label="프로젝트 코드" value={draft.projectCode} maxLength={80} onChange={(event) => setField('projectCode', event.target.value)} aria-invalid={Boolean(fieldError('projectCode'))} />
+          </OsanProjectField>
+          <OsanProjectField number={3} label="거래처" required error={fieldError('customerName')}>
+            <input aria-label="거래처" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
+          </OsanProjectField>
+          <OsanProjectField number={4} label="PO No" error={fieldError('poNumber')}>
+            <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
+          </OsanProjectField>
+          <OsanProjectField number={5} label="W/O No" error={fieldError('workOrderNumber')}>
+            <input aria-label="W/O No" value={draft.workOrderNumber} maxLength={100} onChange={(event) => setField('workOrderNumber', event.target.value)} aria-invalid={Boolean(fieldError('workOrderNumber'))} />
+          </OsanProjectField>
+          <OsanProjectField number={6} label="납기일" required error={fieldError('deliveryDate')}>
+            <input aria-label="납기일" type="date" value={draft.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} aria-invalid={Boolean(fieldError('deliveryDate'))} />
+          </OsanProjectField>
+          <OsanProjectField number={7} label="제품명" required error={fieldError('productName')}>
+            <input aria-label="제품명" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
+          </OsanProjectField>
+          <OsanProjectField number={8} label="수량" required error={fieldError('quantity')}>
+            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
+          </OsanProjectField>
+
+          {message ? <p className="error-text osan-project-form__message" role="alert">{message}</p> : null}
+          <div className="osan-project-form__actions">
+            <button type="button" onClick={onCancel} disabled={saving}>취소</button>
+            <button type="submit" className="primary-button" disabled={saving}>
+              {saving ? '등록 중…' : '프로젝트 등록'}
+            </button>
+          </div>
+        </form>
+      </DsInputFlow>
+    </section>
+  );
+}
+
+function OsanProjectField({
+  number,
+  label,
+  required = false,
+  error,
+  children
+}: {
+  number: number;
+  label: string;
+  required?: boolean;
+  error?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="osan-project-field">
+      <span className="osan-project-field__number" aria-hidden="true">{number}</span>
+      <span className="osan-project-field__label">{label}{required ? <b aria-label="필수"> *</b> : null}</span>
+      {children}
+      {error ? <span className="error-text osan-project-field__error">{error}</span> : null}
+    </label>
+  );
+}
+
+function OsanProjectDetailPage({
+  developmentUserKey,
+  projectId,
+  onBack
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  onBack: () => void;
+}) {
+  const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    const controller = new AbortController();
+    setState({ kind: 'loading' });
+    getOsanProject(developmentUserKey, projectId, { signal: controller.signal })
+      .then((project) => setState({ kind: 'ready', data: project }))
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) {
+          setState(toLoadError(error, '오산 프로젝트를 불러올 수 없습니다.'));
+        }
+      });
+    return () => controller.abort();
+  }, [developmentUserKey, projectId]);
+
+  useEffect(() => load(), [load]);
+
+  return (
+    <section className="panel-section osan-project-page">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="OSAN"
+        title={state.kind === 'ready' ? state.data.title : '프로젝트 상세'}
+        actions={<button type="button" onClick={onBack}>목록으로</button>}
+      />
+      {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
+      {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
+      {state.kind === 'not-found' ? <DsStatePanel kind="not-found" title="프로젝트를 찾을 수 없습니다." description={state.message} /> : null}
+      {state.kind === 'error' ? (
+        <DsStatePanel
+          kind="error"
+          title="프로젝트를 불러오지 못했습니다."
+          description={state.message}
+          action={<button type="button" onClick={load}>다시 시도</button>}
+        />
+      ) : null}
+      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} /> : null}
+    </section>
+  );
+}
+
+function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
+  const values = [
+    { label: '프로젝트 Title', value: project.title },
+    { label: '프로젝트 코드', value: project.projectCode, valueClassName: 'osan-project-code-value' },
+    { label: '거래처', value: project.customerName },
+    { label: 'PO No', value: project.poNumber ?? '없음' },
+    { label: 'W/O No', value: project.workOrderNumber ?? '없음' },
+    { label: '납기일', value: project.deliveryDate },
+    { label: '제품명', value: project.productName },
+    { label: '수량', value: `${project.quantity.toLocaleString()}개` }
+  ];
+
+  return (
+    <div className="osan-project-detail">
+      <dl className="osan-project-values" aria-label="프로젝트 입력 정보">
+        {values.map(({ label, value, valueClassName }) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd className={valueClassName}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <section className="osan-project-targets" aria-labelledby="osan-target-heading">
+        <header>
+          <h3 id="osan-target-heading">진행 대상</h3>
+          <span>{project.targets.length.toLocaleString()}개</span>
+        </header>
+        <div className="osan-project-target-grid">
+          {project.targets.map((target) => (
+            <article key={target.targetId} className="osan-project-target-card">
+              <header>
+                <strong>{target.displayName}</strong>
+                <span>시작 전</span>
+              </header>
+              <ol>
+                {target.steps.map((step) => (
+                  <li key={step.stepId}>
+                    <span>{step.stepName}</span>
+                    <b>시작 전</b>
+                  </li>
+                ))}
+              </ol>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OsanAreaPlaceholder({ area }: { area: 'home' | 'progress' }) {
   const content = area === 'home'
     ? ['오산 사업부 홈', '프로젝트와 진행 관리 메뉴에서 오산 사업부의 준비된 업무 범위를 확인할 수 있습니다.']
-    : area === 'projects'
-      ? ['오산 프로젝트', '프로젝트 업무는 후속 Task에서 열립니다. 현재는 사업부 소속과 사용자 역할을 먼저 준비합니다.']
-      : ['오산 진행 관리', '오산에서는 G2, Pending, 보류와 취소를 사용하지 않습니다. 승인된 7단계 진행 화면은 후속 진행 Task에서 열립니다.'];
+    : ['오산 진행 관리', '오산에서는 G2, Pending, 보류와 취소를 사용하지 않습니다. 승인된 7단계 진행 화면은 후속 진행 Task에서 열립니다.'];
 
   return (
     <section className="panel-section osan-area-placeholder">
@@ -4343,6 +4768,8 @@ function isOsanViewAllowed(view: View, user: CurrentUser) {
   if (view.kind === 'home'
     || view.kind === 'privacy-notice'
     || view.kind === 'list'
+    || view.kind === 'create'
+    || view.kind === 'detail'
     || view.kind === 'osan-progress') {
     return true;
   }

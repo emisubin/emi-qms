@@ -2210,15 +2210,23 @@ function QmsAppShellContent({
 
   if (currentUser.kind === 'ready' && businessUnitAccess.status !== 'selected') {
     return (
-      <BusinessUnitAccessGate
-        user={currentUser.data}
-        access={businessUnitAccess}
-        developmentUserKey={developmentUserKey}
-        membershipMutationAllowed={mutationEnabled}
-        membershipMutationDisabledReason={membershipMutationDisabledReason}
-        onLogout={onLogout}
-        switchControls={businessUnitAccess.status === 'no_membership' ? shellSwitchControls : null}
-      />
+      <main className="auth-gate">
+        <ApprovalPendingPage
+          user={currentUser.data}
+          onLogout={onLogout}
+          switchControls={shellSwitchControls}
+        />
+        {businessUnitAccess.isOverallAdministrator ? (
+          <BusinessUnitAccessAdministrationPage
+            developmentUserKey={developmentUserKey}
+            currentUserId={currentUser.data.userId}
+            selectedBusinessUnit={businessUnitAccess.selectedBusinessUnit}
+            mutationAllowed={mutationEnabled}
+            mutationDisabledReason={membershipMutationDisabledReason}
+            onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
+          />
+        ) : null}
+      </main>
     );
   }
 
@@ -4090,67 +4098,6 @@ function BusinessUnitSelector({
   );
 }
 
-function BusinessUnitAccessGate({
-  user,
-  access,
-  developmentUserKey,
-  membershipMutationAllowed,
-  membershipMutationDisabledReason,
-  onLogout,
-  switchControls
-}: {
-  user: CurrentUser;
-  access: BusinessUnitAccess;
-  developmentUserKey: string;
-  membershipMutationAllowed: boolean;
-  membershipMutationDisabledReason: string | null;
-  onLogout?: () => void;
-  switchControls?: ReactNode;
-}) {
-  const copy = access.status === 'no_membership'
-    ? {
-        eyebrow: '사업부 소속 대기',
-        title: '사용할 수 있는 사업부가 없습니다.',
-        message: '총괄 관리자가 계정에 사업부 소속을 지정하면 해당 사업부로 접속할 수 있습니다.'
-      }
-    : access.status === 'local_profile_pending'
-      ? {
-          eyebrow: '사업부 사용자 승인 대기',
-          title: `${access.selectedBusinessUnit ? businessUnitLabel(access.selectedBusinessUnit) : '선택한 사업부'} 사용자 등록이 필요합니다.`,
-          message: '사업부의 System Administrator가 부서와 역할을 지정하면 업무 화면을 사용할 수 있습니다.'
-        }
-      : {
-          eyebrow: '사업부 접근 확인',
-          title: '사업부에 접속할 수 없습니다.',
-          message: '허용된 소속과 총괄 관리자 권한을 확인해 주세요.'
-        };
-
-  return (
-    <main className="auth-gate business-unit-access-gate">
-      <section className="auth-gate-card">
-        <p className="eyebrow">{copy.eyebrow}</p>
-        <h1>{copy.title}</h1>
-        <p>{copy.message}</p>
-        <p className="muted-text">현재 계정: {user.displayName}{user.email ? ` (${user.email})` : ''}</p>
-        <div className="auth-gate-actions">
-          {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
-        </div>
-        {switchControls}
-      </section>
-      {access.isOverallAdministrator ? (
-        <BusinessUnitAccessAdministrationPage
-          developmentUserKey={developmentUserKey}
-          currentUserId={user.userId}
-          selectedBusinessUnit={access.selectedBusinessUnit}
-          mutationAllowed={membershipMutationAllowed}
-          mutationDisabledReason={membershipMutationDisabledReason}
-          onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
-        />
-      ) : null}
-    </main>
-  );
-}
-
 type ProjectListPageKpi = {
   title: string;
   value: number;
@@ -5349,11 +5296,13 @@ function isOsanViewAllowed(view: View) {
 function ApprovalPendingPage({
   user,
   onOpenBusinessUnitAccess,
-  onLogout
+  onLogout,
+  switchControls
 }: {
   user: CurrentUser;
   onOpenBusinessUnitAccess?: () => void;
   onLogout?: () => void;
+  switchControls?: ReactNode;
 }) {
   return (
     <section className="panel-section">
@@ -5374,6 +5323,7 @@ function ApprovalPendingPage({
         {user.displayName}{user.email ? ` (${user.email})` : ''} 계정은 아직 역할이 부여되지 않았습니다.
         System Administrator가 역할을 1개 이상 부여하면 업무 화면을 사용할 수 있습니다.
       </p>
+      {switchControls}
     </section>
   );
 }

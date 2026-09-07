@@ -9,7 +9,8 @@ test('three databases keep tab context, integrated user-access mutation locks, a
   });
   const pendingPage = await pendingContext.newPage();
   await pendingPage.goto('/');
-  await expect(pendingPage.getByRole('heading', { name: '사용할 수 있는 사업부가 없습니다.' })).toBeVisible();
+  await expect(pendingPage.getByRole('heading', { name: '사용자 승인이 필요합니다.' })).toBeVisible();
+  await expect(pendingPage.getByLabel('개발 사용자')).toHaveValue('dev-sales');
   await expect(pendingPage.getByRole('button', { name: /사업부로 이동/ })).toHaveCount(0);
   expect(await pendingPage.evaluate(() => window.sessionStorage.getItem('emi.qms.business-unit'))).toBeNull();
   await pendingContext.close();

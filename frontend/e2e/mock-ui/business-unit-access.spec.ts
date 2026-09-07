@@ -212,7 +212,7 @@ test('single-business overall administrator sees no selector on desktop or mobil
   });
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '오산 사용자 등록이 필요합니다.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '사용자 승인이 필요합니다.' })).toBeVisible();
   await expect(page.getByRole('button', { name: /사업부로 이동/ })).toHaveCount(0);
   await expect(page.getByLabel('사업부 선택')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('single-membership-gate-desktop.png'), fullPage: true });

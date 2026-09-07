@@ -210,10 +210,6 @@
   display: none;
 }
 
-.business-unit-access-gate .auth-gate-card {
-  max-width: 38rem;
-}
-
 .business-unit-choice-list,
 .auth-gate-actions {
   display: flex;

@@ -218,8 +218,8 @@ describe('business-unit access shell', () => {
   });
 
   it.each([
-    ['no_membership', '사용할 수 있는 사업부가 없습니다.'],
-    ['local_profile_pending', '청주 사용자 등록이 필요합니다.']
+    ['no_membership', '사용자 승인이 필요합니다.'],
+    ['local_profile_pending', '사용자 승인이 필요합니다.']
   ] as const)('renders the %s access state without loading business data', async (status, title) => {
     vi.stubGlobal('fetch', shellFetch({
       userId: adminUserId,
@@ -241,6 +241,7 @@ describe('business-unit access shell', () => {
     expect(screen.queryByRole('navigation', { name: '공통 메뉴' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('개발 사용자')).toBeInTheDocument();
   });
 
   it('settles a normal no-membership gate without requesting denied runtime or business data', async () => {
@@ -265,7 +266,7 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '사용할 수 있는 사업부가 없습니다.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '사용자 승인이 필요합니다.' })).toBeInTheDocument();
     await waitFor(() => expect(calls.filter((call) => call.path === '/api/me')).toHaveLength(1));
     expect(calls.filter((call) => call.path === '/api/runtime-mode')).toHaveLength(0);
     expect(calls.filter((call) => call.path.startsWith('/api/') && call.path !== '/api/me')).toHaveLength(0);
@@ -309,8 +310,8 @@ describe('business-unit access shell', () => {
   });
 
   it.each([
-    ['CHEONGJU', '청주 사용자 등록이 필요합니다.'],
-    ['OSAN', '오산 사용자 등록이 필요합니다.']
+    ['CHEONGJU', '사용자 승인이 필요합니다.'],
+    ['OSAN', '사용자 승인이 필요합니다.']
   ] as const)('does not show a single-option business-unit choice for a %s-only overall administrator at the access gate', async (
     businessUnit,
     title
@@ -744,7 +745,7 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '사용할 수 있는 사업부가 없습니다.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '사용자 승인이 필요합니다.' })).toBeInTheDocument();
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBeNull();
     expect(screen.queryByText('Synthetic Local User')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '현재 사업부 사용자 관리' })).not.toBeInTheDocument();

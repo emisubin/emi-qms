@@ -1,7 +1,7 @@
 # TASK-OSAN-PROJECT-001 — 오산 프로젝트 등록과 진행 대상 생성
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- status: `IMPLEMENTED_AWAITING_BATCHED_USER_VALIDATION`
+- status: `IMPLEMENTED_AWAITING_USER_VALIDATION`
 - parentTask: `TASK-OSAN-PILOT-001`
 - implementationApproved: true
 - implementationApprovalSource: `USER_EXPLICIT_APPROVAL_2026-09-07`
@@ -41,6 +41,7 @@ Projects contracts/store/endpoints, common progress template adapter·snapshot/�
 - [x] 생성자는 접근 연결을 얻고 등록은 `Project.Create`와 `projects.read`를 모두 요구한다. 진행 mutation은 이번 Task에 열지 않았으며 Task 4에서 별도 권한으로 구현한다.
 - [x] 생성 뒤 접근이 회수되면 GET과 동일 operation replay가 모두 `403`이고 detail과 관련 row를 노출·변경하지 않으며, 접근 복원 뒤 동일 project replay가 성공한다. `Project.Read.All`은 기존처럼 접근행 없이 허용한다.
 - [x] 목록과 상세의 프로젝트 코드는 대소문자와 내부 공백을 화면에서도 그대로 구분해 표시한다.
+- [x] Change 002에서 목록을 청주형 행 목록으로 정렬하고 상세를 청주형 구조와 단일 `진행 관리` tab으로 맞춘다. 생성 직후 상태는 `시작 전`으로 표시하며 desktop/390px에서 코드 대소문자·내부 공백을 보존한다.
 
 ## 다음 Task에 전달할 내용
 
@@ -48,8 +49,8 @@ Projects contracts/store/endpoints, common progress template adapter·snapshot/�
 
 기존 입력 정규화는 코드의 앞뒤 공백 제거이며, 기존 DB의 unique는 코드가 아니라 활성 Title에 적용됨을 확인했다. 오산 코드의 unique 비교값은 앞뒤 공백을 제거한 원문으로 고정하고 대소문자·내부 공백을 추가 정규화하지 않는다. 오산 DB/profile에 해당 비교값의 DB unique를 추가해 동시 생성도 차단한다. 완료 프로젝트를 포함한 동일 오산 코드의 중복을 허용하지 않는다.
 
-청주 Title unique 계약은 유지하고, 오산에는 승인되지 않은 Title 중복 금지를 자동 적용하지 않는다. 기존 migration을 수정하지 않고 새 migration/별도 오산 생성 모델로 profile 경계를 보장한다. 같은 Title/다른 코드 허용, 같은 코드/다른 Title 거부, 앞뒤 공백·대소문자·내부 공백 비교, 동시 생성에서 한 요청만 성공하는 테스트를 추가한다. 이 문서 명확화의 사용자 확인은 review resolution 승인에서 추적하며 현재 제품 구현은 미실행이다.
+청주 Title unique 계약은 유지하고, 오산에는 승인되지 않은 Title 중복 금지를 자동 적용하지 않는다. 기존 migration을 수정하지 않고 새 migration/별도 오산 생성 모델로 profile 경계를 보장한다. 같은 Title/다른 코드 허용, 같은 코드/다른 Title 거부, 앞뒤 공백·대소문자·내부 공백 비교, 동시 생성에서 한 요청만 성공하는 테스트를 추가한다. 이 문장은 review resolution 작성 당시의 구현 전 계약이며, 실제 구현·검증 결과는 아래 구현 보고에서 추적한다.
 
 프로젝트·대상·snapshot·profile 생성 계약을 Task 4에 전달한다. 이 Task 완료를 사용자 진행 기능 전체 완료로 표시하지 않는다.
 
-실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2 두 건을 같은 Change에서 보정했고 전체 자동 검증을 다시 통과했다. Fresh GPT-6 High 독립 재검증은 제품 신규 Finding 없이 보정을 확인했으며, exact allowlist 문서 누락 P2 한 건도 해소 후 document-only 재확인 `PASS / GO`를 받았다. Open P0/P1/P2/P3는 `0/0/0/0`이다. 사용자 화면 검수는 마지막 오산 일괄 검수로 남기며 품질 Gate를 통과한 exact allowlist를 local commit한다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.
+실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Change 001의 Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2를 보정했고 전체 자동 검증을 통과했다. Change 002는 청주형 행 목록·상세 구조와 단일 `진행 관리` tab을 구현했으며 첫 fresh GPT-6 High 검증의 P2 두 건을 보정한 뒤 새 fresh GPT-6 High 재검증 `PASS / GO`를 받았다. 최종 open P0/P1/P2/P3는 `0/0/0/0`이다. 사용자 화면 검수는 열어 둔 local synthetic server와 마지막 오산 일괄 검수에서 추적하며 품질 Gate를 통과한 exact allowlist를 local commit한다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.

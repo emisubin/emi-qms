@@ -4256,25 +4256,85 @@ function OsanProjectListPage({
         />
       ) : null}
       {state.kind === 'ready' ? (
-        <div className="osan-project-list" aria-label="오산 프로젝트 목록">
-          {state.data.map((project) => (
-            <button
-              type="button"
-              className="osan-project-card"
-              key={project.projectId}
-              onClick={() => onOpen(project.projectId)}
-            >
-              <span className="osan-project-card__code osan-project-code-value">{project.projectCode}</span>
-              <strong>{project.title}</strong>
-              <span>{project.customerName}</span>
-              <span>{project.productName} · {project.quantity.toLocaleString()}개</span>
-              <span>납기 {project.deliveryDate}</span>
-            </button>
-          ))}
-        </div>
+        <>
+          <div
+            className="osan-project-list-table osan-project-list-desktop"
+            role="table"
+            aria-label="오산 프로젝트 목록"
+            data-testid="osan-project-list-desktop"
+          >
+            <div className="osan-project-list-head" role="row">
+              <span role="columnheader">프로젝트명 / 코드</span>
+              <span role="columnheader">거래처</span>
+              <span role="columnheader">제품명</span>
+              <span role="columnheader" className="align-center">수량</span>
+              <span role="columnheader" className="align-center">납기일</span>
+              <span role="columnheader" className="align-center">상태</span>
+              <span role="columnheader" className="align-center" aria-label="상세 열기" />
+            </div>
+            {state.data.map((project) => (
+              <div
+                className="osan-project-list-row"
+                key={project.projectId}
+                role="row"
+                tabIndex={0}
+                aria-label={`${project.title} 상세 열기`}
+                onClick={() => onOpen(project.projectId)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpen(project.projectId);
+                  }
+                }}
+              >
+                <span role="cell" className="osan-project-list-name">
+                  <strong>{project.title}</strong>
+                  <small className="osan-project-code-value">{project.projectCode}</small>
+                </span>
+                <span role="cell">{project.customerName}</span>
+                <span role="cell">{project.productName}</span>
+                <span role="cell" className="align-center">{project.quantity.toLocaleString()}개</span>
+                <span role="cell" className="align-center">{project.deliveryDate}</span>
+                <span role="cell" className="align-center">
+                  <span className="status-badge" data-status={project.status}>{formatOsanProjectStatus(project.status)}</span>
+                </span>
+                <span role="cell" className="osan-project-list-open">
+                  <span aria-hidden="true">›</span>
+                  <span className="sr-only">상세 열기</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="osan-project-list-mobile" data-testid="osan-project-list-mobile">
+            {state.data.map((project) => (
+              <article key={project.projectId} className="osan-project-list-card">
+                <div className="subsection-header">
+                  <div>
+                    <p className="osan-project-list-card__code osan-project-code-value">{project.projectCode}</p>
+                    <h3>{project.title}</h3>
+                  </div>
+                  <button type="button" onClick={() => onOpen(project.projectId)}>상세 보기</button>
+                </div>
+                <dl className="mobile-detail-list">
+                  <div><dt>거래처</dt><dd>{project.customerName}</dd></div>
+                  <div><dt>제품명</dt><dd>{project.productName}</dd></div>
+                  <div><dt>수량</dt><dd>{project.quantity.toLocaleString()}개</dd></div>
+                  <div><dt>납기일</dt><dd>{project.deliveryDate}</dd></div>
+                  <div><dt>상태</dt><dd><span className="status-badge" data-status={project.status}>{formatOsanProjectStatus(project.status)}</span></dd></div>
+                </dl>
+              </article>
+            ))}
+          </div>
+        </>
       ) : null}
     </section>
   );
+}
+
+function formatOsanProjectStatus(status: string) {
+  if (status === 'Completed') return '완료';
+  if (status === 'Active') return '시작 전';
+  return status;
 }
 
 type OsanProjectDraft = {
@@ -4502,6 +4562,7 @@ function OsanProjectDetailPage({
   projectId: string;
   onBack: () => void;
 }) {
+  const isMobile = useIsMobileViewport();
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4520,13 +4581,34 @@ function OsanProjectDetailPage({
   useEffect(() => load(), [load]);
 
   return (
-    <section className="panel-section osan-project-page">
-      <DsPageHeader
-        className="page-header"
-        eyebrow="OSAN"
-        title={state.kind === 'ready' ? state.data.title : '프로젝트 상세'}
-        actions={<button type="button" onClick={onBack}>목록으로</button>}
-      />
+    <section className="panel-section osan-project-page osan-project-detail-page">
+      {state.kind === 'ready' && !isMobile ? (
+        <DsBreadcrumbs items={[{ label: '프로젝트', onClick: onBack }]} current={state.data.title} />
+      ) : null}
+      {state.kind === 'ready' ? (
+        <div className={isMobile ? 'mobile-detail-hero' : 'page-header'}>
+          <div>
+            {isMobile ? <button type="button" className="mobile-back-button" onClick={onBack}>← 프로젝트</button> : null}
+            <p className={isMobile ? 'osan-project-detail-code osan-project-code-value' : 'eyebrow'}>
+              {isMobile ? state.data.projectCode : '프로젝트 상세'}
+            </p>
+            <h2>{state.data.title}</h2>
+            {isMobile ? (
+              <div className="mobile-detail-hero-meta">
+                <span className="status-badge" data-status={state.data.status}>{formatOsanProjectStatus(state.data.status)}</span>
+                <span>{state.data.quantity.toLocaleString()}개 대상</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <DsPageHeader
+          className="page-header"
+          eyebrow="OSAN"
+          title="프로젝트 상세"
+          actions={<button type="button" onClick={onBack}>목록으로</button>}
+        />
+      )}
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
       {state.kind === 'not-found' ? <DsStatePanel kind="not-found" title="프로젝트를 찾을 수 없습니다." description={state.message} /> : null}
@@ -4557,38 +4639,69 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
 
   return (
     <div className="osan-project-detail">
-      <dl className="osan-project-values" aria-label="프로젝트 입력 정보">
-        {values.map(({ label, value, valueClassName }) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd className={valueClassName}>{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <section className="osan-project-targets" aria-labelledby="osan-target-heading">
+      <section className="osan-project-summary" aria-labelledby="osan-summary-heading">
         <header>
-          <h3 id="osan-target-heading">진행 대상</h3>
-          <span>{project.targets.length.toLocaleString()}개</span>
+          <h3 id="osan-summary-heading">기본 정보</h3>
+          <span className="status-badge" data-status={project.status}>{formatOsanProjectStatus(project.status)}</span>
         </header>
-        <div className="osan-project-target-grid">
-          {project.targets.map((target) => (
-            <article key={target.targetId} className="osan-project-target-card">
-              <header>
-                <strong>{target.displayName}</strong>
-                <span>시작 전</span>
-              </header>
-              <ol>
-                {target.steps.map((step) => (
-                  <li key={step.stepId}>
-                    <span>{step.stepName}</span>
-                    <b>시작 전</b>
-                  </li>
-                ))}
-              </ol>
-            </article>
+        <dl className="osan-project-values" aria-label="프로젝트 입력 정보">
+          {values.map(({ label, value, valueClassName }) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd className={valueClassName}>{value}</dd>
+            </div>
           ))}
-        </div>
+        </dl>
       </section>
+
+      <div className="section-switcher project-department-tabs osan-project-department-tabs" role="tablist" aria-label="프로젝트 상세 섹션">
+        <button
+          type="button"
+          role="tab"
+          id="osan-progress-tab"
+          aria-controls="osan-progress-panel"
+          aria-selected="true"
+          className="secondary-button active"
+        >
+          진행 관리
+        </button>
+      </div>
+
+      <div
+        id="osan-progress-panel"
+        className="project-detail-tab-content osan-project-progress-panel"
+        role="tabpanel"
+        aria-labelledby="osan-progress-tab"
+        data-section="progress"
+      >
+        <section className="osan-project-targets" aria-labelledby="osan-target-heading">
+          <header>
+            <div>
+              <p className="eyebrow">진행 관리</p>
+              <h3 id="osan-target-heading">진행 대상</h3>
+            </div>
+            <span>{project.targets.length.toLocaleString()}개</span>
+          </header>
+          <div className="osan-project-target-grid">
+            {project.targets.map((target) => (
+              <article key={target.targetId} className="osan-project-target-card">
+                <header>
+                  <strong>{target.displayName}</strong>
+                  <span>시작 전</span>
+                </header>
+                <ol>
+                  {target.steps.map((step) => (
+                    <li key={step.stepId}>
+                      <span>{step.stepName}</span>
+                      <b>시작 전</b>
+                    </li>
+                  ))}
+                </ol>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

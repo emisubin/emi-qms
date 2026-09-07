@@ -132,6 +132,35 @@ describe('Osan project registration', () => {
     vi.unstubAllGlobals();
   });
 
+  it('renders each desktop project as one accessible table row', async () => {
+    vi.stubGlobal('fetch', shellFetch((url, init) => {
+      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
+        return json({ items: [projectDetail()] });
+      }
+      if (url.pathname === `/api/osan/projects/${projectId}`) return json(projectDetail());
+      return undefined;
+    }));
+
+    render(<App />);
+
+    const table = await screen.findByRole('table', { name: '오산 프로젝트 목록' });
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getAllByRole('columnheader')).toHaveLength(7);
+    expect(within(rows[0]).getByRole('columnheader', { name: '프로젝트명 / 코드' })).toBeInTheDocument();
+    expect(within(rows[0]).getByRole('columnheader', { name: '상태' })).toBeInTheDocument();
+
+    const projectRow = within(table).getByRole('row', { name: '저장된 Title 상세 열기' });
+    expect(within(projectRow).getAllByRole('cell')).toHaveLength(7);
+    const listCode = projectRow.querySelector('.osan-project-code-value');
+    expect(listCode).toHaveTextContent('AbC  001', { normalizeWhitespace: false });
+    expect(listCode).toHaveClass('osan-project-code-value');
+    expect(within(projectRow).getByText('시작 전')).toBeInTheDocument();
+
+    fireEvent.click(projectRow);
+    expect(await screen.findByRole('heading', { name: '저장된 Title' })).toBeInTheDocument();
+  });
+
   it('lists projects and completes the exact eight-field create-to-detail flow once', async () => {
     let releaseCreate: ((response: Response) => void) | undefined;
     const pendingCreate = new Promise<Response>((resolve) => {
@@ -186,7 +215,19 @@ describe('Osan project registration', () => {
     expect(window.location.pathname).toBe(`/projects/${projectId}`);
     expect(screen.getByText('001-PO/+')).toBeInTheDocument();
     expect(screen.getByText('000-W/O')).toBeInTheDocument();
-    const targetCards = screen.getAllByRole('article');
+    const detailCode = document.querySelector('.osan-project-values dd.osan-project-code-value');
+    expect(detailCode).toHaveTextContent('AbC  001', { normalizeWhitespace: false });
+    expect(detailCode).toHaveClass('osan-project-code-value');
+    expect(document.querySelector('.osan-project-summary .status-badge')).toHaveTextContent('시작 전');
+    const tablist = screen.getByRole('tablist', { name: '프로젝트 상세 섹션' });
+    const tabs = within(tablist).getAllByRole('tab');
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toHaveTextContent('진행 관리');
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(tabs[0]).toHaveAttribute('aria-controls', 'osan-progress-panel');
+    const progressPanel = screen.getByRole('tabpanel', { name: '진행 관리' });
+    expect(progressPanel).toHaveAttribute('id', 'osan-progress-panel');
+    const targetCards = within(progressPanel).getAllByRole('article');
     expect(targetCards).toHaveLength(2);
     for (const target of targetCards) {
       expect(within(target).getAllByText('시작 전')).toHaveLength(8);

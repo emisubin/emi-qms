@@ -1918,43 +1918,103 @@
   min-width: 0;
 }
 
-.osan-project-list {
+.osan-project-list-table {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr));
-  gap: .85rem;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
 }
 
-.osan-project-card {
+.osan-project-list-head,
+.osan-project-list-row {
   display: grid;
-  min-width: 0;
-  gap: .35rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border, #d9e1e6);
-  border-radius: .85rem;
+  grid-template-columns: minmax(210px, 1.45fr) minmax(130px, 1fr) minmax(140px, 1fr) 74px 112px 92px 36px;
+  min-width: 880px;
+  align-items: center;
+  gap: 10px;
+}
+
+.osan-project-list-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  padding: 8px;
+  border-bottom: 1px solid var(--line, #dedee5);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-muted, #73727d);
+  font-size: .8rem;
+  font-weight: 900;
+}
+
+.osan-project-list-row {
+  min-height: 58px;
+  padding: 9px 8px;
+  border: 1px solid var(--line-soft, #e7e7ec);
+  border-radius: 7px;
   background: var(--color-surface, #fff);
   color: inherit;
   text-align: left;
+  cursor: pointer;
 }
 
-.osan-project-card:enabled:hover {
-  border-color: var(--color-action-primary, #176b87);
+.osan-project-list-row:hover,
+.osan-project-list-row:focus-visible {
+  border-color: var(--brand-red, #da2127);
 }
 
-.osan-project-card strong,
-.osan-project-card span {
+.osan-project-list-row > span,
+.osan-project-list-card,
+.osan-project-list-card dd {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.osan-project-card__code {
-  color: var(--color-action-primary, #176b87);
+.osan-project-list-name {
+  display: grid;
+  gap: 3px;
+}
+
+.osan-project-list-name small,
+.osan-project-list-card__code {
+  margin: 0;
+  color: var(--color-text-muted, #73727d);
   font-size: .78rem;
-  font-weight: 700;
-  letter-spacing: .04em;
+}
+
+.osan-project-detail-code {
+  margin: 0 0 6px;
+  color: var(--brand-red, #da2127);
+  font-size: .73rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.osan-project-list-open {
+  color: var(--color-text-muted, #73727d);
+  font-size: 1.45rem;
+  text-align: center;
+}
+
+.osan-project-list-mobile {
+  display: none;
+}
+
+.osan-project-list-card {
+  padding: 12px;
+  border: 1px solid var(--line-soft, #e7e7ec);
+  border-radius: 8px;
+  background: var(--color-surface, #fff);
+}
+
+.osan-project-list-card h3 {
+  margin: 0;
 }
 
 .osan-project-code-value {
   white-space: break-spaces;
+  text-transform: none;
 }
 
 .osan-project-form {
@@ -2015,14 +2075,36 @@
   min-width: 0;
 }
 
+.osan-project-summary,
+.osan-project-targets {
+  min-width: 0;
+  border: 1px solid var(--line, #dedee5);
+  background: var(--color-surface, #fff);
+}
+
+.osan-project-summary > header,
+.osan-project-targets > header {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .65rem .85rem;
+  border-bottom: 1px solid var(--line, #dedee5);
+}
+
+.osan-project-summary > header h3,
+.osan-project-targets > header h3,
+.osan-project-targets > header p {
+  margin: 0;
+}
+
 .osan-project-values {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border, #d9e1e6);
-  border-radius: .85rem;
   background: var(--color-border, #d9e1e6);
 }
 
@@ -2043,12 +2125,10 @@
   font-weight: 650;
 }
 
-.osan-project-targets,
 .osan-project-target-card {
   min-width: 0;
 }
 
-.osan-project-targets > header,
 .osan-project-target-card > header {
   display: flex;
   justify-content: space-between;
@@ -2060,6 +2140,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
   gap: .85rem;
+  padding: .85rem;
 }
 
 .osan-project-target-card {
@@ -2091,6 +2172,46 @@
   color: var(--color-text-muted, #5d6b76);
   font-size: .78rem;
   white-space: nowrap;
+}
+
+.osan-project-department-tabs {
+  margin-top: 0;
+}
+
+.osan-project-progress-panel {
+  padding: 0;
+}
+
+.osan-project-progress-panel > .osan-project-targets {
+  width: 100%;
+}
+
+@media (max-width: 860px) {
+  .osan-project-list-desktop {
+    display: none;
+  }
+
+  .osan-project-list-mobile {
+    display: grid;
+    gap: 10px;
+  }
+
+  .osan-project-detail-page {
+    padding-inline: 0;
+  }
+
+  .osan-project-detail-page > .ds-state-panel,
+  .osan-project-detail {
+    margin-inline: 10px;
+  }
+
+  .osan-project-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .osan-project-department-tabs {
+    top: 0;
+  }
 }
 
 @media (max-width: 700px) {

@@ -1,10 +1,10 @@
-# TASK-OSAN-PROJECT-001 Change 001 구현 보고
+# TASK-OSAN-PROJECT-001 Change 001·002 구현 보고
 
 ## 1. 실행 기준과 상태
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - canonicalTask: `TASK-OSAN-PROJECT-001`
-- canonicalChange: `TASK-OSAN-PROJECT-001 Change 001`
+- canonicalChange: `TASK-OSAN-PROJECT-001 Change 001, Change 002`
 - instructionChainRead: true
 - taskIdentityGate: `PASS_REUSE`
 - roadmapSequenceMatch: false
@@ -12,16 +12,18 @@
 - implementationApprovalSource: `USER_EXPLICIT_APPROVAL_2026-09-07`
 - predecessorUserValidationStatus: `PENDING_FINAL_BATCH`
 - implementationBranch: `feat/task-osan-project-001-project-registration`
-- implementationBaseline: `2e29938f754f3d95444df2b341a921cfd1fca43f`
+- change001ImplementationBaseline: `2e29938f754f3d95444df2b341a921cfd1fca43f`
+- change002ImplementationBaseline: `013298ae5058ec9435333956f57ee3917dd69d04`
 - implementationWorktree: `/private/tmp/emi-osan-project-001`
 - implementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
 - implementationOwnerObserved: `NOT_REPORTED`
-- implementationStatus: `IMPLEMENTED_AWAITING_BATCHED_USER_VALIDATION`
+- implementationStatus: `IMPLEMENTED_AWAITING_USER_VALIDATION`
 - finalVerifierRequested: `GPT_6_ASTRA_HIGH`
 - finalVerifierObserved: `NOT_REPORTED`
 - finalVerifierResult: `GO`
 - finalVerifierOpenFindingCount: `P0 0 / P1 0 / P2 0 / P3 0`
-- reviewedDigestBeforeFinalStatusSync: `49d308d3fa078b64907bd77667f8915d6df2f16b28228916e2d1c4086fe4f3cf`
+- change001ReviewedDigestBeforeFinalStatusSync: `49d308d3fa078b64907bd77667f8915d6df2f16b28228916e2d1c4086fe4f3cf`
+- change002ProductTestReviewedDigest: `82a9f519c6e5d03d15871647027ae91f0d9fe59951389d4b09f9410509428199`
 - localCommitApprovedAfterReviewAndFreshVerification: true
 - gitPublicationApproved: false
 - persistentRuntimeMutationApproved: false
@@ -62,6 +64,16 @@
 - 목록과 상세의 프로젝트 코드 값에만 `white-space: break-spaces`를 적용해 `A B`와 `A  B`의 차이가 화면에서도 보인다. 다른 상세 값의 whitespace 표현은 바꾸지 않는다.
 - 청주 shell, 화면, 일반 `/api/projects` 경로는 수정하지 않았다.
 
+### Change 002 — 청주형 목록·상세 정렬
+
+- Desktop 오산 목록을 column header 아래 프로젝트별 한 행으로 정렬했다. 프로젝트명·코드, 거래처, 제품명, 수량, 납기일, 상태와 상세 이동을 한 행에서 읽을 수 있고 keyboard Enter/Space로 열 수 있다.
+- 860px 이하에서는 청주 mobile project list와 같은 카드 읽기 순서로 전환한다. Desktop table과 mobile card를 동시에 노출하지 않는다.
+- 상세는 청주 상세의 breadcrumb/mobile back, 제목 header, 기본 정보 summary, sticky department tab, tab content 순서를 따른다.
+- 오산 department tab은 `진행 관리` 하나만 제공한다. 기존 진행 대상 N개와 대상별 7단계는 이 tab panel에 그대로 배치한다. 일곱 단계를 각각 tab으로 만들지 않았다.
+- 생성 직후 기술 상태 `Active`는 현재 생성 전용 slice의 업무 의미에 맞춰 `시작 전`으로 표시한다. 실제 진행 집계와 상태 전환은 Task 4에 남겼다.
+- Desktop/mobile 목록·상세 네 위치에서 코드의 대소문자와 내부 연속 공백이 변형되지 않도록 전용 style을 적용했다.
+- Backend, DB, API, 권한, 등록·idempotency, Pending·중단·보류·취소와 진행 mutation은 변경하지 않았다.
+
 ## 3. 변경 파일
 
 ### 제품·migration
@@ -93,7 +105,9 @@
 - `frontend/playwright.osan-project-registration.full-stack.config.ts`
 - `frontend/playwright.osan-project-registration.mock.config.ts`
 - `scripts/e2e-osan-project-registration-full-stack.sh`
+- `tasks/osan-project-001-change-002.md`
 - `tasks/osan-project-001-implementation-report.md`
+- `tasks/osan-project-001.md`
 
 Task 3 stacked branch에는 canonical 문서화 작업에서 이미 승인된 오산 기획·Task 계보 14개도 같은 내용으로 포함해 기획 source, 선행 완료, 후속 Task와 Roadmap 링크가 끊기지 않게 했다. Task 3 상태에 직접 관련된 `osan-pilot-001.md`, `osan-pilot-001-implementation-report.md`, `osan-project-001.md`와 Roadmap만 현재 자동 검증·review Gate에 맞춰 갱신했으며 기획 원문과 독립 기획 review 원문은 재작성하지 않았다.
 
@@ -116,7 +130,7 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 - 실제 PostgreSQL에서 동일 operation 동시 replay, operation payload conflict, 같은 code 경쟁 1 success/1 conflict, completed code 재사용 거부, case/internal-space 구분, 같은 Title/다른 code 허용, N targets와 N×7 steps, creator access 1건, event 1건, 금지 downstream row 0건과 강제 중간 실패 rollback을 확인했다.
 - Migration test는 catalog 최신 `0087`, fresh·existing DB apply, repeat apply, 기존 migration hash 불변, 기존 row `Cheongju`, 청주 활성 Title unique와 duplicate code 허용, 오산 code unique를 확인한다.
 
-### Frontend·browser 최종 검증
+### Change 001 Frontend·browser 검증
 
 - Frontend lint: `PASS`, 오류 0, 기존 `frontend/src/main.tsx` fast-refresh warning 1.
 - Frontend typecheck: `PASS`.
@@ -124,20 +138,28 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 - 오산 전용 component: `7/7 PASS`. 등록 8개 field/순서, 입력 보존, duplicate submit 1회, code conflict 동일 operation replay, operation conflict 전역 안내·새 operation ID 재시도, quantity validation, create-only 권한의 버튼 숨김·직접 URL forbidden, loading/error/retry/empty를 포함한다.
 - Production build: `PASS`, 399 modules transformed. 기존 500 kB chunk warning은 유지된다.
 - Mock browser: `1/1 PASS`. Desktop과 390px에서 목록→등록→상세, 8개 값 보존, N targets, 각 7단계, console error 0, request failure 0, horizontal overflow 0을 확인했다. 상세와 목록 코드의 정확한 `textContent`가 `AbC  001`, computed `white-space`가 `break-spaces`인지 별도로 검증했다.
-- Privacy-safe screenshot은 아래 untracked browser output에만 남겼으며 stage 대상이 아니다.
-  - `frontend/test-results/osan-project-registration-mock/osan-project-registration--d3e17-lues-and-seven-step-targets-chromium/osan-project-registration-desktop.png`
-  - `frontend/test-results/osan-project-registration-mock/osan-project-registration--d3e17-lues-and-seven-step-targets-chromium/osan-project-registration-mobile-390.png`
+- Change 001 당시 privacy-safe screenshot은 untracked browser output에만 두고 stage하지 않았다. Change 002가 같은 scenario를 새 화면으로 다시 검증하면서 현재 artifact 4개로 교체했다.
 - 실제 synthetic 3 DB full-stack: 직전 최종 `1/1 PASS` 증거를 재사용했다. Test-owned Directory/CHEONGJU/OSAN DB와 6 bounded roles, Release backend, production frontend와 Chromium에서 create→detail→list, 오산 프로젝트 +1, targets 2, steps 14와 청주 project row count·API body 불변, owned cleanup을 확인한 실행이다. 이번 보정은 replay access branch와 코드 표시 CSS에 한정됐고 최신 실제 selected-OSAN 3 DB endpoint test가 create·GET·replay·access revoke/restore를 직접 실행했으므로 combined full-stack은 다시 실행하지 않았다.
 - `git diff --check`: `PASS`.
+
+### Change 002 Frontend·browser 검증
+
+- 오산 전용 component: `8/8 PASS`. Desktop table의 header·단일 row·클릭 이동, 상세의 단일 `진행 관리` tab/tabpanel과 기존 등록 흐름을 포함한다. Keyboard Enter/Space handler는 parent와 fresh verifier가 code review에서 확인했다.
+- Frontend 전체 unit/component 최종: `36 files, 292/292 PASS`. 첫 전체 run의 기존 AuditPage async-load flake는 제품 변경 없이 재실행해 전체 통과했다.
+- Frontend lint: 오류 0, 기존 `frontend/src/main.tsx` fast-refresh warning 1. Typecheck와 production build도 `PASS`이며 기존 chunk-size warning만 남았다.
+- Mock browser: `1/1 PASS`. Desktop/390px 목록·상세, 프로젝트별 한 행, mobile card, breadcrumb/back, 단일 tab semantics, N×7단계, 네 코드 위치의 정확한 `AbC  001`과 computed `break-spaces`/`text-transform: none`, 생성 직후 `시작 전`, console error 0, request failure 0과 page horizontal overflow 0을 확인했다.
+- Privacy-safe screenshot은 `frontend/test-results/osan-project-registration-mock/` 아래 desktop/mobile 목록·상세 4개 untracked artifact로 갱신했고 stage하지 않는다.
+- Parent GPT-6 검토 뒤 첫 fresh GPT-6 High verifier가 코드 표시 변형과 생성 직후 상태 표기의 P2 두 건을 찾았다. Sol이 같은 allowlist에서 보정했고 새 fresh GPT-6 High verifier가 `PASS / GO`, open P0/P1/P2/P3 `0/0/0/0`을 반환했다.
+- 이번 Change는 Frontend-only이므로 Backend·DB·실제 3 DB full-stack을 재실행하지 않았다. Change 001의 통과 증거와 계약은 변경되지 않았다.
 
 | 검증 구분 | 적용 | 결과 | 근거 |
 | --- | --- | --- | --- |
 | Backend build·API·authorization·DB | 적용 | `PASS` | Release 0/0, 집중 8/8, migration 63/63, selected-OSAN 3 DB targeted 2/2, 전체 582/582 |
-| Frontend unit·quality | 적용 | `PASS` | 전체 291/291, 전용 7/7, lint error 0, typecheck와 production build 성공 |
+| Frontend unit·quality | 적용 | `PASS` | Change 001 전체 291/291·전용 7/7, Change 002 전체 292/292·전용 8/8, lint error 0, typecheck와 production build 성공 |
 | Mock desktop·390px | 적용 | `PASS` | browser 1/1, console/request failure/overflow 각 0 |
 | 실제 synthetic combined full-stack | 적용 | `PASS_PRIOR_EVIDENCE_REUSED` | 직전 3 DB·6 role create/list/detail와 DB row assertion·owned cleanup; 최신 selected-OSAN 3 DB endpoint targeted 2/2로 보정 경로 확인 |
 | Persistent UAT·실제 provider | 미적용 | `N/A` | 승인 범위 밖이며 로컬 합성 환경만 사용 |
-| 사용자 직접 검수 | 대기 | `PENDING_FINAL_BATCH` | 사용자 지시에 따라 오산 개발 마지막 일괄 검수로 이관 |
+| 사용자 직접 검수 | 대기 | `PENDING_CURRENT_SCREEN_REVIEW_AND_FINAL_BATCH` | Change 002 화면은 현재 local synthetic server에서 검수하고 전체 흐름은 오산 개발 마지막 일괄 검수로 추적 |
 
 ## 5. 품질 Finding과 제한
 
@@ -152,6 +174,10 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 | `OSAN-PROJECT-VERIFY-01` | P2 | `RESOLVED` | Idempotent POST replay가 현재 project access를 다시 확인하지 않고 detail을 반환했다. Replay 응답 직전에 GET과 같은 scope를 적용하고, 실제 selected-OSAN 3 DB에서 access 삭제 뒤 GET·POST `403`과 row 불변, access 복원·`Project.Read.All` replay 성공을 검증했다. |
 | `OSAN-PROJECT-VERIFY-02` | P2 | `RESOLVED` | 코드 내부 공백은 데이터로 구분됐지만 기본 CSS가 화면에서 연속 공백을 접었다. 목록·상세 코드에만 전용 class와 `break-spaces`를 적용하고 양쪽 `textContent`·computed style 및 새 desktop/mobile screenshot을 검증했다. |
 | `OSAN-PROJECT-VERIFY-03` | P2 | `RESOLVED` | Mock browser를 production build/preview에서 독립 실행하는 전용 설정은 승인된 테스트 방식의 같은 목적 helper이고 보고서에 경로·필요성이 기록됐지만 Change exact allowlist에는 빠져 있었다. `frontend/playwright.osan-project-registration.mock.config.ts`를 exact allowlist에 추가해 staging 경계를 실제 변경과 맞췄고 document-only 재확인 `PASS / GO`를 받았다. 제품 파일과 테스트 결과는 바꾸지 않았다. |
+| `OSAN-UI-VERIFY-01` | P2 | `RESOLVED` | Mobile code에 전역 uppercase style이 적용되고 detail hero는 내부 공백도 접었다. 전용 code class와 `text-transform: none`, `break-spaces`를 desktop/mobile 목록·상세 네 위치에 적용하고 computed style로 확인했다. |
+| `OSAN-UI-VERIFY-02` | P2 | `RESOLVED` | 모든 target/step이 `시작 전`인 생성 직후 기술 상태 `Active`를 `진행 중`으로 표시했다. 현재 slice에서 `Active`를 `시작 전`으로 표시하고 unit/browser test를 보정했다. |
+| `OSAN-UI-RECORD-01` | P2 | `RESOLVED` | Component test가 확인한 클릭 이동을 keyboard 검증으로 기록했다. 실제 test evidence에 맞춰 클릭 이동으로 정정하고 keyboard handler 확인은 code review 근거로 구분했다. |
+| `OSAN-UI-RECORD-02` | P3 | `RESOLVED` | Change 001 metadata와 Change 002 현재 상태, 파일 목록·검수 상태가 혼재했다. Change별 baseline/digest와 현재 화면 검수·마지막 일괄 검수 상태를 명시했다. |
 
 - 검증 관찰: 기존 Frontend fast-refresh warning 1과 production chunk size warning이 남아 있다. 이 Change의 동작·build를 막지 않으며 변경 범위 밖 기존 출력이다.
 - 실제 Azure/Persistent UAT migration, shared runtime handover, Entra, mail/Teams/web-push provider와 외부 notification delivery는 실행하지 않았다. 따라서 이 보고의 통과 주장은 local test-owned PostgreSQL과 합성 계정 범위다.
@@ -179,6 +205,7 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 4. 프로젝트 코드는 앞뒤 공백이 제거되어 저장된다. 대소문자와 내부 공백은 데이터와 목록·상세 화면에서 그대로 구분되며 이미 사용한 코드는 완료 프로젝트의 코드도 다시 쓸 수 없다.
 5. 수량은 1~500의 정수를 입력한다. 저장 실패 시 입력은 유지되므로 표시된 field 오류를 고쳐 다시 등록할 수 있다.
 6. 등록 성공 뒤 상세에서 입력값, 수량만큼의 대상과 각 대상의 `입고검사 → 배치검사 → 배선검사 → 8계통 → 동작검사 → 출하검사 → 포장`이 모두 `시작 전`인지 확인한다.
+7. 목록에서 각 프로젝트가 한 행으로 보이는지 확인하고, 상세에서 기본 정보 아래 `진행 관리` tab 하나만 표시되는지 확인한다.
 
 이 화면에서는 단계 상태를 바꾸거나 프로젝트를 완료하지 않는다. 해당 기능은 후속 Task에서 제공한다.
 
@@ -191,19 +218,22 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 - [ ] 수량 1과 500은 성공하고 0·음수·소수·501은 막히는지 확인한다.
 - [ ] 실패 뒤 입력이 유지되고 빠른 중복 submit으로 프로젝트가 중복되지 않는지 확인한다.
 - [ ] 상세에서 N개 대상과 대상별 7단계가 모두 `시작 전`인지 확인한다.
+- [ ] Desktop 목록에서 프로젝트별 한 행, mobile 목록에서 읽기 쉬운 카드로 표시되는지 확인한다.
+- [ ] 상세의 부서 tab이 `진행 관리` 하나이고 그 안에 진행 대상과 7단계가 표시되는지 확인한다.
+- [ ] 프로젝트 코드의 대소문자와 내부 연속 공백이 desktop/mobile 목록·상세에서 그대로 보이는지 확인한다.
 - [ ] 청주 프로젝트 목록·등록·상세가 기존처럼 동작하는지 확인한다.
 
-상태: `사용자 검수 대기 — 마지막 일괄 검수`.
+상태: `사용자 검수 대기 — Change 002 현재 화면 검수 및 마지막 오산 일괄 검수`.
 
 ## 9. 필수 산출물 상태
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/osan-project-001-implementation-report.md` | `IMPLEMENTED_AWAITING_BATCHED_USER_VALIDATION` |
+| Implementation report | `tasks/osan-project-001-implementation-report.md` | `IMPLEMENTED_AWAITING_USER_VALIDATION` |
 | SOP | 이 보고서 6절 | `COMPLETE_LOCAL_SCOPE` |
 | 사용자 안내 | 이 보고서 7절 | `COMPLETE_LOCAL_SCOPE` |
-| Roadmap update | `docs/00-product-roadmap.md`, `tasks/osan-project-001.md` | `IMPLEMENTED_AWAITING_BATCHED_USER_VALIDATION` |
-| 사용자 검수 checklist | 이 보고서 8절 | `PENDING_FINAL_BATCH_BY_USER` |
+| Roadmap update | `docs/00-product-roadmap.md`, `tasks/osan-project-001.md` | `IMPLEMENTED_AWAITING_USER_VALIDATION` |
+| 사용자 검수 checklist | 이 보고서 8절 | `PENDING_CURRENT_SCREEN_REVIEW_AND_FINAL_BATCH_BY_USER` |
 
 ## 10. 블로그 초안
 
@@ -221,4 +251,4 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 
 ### 4. 사용자 검수 결과와 남은 항목
 
-자동 검증에서는 오산 등록·목록·상세, 값 보존, 수량별 대상과 7단계, 동시성·idempotency·rollback, 청주 불변을 local 합성 환경에서 확인했다. 사용자 직접 검수는 지시에 따라 마지막 오산 일괄 검수로 남아 있다. Persistent UAT, 실제 provider, push·PR·merge·main 반영도 아직 수행하지 않았다.
+자동 검증에서는 오산 등록·목록·상세, 값 보존, 수량별 대상과 7단계, 동시성·idempotency·rollback, 청주 불변을 local 합성 환경에서 확인했다. Change 002의 청주형 목록·상세는 현재 local synthetic server에서 사용자 화면 검수 대기이며 전체 업무 검수는 마지막 오산 일괄 검수로도 추적한다. Persistent UAT, 실제 provider, push·PR·merge·main 반영은 수행하지 않았다.

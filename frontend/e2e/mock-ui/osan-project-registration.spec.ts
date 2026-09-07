@@ -53,7 +53,16 @@ test('Osan registration is responsive and creates one project with preserved val
   });
   expect(postedBodies[0].operationId).toMatch(/^[0-9a-f-]{36}$/i);
 
-  const targets = page.locator('.osan-project-targets');
+  const breadcrumbs = page.getByRole('navigation', { name: '현재 위치' });
+  await expect(breadcrumbs).toBeVisible();
+  const departmentTabs = page.getByRole('tablist', { name: '프로젝트 상세 섹션' });
+  await expect(departmentTabs.getByRole('tab')).toHaveCount(1);
+  const progressTab = departmentTabs.getByRole('tab', { name: '진행 관리' });
+  await expect(progressTab).toHaveAttribute('aria-selected', 'true');
+  await expect(progressTab).toHaveAttribute('aria-controls', 'osan-progress-panel');
+  const progressPanel = page.getByRole('tabpanel', { name: '진행 관리' });
+  await expect(progressPanel).toBeVisible();
+  const targets = progressPanel.locator('.osan-project-targets');
   await expect(targets.getByRole('article')).toHaveCount(2);
   for (const target of await targets.getByRole('article').all()) {
     await expect(target.getByRole('listitem')).toHaveCount(7);
@@ -64,19 +73,52 @@ test('Osan registration is responsive and creates one project with preserved val
   const detailCode = page.locator('.osan-project-values dd.osan-project-code-value');
   expect(await detailCode.textContent()).toBe('AbC  001');
   expect(await detailCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
+  expect(await detailCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+  await expect(page.locator('.osan-project-summary .status-badge')).toHaveText('시작 전');
   expect(await hasHorizontalOverflow(page)).toBe(false);
-  await page.screenshot({ path: testInfo.outputPath('osan-project-registration-desktop.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('osan-project-detail-desktop.png'), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: '저장된 Title' })).toBeVisible();
+  await expect(breadcrumbs).toBeHidden();
+  await expect(page.getByRole('button', { name: '← 프로젝트' })).toBeVisible();
+  const mobileDetailCode = page.locator('.osan-project-detail-code.osan-project-code-value');
+  await expect(mobileDetailCode).toHaveText('AbC  001');
+  expect(await mobileDetailCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
+  expect(await mobileDetailCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+  await expect(page.locator('.mobile-detail-hero .status-badge')).toHaveText('시작 전');
   expect(await hasHorizontalOverflow(page)).toBe(false);
-  await page.screenshot({ path: testInfo.outputPath('osan-project-registration-mobile-390.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('osan-project-detail-mobile-390.png'), fullPage: true });
 
-  await page.getByRole('button', { name: '목록으로' }).click();
-  const listCode = page.locator('.osan-project-card__code.osan-project-code-value');
+  await page.getByRole('button', { name: '← 프로젝트' }).click();
+  const mobileList = page.getByTestId('osan-project-list-mobile');
+  await expect(mobileList).toBeVisible();
+  await expect(page.getByTestId('osan-project-list-desktop')).toBeHidden();
+  await expect(mobileList.getByRole('article')).toHaveCount(1);
+  const listCode = mobileList.locator('.osan-project-code-value');
   await expect(listCode).toBeVisible();
   expect(await listCode.textContent()).toBe('AbC  001');
   expect(await listCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
+  expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+  await expect(mobileList.locator('.status-badge')).toHaveText('시작 전');
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('osan-project-list-mobile-390.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const desktopList = page.getByTestId('osan-project-list-desktop');
+  await expect(desktopList).toBeVisible();
+  await expect(mobileList).toBeHidden();
+  await expect(desktopList.getByRole('row')).toHaveCount(2);
+  await expect(desktopList.getByRole('columnheader')).toHaveCount(7);
+  const desktopProjectRow = desktopList.getByRole('row', { name: '저장된 Title 상세 열기' });
+  await expect(desktopProjectRow.getByRole('cell')).toHaveCount(7);
+  const desktopListCode = desktopProjectRow.locator('.osan-project-code-value');
+  expect(await desktopListCode.textContent()).toBe('AbC  001');
+  expect(await desktopListCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
+  expect(await desktopListCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
+  await expect(desktopProjectRow.locator('.status-badge')).toHaveText('시작 전');
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('osan-project-list-desktop.png'), fullPage: true });
   expect(consoleErrors).toEqual([]);
   expect(requestFailures).toEqual([]);
 });

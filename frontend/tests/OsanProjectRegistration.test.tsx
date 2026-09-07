@@ -144,18 +144,24 @@ describe('Osan project registration', () => {
     render(<App />);
 
     const table = await screen.findByRole('table', { name: '오산 프로젝트 목록' });
+    expect(table).toHaveClass('project-list-table', 'project-list-desktop');
+    expect(table.closest('.project-list')).not.toBeNull();
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]).getAllByRole('columnheader')).toHaveLength(7);
-    expect(within(rows[0]).getByRole('columnheader', { name: '프로젝트명 / 코드' })).toBeInTheDocument();
+    expect(rows[0]).toHaveClass('project-list-head');
+    expect(within(rows[0]).getAllByRole('columnheader')).toHaveLength(8);
+    expect(within(rows[0]).getByRole('columnheader', { name: '프로젝트명' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '상태' })).toBeInTheDocument();
+    expect(within(rows[0]).getByRole('columnheader', { name: '진행률' })).toBeInTheDocument();
 
     const projectRow = within(table).getByRole('row', { name: '저장된 Title 상세 열기' });
-    expect(within(projectRow).getAllByRole('cell')).toHaveLength(7);
+    expect(projectRow).toHaveClass('project-list-row');
+    expect(within(projectRow).getAllByRole('cell')).toHaveLength(8);
     const listCode = projectRow.querySelector('.osan-project-code-value');
     expect(listCode).toHaveTextContent('AbC  001', { normalizeWhitespace: false });
     expect(listCode).toHaveClass('osan-project-code-value');
     expect(within(projectRow).getByText('시작 전')).toBeInTheDocument();
+    expect(within(projectRow).getByText('0%')).toBeInTheDocument();
 
     fireEvent.click(projectRow);
     expect(await screen.findByRole('heading', { name: '저장된 Title' })).toBeInTheDocument();
@@ -215,10 +221,11 @@ describe('Osan project registration', () => {
     expect(window.location.pathname).toBe(`/projects/${projectId}`);
     expect(screen.getByText('001-PO/+')).toBeInTheDocument();
     expect(screen.getByText('000-W/O')).toBeInTheDocument();
-    const detailCode = document.querySelector('.osan-project-values dd.osan-project-code-value');
+    const detailCode = document.querySelector('.project-summary-more dd.osan-project-code-value');
     expect(detailCode).toHaveTextContent('AbC  001', { normalizeWhitespace: false });
     expect(detailCode).toHaveClass('osan-project-code-value');
-    expect(document.querySelector('.osan-project-summary .status-badge')).toHaveTextContent('시작 전');
+    expect(document.querySelector('.project-summary-primary .status-badge')).toHaveTextContent('시작 전');
+    expect(document.querySelector('.project-summary-compact')).not.toBeNull();
     const tablist = screen.getByRole('tablist', { name: '프로젝트 상세 섹션' });
     const tabs = within(tablist).getAllByRole('tab');
     expect(tabs).toHaveLength(1);
@@ -227,12 +234,25 @@ describe('Osan project registration', () => {
     expect(tabs[0]).toHaveAttribute('aria-controls', 'osan-progress-panel');
     const progressPanel = screen.getByRole('tabpanel', { name: '진행 관리' });
     expect(progressPanel).toHaveAttribute('id', 'osan-progress-panel');
-    const targetCards = within(progressPanel).getAllByRole('article');
-    expect(targetCards).toHaveLength(2);
-    for (const target of targetCards) {
-      expect(within(target).getAllByText('시작 전')).toHaveLength(8);
-      expect(within(target).getByText('입고검사')).toBeInTheDocument();
-      expect(within(target).getByText('포장')).toBeInTheDocument();
+    expect(progressPanel).toHaveClass('project-detail-tab-content');
+    expect(progressPanel.querySelector('.project-department-section')).toHaveAttribute('data-department', 'manufacturing');
+    expect(progressPanel.querySelector('.project-department-metrics')).not.toBeNull();
+    const targetTable = within(progressPanel).getByRole('table', { name: '진행 관리 대상 현황' });
+    expect(targetTable).toHaveClass('project-panel-status-table');
+    const targetRows = within(targetTable).getAllByRole('row');
+    expect(targetRows).toHaveLength(3);
+    expect(within(targetRows[0]).getAllByRole('columnheader')).toHaveLength(5);
+    for (const targetRow of targetRows.slice(1)) {
+      expect(targetRow).toHaveClass('project-panel-status-row');
+      expect(within(targetRow).getAllByRole('cell')).toHaveLength(5);
+      expect(targetRow).toHaveTextContent('시작 전');
+      expect(targetRow).toHaveTextContent('0/7단계 완료');
+      expect(targetRow).toHaveTextContent('입고검사');
+      expect(targetRow.querySelector('.project-progress-meter')?.getAttribute('aria-label')).toMatch(/진행률 0% \(0\/7\)$/);
+    }
+    expect(progressPanel.querySelector('.project-department-records')).toBeNull();
+    for (const forbiddenAction of ['Pending', '보류', '중단', '취소']) {
+      expect(screen.queryByRole('button', { name: forbiddenAction })).not.toBeInTheDocument();
     }
   });
 

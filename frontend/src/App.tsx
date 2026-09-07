@@ -4257,73 +4257,45 @@ function OsanProjectListPage({
         />
       ) : null}
       {state.kind === 'ready' ? (
-        <div className="project-list">
-          {isMobile ? (
-            <div className="project-list-cards project-list-mobile" data-testid="osan-project-list-mobile">
-              {state.data.map((project) => (
-                <article key={project.projectId} className="project-list-card" data-testid="osan-project-list-card">
-                  <div className="subsection-header">
-                    <div className="project-card-title-row">
-                      <h3>{project.title}</h3>
-                    </div>
-                    <button type="button" onClick={() => onOpen(project.projectId)}>상세 보기</button>
-                  </div>
-                  <dl className="mobile-detail-list">
-                    <div><dt>거래처</dt><dd>{project.customerName}</dd></div>
-                    <div><dt>Code</dt><dd className="osan-project-code-value">{project.projectCode}</dd></div>
-                    <div><dt>제품명</dt><dd>{project.productName}</dd></div>
-                    <div><dt>수량</dt><dd>{project.quantity.toLocaleString()}개</dd></div>
-                    <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
-                    <div><dt>상태</dt><dd>{formatOsanProjectStatus(project.status)}</dd></div>
-                    <div><dt>진행률</dt><dd>0%</dd></div>
-                  </dl>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="project-list-table project-list-desktop" role="table" aria-label="오산 프로젝트 목록" data-testid="osan-project-list-desktop">
-              <div className="project-list-head" role="row">
-                <span role="columnheader" className="align-left">프로젝트명</span>
-                <span role="columnheader" className="align-left">거래처</span>
-                <span role="columnheader" className="align-center">Code</span>
-                <span role="columnheader" className="align-left">제품명</span>
-                <span role="columnheader" className="align-center">수량</span>
-                <span role="columnheader" className="align-center">납기일</span>
-                <span role="columnheader" className="align-center">상태</span>
-                <span role="columnheader" className="align-center">진행률</span>
-              </div>
-              {state.data.map((project) => (
-                <div
-                  className="project-list-row"
-                  key={project.projectId}
-                  role="row"
-                  tabIndex={0}
-                  aria-label={`${project.title} 상세 열기`}
-                  onClick={(event) => {
-                    if (!isInteractiveProjectRowTarget(event.target)) {
-                      onOpen(project.projectId);
-                    }
-                  }}
-                  onKeyDown={(event) => {
-                    if (!isInteractiveProjectRowTarget(event.target) && (event.key === 'Enter' || event.key === ' ')) {
-                      event.preventDefault();
-                      onOpen(project.projectId);
-                    }
-                  }}
-                >
-                  <span role="cell" className="align-left"><strong>{project.title}</strong></span>
-                  <span role="cell" className="align-left">{project.customerName}</span>
-                  <span role="cell" className="align-center osan-project-code-value">{project.projectCode}</span>
-                  <span role="cell" className="align-left">{project.productName}</span>
-                  <span role="cell" className="align-center">{project.quantity.toLocaleString()}개</span>
-                  <span role="cell" className="align-center">{formatDate(project.deliveryDate)}</span>
-                  <span role="cell" className="align-center">{formatOsanProjectStatus(project.status)}</span>
-                  <span role="cell" className="align-center">0%</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProjectListPresentation
+          ariaLabel="오산 프로젝트 목록"
+          testIdPrefix="osan-project-list"
+          columns={[
+            { label: '프로젝트명', align: 'left' },
+            { label: '거래처', align: 'left' },
+            { label: 'Code', align: 'center' },
+            { label: '제품명', align: 'left' },
+            { label: '수량', align: 'center' },
+            { label: '납기일', align: 'center' },
+            { label: '상태', align: 'center' },
+            { label: '진행률', align: 'center' }
+          ]}
+          rows={state.data.map((project) => ({
+            key: project.projectId,
+            title: project.title,
+            openAriaLabel: `${project.title} 상세 열기`,
+            onOpen: () => onOpen(project.projectId),
+            desktopCells: [
+              { value: <strong>{project.title}</strong>, align: 'left' },
+              { value: project.customerName, align: 'left' },
+              { value: project.projectCode, align: 'center', className: 'project-code-value' },
+              { value: project.productName, align: 'left' },
+              { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
+              { value: formatDate(project.deliveryDate), align: 'center' },
+              { value: formatOsanProjectStatus(project.status), align: 'center' },
+              { value: '0%', align: 'center' }
+            ],
+            mobileFields: [
+              { label: '거래처', value: project.customerName },
+              { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
+              { label: '제품명', value: project.productName },
+              { label: '수량', value: `${project.quantity.toLocaleString()}개` },
+              { label: '납기일', value: formatDate(project.deliveryDate) },
+              { label: '상태', value: formatOsanProjectStatus(project.status) },
+              { label: '진행률', value: '0%' }
+            ]
+          }))}
+        />
       ) : null}
     </section>
   );
@@ -4587,7 +4559,7 @@ function OsanProjectDetailPage({
         <div className={isMobile ? 'mobile-detail-hero' : 'page-header'}>
           <div>
             {isMobile ? <button type="button" className="mobile-back-button" onClick={onBack}>← 프로젝트</button> : null}
-            <p className={isMobile ? 'eyebrow osan-project-code-value' : 'eyebrow'}>
+            <p className={isMobile ? 'eyebrow project-code-value' : 'eyebrow'}>
               {isMobile ? state.data.projectCode : '프로젝트 상세'}
             </p>
             <h2>{state.data.title}</h2>
@@ -4624,10 +4596,9 @@ function OsanProjectDetailPage({
 }
 
 function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
-  const isMobile = useIsMobileViewport();
   const values = [
     { label: '프로젝트 Title', value: project.title },
-    { label: '프로젝트 코드', value: project.projectCode, valueClassName: 'osan-project-code-value' },
+    { label: '프로젝트 코드', value: project.projectCode, valueClassName: 'project-code-value' },
     { label: '거래처', value: project.customerName },
     { label: 'PO No', value: project.poNumber ?? '없음' },
     { label: 'W/O No', value: project.workOrderNumber ?? '없음' },
@@ -4654,37 +4625,20 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
   const totalStepCount = targetRows.reduce((sum, row) => sum + row.target.steps.length, 0);
   const completedStepCount = targetRows.reduce((sum, row) => sum + row.completedSteps, 0);
   const completedTargetCount = targetRows.filter((row) => row.completedSteps > 0 && row.completedSteps === row.target.steps.length).length;
-  const summary = isMobile ? (
-    <dl className="detail-grid" aria-label="프로젝트 입력 정보">
-      <div><dt>상태</dt><dd><StatusBadge label={formatOsanProjectStatus(project.status)} tone={project.status === 'Completed' ? 'success' : 'neutral'} /></dd></div>
-      {values.map(({ label, value, valueClassName }) => (
-        <div key={label}><dt>{label}</dt><dd className={valueClassName}>{value}</dd></div>
-      ))}
-      <div><dt>진행률</dt><dd>{calculateProgressPercent(completedStepCount, totalStepCount)}%</dd></div>
-    </dl>
-  ) : (
-    <section className="project-summary-compact" aria-label="프로젝트 기본정보">
-      <dl className="detail-grid project-summary-primary">
-        <div><dt>상태</dt><dd><StatusBadge label={formatOsanProjectStatus(project.status)} tone={project.status === 'Completed' ? 'success' : 'neutral'} /></dd></div>
-        {[values[2], values[6], values[5], values[7]].map(({ label, value, valueClassName }) => (
-          <div key={label}><dt>{label}</dt><dd className={valueClassName}>{value}</dd></div>
-        ))}
-        <div><dt>진행률</dt><dd>{calculateProgressPercent(completedStepCount, totalStepCount)}%</dd></div>
-      </dl>
-      <details>
-        <summary>기본정보 전체 보기</summary>
-        <dl className="detail-grid project-summary-more">
-          {[values[0], values[1], values[3], values[4]].map(({ label, value, valueClassName }) => (
-            <div key={label}><dt>{label}</dt><dd className={valueClassName}>{value}</dd></div>
-          ))}
-        </dl>
-      </details>
-    </section>
-  );
+  const statusItem = {
+    label: '상태',
+    value: <StatusBadge label={formatOsanProjectStatus(project.status)} tone={project.status === 'Completed' ? 'success' : 'neutral'} />
+  };
+  const progressItem = { label: '진행률', value: `${calculateProgressPercent(completedStepCount, totalStepCount)}%` };
 
   return (
     <>
-      {summary}
+      <ProjectSummaryPresentation
+        primaryItems={[statusItem, values[2], values[6], values[5], values[7], progressItem]}
+        moreItems={[values[0], values[1], values[3], values[4]]}
+        mobileItems={[statusItem, ...values, progressItem]}
+        mobileAriaLabel="프로젝트 입력 정보"
+      />
 
       <div className="section-switcher project-department-tabs" role="tablist" aria-label="프로젝트 상세 섹션">
         <button
@@ -4706,50 +4660,41 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
         aria-labelledby="osan-progress-tab"
         data-section="progress"
       >
-        <section className="subsection project-department-section" data-department="manufacturing" aria-labelledby="osan-target-heading">
-          <div className="subsection-header">
-            <div>
-              <p className="eyebrow">PANEL STATUS</p>
-              <h3 id="osan-target-heading">진행 관리</h3>
-              <p>대상별 현재 단계와 일곱 단계 진행 상태를 확인합니다.</p>
-            </div>
-          </div>
-
-          <div className="project-department-metrics" aria-label="진행 관리 프로젝트 지표">
-            <article><span>진행 대상</span><strong>{project.targets.length.toLocaleString()}개</strong><i /></article>
-            <article><span>시작 전</span><strong>{targetRows.filter((row) => row.statusLabel === '시작 전').length}/{project.targets.length}</strong><i /></article>
-            <article><span>완료</span><strong>{completedTargetCount}/{project.targets.length}</strong><i data-tone={completedTargetCount === project.targets.length && project.targets.length > 0 ? 'success' : undefined} /></article>
-            <article><span>진행률</span><strong>{calculateProgressPercent(completedStepCount, totalStepCount)}%</strong><i data-tone="info" /></article>
-          </div>
-
-          {!isMobile ? (
-            <div className="project-panel-status-table" role="table" aria-label="진행 관리 대상 현황">
-              <div className="project-panel-status-head" role="row">
-                <span role="columnheader">No</span><span role="columnheader">진행 대상</span><span role="columnheader">핵심정보</span><span role="columnheader">현재 단계</span><span role="columnheader">진행률</span>
-              </div>
-              {targetRows.map(({ target, completedSteps, statusLabel, tone, currentStage }) => (
-                <div role="row" className="project-panel-status-row" key={target.targetId}>
-                  <span role="cell">{target.sequenceNumber}</span>
-                  <span role="cell"><strong>{target.displayName}</strong><small>{target.sequenceNumber}번 대상</small></span>
-                  <span role="cell" className="project-panel-key-info"><StatusBadge label={statusLabel} tone={tone} /><small>{completedSteps}/{target.steps.length}단계 완료</small></span>
-                  <span role="cell" className="project-panel-current-stage">{currentStage}</span>
-                  <span role="cell"><ProjectProgressMeter completed={completedSteps} total={target.steps.length} tone={tone} label={target.displayName} /></span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="project-panel-status-cards" aria-label="진행 관리 대상 현황">
-              {targetRows.map(({ target, completedSteps, statusLabel, tone, currentStage }) => (
-                <article className="project-panel-status-card" key={target.targetId}>
-                  <span className="project-panel-status-card-title"><b>{target.sequenceNumber}</b><strong>{target.displayName}</strong><StatusBadge label={statusLabel} tone={tone} /></span>
-                  <span><small>핵심정보</small><b>{completedSteps}/{target.steps.length}단계 완료</b></span>
-                  <span className="project-panel-status-card-stage"><small>현재 단계</small><b>{currentStage}</b></span>
-                  <span className="project-panel-status-card-progress"><small>진행률</small><ProjectProgressMeter completed={completedSteps} total={target.steps.length} tone={tone} label={target.displayName} /></span>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+        <ProjectDepartmentStatusBoard
+          department="manufacturing"
+          title="진행 관리"
+          titleId="osan-target-heading"
+          description="대상별 현재 단계와 일곱 단계 진행 상태를 확인합니다."
+          metrics={[
+            { label: '진행 대상', value: `${project.targets.length.toLocaleString()}개`, showIndicator: true },
+            { label: '시작 전', value: `${targetRows.filter((row) => row.statusLabel === '시작 전').length}/${project.targets.length}`, showIndicator: true },
+            {
+              label: '완료',
+              value: `${completedTargetCount}/${project.targets.length}`,
+              tone: completedTargetCount === project.targets.length && project.targets.length > 0 ? 'success' : undefined,
+              showIndicator: true
+            },
+            { label: '진행률', value: `${calculateProgressPercent(completedStepCount, totalStepCount)}%`, tone: 'info', showIndicator: true }
+          ]}
+          rows={targetRows.map(({ target, completedSteps, statusLabel, tone, currentStage }) => ({
+            key: target.targetId,
+            order: target.sequenceNumber,
+            code: target.sequenceNumber,
+            desktopTitle: target.displayName,
+            mobileTitle: target.displayName,
+            subtitle: `${target.sequenceNumber}번 대상`,
+            status: statusLabel,
+            tone,
+            detail: `${completedSteps}/${target.steps.length}단계 완료`,
+            stage: currentStage,
+            completed: completedSteps,
+            total: target.steps.length,
+            progressLabel: target.displayName
+          }))}
+          tableAriaLabel="진행 관리 대상 현황"
+          subjectColumnLabel="진행 대상"
+          stageColumnLabel="현재 단계"
+        />
       </div>
     </>
   );
@@ -10048,6 +9993,130 @@ function ProjectListPage({
   );
 }
 
+type ProjectListPresentationAlignment = 'left' | 'center';
+
+type ProjectListPresentationColumn = {
+  label: string;
+  align: ProjectListPresentationAlignment;
+};
+
+type ProjectListPresentationCell = {
+  value: ReactNode;
+  align: ProjectListPresentationAlignment;
+  className?: string;
+};
+
+type ProjectListPresentationField = {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+};
+
+type ProjectListPresentationRow = {
+  key: string;
+  title: ReactNode;
+  openAriaLabel?: string;
+  openDisabled?: boolean;
+  onOpen: () => void;
+  desktopLeading?: ReactNode;
+  desktopCells: ProjectListPresentationCell[];
+  desktopAfter?: ReactNode;
+  mobileTitleLeading?: ReactNode;
+  mobileFields: ProjectListPresentationField[];
+  mobileAfter?: ReactNode;
+};
+
+function ProjectListPresentation({
+  ariaLabel,
+  testIdPrefix,
+  columns,
+  rows,
+  selectable = false,
+  desktopLeadingHeader
+}: {
+  ariaLabel: string;
+  testIdPrefix: string;
+  columns: ProjectListPresentationColumn[];
+  rows: ProjectListPresentationRow[];
+  selectable?: boolean;
+  desktopLeadingHeader?: ReactNode;
+}) {
+  const isMobile = useIsMobileViewport();
+
+  return (
+    <div
+      className="project-list"
+      data-presentation-contract="project-list-v1"
+      data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
+      data-presentation-column-count={columns.length}
+    >
+      {isMobile ? (
+        <div className="project-list-cards project-list-mobile" data-testid={`${testIdPrefix}-mobile`}>
+          {rows.map((row) => (
+            <article key={row.key} className="project-list-card" data-testid={`${testIdPrefix}-card`} data-presentation-row="project">
+              <div className="subsection-header">
+                <div className="project-card-title-row">
+                  {row.mobileTitleLeading}
+                  <h3>{row.title}</h3>
+                </div>
+                <button type="button" disabled={row.openDisabled} onClick={row.onOpen}>상세 보기</button>
+              </div>
+              <dl className="mobile-detail-list">
+                {row.mobileFields.map((field) => (
+                  <div key={field.label}><dt>{field.label}</dt><dd className={field.valueClassName}>{field.value}</dd></div>
+                ))}
+              </dl>
+              {row.mobileAfter}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div
+          className={selectable ? 'project-list-table project-list-desktop selectable' : 'project-list-table project-list-desktop'}
+          role="table"
+          aria-label={ariaLabel}
+          data-testid={`${testIdPrefix}-desktop`}
+        >
+          <div className="project-list-head" role="row">
+            {desktopLeadingHeader}
+            {columns.map((column) => (
+              <span key={column.label} role="columnheader" className={`align-${column.align}`}>{column.label}</span>
+            ))}
+          </div>
+          {rows.map((row) => (
+            <Fragment key={row.key}>
+              <div
+                className="project-list-row"
+                role="row"
+                tabIndex={0}
+                aria-label={row.openAriaLabel}
+                data-presentation-row="project"
+                onClick={(event) => {
+                  if (!isInteractiveProjectRowTarget(event.target)) {
+                    row.onOpen();
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (!isInteractiveProjectRowTarget(event.target) && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    row.onOpen();
+                  }
+                }}
+              >
+                {row.desktopLeading}
+                {row.desktopCells.map((cell, index) => (
+                  <span key={index} role="cell" className={[`align-${cell.align}`, cell.className].filter(Boolean).join(' ')}>{cell.value}</span>
+                ))}
+              </div>
+              {row.desktopAfter}
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectListView({
   projects,
   canReadSalesAmount,
@@ -10073,14 +10142,95 @@ function ProjectListView({
   selectionDisabled: boolean;
   onProjectSelectionChange: (projectId: string, selected: boolean) => void;
 }) {
-  const isMobile = useIsMobileViewport();
-
   return (
-    <div className="project-list">
-      {isMobile
-        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />
-        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />}
-    </div>
+    <ProjectListPresentation
+      ariaLabel="프로젝트 목록"
+      testIdPrefix="project-list"
+      selectable={selectionEnabled}
+      desktopLeadingHeader={selectionEnabled ? <span className="project-selection-cell align-center" aria-hidden="true" /> : undefined}
+      columns={[
+        { label: '프로젝트명', align: 'left' },
+        { label: '고객사', align: 'left' },
+        { label: 'Code', align: 'center' },
+        { label: 'Item', align: 'left' },
+        { label: '면수', align: 'center' },
+        { label: '납기일', align: 'center' },
+        { label: '상태', align: 'center' },
+        { label: '진행률', align: 'center' }
+      ]}
+      rows={projects.map((project) => {
+        const selection = selectionEnabled ? (
+          <ProjectSelectionCheckbox
+            checked={selectedProjectIds.has(project.projectId)}
+            disabled={selectionDisabled}
+            label={`${project.projectCode} ${project.projectTitle} 선택`}
+            onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
+          />
+        ) : undefined;
+        const deletedAt = 'deletedAtUtc' in project ? project.deletedAtUtc : null;
+        const salesAmount = canReadSalesAmount && project.salesAmount !== undefined
+          ? <SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} />
+          : null;
+        const deletedActions = canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
+          <div className="deleted-project-actions">
+            <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
+            <DeletedProjectPurgeControl projectId={project.projectId} developmentUserKey={developmentUserKey} onPurged={onPurged} />
+          </div>
+        ) : null;
+
+        return {
+          key: project.projectId,
+          title: project.projectTitle,
+          openDisabled: selectionDisabled,
+          onOpen: () => onOpen(project.projectId),
+          desktopLeading: selectionEnabled ? <span className="project-selection-cell align-center">{selection}</span> : undefined,
+          desktopCells: [
+            {
+              align: 'left' as const,
+              value: (
+                <>
+                  <strong>{project.projectTitle}</strong>
+                  {deletedAt ? <small>삭제일시 {formatDateTime(deletedAt)}</small> : null}
+                  {salesAmount ? <small>{salesAmount}</small> : null}
+                  <ProjectBottleneckBadge project={project} onOpenPending={onOpenPending} />
+                </>
+              )
+            },
+            { value: project.customerName, align: 'left' as const },
+            { value: project.projectCode, align: 'center' as const, className: 'project-code-value' },
+            { value: project.item, align: 'left' as const },
+            { value: `${project.activePanelCount}면`, align: 'center' as const },
+            { value: formatDate(project.deliveryDate), align: 'center' as const },
+            { value: formatProjectWorkStatus(project.projectWorkStatus), align: 'center' as const },
+            { value: formatProjectProgress(project.projectProgressPercent), align: 'center' as const }
+          ],
+          desktopAfter: deletedActions,
+          mobileTitleLeading: selection,
+          mobileFields: [
+            { label: '고객사', value: project.customerName },
+            { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
+            { label: 'Item', value: project.item },
+            { label: '면수', value: `${project.activePanelCount}면` },
+            { label: '납기일', value: formatDate(project.deliveryDate) },
+            { label: '상태', value: formatProjectWorkStatus(project.projectWorkStatus) },
+            { label: '진행률', value: formatProjectProgress(project.projectProgressPercent) },
+            { label: '대표 병목', value: project.bottleneck?.label ?? '-' },
+            ...(project.bottleneck?.openPendingCount !== undefined ? [{
+              label: 'Pending',
+              value: `open ${project.bottleneck.openPendingCount}건 · 재검사 ${project.bottleneck.reinspectionPendingCount ?? 0}건 · 긴급 ${project.bottleneck.urgentPendingCount ?? 0}건`
+            }] : []),
+            ...(deletedAt ? [{ label: '삭제일시', value: formatDateTime(deletedAt) }] : []),
+            ...(salesAmount ? [{ label: '판매금액', value: salesAmount }] : [])
+          ],
+          mobileAfter: (
+            <>
+              {project.bottleneck?.openPendingCount ? <button type="button" className="bottleneck-pending-link" onClick={() => onOpenPending(project.projectId)}>open Pending 확인</button> : null}
+              {deletedActions}
+            </>
+          )
+        };
+      })}
+    />
   );
 }
 
@@ -10469,173 +10619,6 @@ function ProjectSelectionCheckbox({
 
 function isInteractiveProjectRowTarget(target: EventTarget | null) {
   return target instanceof Element && target.closest('input, button, a, select, textarea, summary, [role="button"]') !== null;
-}
-
-function ProjectListDesktop({
-  projects,
-  canReadSalesAmount,
-  canPurgeDeletedProjects,
-  developmentUserKey,
-  onPurged,
-  onOpen,
-  onOpenPending,
-  selectionEnabled,
-  selectedProjectIds,
-  selectionDisabled,
-  onProjectSelectionChange
-}: {
-  projects: Array<ProjectListItem | DeletedProjectListItem>;
-  canReadSalesAmount: boolean;
-  canPurgeDeletedProjects: boolean;
-  developmentUserKey: string;
-  onPurged: () => void;
-  onOpen: (projectId: string) => void;
-  onOpenPending: (projectId: string) => void;
-  selectionEnabled: boolean;
-  selectedProjectIds: ReadonlySet<string>;
-  selectionDisabled: boolean;
-  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
-}) {
-  return (
-    <div className={selectionEnabled ? 'project-list-table project-list-desktop selectable' : 'project-list-table project-list-desktop'} role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
-      <div className="project-list-head" role="row">
-        {selectionEnabled ? (
-          <span className="project-selection-cell align-center" aria-hidden="true" />
-        ) : null}
-        <span className="align-left">프로젝트명</span>
-        <span className="align-left">고객사</span>
-        <span className="align-center">Code</span>
-        <span className="align-left">Item</span>
-        <span className="align-center">면수</span>
-        <span className="align-center">납기일</span>
-        <span className="align-center">상태</span>
-        <span className="align-center">진행률</span>
-      </div>
-      {projects.map((project) => (
-        <Fragment key={project.projectId}>
-          <div
-            className="project-list-row"
-            role="row"
-            tabIndex={0}
-            onClick={(event) => {
-              if (!isInteractiveProjectRowTarget(event.target)) {
-                onOpen(project.projectId);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (!isInteractiveProjectRowTarget(event.target) && (event.key === 'Enter' || event.key === ' ')) {
-                event.preventDefault();
-                onOpen(project.projectId);
-              }
-            }}
-          >
-            {selectionEnabled ? (
-              <span className="project-selection-cell align-center">
-                <ProjectSelectionCheckbox
-                  checked={selectedProjectIds.has(project.projectId)}
-                  disabled={selectionDisabled}
-                  label={`${project.projectCode} ${project.projectTitle} 선택`}
-                  onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
-                />
-              </span>
-            ) : null}
-            <span className="align-left">
-              <strong>{project.projectTitle}</strong>
-              {'deletedAtUtc' in project ? <small>삭제일시 {formatDateTime(project.deletedAtUtc)}</small> : null}
-              {canReadSalesAmount && project.salesAmount !== undefined ? (
-                <small><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></small>
-              ) : null}
-              <ProjectBottleneckBadge project={project} onOpenPending={onOpenPending} />
-            </span>
-            <span className="align-left">{project.customerName}</span>
-            <span className="align-center">{project.projectCode}</span>
-            <span className="align-left">{project.item}</span>
-            <span className="align-center">{project.activePanelCount}면</span>
-            <span className="align-center">{formatDate(project.deliveryDate)}</span>
-            <span className="align-center">{formatProjectWorkStatus(project.projectWorkStatus)}</span>
-            <span className="align-center">{formatProjectProgress(project.projectProgressPercent)}</span>
-          </div>
-          {canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
-            <div className="deleted-project-actions">
-              <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
-              <DeletedProjectPurgeControl projectId={project.projectId} developmentUserKey={developmentUserKey} onPurged={onPurged} />
-            </div>
-          ) : null}
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-function ProjectListMobile({
-  projects,
-  canReadSalesAmount,
-  canPurgeDeletedProjects,
-  developmentUserKey,
-  onPurged,
-  onOpen,
-  onOpenPending,
-  selectionEnabled,
-  selectedProjectIds,
-  selectionDisabled,
-  onProjectSelectionChange
-}: {
-  projects: Array<ProjectListItem | DeletedProjectListItem>;
-  canReadSalesAmount: boolean;
-  canPurgeDeletedProjects: boolean;
-  developmentUserKey: string;
-  onPurged: () => void;
-  onOpen: (projectId: string) => void;
-  onOpenPending: (projectId: string) => void;
-  selectionEnabled: boolean;
-  selectedProjectIds: ReadonlySet<string>;
-  selectionDisabled: boolean;
-  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
-}) {
-  return (
-    <div className="project-list-cards project-list-mobile" data-testid="project-list-mobile">
-      {projects.map((project) => (
-        <article key={project.projectId} className="project-list-card" data-testid="project-list-card">
-          <div className="subsection-header">
-            <div className="project-card-title-row">
-              {selectionEnabled ? (
-                <ProjectSelectionCheckbox
-                  checked={selectedProjectIds.has(project.projectId)}
-                  disabled={selectionDisabled}
-                  label={`${project.projectCode} ${project.projectTitle} 선택`}
-                  onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
-                />
-              ) : null}
-              <h3>{project.projectTitle}</h3>
-            </div>
-            <button type="button" disabled={selectionDisabled} onClick={() => onOpen(project.projectId)}>상세 보기</button>
-          </div>
-          <dl className="mobile-detail-list">
-            <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
-            <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
-            <div><dt>Item</dt><dd>{project.item}</dd></div>
-            <div><dt>면수</dt><dd>{project.activePanelCount}면</dd></div>
-            <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
-            <div><dt>상태</dt><dd>{formatProjectWorkStatus(project.projectWorkStatus)}</dd></div>
-            <div><dt>진행률</dt><dd>{formatProjectProgress(project.projectProgressPercent)}</dd></div>
-            <div><dt>대표 병목</dt><dd>{project.bottleneck?.label ?? '-'}</dd></div>
-            {project.bottleneck?.openPendingCount !== undefined ? <div><dt>Pending</dt><dd>open {project.bottleneck.openPendingCount}건 · 재검사 {project.bottleneck.reinspectionPendingCount ?? 0}건 · 긴급 {project.bottleneck.urgentPendingCount ?? 0}건</dd></div> : null}
-            {'deletedAtUtc' in project ? <div><dt>삭제일시</dt><dd>{formatDateTime(project.deletedAtUtc)}</dd></div> : null}
-            {canReadSalesAmount && project.salesAmount !== undefined ? (
-              <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
-            ) : null}
-          </dl>
-          {project.bottleneck?.openPendingCount ? <button type="button" className="bottleneck-pending-link" onClick={() => onOpenPending(project.projectId)}>open Pending 확인</button> : null}
-          {canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
-            <div className="deleted-project-actions">
-              <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
-              <DeletedProjectPurgeControl projectId={project.projectId} developmentUserKey={developmentUserKey} onPurged={onPurged} />
-            </div>
-          ) : null}
-        </article>
-      ))}
-    </div>
-  );
 }
 
 function DeletedProjectRestoreControl({
@@ -12065,6 +12048,174 @@ function ProjectDepartmentDataSection({
 
 type ProjectPanelDepartmentSectionKey = Extract<ProjectDetailSection, 'manufacturing' | 'quality' | 'logistics'>;
 
+type ProjectDepartmentStatusMetricPresentation = {
+  label: string;
+  value: ReactNode;
+  tone?: StatusTone;
+  showIndicator?: boolean;
+};
+
+type ProjectDepartmentStatusRowPresentation = {
+  key: string;
+  order: ReactNode;
+  code: ReactNode;
+  desktopTitle: ReactNode;
+  mobileTitle: ReactNode;
+  subtitle: ReactNode;
+  status: string;
+  tone: StatusTone;
+  detail: ReactNode;
+  stage: ReactNode;
+  completed: number;
+  total: number;
+  progressLabel: string;
+  onOpen?: () => void;
+};
+
+function ProjectDepartmentStatusBoard({
+  department,
+  title,
+  titleId,
+  description,
+  action,
+  beforeMetrics,
+  metrics,
+  beforeRows,
+  emptyText,
+  rows,
+  tableAriaLabel,
+  subjectColumnLabel,
+  stageColumnLabel
+}: {
+  department: string;
+  title: string;
+  titleId?: string;
+  description: string;
+  action?: ReactNode;
+  beforeMetrics?: ReactNode;
+  metrics?: ProjectDepartmentStatusMetricPresentation[];
+  beforeRows?: ReactNode;
+  emptyText?: ReactNode;
+  rows: ProjectDepartmentStatusRowPresentation[];
+  tableAriaLabel: string;
+  subjectColumnLabel: string;
+  stageColumnLabel: string;
+}) {
+  const isMobile = useIsMobileViewport();
+  const renderDesktopRowContent = (row: ProjectDepartmentStatusRowPresentation) => (
+    <>
+      <span role="cell">{row.order}</span>
+      <span role="cell"><strong>{row.desktopTitle}</strong><small>{row.subtitle}</small></span>
+      <span role="cell" className="project-panel-key-info"><StatusBadge label={row.status} tone={row.tone} /><small>{row.detail}</small></span>
+      <span role="cell" className="project-panel-current-stage">{row.stage}</span>
+      <span role="cell"><ProjectProgressMeter completed={row.completed} total={row.total} tone={row.tone} label={row.progressLabel} /></span>
+    </>
+  );
+  const renderMobileRowContent = (row: ProjectDepartmentStatusRowPresentation) => (
+    <>
+      <span className="project-panel-status-card-title"><b>{row.code}</b><strong>{row.mobileTitle}</strong><StatusBadge label={row.status} tone={row.tone} /></span>
+      <span><small>핵심정보</small><b>{row.detail}</b></span>
+      <span className="project-panel-status-card-stage"><small>{stageColumnLabel}</small><b>{row.stage}</b></span>
+      <span className="project-panel-status-card-progress"><small>진행률</small><ProjectProgressMeter completed={row.completed} total={row.total} tone={row.tone} label={row.progressLabel} /></span>
+      {row.onOpen ? <i aria-hidden="true">상세 →</i> : null}
+    </>
+  );
+
+  return (
+    <section
+      className="subsection project-department-section project-panel-department-section"
+      data-department={department}
+      data-presentation-contract="project-status-board-v1"
+      data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
+      aria-labelledby={titleId}
+    >
+      <div className="subsection-header">
+        <div>
+          <p className="eyebrow">PANEL STATUS</p>
+          <h3 id={titleId}>{title}</h3>
+          <p>{description}</p>
+        </div>
+        {action}
+      </div>
+
+      {beforeMetrics}
+      {metrics ? (
+        <div className="project-department-metrics" aria-label={`${title} 프로젝트 지표`}>
+          {metrics.map((metric) => (
+            <article key={metric.label}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              {metric.showIndicator ? <i data-tone={metric.tone} /> : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {beforeRows}
+      {rows.length === 0 ? emptyText : null}
+      {rows.length > 0 && !isMobile ? (
+        <div className="project-panel-status-table" role="table" aria-label={tableAriaLabel}>
+          <div className="project-panel-status-head" role="row">
+            <span role="columnheader">No</span>
+            <span role="columnheader">{subjectColumnLabel}</span>
+            <span role="columnheader">핵심정보</span>
+            <span role="columnheader">{stageColumnLabel}</span>
+            <span role="columnheader">진행률</span>
+          </div>
+          {rows.map((row) => row.onOpen ? (
+            <button
+              type="button"
+              role="row"
+              className="project-panel-status-row"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="true"
+              onClick={row.onOpen}
+            >
+              {renderDesktopRowContent(row)}
+            </button>
+          ) : (
+            <div
+              role="row"
+              className="project-panel-status-row"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="false"
+            >
+              {renderDesktopRowContent(row)}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {rows.length > 0 && isMobile ? (
+        <div className="project-panel-status-cards" aria-label={tableAriaLabel}>
+          {rows.map((row) => row.onOpen ? (
+            <button
+              type="button"
+              className="project-panel-status-card"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="true"
+              onClick={row.onOpen}
+            >
+              {renderMobileRowContent(row)}
+            </button>
+          ) : (
+            <article
+              className="project-panel-status-card"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="false"
+            >
+              {renderMobileRowContent(row)}
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ProjectPanelDepartmentSection({
   section,
   panelState,
@@ -12078,7 +12229,6 @@ function ProjectPanelDepartmentSection({
   onOpenPanel: (panelId: string) => void;
   onOpenWorkspace: () => void;
 }) {
-  const isMobile = useIsMobileViewport();
   const labels = {
     manufacturing: { title: '제조', description: '패널별 제조 착수·중단·완료 상태를 한눈에 확인합니다.' },
     quality: { title: '품질', description: '패널별 LQC 적용 여부와 LQC·OQC·전진검수·FAT의 현재 상태를 확인합니다.' },
@@ -12101,64 +12251,52 @@ function ProjectPanelDepartmentSection({
   }));
 
   return (
-    <section className="subsection project-department-section project-panel-department-section" data-department={section}>
-      <div className="subsection-header">
-        <div>
-          <p className="eyebrow">PANEL STATUS</p>
-          <h3>{label.title}</h3>
-          <p>{label.description}</p>
-        </div>
+    <ProjectDepartmentStatusBoard
+      department={section}
+      title={label.title}
+      description={label.description}
+      action={(
         <div className="project-department-action">
           {departmentData && !departmentData.canMutate ? <small>조회 전용 · 담당자만 수정할 수 있습니다.</small> : null}
           <button type="button" className={departmentData?.canMutate ? 'primary-button' : 'secondary-button'} onClick={onOpenWorkspace}>
             {departmentData?.canMutate ? `${label.title} 전체 업무 수정` : `${label.title} 전체 업무 조회`}
           </button>
         </div>
-      </div>
-
-      {departmentState.kind === 'loading' ? <p className="muted-text">이 프로젝트의 {label.title} 상태를 불러오는 중입니다.</p> : null}
-      {departmentState.kind !== 'ready' && departmentState.kind !== 'loading' && departmentState.kind !== 'empty' ? <StateMessage state={departmentState} /> : null}
-      {departmentData ? (
-        <div className="project-department-metrics" aria-label={`${label.title} 프로젝트 지표`}>
-          {departmentData.metrics.map((metric) => (
-            <article key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong>{metric.tone ? <i data-tone={metric.tone} /> : null}</article>
-          ))}
-        </div>
-      ) : null}
-
-      {panelState.kind === 'loading' ? <p className="muted-text">패널 목록을 불러오는 중입니다.</p> : null}
-      {panelState.kind !== 'ready' && panelState.kind !== 'loading' ? <StateMessage state={panelState} /> : null}
-      {panelState.kind === 'ready' && rows.length === 0 ? <p className="empty-text">활성 패널이 없습니다.</p> : null}
-      {panelState.kind === 'ready' && rows.length > 0 && !isMobile ? (
-        <div className="project-panel-status-table" role="table" aria-label={`${label.title} 패널 현황`}>
-          <div className="project-panel-status-head" role="row">
-            <span>No</span><span>패널명</span><span>핵심정보</span><span>{label.title} 단계</span><span>진행률</span>
-          </div>
-          {rows.map(({ panel, progress }, index) => (
-            <button type="button" role="row" className="project-panel-status-row" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
-              <span>{index + 1}</span>
-              <span><strong>{panel.panelName ?? panel.displayCode}</strong><small>{panel.displayCode}</small></span>
-              <span className="project-panel-key-info"><StatusBadge label={progress.status} tone={progress.tone} /><small>{progress.detail}</small></span>
-              <span className="project-panel-current-stage">{progress.stage}</span>
-              <ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} />
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {panelState.kind === 'ready' && rows.length > 0 && isMobile ? (
-        <div className="project-panel-status-cards" aria-label={`${label.title} 패널 현황`}>
-          {rows.map(({ panel, progress }) => (
-            <button type="button" className="project-panel-status-card" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
-              <span className="project-panel-status-card-title"><b>{panel.displayCode}</b><strong>{panel.panelName ?? '패널명 미입력'}</strong><StatusBadge label={progress.status} tone={progress.tone} /></span>
-              <span><small>핵심정보</small><b>{progress.detail}</b></span>
-              <span className="project-panel-status-card-stage"><small>{label.title} 단계</small><b>{progress.stage}</b></span>
-              <span className="project-panel-status-card-progress"><small>진행률</small><ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} /></span>
-              <i aria-hidden="true">상세 →</i>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
+      )}
+      beforeMetrics={(
+        <>
+          {departmentState.kind === 'loading' ? <p className="muted-text">이 프로젝트의 {label.title} 상태를 불러오는 중입니다.</p> : null}
+          {departmentState.kind !== 'ready' && departmentState.kind !== 'loading' && departmentState.kind !== 'empty' ? <StateMessage state={departmentState} /> : null}
+        </>
+      )}
+      metrics={departmentData?.metrics.map((metric) => ({ ...metric, showIndicator: Boolean(metric.tone) }))}
+      beforeRows={(
+        <>
+          {panelState.kind === 'loading' ? <p className="muted-text">패널 목록을 불러오는 중입니다.</p> : null}
+          {panelState.kind !== 'ready' && panelState.kind !== 'loading' ? <StateMessage state={panelState} /> : null}
+        </>
+      )}
+      emptyText={panelState.kind === 'ready' ? <p className="empty-text">활성 패널이 없습니다.</p> : undefined}
+      rows={panelState.kind === 'ready' ? rows.map(({ panel, progress }, index) => ({
+        key: panel.panelId,
+        order: index + 1,
+        code: panel.displayCode,
+        desktopTitle: panel.panelName ?? panel.displayCode,
+        mobileTitle: panel.panelName ?? '패널명 미입력',
+        subtitle: panel.displayCode,
+        status: progress.status,
+        tone: progress.tone,
+        detail: progress.detail,
+        stage: progress.stage,
+        completed: progress.completedUnits,
+        total: progress.totalUnits,
+        progressLabel: `${panel.displayCode} ${label.title}`,
+        onOpen: () => onOpenPanel(panel.panelId)
+      })) : []}
+      tableAriaLabel={`${label.title} 패널 현황`}
+      subjectColumnLabel="패널명"
+      stageColumnLabel={`${label.title} 단계`}
+    />
   );
 }
 
@@ -19075,6 +19213,60 @@ function ProjectBottleneckOverview({
   );
 }
 
+type ProjectSummaryPresentationItem = {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+};
+
+function ProjectSummaryItems({ items }: { items: ProjectSummaryPresentationItem[] }) {
+  return items.map((item) => (
+    <div key={item.label}><dt>{item.label}</dt><dd className={item.valueClassName}>{item.value}</dd></div>
+  ));
+}
+
+function ProjectSummaryPresentation({
+  primaryItems,
+  moreItems,
+  mobileItems = [...primaryItems, ...moreItems],
+  mobileAriaLabel
+}: {
+  primaryItems: ProjectSummaryPresentationItem[];
+  moreItems: ProjectSummaryPresentationItem[];
+  mobileItems?: ProjectSummaryPresentationItem[];
+  mobileAriaLabel?: string;
+}) {
+  const isMobile = useIsMobileViewport();
+
+  if (isMobile) {
+    return (
+      <dl
+        className="detail-grid"
+        aria-label={mobileAriaLabel}
+        data-presentation-contract="project-summary-v1"
+        data-presentation-layout="mobile"
+      >
+        <ProjectSummaryItems items={mobileItems} />
+      </dl>
+    );
+  }
+
+  return (
+    <section
+      className="project-summary-compact"
+      aria-label="프로젝트 기본정보"
+      data-presentation-contract="project-summary-v1"
+      data-presentation-layout="desktop"
+    >
+      <dl className="detail-grid project-summary-primary"><ProjectSummaryItems items={primaryItems} /></dl>
+      <details>
+        <summary>기본정보 전체 보기</summary>
+        <dl className="detail-grid project-summary-more"><ProjectSummaryItems items={moreItems} /></dl>
+      </details>
+    </section>
+  );
+}
+
 function ProjectSummary({
   project,
   canReadSalesAmount,
@@ -19084,53 +19276,28 @@ function ProjectSummary({
   canReadSalesAmount: boolean;
   progressPercent?: number | null;
 }) {
-  const isMobile = useIsMobileViewport();
-  const primaryItems = (
-    <>
-      <div><dt>상태</dt><dd><ProjectStatusBadge status={project.status} /></dd></div>
-      <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
-      <div><dt>Item</dt><dd>{project.item}</dd></div>
-      <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
-      <div><dt>면수</dt><dd>{project.activePanelCount}</dd></div>
-      <div><dt>진행률</dt><dd>{formatProjectProgress(progressPercent)}</dd></div>
-    </>
-  );
-
-  if (!isMobile) {
-    return (
-      <section className="project-summary-compact" aria-label="프로젝트 기본정보">
-        <dl className="detail-grid project-summary-primary">{primaryItems}</dl>
-        <details>
-          <summary>기본정보 전체 보기</summary>
-          <dl className="detail-grid project-summary-more">
-            <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
-            <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
-            <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
-            <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
-            <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
-            <div><dt>FAT 필요 여부</dt><dd>{project.fatRequired ? '예' : '아니오'}</dd></div>
-            {canReadSalesAmount && project.salesAmount !== undefined ? (
-              <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
-            ) : null}
-          </dl>
-        </details>
-      </section>
-    );
-  }
-
   return (
-    <dl className="detail-grid">
-      {primaryItems}
-      <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
-      <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
-      <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
-      <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
-      <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
-      <div><dt>FAT 필요 여부</dt><dd>{project.fatRequired ? '예' : '아니오'}</dd></div>
-      {canReadSalesAmount && project.salesAmount !== undefined ? (
-        <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
-      ) : null}
-    </dl>
+    <ProjectSummaryPresentation
+      primaryItems={[
+        { label: '상태', value: <ProjectStatusBadge status={project.status} /> },
+        { label: '고객사', value: project.customerName },
+        { label: 'Item', value: project.item },
+        { label: '납기일', value: formatDate(project.deliveryDate) },
+        { label: '면수', value: project.activePanelCount },
+        { label: '진행률', value: formatProjectProgress(progressPercent) }
+      ]}
+      moreItems={[
+        { label: 'PJT Code', value: project.projectCode, valueClassName: 'project-code-value' },
+        { label: 'LSE TASK NO', value: project.lseTaskNumber ?? '-' },
+        { label: '영업담당자', value: project.salesOwnerName },
+        { label: '포장방식', value: formatPackagingMethod(project.packagingMethod) },
+        { label: '납품장소', value: project.deliveryLocation ?? '-' },
+        { label: 'FAT 필요 여부', value: project.fatRequired ? '예' : '아니오' },
+        ...(canReadSalesAmount && project.salesAmount !== undefined
+          ? [{ label: '판매금액', value: <SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /> }]
+          : [])
+      ]}
+    />
   );
 }
 

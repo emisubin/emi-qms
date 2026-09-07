@@ -27,6 +27,14 @@
 - 정상 경로에서 console error, non-aborted request failure와 blank page가 없어야 한다.
 - 실제 UAT 검증은 raw DOM, text, screenshot 또는 console 원문을 출력하지 않고 [Privacy-safe Evidence](../docs/development/privacy-safe-evidence.md)를 따른다.
 
+## 기존 화면과 동일하게 만드는 변경
+
+- 사용자가 기존 화면과 같게 만들라고 지시하면 대상 화면에 비슷한 markup·class를 복제하지 않고, 가능한 한 원본 화면이 호출하는 실제 React 표시 component와 composition을 공용화해 양쪽이 직접 사용하게 한다. 업무 명칭·값·허용 action의 차이만 명시적 prop 또는 adapter로 전달한다.
+- 구현 전에 원본과 대상에서 의도적으로 달라야 하는 업무 기능을 기록한다. 승인된 차이 이외의 page section, 간격, 테두리, 표·card 구조, 반응형 전환과 interaction 차이는 동일성 결함으로 취급한다.
+- class 문자열, DOM 단위 test와 기존 screenshot 한쪽만으로 디자인 동일성을 판정하지 않는다. 현재 branch의 원본·대상을 같은 viewport·확대율·비교 가능한 합성 data로 함께 capture하고, 공용 영역의 실제 screenshot을 눈으로 비교한 기록이 있어야 완료로 보고한다.
+- 원본과 대상의 기능 범위가 달라 전체 화면 pixel 비교가 불가능하면 비교 범위와 제외 기능을 screenshot 전에 고정한다. 결과 보고에서는 공용 영역의 동일성과 의도된 기능 차이를 구분하며 전체 화면이 같다고 과장하지 않는다.
+- 이 절은 파일 변경, runtime mutation, Git 게시·merge 또는 운영 적용의 승인 범위를 확대하지 않는다. 현재 Task의 승인 출처, exact allowlist와 상위 지침의 승인 경계를 그대로 따른다.
+
 ## Frontend 검증
 
 - lint, typecheck, unit, build와 UI smoke의 적용 범위는 [Validation Matrix](../docs/development/validation-matrix.md)를 따른다.

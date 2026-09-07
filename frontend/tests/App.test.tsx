@@ -556,6 +556,9 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: '전체' })).toHaveAttribute('aria-selected', 'true');
 
     const table = await screen.findByRole('table', { name: '프로젝트 목록' });
+    const sharedList = table.closest('[data-presentation-contract="project-list-v1"]');
+    expect(sharedList).toHaveAttribute('data-presentation-layout', 'desktop');
+    expect(sharedList).toHaveAttribute('data-presentation-column-count', '8');
     const header = table.querySelector('.project-list-head');
     expect(header).not.toBeNull();
     expect(header).toHaveTextContent('프로젝트명고객사CodeItem면수납기일상태진행률');
@@ -3071,6 +3074,13 @@ describe('App', () => {
     render(<App />);
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
 
+    const sharedSummary = await waitFor(() => {
+      const summary = document.querySelector('[data-presentation-contract="project-summary-v1"]');
+      expect(summary).not.toBeNull();
+      return summary as HTMLElement;
+    });
+    expect(sharedSummary).toHaveAttribute('data-presentation-layout', 'desktop');
+
     const projectTabs = await screen.findByRole('tablist', { name: '프로젝트 상세 섹션' });
     expect(within(projectTabs).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       '전체 흐름', '생산관리', '설계', '구매', '제조', '품질', '물류', '영업'
@@ -3087,9 +3097,18 @@ describe('App', () => {
 
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '제조' }));
     const manufacturingTable = await screen.findByRole('table', { name: '제조 패널 현황' });
-    expect(within(manufacturingTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보제조 단계진행률');
-    expect(within(manufacturingTable).getAllByRole('row').slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
-    expect(within(manufacturingTable).getAllByRole('row')[4]).toHaveTextContent('P52');
+    const sharedStatusBoard = manufacturingTable.closest('[data-presentation-contract="project-status-board-v1"]');
+    expect(sharedStatusBoard).toHaveAttribute('data-department', 'manufacturing');
+    expect(sharedStatusBoard).toHaveAttribute('data-presentation-layout', 'desktop');
+    const manufacturingRows = within(manufacturingTable).getAllByRole('row');
+    expect(manufacturingRows[0]).toHaveTextContent('No패널명핵심정보제조 단계진행률');
+    expect(manufacturingRows.slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(manufacturingRows[1].tagName).toBe('BUTTON');
+    expect(manufacturingRows[1]).toHaveAttribute('data-interactive', 'true');
+    const unnamedPanelCell = within(manufacturingRows[1]).getAllByRole('cell')[1];
+    expect(unnamedPanelCell.querySelector('strong')).toHaveTextContent('P01');
+    expect(unnamedPanelCell.querySelector('small')).toHaveTextContent('P01');
+    expect(manufacturingRows[4]).toHaveTextContent('P52');
     expect(manufacturingTable).toHaveTextContent('P01');
     expect(manufacturingTable).toHaveTextContent('완료 · 단계 1/1');
     expect(manufacturingTable).toHaveTextContent('제조 완료');

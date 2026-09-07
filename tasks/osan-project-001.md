@@ -41,7 +41,7 @@ Projects contracts/store/endpoints, common progress template adapter·snapshot/�
 - [x] 생성자는 접근 연결을 얻고 등록은 `Project.Create`와 `projects.read`를 모두 요구한다. 진행 mutation은 이번 Task에 열지 않았으며 Task 4에서 별도 권한으로 구현한다.
 - [x] 생성 뒤 접근이 회수되면 GET과 동일 operation replay가 모두 `403`이고 detail과 관련 row를 노출·변경하지 않으며, 접근 복원 뒤 동일 project replay가 성공한다. `Project.Read.All`은 기존처럼 접근행 없이 허용한다.
 - [x] 목록과 상세의 프로젝트 코드는 대소문자와 내부 공백을 화면에서도 그대로 구분해 표시한다.
-- [x] Change 002에서 목록과 상세를 청주형으로 정렬하고, Change 003에서 별도 오산 UI를 제거해 청주 목록·상세·제조 현황 presentation을 직접 재사용한다. 단일 `진행 관리` tab에서 생성 직후 상태는 `시작 전`, 진행은 현재 단계와 `완료 수/7`로 요약하며 desktop/390px에서 코드 대소문자·내부 공백을 보존한다.
+- [x] Change 002에서 목록과 상세를 청주형으로 정렬하고, Change 003에서 별도 오산 UI를 제거했다. Change 004에서는 청주와 오산이 목록·상세 요약·부서 현황의 같은 React 표시 컴포넌트를 직접 사용하도록 통합하고 1440×900·390×844의 양쪽 화면을 눈으로 비교했다. 단일 `진행 관리` tab에서 생성 직후 상태는 `시작 전`, 진행은 현재 단계와 `완료 수/7`로 요약하며 desktop/mobile에서 코드 대소문자·내부 공백을 보존한다.
 
 ## 다음 Task에 전달할 내용
 
@@ -53,4 +53,4 @@ Projects contracts/store/endpoints, common progress template adapter·snapshot/�
 
 프로젝트·대상·snapshot·profile 생성 계약을 Task 4에 전달한다. 이 Task 완료를 사용자 진행 기능 전체 완료로 표시하지 않는다.
 
-실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Change 001의 Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2를 보정했고 전체 자동 검증을 통과했다. Change 002의 별도 오산 UI는 사용자 검수 의견에 따라 Change 003에서 제거했으며, 청주 목록·상세·제조 현황 presentation을 직접 재사용하도록 보정했다. Fresh GPT-6 High 검증의 table semantics P2도 해소한 뒤 `PASS / GO`, 최종 open P0/P1/P2/P3 `0/0/0/0`을 확인했다. 사용자 화면 검수는 열어 둔 local synthetic server와 마지막 오산 일괄 검수에서 추적하며 품질 Gate를 통과한 exact allowlist를 local commit한다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.
+실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Change 001의 Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2를 보정했고 전체 자동 검증을 통과했다. Change 002의 별도 오산 UI는 Change 003에서 제거했으며, Change 004에서 청주와 오산이 목록·상세 요약·부서 현황의 같은 React 표시 컴포넌트를 직접 사용하도록 통합했다. 같은 run의 desktop/mobile paired screenshot 8개를 눈으로 확인하고 구조·geometry Finding을 보정한 뒤 fresh GPT-6 High가 `PASS / GO`, 최종 open P0/P1/P2/P3 `0/0/0/0`을 반환했다. 사용자 화면 검수는 열어 둔 local synthetic server와 마지막 오산 일괄 검수에서 추적하며 품질 Gate를 통과한 exact allowlist를 local commit한다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.

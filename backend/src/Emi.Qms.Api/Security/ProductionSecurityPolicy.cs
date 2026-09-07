@@ -3,6 +3,7 @@ using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
+using Emi.Qms.Api.BusinessUnits;
 
 namespace Emi.Qms.Api.Security;
 
@@ -151,6 +152,24 @@ public static class ProductionSecurityPolicy
 
     private static void ValidateDatabase(IConfiguration configuration, ICollection<string> errors)
     {
+        var businessUnits = BusinessUnitConfiguration.Read(configuration);
+        if (businessUnits.Enabled)
+        {
+            foreach (var error in businessUnits.Errors
+                .Concat(businessUnits.ValidateOperationConnections(
+                    configuration,
+                    BusinessUnitConnectionPurpose.Runtime,
+                    requireSsl: true))
+                .Concat(businessUnits.ValidateSameServer(
+                    configuration,
+                    BusinessUnitConnectionPurpose.Runtime))
+                .Distinct(StringComparer.Ordinal))
+            {
+                errors.Add($"Business-unit database configuration failed: {error}.");
+            }
+            return;
+        }
+
         var connectionString = configuration.GetConnectionString("QmsDatabase");
         if (string.IsNullOrWhiteSpace(connectionString))
         {

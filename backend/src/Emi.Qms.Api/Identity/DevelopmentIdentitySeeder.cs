@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.ReviewSafe;
 using Npgsql;
 
@@ -8,7 +9,8 @@ public sealed class DevelopmentIdentitySeeder(
     DatabaseConnectionStringProvider connectionStringProvider,
     IConfiguration configuration,
     IHostEnvironment environment,
-    ILogger<DevelopmentIdentitySeeder> logger)
+    ILogger<DevelopmentIdentitySeeder> logger,
+    MigrationLedgerInspector? migrationLedgerInspector = null)
 {
     public bool IsEnabled()
     {
@@ -38,21 +40,100 @@ public sealed class DevelopmentIdentitySeeder(
             return;
         }
 
-        var connectionString = connectionStringProvider.GetConnectionString();
-        if (string.IsNullOrWhiteSpace(connectionString))
+        if (!connectionStringProvider.BusinessUnits.Enabled)
         {
-            throw new InvalidOperationException("QMS database connection string is not configured.");
+            var connectionString = connectionStringProvider.GetConnectionString();
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                throw new InvalidOperationException("QMS database connection string is not configured.");
+            }
+            await SeedTargetAsync(connectionString, target: null, cancellationToken);
+            logger.LogInformation("Development identity seed completed.");
+            return;
         }
 
+        var configuredCodes = configuration
+            .GetSection("BusinessUnits:DevelopmentSeedUnits")
+            .Get<string[]>()
+            ?? [];
+        if (configuredCodes.Length == 0
+            || configuredCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != configuredCodes.Length)
+        {
+            throw new InvalidOperationException(
+                "Development data seeding requires a non-empty, duplicate-free BusinessUnits:DevelopmentSeedUnits allowlist.");
+        }
+
+        var selectedTargets = new List<BusinessUnitDatabaseTarget>();
+        foreach (var configuredCode in configuredCodes)
+        {
+            var normalized = configuredCode.Trim().ToUpperInvariant();
+            if (!BusinessUnitCodes.IsKnown(normalized))
+            {
+                throw new InvalidOperationException("Development data seeding contains an unknown business unit.");
+            }
+            selectedTargets.Add(connectionStringProvider.BusinessUnits.GetBusiness(normalized));
+        }
+
+        var failures = 0;
+        foreach (var target in selectedTargets)
+        {
+            try
+            {
+                var connectionString = connectionStringProvider.GetConnectionString(
+                    target,
+                    BusinessUnitConnectionPurpose.Runtime);
+                await SeedTargetAsync(connectionString, target, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                failures++;
+                logger.LogError(
+                    "Development identity seed target failed. Target={Target} ExceptionType={ExceptionType}.",
+                    target.Code,
+                    exception.GetType().Name);
+            }
+        }
+
+        if (failures > 0)
+        {
+            throw new InvalidOperationException(
+                $"Development identity seeding failed for {failures} target(s); no target fallback was used.");
+        }
+
+        logger.LogInformation(
+            "Development identity seed completed for {TargetCount} explicitly configured business unit(s).",
+            selectedTargets.Count);
+    }
+
+    private async Task SeedTargetAsync(
+        string connectionString,
+        BusinessUnitDatabaseTarget? target,
+        CancellationToken cancellationToken)
+    {
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (target is not null)
+        {
+            if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken))
+            {
+                throw new InvalidOperationException("Development seed database identity mismatch.");
+            }
+            if (migrationLedgerInspector is null
+                || !(await migrationLedgerInspector.InspectAsync(connection, cancellationToken)).MigrationLedgerReady)
+            {
+                throw new InvalidOperationException("Development seed database migration ledger mismatch.");
+            }
+        }
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         await ExecuteAsync(connection, transaction, SeedSql, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Development identity seed completed.");
     }
 
     private static async Task ExecuteAsync(

@@ -116,6 +116,7 @@ public static partial class AuditMutationRegistry
         POST /api/notifications/projects/{projectId:guid}/read-all
         POST /api/notifications/read-all
         POST /api/notifications/{notificationId:guid}/read
+        POST /api/osan/projects/
         POST /api/pending-types/
         POST /api/pending-types/{code}/activate
         POST /api/pending-types/{code}/deactivate
@@ -181,6 +182,8 @@ public static partial class AuditMutationRegistry
         POST /api/system/holidays/sync/kr
         PUT /api/admin/calendar/holidays/{holidayId:guid}
         PUT /api/admin/departments/{departmentId:guid}
+        PUT /api/admin/business-unit-access/users/{userId:guid}/memberships
+        PUT /api/admin/user-access/users/{userId:guid}/access
         PUT /api/admin/users/{userId:guid}/notification-preferences
         PUT /api/form-templates/lqc-items/{productTypeId:guid}/current
         PUT /api/form-templates/lqc-items/{productTypeId:guid}/operating-status
@@ -243,6 +246,7 @@ public static partial class AuditMutationRegistry
         POST /api/quality/inspections/reports/{reportId:guid}/pdf/retry
         POST /api/quality/iqc/reports/{reportId:guid}/pdf/retry
         PUT /api/my/web-push/subscriptions
+        PUT /api/admin/business-unit-access/users/{userId:guid}/memberships
         """);
 
     public static bool IsMutationMethod(string method) => MutationMethods.Contains(method);

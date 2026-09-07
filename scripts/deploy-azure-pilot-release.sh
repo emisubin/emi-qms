@@ -10,9 +10,13 @@ required_environment=(
   BACKEND_APP_NAME
   FRONTEND_APP_NAME
   MIGRATION_JOB_NAME
+  DATABASE_BOOTSTRAP_JOB_NAME
+  MEMBERSHIP_BACKFILL_JOB_NAME
   DEPLOY_BACKEND
   DEPLOY_FRONTEND
   RUN_MIGRATION
+  RUN_DATABASE_BOOTSTRAP
+  RUN_MEMBERSHIP_BACKFILL
 )
 
 for variable_name in "${required_environment[@]}"; do
@@ -22,21 +26,29 @@ for variable_name in "${required_environment[@]}"; do
   fi
 done
 
-for release_flag in "${DEPLOY_BACKEND}" "${DEPLOY_FRONTEND}" "${RUN_MIGRATION}"; do
+for release_flag in \
+  "${DEPLOY_BACKEND}" \
+  "${DEPLOY_FRONTEND}" \
+  "${RUN_MIGRATION}" \
+  "${RUN_DATABASE_BOOTSTRAP}" \
+  "${RUN_MEMBERSHIP_BACKFILL}"; do
   if [[ "${release_flag}" != 'true' && "${release_flag}" != 'false' ]]; then
     printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
     exit 65
   fi
 done
 
-if [[ "${RUN_MIGRATION}" == 'true' && "${DEPLOY_BACKEND}" != 'true' ]]; then
+if [[ ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ) \
+  && "${RUN_MIGRATION}" != 'true' ]]; then
   printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
   exit 65
 fi
 
 if [[ "${DEPLOY_BACKEND}" == 'false' \
   && "${DEPLOY_FRONTEND}" == 'false' \
-  && "${RUN_MIGRATION}" == 'false' ]]; then
+  && "${RUN_MIGRATION}" == 'false' \
+  && "${RUN_DATABASE_BOOTSTRAP}" == 'false' \
+  && "${RUN_MEMBERSHIP_BACKFILL}" == 'false' ]]; then
   printf 'azurePilotRelease=NO_CHANGES\n'
   exit 0
 fi
@@ -61,7 +73,10 @@ if [[ ! "${poll_attempts}" =~ ^[1-9][0-9]{0,2}$ \
 fi
 
 digest_pattern='sha256:[0-9a-f]{64}'
-if [[ "${DEPLOY_BACKEND}" == 'true' \
+if [[ ( "${DEPLOY_BACKEND}" == 'true' \
+    || "${RUN_MIGRATION}" == 'true' \
+    || "${RUN_DATABASE_BOOTSTRAP}" == 'true' \
+    || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ) \
   && ( "${BACKEND_RELEASE_IMAGE:-}" != "${ACR_LOGIN_SERVER}/pms-backend@"* \
     || ! "${BACKEND_RELEASE_IMAGE:-}" =~ @${digest_pattern}$ ) ]]; then
   printf 'azurePilotRelease=INVALID_RELEASE_IMAGE\n' >&2
@@ -154,14 +169,15 @@ wait_for_app() {
   return 1
 }
 
-wait_for_migration() {
-  local execution_name="$1"
+wait_for_job() {
+  local job_name="$1"
+  local execution_name="$2"
   local attempt execution_status
 
   for ((attempt = 1; attempt <= poll_attempts; attempt++)); do
     execution_status="$(azure_read containerapp job execution show \
       --resource-group "${AZURE_RESOURCE_GROUP}" \
-      --name "${MIGRATION_JOB_NAME}" \
+      --name "${job_name}" \
       --job-execution-name "${execution_name}" \
       --query properties.status)" || execution_status=''
 
@@ -241,10 +257,20 @@ migration_trigger_type="$(azure_read containerapp job show \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --name "${MIGRATION_JOB_NAME}" \
   --query properties.configuration.triggerType)" || migration_trigger_type=''
+database_bootstrap_trigger_type="$(azure_read containerapp job show \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
+  --query properties.configuration.triggerType)" || database_bootstrap_trigger_type=''
+membership_backfill_trigger_type="$(azure_read containerapp job show \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+  --query properties.configuration.triggerType)" || membership_backfill_trigger_type=''
 
 if [[ "${backend_revision_mode}" != 'Single' \
   || "${frontend_revision_mode}" != 'Single' \
-  || "${migration_trigger_type}" != 'Manual' ]]; then
+  || "${migration_trigger_type}" != 'Manual' \
+  || ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' && "${database_bootstrap_trigger_type}" != 'Manual' ) \
+  || ( "${RUN_MEMBERSHIP_BACKFILL}" == 'true' && "${membership_backfill_trigger_type}" != 'Manual' ) ]]; then
   printf 'azurePilotRelease=UNSAFE_RUNTIME_MODE\n' >&2
   exit 68
 fi
@@ -300,6 +326,26 @@ if [[ "${baseline_live_status}" != '200' \
   exit 71
 fi
 
+if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
+  if ! azure_mutate containerapp job update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}"; then
+    printf 'azurePilotRelease=DATABASE_BOOTSTRAP_JOB_UPDATE_FAILED\n' >&2
+    exit 72
+  fi
+
+  database_bootstrap_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
+    --query name)" || database_bootstrap_execution=''
+  if [[ -z "${database_bootstrap_execution}" || "${database_bootstrap_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${DATABASE_BOOTSTRAP_JOB_NAME}" "${database_bootstrap_execution}"; then
+    printf 'azurePilotRelease=DATABASE_BOOTSTRAP_FAILED\n' >&2
+    exit 73
+  fi
+fi
+
 if [[ "${RUN_MIGRATION}" == 'true' ]]; then
   if ! azure_mutate containerapp job update \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
@@ -314,9 +360,29 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
     --name "${MIGRATION_JOB_NAME}" \
     --query name)" || migration_execution=''
   if [[ -z "${migration_execution}" || "${migration_execution}" =~ [[:space:]] ]] \
-    || ! wait_for_migration "${migration_execution}"; then
+    || ! wait_for_job "${MIGRATION_JOB_NAME}" "${migration_execution}"; then
     printf 'azurePilotRelease=MIGRATION_FAILED\n' >&2
-    exit 73
+    exit 74
+  fi
+fi
+
+if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  if ! azure_mutate containerapp job update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_JOB_UPDATE_FAILED\n' >&2
+    exit 75
+  fi
+
+  membership_backfill_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --query name)" || membership_backfill_execution=''
+  if [[ -z "${membership_backfill_execution}" || "${membership_backfill_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${MEMBERSHIP_BACKFILL_JOB_NAME}" "${membership_backfill_execution}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_FAILED\n' >&2
+    exit 76
   fi
 fi
 
@@ -355,6 +421,16 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
   printf 'azurePilotReleaseMigration=PASS\n'
 else
   printf 'azurePilotReleaseMigration=SKIPPED\n'
+fi
+if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
+  printf 'azurePilotReleaseDatabaseBootstrap=PASS\n'
+else
+  printf 'azurePilotReleaseDatabaseBootstrap=SKIPPED\n'
+fi
+if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  printf 'azurePilotReleaseMembershipBackfill=PASS\n'
+else
+  printf 'azurePilotReleaseMembershipBackfill=SKIPPED\n'
 fi
 if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
   printf 'azurePilotReleaseBackend=PASS\n'

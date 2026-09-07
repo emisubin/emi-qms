@@ -29,6 +29,9 @@
     "keyVaultName": {
       "value": "FROM_FOUNDATION_OUTPUT"
     },
+    "postgresServerName": {
+      "value": "FROM_FOUNDATION_OUTPUT"
+    },
     "applicationInsightsConnectionString": {
       "value": "FROM_FOUNDATION_OUTPUT"
     },
@@ -79,6 +82,21 @@
     },
     "activateWorkloads": {
       "value": false
+    },
+    "enableBusinessUnits": {
+      "value": true
+    },
+    "configureServingBusinessUnits": {
+      "value": false
+    },
+    "cheongjuDatabaseName": {
+      "value": "emi_qms"
+    },
+    "directoryDatabaseName": {
+      "value": "emi_qms_directory"
+    },
+    "osanDatabaseName": {
+      "value": "emi_qms_osan"
     }
   }
 }

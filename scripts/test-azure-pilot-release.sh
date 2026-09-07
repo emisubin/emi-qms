@@ -132,14 +132,29 @@ case "${command_group}" in
     fi
     ;;
   'containerapp job update')
-    printf 'migration-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+    case "${name}" in
+      "${DATABASE_BOOTSTRAP_JOB_NAME}") printf 'bootstrap-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MEMBERSHIP_BACKFILL_JOB_NAME}") printf 'backfill-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MIGRATION_JOB_NAME}") printf 'migration-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      *) exit 2 ;;
+    esac
     ;;
   'containerapp job start')
-    printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+    case "${name}" in
+      "${DATABASE_BOOTSTRAP_JOB_NAME}") printf 'bootstrap-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MEMBERSHIP_BACKFILL_JOB_NAME}") printf 'backfill-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MIGRATION_JOB_NAME}") printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      *) exit 2 ;;
+    esac
     printf 'synthetic-execution\n'
     ;;
   'containerapp job execution')
-    if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'migration-failed' ]]; then
+    if [[ ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'bootstrap-failed' \
+          && "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'migration-failed' \
+          && "${name}" == "${MIGRATION_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'backfill-failed' \
+          && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) ]]; then
       printf 'Failed\n'
     else
       printf 'Succeeded\n'
@@ -201,6 +216,8 @@ run_case() {
   local deploy_backend="${5:-true}"
   local deploy_frontend="${6:-true}"
   local run_migration="${7:-true}"
+  local run_database_bootstrap="${8:-false}"
+  local run_membership_backfill="${9:-false}"
   case_number=$((case_number + 1))
 
   printf '%s\n' 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' \
@@ -223,11 +240,15 @@ run_case() {
     BACKEND_APP_NAME='pms-synthetic-backend' \
     FRONTEND_APP_NAME='pms-synthetic-frontend' \
     MIGRATION_JOB_NAME='pms-synthetic-migration' \
+    DATABASE_BOOTSTRAP_JOB_NAME='pms-synthetic-bootstrap' \
+    MEMBERSHIP_BACKFILL_JOB_NAME='pms-synthetic-backfill' \
     BACKEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" \
     FRONTEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-frontend@sha256:${frontend_digest}" \
     DEPLOY_BACKEND="${deploy_backend}" \
     DEPLOY_FRONTEND="${deploy_frontend}" \
     RUN_MIGRATION="${run_migration}" \
+    RUN_DATABASE_BOOTSTRAP="${run_database_bootstrap}" \
+    RUN_MEMBERSHIP_BACKFILL="${run_membership_backfill}" \
     AZURE_RELEASE_AZ_BIN="${temporary_directory}/az" \
     AZURE_RELEASE_HTTP_BIN="${temporary_directory}/curl" \
     AZURE_RELEASE_ALLOW_TEST_OVERRIDES='true' \
@@ -261,13 +282,24 @@ run_case 'success' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
 run_case 'success-running-at-max-scale' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
+run_case 'success' 0 '' \
+  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start,backend-update,frontend-update' \
+  true true true true true
+run_case 'success' 0 '' \
+  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start' \
+  false false true true true
 run_case 'baseline-stopped' 70 BASELINE_NOT_READY ''
 run_case 'baseline-scale-to-zero' 70 BASELINE_NOT_READY ''
 run_case 'baseline-degraded' 70 BASELINE_NOT_READY ''
 run_case 'baseline-unknown' 70 BASELINE_NOT_READY ''
 run_case 'unsafe-rollback' 69 UNSAFE_ROLLBACK_BASELINE ''
-run_case 'migration-failed' 73 MIGRATION_FAILED \
+run_case 'bootstrap-failed' 73 DATABASE_BOOTSTRAP_FAILED \
+  'bootstrap-update,bootstrap-start' true true true true true
+run_case 'migration-failed' 74 MIGRATION_FAILED \
   'migration-update,migration-start'
+run_case 'backfill-failed' 76 MEMBERSHIP_BACKFILL_FAILED \
+  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start' \
+  true true true true true
 run_case 'backend-release-failed' 1 BACKEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,backend-rollback'
 run_case 'frontend-release-failed' 1 FRONTEND_RELEASE_FAILED \
@@ -277,6 +309,9 @@ run_case 'public-security-failed' 1 PUBLIC_SECURITY_SMOKE_FAILED \
 run_case 'success' 0 '' 'backend-update' true false false
 run_case 'success' 0 '' 'frontend-update' false true false
 run_case 'success' 0 '' 'migration-update,migration-start,backend-update' true false true
+run_case 'success' 0 '' 'migration-update,migration-start' false false true
+run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false true false
+run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false false true
 run_case 'success' 0 '' '' false false false
 
 printf 'azurePilotReleaseTests=PASS\n'

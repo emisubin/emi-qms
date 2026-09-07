@@ -1,0 +1,50 @@
+# TASK-OSAN-PROGRESS-001 — 7단계 진행 기록과 프로젝트 자동 완료
+
+- taskType: `APPROVED_FEATURE_IMPLEMENTATION`
+- status: `PLANNED`
+- parentTask: `TASK-OSAN-PILOT-001`
+- implementationApproved: false
+- runtimeMutationApproved: false
+- gitPublicationApproved: false
+- 선행조건: TASK-OSAN-PROJECT-001 구현·품질 Gate 완료와 이 Task 구현 승인
+
+## 목적과 계약
+
+기존 제조 기록 기능으로 오산의 개별·일괄 진행을 처리하고 전체 포장 시 프로젝트를 자동 완료한다.
+
+[승인된 업무 기획](osan-pilot-001-planning.md), [독립 review resolution](osan-pilot-001-review.md), [상위 Task·순서](osan-pilot-001.md)를 함께 따른다. 이 파일은 별도 신규 인터뷰나 기획 재작성 요청이 아니다. 기획 문서화 승인은 실제 구현·runtime 실행 승인이 아니다.
+
+## 포함 범위
+
+- 제조 엔진·component의 재사용 가능한 부분에 오산 업무 profile을 연결하고 사용자 문구를 진행 관리로 표시한다.
+- 입고검사·배치검사·배선검사·8계통·동작검사·출하검사·포장의 기록과 기존 작업 시작·선택 대상 일괄 기능을 제공한다.
+- 앞 6단계가 완료된 대상만 포장 완료가 가능하게 하고 개별·일괄·직접 호출에 동일한 검사를 적용한다.
+- 포장 저장·대상 완료·마지막 대상일 때 프로젝트 완료를 동일 transaction으로 처리하고 audit/outbox 중복을 차단한다.
+- 대상/프로젝트 상태를 시작 전·진행 중·완료로 표시하며 별도 제조 완료 버튼과 OQC·물류·정산 인계를 사용하지 않는다.
+- 중단·재개·펜딩 route/API와 worker 생성 경로를 오산에서 비활성화한다. 신규 정정/재개 정책은 기획 review resolution에 따른다.
+
+## 조사·변경 경계
+
+Manufacturing·Workflow·Projects 완료 경계, Frontend ManufacturingPage 재사용/오산 profile, 인앱 이벤트와 tests.
+
+실행 시 최신 instruction chain·Task identity·Roadmap·branch/runtime 상태를 읽고 exact 파일 allowlist와 검증 명령을 고정한다. 기존 WIP가 남은 현 branch에서 제품 개발을 자동 시작하거나 사용자의 WIP를 정리하지 않는다.
+
+## 완료 기준
+
+- [ ] N-1개 포장 완료에서는 진행 중, 마지막 포장 저장에서 대상·프로젝트 모두 완료.
+- [ ] 미완료 선행 단계가 있는 대상의 포장 거부; 선택 일괄 중 한 대상 불가 시 부분 성공으로 오인시키지 않음.
+- [ ] 동시 마지막 대상 포장, 동일 요청 재전송, stale version, 네트워크 취소 후 재조회 일관성.
+- [ ] 포장 후 별도 완료 버튼 없이 현황 재조회에 완료 반영; 중단·펜딩·품질/물류 인계 이벤트 0.
+- [ ] 청주 개별/일괄 제조·중단/펜딩·LQC/OQC 기존 회귀 보존.
+
+## 다음 Task에 전달할 내용
+
+### Review resolution — OSAN-REVIEW-002
+
+기존 의미를 유지한다. 개별 완료는 다음 미완료 단계만 허용한다. 1~6단계 일괄 완료는 선택한 단계만 처리하고 앞 단계 완료를 새로 강제하지 않는다. 7단계 포장은 개별·일괄 모두 대상의 앞 6단계 완료를 요구한다. 개별의 임의 단계 완료나 모든 일괄의 강제 순서로 정책을 바꾸지 않는다.
+
+서버 요청에 조건 불충족·stale·권한 밖 대상이 하나라도 있으면 전체 요청을 rollback한다. 화면이 요청 전에 실행 가능 대상을 선별했다면 제외된 대상과 이유를 실행 전에 보여 준다. 개별 순서 위반 거부, 1~6 일괄 선택 처리, 앞 단계 미완료 포장 거부, 혼합 일괄 실패의 전체 rollback을 각각 검증한다. 이 문서 명확화의 사용자 확인은 review resolution 승인에서 추적하며 현재 제품 구현은 미실행이다.
+
+단계/프로젝트 완료 원본과 상태 계산 계약을 Task 5에 전달한다. 집계 전용 별도 상태 저장소를 만들지 않는다.
+
+실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. 현재는 구현/테스트 미실행, 사용자 검수 적용 전이다. Sol xhigh가 승인 범위의 구현·테스트·범위 내 보정을 맡고 parent 및 fresh GPT-6 High가 검토한다. 모든 품질·Git·운영 gate는 Root 지침을 따른다.

@@ -9,16 +9,20 @@ type ScanState =
 
 export function QrScanLandingPage({
   developmentUserKey,
+  runtimeReady,
   token,
   onOpenPath
 }: {
   developmentUserKey: string;
+  runtimeReady: boolean;
   token: string;
   onOpenPath: (path: string) => void;
 }) {
   const [state, setState] = useState<ScanState>({ kind: 'loading' });
 
   useEffect(() => {
+    if (!runtimeReady) return undefined;
+
     let cancelled = false;
     void resolvePanelQr(developmentUserKey, token)
       .then((data) => { if (!cancelled) setState({ kind: 'ready', data }); })
@@ -30,7 +34,7 @@ export function QrScanLandingPage({
         });
       });
     return () => { cancelled = true; };
-  }, [developmentUserKey, token]);
+  }, [developmentUserKey, runtimeReady, token]);
 
   return (
     <main className="qr-scan-page">

@@ -1,5 +1,5 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.ReviewSafe;
-using Emi.Qms.Api.Security;
 using Npgsql;
 
 namespace Emi.Qms.Api;
@@ -16,6 +16,140 @@ public sealed class DatabaseRoleBootstrapper(
             throw new InvalidOperationException("Database role bootstrap is disabled in review-safe UAT mode.");
         }
 
+        var businessUnits = BusinessUnitConfiguration.Read(configuration);
+        if (!businessUnits.Enabled)
+        {
+            await BootstrapLegacyAsync(cancellationToken);
+            return;
+        }
+
+        businessUnits.ThrowIfInvalid();
+        var purposes = new[]
+        {
+            BusinessUnitConnectionPurpose.Runtime,
+            BusinessUnitConnectionPurpose.Migration,
+            BusinessUnitConnectionPurpose.Administrator
+        };
+        var errors = purposes
+            .SelectMany(purpose => businessUnits.ValidateOperationConnections(configuration, purpose))
+            .Concat(businessUnits.ValidateSameServerAcrossPurposes(configuration, purposes))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (errors.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Business-unit database role bootstrap configuration is invalid ({errors.Count} validation error(s)).");
+        }
+
+        var targets = businessUnits.AllTargets();
+        var roleCredentials = targets
+            .SelectMany(target => new[]
+            {
+                ReadRoleCredential(target, BusinessUnitConnectionPurpose.Migration),
+                ReadRoleCredential(target, BusinessUnitConnectionPurpose.Runtime)
+            })
+            .ToList();
+        var allBoundedRoleNames = roleCredentials
+            .Select(credential => credential.RoleName)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        // Roles are cluster-scoped, so create every bounded role before revoking its
+        // access to databases owned by another target.
+        var roleAdministrator = ReadConnection(targets[0], BusinessUnitConnectionPurpose.Administrator);
+        await WithMaintenanceLockAsync(
+            roleAdministrator.ConnectionString,
+            async (connection, transaction) =>
+            {
+                await ThrowIfBoundedRoleMembershipExistsAsync(
+                    connection,
+                    transaction,
+                    allBoundedRoleNames,
+                    cancellationToken);
+                foreach (var credential in roleCredentials)
+                {
+                    await EnsureLoginRoleAsync(
+                        connection,
+                        transaction,
+                        credential.RoleName,
+                        credential.Password,
+                        cancellationToken);
+                }
+            },
+            cancellationToken);
+
+        var failures = new List<string>();
+        foreach (var target in targets)
+        {
+            try
+            {
+                var administrator = ReadConnection(target, BusinessUnitConnectionPurpose.Administrator);
+                await WithMaintenanceLockAsync(
+                    administrator.ConnectionString,
+                    async (connection, transaction) =>
+                    {
+                        await privilegeManager.ConfigureBootstrapPrivilegesAsync(
+                            connection,
+                            transaction,
+                            target.ExpectedDatabaseName,
+                            target.MigrationRoleName,
+                            target.RuntimeRoleName,
+                            target.Kind,
+                            allBoundedRoleNames,
+                            cancellationToken);
+                    },
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                failures.Add(target.Code);
+                logger.LogError(
+                    "Database role bootstrap target failed. Target={Target} ExceptionType={ExceptionType}.",
+                    target.Code,
+                    exception.GetType().Name);
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Business-unit database role bootstrap failed for {failures.Count} target(s); no target fallback was used.");
+        }
+
+        logger.LogInformation(
+            "Database roles were bootstrapped for {TargetCount} isolated database targets.",
+            targets.Count);
+    }
+
+    private static async Task ThrowIfBoundedRoleMembershipExistsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        IReadOnlyList<string> boundedRoleNames,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select exists (
+                select 1
+                from pg_auth_members membership
+                join pg_roles member_role on member_role.oid = membership.member
+                where member_role.rolname = any(@bounded_role_names));
+            """;
+        command.Parameters.AddWithValue("bounded_role_names", boundedRoleNames.ToArray());
+        if (await command.ExecuteScalarAsync(cancellationToken) is true)
+        {
+            throw new InvalidOperationException(
+                "Configured bounded database roles must not participate in PostgreSQL role memberships.");
+        }
+    }
+
+    private async Task BootstrapLegacyAsync(CancellationToken cancellationToken)
+    {
         var administrator = RequiredConnection("QmsDatabaseAdmin");
         var migrator = RequiredConnection("QmsDatabaseMigration");
         var runtime = RequiredConnection("QmsDatabaseRuntime");
@@ -25,7 +159,41 @@ public sealed class DatabaseRoleBootstrapper(
         var runtimeRoleName = RequiredValue(runtime.Username, "runtime username");
         var runtimePassword = RequiredValue(runtime.Password, "runtime password");
 
-        await using var dataSource = NpgsqlDataSource.Create(administrator.ConnectionString);
+        await WithMaintenanceLockAsync(
+            administrator.ConnectionString,
+            async (connection, transaction) =>
+            {
+                await EnsureLoginRoleAsync(
+                    connection,
+                    transaction,
+                    migrationRoleName,
+                    migrationPassword,
+                    cancellationToken);
+                await EnsureLoginRoleAsync(
+                    connection,
+                    transaction,
+                    runtimeRoleName,
+                    runtimePassword,
+                    cancellationToken);
+                await privilegeManager.ConfigureBootstrapPrivilegesAsync(
+                    connection,
+                    transaction,
+                    administratorDatabase,
+                    migrationRoleName,
+                    runtimeRoleName,
+                    cancellationToken);
+            },
+            cancellationToken);
+
+        logger.LogInformation("Database runtime and migration roles were bootstrapped with bounded privileges.");
+    }
+
+    private async Task WithMaintenanceLockAsync(
+        string connectionString,
+        Func<NpgsqlConnection, NpgsqlTransaction, Task> action,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using (var lockCommand = connection.CreateCommand())
         {
@@ -39,28 +207,8 @@ public sealed class DatabaseRoleBootstrapper(
         try
         {
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-            await EnsureLoginRoleAsync(
-                connection,
-                transaction,
-                migrationRoleName,
-                migrationPassword,
-                cancellationToken);
-            await EnsureLoginRoleAsync(
-                connection,
-                transaction,
-                runtimeRoleName,
-                runtimePassword,
-                cancellationToken);
-            await privilegeManager.ConfigureBootstrapPrivilegesAsync(
-                connection,
-                transaction,
-                administratorDatabase,
-                migrationRoleName,
-                runtimeRoleName,
-                cancellationToken);
+            await action(connection, transaction);
             await transaction.CommitAsync(cancellationToken);
-
-            logger.LogInformation("Database runtime and migration roles were bootstrapped with bounded privileges.");
         }
         finally
         {
@@ -80,6 +228,35 @@ public sealed class DatabaseRoleBootstrapper(
                     exception.GetType().Name);
             }
         }
+    }
+
+    private (string RoleName, string Password) ReadRoleCredential(
+        BusinessUnitDatabaseTarget target,
+        BusinessUnitConnectionPurpose purpose)
+    {
+        var builder = ReadConnection(target, purpose);
+        return (
+            RequiredValue(builder.Username, $"{target.Code} {purpose} username"),
+            RequiredValue(builder.Password, $"{target.Code} {purpose} password"));
+    }
+
+    private NpgsqlConnectionStringBuilder ReadConnection(
+        BusinessUnitDatabaseTarget target,
+        BusinessUnitConnectionPurpose purpose)
+    {
+        var name = purpose switch
+        {
+            BusinessUnitConnectionPurpose.Runtime => target.RuntimeConnectionName,
+            BusinessUnitConnectionPurpose.Migration => target.MigrationConnectionName,
+            BusinessUnitConnectionPurpose.Administrator => target.AdministratorConnectionName,
+            _ => throw new ArgumentOutOfRangeException(nameof(purpose))
+        };
+        var builder = RequiredConnection(name);
+        if (!string.Equals(builder.Database, target.ExpectedDatabaseName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Database role bootstrap target identity is invalid.");
+        }
+        return builder;
     }
 
     private NpgsqlConnectionStringBuilder RequiredConnection(string name)

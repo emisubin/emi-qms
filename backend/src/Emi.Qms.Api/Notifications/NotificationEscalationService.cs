@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Calendar;
+using Emi.Qms.Api.BusinessUnits;
 using Microsoft.Extensions.Options;
 
 namespace Emi.Qms.Api.Notifications;
@@ -7,6 +8,8 @@ public sealed class NotificationEscalationService(
     WorkItemEscalationStore escalationStore,
     TimeProvider timeProvider,
     IOptionsMonitor<NotificationOptions> options,
+    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessUnitDatabaseBoundaryValidator boundaryValidator,
     ILogger<NotificationEscalationService> logger)
 {
     private const string CandidateEvaluationFailureCode = "ESCALATION_CANDIDATE_EVALUATION_FAILED";
@@ -21,8 +24,61 @@ public sealed class NotificationEscalationService(
             return new NotificationEscalationSummary(0, 0, 0, 0);
         }
 
-        var resolved = await escalationStore.ResolveClosedOrUndatedWorkItemsAsync(cancellationToken);
-        var candidates = await escalationStore.ReadOpenCandidatesAsync(currentOptions.MaxBatchSize, cancellationToken);
+        if (!connectionStringProvider.BusinessUnits.Enabled)
+        {
+            return await EvaluateTargetAsync(currentOptions, target: null, cancellationToken);
+        }
+
+        var evaluated = 0;
+        var notifications = 0;
+        var deliveries = 0;
+        var resolved = 0;
+        var failures = 0;
+        foreach (var target in connectionStringProvider.BusinessUnits.Businesses
+                     .Where(candidate => candidate.EscalationWorkerEnabled
+                                         && candidate.ExternalNotificationsEnabled))
+        {
+            try
+            {
+                await boundaryValidator.ValidateAsync(target, cancellationToken);
+                var summary = await EvaluateTargetAsync(currentOptions, target, cancellationToken);
+                evaluated += summary.EvaluatedWorkItemCount;
+                notifications += summary.CreatedNotificationCount;
+                deliveries += summary.CreatedDeliveryCount;
+                resolved += summary.ResolvedEscalationCount;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                failures++;
+                logger.LogError(
+                    "Notification escalation target failed. Target={Target} ExceptionType={ExceptionType}.",
+                    target.Code,
+                    exception.GetType().Name);
+            }
+        }
+
+        if (failures > 0)
+        {
+            throw new InvalidOperationException(
+                $"Notification escalation failed for {failures} target(s); no target fallback was used.");
+        }
+        return new NotificationEscalationSummary(evaluated, notifications, deliveries, resolved);
+    }
+
+    private async Task<NotificationEscalationSummary> EvaluateTargetAsync(
+        NotificationEscalationOptions currentOptions,
+        BusinessUnitDatabaseTarget? target,
+        CancellationToken cancellationToken)
+    {
+        var resolved = await escalationStore.ResolveClosedOrUndatedWorkItemsAsync(cancellationToken, target);
+        var candidates = await escalationStore.ReadOpenCandidatesAsync(
+            currentOptions.MaxBatchSize,
+            cancellationToken,
+            target);
         if (candidates.Count == 0)
         {
             return new NotificationEscalationSummary(0, 0, 0, resolved);
@@ -30,7 +86,7 @@ public sealed class NotificationEscalationService(
 
         var minDate = candidates.Min(candidate => candidate.DueDate).AddDays(-45);
         var maxDate = candidates.Max(candidate => candidate.DueDate).AddDays(45);
-        var holidays = await escalationStore.ReadHolidaysAsync(minDate, maxDate, cancellationToken);
+        var holidays = await escalationStore.ReadHolidaysAsync(minDate, maxDate, cancellationToken, target);
         var calculator = new BusinessDayCalculator(holidays);
         var localToday = GetLocalToday(currentOptions.TimeZone);
         var notificationCount = 0;
@@ -42,14 +98,19 @@ public sealed class NotificationEscalationService(
             try
             {
                 var nextCheck = CalculateNextCheckAtUtc(candidate.DueDate, calculator, localToday, currentOptions.TimeZone);
-                await escalationStore.UpsertActiveEscalationAsync(candidate, nextCheck, cancellationToken);
+                await escalationStore.UpsertActiveEscalationAsync(candidate, nextCheck, cancellationToken, target);
                 var level = DetermineDueLevel(candidate, calculator, localToday);
                 if (level is null)
                 {
                     continue;
                 }
 
-                var result = await escalationStore.CreateEscalationAsync(candidate, level, currentOptions, cancellationToken);
+                var result = await escalationStore.CreateEscalationAsync(
+                    candidate,
+                    level,
+                    currentOptions,
+                    cancellationToken,
+                    target);
                 notificationCount += result.NotificationCount;
                 deliveryCount += result.DeliveryCount;
             }

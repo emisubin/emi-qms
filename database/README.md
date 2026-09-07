@@ -12,6 +12,21 @@ PostgreSQL 스키마, 마이그레이션, 개발용 가짜 시드 데이터를 �
 
 Development 환경에서 백엔드가 시작될 때 `Database:ApplyMigrationsOnStartup` 설정이 켜져 있으면 마이그레이션을 적용합니다. 개발용 가짜 사용자와 프로젝트는 schema migration에 포함하지 않고, Development/Testing 환경에서 `DevelopmentData:SeedEnabled` 또는 `DEV_DATA_SEED_ENABLED`가 명시적으로 `true`일 때만 seeder가 생성합니다. 자동 테스트도 같은 마이그레이션과 seeder를 실제 PostgreSQL에 적용해 검증합니다.
 
+## Cheongju/Osan database isolation
+
+`BusinessUnits:Enabled=true`에서는 같은 PostgreSQL 서버에 directory, Cheongju business, Osan business database를 각각 둡니다. Business database는 기존 `migrations/` 원장을 독립적으로 적용하고 `0086_business_unit_database_identity`로 명시된 사업장에 결속합니다. Directory database는 별도 `directory-migrations/` 원장만 사용합니다. Database 이름, 역할, identity marker, exact migration ledger가 일치하지 않으면 요청과 worker가 다른 database로 대체하지 않고 중단합니다.
+
+설정 구조는 `backend/src/Emi.Qms.Api/appsettings.BusinessUnits.example.json`을 따릅니다. 정상 API runtime에는 세 runtime connection만 배포합니다. Migration job에는 세 migration connection을, role bootstrap job에는 runtime, migration, administrator connection을 해당 작업 동안에만 제공합니다. Runtime, migrator 역할은 database별로 모두 달라야 하며 runtime 역할은 다른 사업장 database에 연결할 수 없습니다. Directory runtime 역할에는 membership와 overall administrator를 읽을 권한만 있고 변경 권한은 없습니다.
+
+신규 환경의 적용 순서는 다음과 같습니다.
+
+1. `--bootstrap-database-roles`로 세 database의 bounded 역할과 교차 database 차단을 설정합니다.
+2. `--migrate-only`로 directory 원장과 두 business 원장을 각각 적용하고 database identity를 결속합니다.
+3. 기존 Cheongju 사용자를 directory에 옮길 때만 `BusinessUnits:MembershipBackfill:ApprovedUserIds`에 검토한 ID를 명시하고 `--backfill-business-unit-memberships`를 실행합니다. Overall administrator 지정은 그 목록의 부분집합인 `OverallAdministratorUserIds`에 별도로 명시합니다.
+4. `/health/ready`와 review-safe 상태가 세 database identity와 ledger를 모두 통과한 뒤 정상 API runtime을 시작합니다.
+
+기존 단일 database 모드는 `BusinessUnits:Enabled=false`로 명시하며 기존 `QmsDatabase` 또는 `DATABASE_HOST` 계열 설정을 그대로 사용합니다. 다중 database 모드에는 기본 사업장이나 실패 시 fallback이 없습니다. 개발 시드는 `BusinessUnits:DevelopmentSeedUnits`에 명시된 business database에만 적용됩니다.
+
 ## 0003 적용 전 legacy Project Title 중복 확인
 
 0003은 `trim`, 연속 공백 1개 축소, 대소문자 무시 기준으로 Project Title 유일성을 강제합니다. 기존 `projects.name` 데이터가 있는 DB는 0003 적용 전에 다음 SQL로 중복 여부를 확인합니다.

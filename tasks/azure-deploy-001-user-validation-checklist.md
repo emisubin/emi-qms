@@ -176,6 +176,18 @@
 
 ## Azure 생성 전
 
+### Change 031 오산 1단계
+
+- [x] selector Change 002 자동·desktop/mobile 시각 검증이 완료됐고 사용자 검수는 아직 대기 상태임을 구분했다.
+- [x] 일반 phase-1 사용자에게 membership을 정확히 한 곳만 부여하는 운영 규칙을 기록했다.
+- [ ] 실제 다중 소속 총괄에게만 사업부 selector가 보이고 단일 Cheongju·단일 Osan 사용자에게 selector와 빈 label이 보이지 않는지 확인한다.
+- [ ] 소속 없음과 local profile pending 계정이 업무 데이터 없이 각각 올바른 gate에 머무는지 확인한다.
+- [ ] 제한된 Osan 계정에서 프로젝트 create/list/detail만 가능하고 진행 변경·자동 완료·dashboard·Pending/hold/cancel/deleted/Excel이 보이지 않는지 확인한다.
+- [ ] Cheongju 로그인·기존 프로젝트·G2와 실제 provider 설정이 이전과 동일하게 동작하는지 확인한다.
+- [ ] 첫 실제 프로젝트는 권한 있는 사용자가 업무 값으로 입력하며, 이번 배포 검증에서 synthetic production record를 만들지 않았음을 확인한다.
+
+현재 상태: `Change 031 로컬 자동 검증 완료(Backend 582/582, Frontend 297/297, mock 13/13, Full-Stack 66/66, 배포 정적 검증 PASS) / Draft PR·필수 CI 준비 / 사용자 selector·actual account·첫 실제 입력 검수 대기`.
+
 - [x] 20일 예상 비용과 남은 credit을 확인했다. (사용자 확인, 2026-08-02)
 - [x] Budget 알림 3단계를 사용자가 직접 설정했다. (사용자 확인, 2026-08-02)
 - [x] 실제 hostname·identifier·email·secret이 Change 010 Git diff에 없음을 확인했다.

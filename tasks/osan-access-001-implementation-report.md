@@ -417,10 +417,12 @@ Change 003 사용자 검수 항목:
 - 한 계정은 desktop과 narrow viewport 모두 기본 한 행이다. 왼쪽 두 줄 row header에 이름·이메일과 짧은 승인 상태를 압축 표시한다.
 - 편집 헤더는 `활성 상태`, `사업부`, `부서`, `역할`, `부서장` 순서다. 승인/저장은 무헤더 끝 셀이다.
 - 역할 select와 multiselect는 제거했다. 선택한 부서의 `defaultRoleCode`를 payload에 자동 반영하고 읽기 전용 한 줄로 표시한다.
-- 부서 변경 시 다른 부서 default role만 교체하며 기존 특수·추가 역할을 보존한다. Default role이 없으면 그 행의 저장을 막고 한 줄 오류를 연결한다.
+- 부서 변경 시 다른 부서 default role만 교체한다. 관리 부서의 default role이기도 한 `system-administrator`는 별도 권한 보존 대상으로 명시하고, 그 밖의 기존 특수·추가 역할도 보존한다. Default role이 없으면 그 행의 저장을 막고 한 줄 오류를 연결한다.
 - 일반 사용자의 활성 사업부 선택은 다른 사업부 draft를 자동 해제한다. 지정 총괄은 business-unit select로 각 profile을 오가며 여러 사업부를 유지할 수 있다.
 - 정상 셀은 `4px 8px`, select/button은 `32px`, checkbox는 `16px`이며 browser 측정 정상 행은 `48px 이하`다. 390px에서는 동일 표를 수평 스크롤한다.
 
 검수 전 테스트 정책을 지켜 TypeScript typecheck와 영향 component/browser만 수행했다. Typecheck는 PASS했다. Targeted component 첫 실행 20건 중 17건이 통과했고 새 test fixture/matcher 3건만 실패해 실패 filter로 보정 검증했다. 자동 default role·특수 역할 보존, default role 부재 fail-closed, ReviewSafe 차단이 모두 PASS다. 단일 mock Chromium은 최초 `48.48px` 높이 실패 뒤 CSS 1px 보정과 같은 1건 재실행으로 PASS했고 desktop/narrow screenshot을 직접 확인했다. Backend/Frontend/Full-Stack 전체와 CI는 추가 실행하지 않았다.
+
+첫 exact-head 3-DB 실제 화면 점검에서는 통합 API department 응답이 Frontend 계약의 `departmentId`, `defaultRoleCode`를 누락해, 부서 선택 뒤 역할을 결정할 수 없고 저장이 fail closed하는 interface 결함을 발견했다. 공용 business `Department` model을 바꾸지 않고 통합 API 전용 projection을 추가해 두 값을 반환하도록 고쳤다. 동시에 `system-administrator`가 관리 부서의 default role이기도 하다는 실제 identity 계약을 test fixture에 반영해 부서 변경 시에도 해당 특수 권한을 보존한다. 보정 후 Frontend typecheck, 역할 자동 기입·보존 targeted component 1건, 기존 단일 mock Chromium 1건을 각 1회만 실행해 모두 PASS했다. 첫 follow-up runtime build에서는 내부 `BusinessState`에 남은 공용 부서 타입 한 곳 때문에 compile 오류 2건이 발생했고, harness는 생성한 DB·role·Compose 자원을 정리했다. 그 한 곳을 전용 projection으로 바꾼 Release build는 경고 0·오류 0으로 PASS했다. 수정 commit 뒤 격리 3-DB runtime에서 전체 사용자 검수 동선을 다시 확인한다.
 
 Exact-head 검수 harness에는 초기 membership 0인 `Synthetic Cheongju Approval`과 `Synthetic Osan Approval`을 runtime-only fixture로 둔다. 각각 청주와 오산으로 승인된 뒤 같은 UUID의 `dev-sales`, `dev-quality`가 되어 해당 승인 계정으로 다시 접속할 수 있다. `dev-admin`은 양쪽 사업부를 선택할 수 있다. 외부 provider·worker·Azure·운영 DB는 사용하지 않는다.

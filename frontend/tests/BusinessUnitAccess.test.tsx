@@ -80,6 +80,12 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
       code,
       canManage: true,
       departments: [
+        {
+          departmentId: '10000000-0000-0000-0000-000000000000',
+          code: 'administration',
+          name: '관리',
+          defaultRoleCode: 'system-administrator'
+        },
         { departmentId, code: 'management-support', name: '경영지원', defaultRoleCode: 'management-support' },
         {
           departmentId: '10000000-0000-0000-0000-000000000005',

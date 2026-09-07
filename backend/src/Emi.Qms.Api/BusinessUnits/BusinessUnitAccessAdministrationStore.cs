@@ -24,8 +24,14 @@ public sealed record BusinessUnitAccessAdministrationProfile(
 public sealed record BusinessUnitAccessAdministrationUnit(
     string Code,
     bool CanManage,
-    IReadOnlyList<Department> Departments,
+    IReadOnlyList<BusinessUnitAccessAdministrationDepartment> Departments,
     IReadOnlyList<Role> Roles);
+
+public sealed record BusinessUnitAccessAdministrationDepartment(
+    Guid DepartmentId,
+    string Code,
+    string Name,
+    string? DefaultRoleCode);
 
 public sealed record BusinessUnitAccessAdministrationUser(
     Guid UserId,
@@ -574,13 +580,20 @@ public sealed class BusinessUnitAccessAdministrationStore(
         var canManage = await CanManageUsersAsync(connection, actorUserId, cancellationToken);
         if (!canManage) return new BusinessState(false, [], [], new Dictionary<Guid, LocalProfile>());
 
-        var departments = new List<Department>();
+        var departments = new List<BusinessUnitAccessAdministrationDepartment>();
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = "select id, code, name from departments where is_active = true order by sort_order, code;";
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
-                departments.Add(new Department(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+            {
+                var code = reader.GetString(1);
+                departments.Add(new BusinessUnitAccessAdministrationDepartment(
+                    reader.GetGuid(0),
+                    code,
+                    reader.GetString(2),
+                    DepartmentIdentityPolicy.GetDefaultRoleCode(code)));
+            }
         }
 
         var roles = new List<Role>();
@@ -778,7 +791,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
         string? DepartmentCode, string? DepartmentName, IReadOnlyList<string> Roles, bool IsDepartmentHead);
     private sealed record ExistingLocalProfile(string AuthProvider, string? EntraObjectId);
     private sealed record BusinessState(
-        bool CanManage, IReadOnlyList<Department> Departments, IReadOnlyList<Role> Roles,
+        bool CanManage, IReadOnlyList<BusinessUnitAccessAdministrationDepartment> Departments, IReadOnlyList<Role> Roles,
         IReadOnlyDictionary<Guid, LocalProfile> Profiles);
     private sealed record NormalizedProfile(
         string BusinessUnitCode, Guid? DepartmentId, IReadOnlyList<string> RoleCodes,

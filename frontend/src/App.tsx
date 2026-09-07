@@ -5326,10 +5326,13 @@ function applyIntegratedDepartmentDefaultRole(
   unit: BusinessUnitAccessAdministrationResponse['businessUnits'][number] | undefined,
   departmentId: string | null
 ) {
+  const protectedRoleCodes = new Set(['system-administrator']);
   const departmentRoleCodes = new Set((unit?.departments ?? [])
     .map((department) => department.defaultRoleCode)
     .filter((roleCode): roleCode is string => Boolean(roleCode)));
-  const preservedRoleCodes = draft.roleCodes.filter((roleCode) => !departmentRoleCodes.has(roleCode));
+  const preservedRoleCodes = draft.roleCodes.filter((roleCode) => (
+    protectedRoleCodes.has(roleCode) || !departmentRoleCodes.has(roleCode)
+  ));
   const selectedDefaultRoleCode = unit?.departments.find(
     (department) => department.departmentId === departmentId)?.defaultRoleCode ?? null;
   return {

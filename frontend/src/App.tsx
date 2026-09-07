@@ -2173,6 +2173,40 @@ function QmsAppShellContent({
 
   const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
   const membershipMutationDisabledReason = businessUnitMembershipMutationDisabledReason(runtimeMode);
+  const switchDevelopmentUser = (nextUserKey: string) => {
+    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
+    setDevelopmentUserKey(nextUserKey);
+    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+    resetBusinessUnitRequestContext(true);
+  };
+  const switchAdminTestUser = (nextUserKey: string) => {
+    if (nextUserKey) {
+      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
+    } else {
+      window.localStorage.removeItem(adminTestUserStorageKey);
+    }
+    setAdminTestUserKeyState(nextUserKey);
+    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+    resetBusinessUnitRequestContext(true);
+  };
+  const resetAdminTestUser = () => {
+    window.localStorage.removeItem(adminTestUserStorageKey);
+    setAdminTestUserKeyState('');
+    setView({ kind: 'home' });
+    resetBusinessUnitRequestContext(true);
+  };
+  const shellSwitchControls = (
+    <ShellSwitchControls
+      isDevMode={isDevMode}
+      canUseAdminTestUserSwitch={canUseAdminTestUserSwitch}
+      isTestUserSwitch={user?.isTestUserSwitch === true}
+      developmentUserKey={developmentUserKey}
+      adminTestUserKey={adminTestUserKey}
+      onDevelopmentUserChange={switchDevelopmentUser}
+      onAdminTestUserChange={switchAdminTestUser}
+      onResetAdminTestUser={resetAdminTestUser}
+    />
+  );
 
   if (currentUser.kind === 'ready' && businessUnitAccess.status !== 'selected') {
     return (
@@ -2183,6 +2217,7 @@ function QmsAppShellContent({
         membershipMutationAllowed={mutationEnabled}
         membershipMutationDisabledReason={membershipMutationDisabledReason}
         onLogout={onLogout}
+        switchControls={businessUnitAccess.status === 'no_membership' ? shellSwitchControls : null}
       />
     );
   }
@@ -2232,28 +2267,6 @@ function QmsAppShellContent({
     || businessUnitAccess.isOverallAdministrator;
   const canBrowseOperationalPages = permissions.includes('projects.read');
   const canReadPendingWorkspace = canReadPending || canBrowseOperationalPages;
-  const switchDevelopmentUser = (nextUserKey: string) => {
-    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
-    setDevelopmentUserKey(nextUserKey);
-    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-    resetBusinessUnitRequestContext(true);
-  };
-  const switchAdminTestUser = (nextUserKey: string) => {
-    if (nextUserKey) {
-      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
-    } else {
-      window.localStorage.removeItem(adminTestUserStorageKey);
-    }
-    setAdminTestUserKeyState(nextUserKey);
-    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-    resetBusinessUnitRequestContext(true);
-  };
-  const resetAdminTestUser = () => {
-    window.localStorage.removeItem(adminTestUserStorageKey);
-    setAdminTestUserKeyState('');
-    setView({ kind: 'home' });
-    resetBusinessUnitRequestContext(true);
-  };
   const departmentNavigationLabel = navigationLabelForDepartment(user?.effectiveUser.department);
   // Department parents route straight to their first workspace; the old
   // work-selection hub is no longer part of the navigation flow.
@@ -2317,19 +2330,6 @@ function QmsAppShellContent({
   const activeNavigationLabel = view.kind === 'privacy-notice'
     ? '개인정보·이용 안내'
     : navigationItems.find((item) => item.active)?.label ?? '업무';
-  const shellSwitchControls = (
-    <ShellSwitchControls
-      isDevMode={isDevMode}
-      canUseAdminTestUserSwitch={canUseAdminTestUserSwitch}
-      isTestUserSwitch={user?.isTestUserSwitch === true}
-      developmentUserKey={developmentUserKey}
-      adminTestUserKey={adminTestUserKey}
-      onDevelopmentUserChange={switchDevelopmentUser}
-      onAdminTestUserChange={switchAdminTestUser}
-      onResetAdminTestUser={resetAdminTestUser}
-    />
-  );
-
   return (
     <main
       className="app-shell"
@@ -4096,7 +4096,8 @@ function BusinessUnitAccessGate({
   developmentUserKey,
   membershipMutationAllowed,
   membershipMutationDisabledReason,
-  onLogout
+  onLogout,
+  switchControls
 }: {
   user: CurrentUser;
   access: BusinessUnitAccess;
@@ -4104,6 +4105,7 @@ function BusinessUnitAccessGate({
   membershipMutationAllowed: boolean;
   membershipMutationDisabledReason: string | null;
   onLogout?: () => void;
+  switchControls?: ReactNode;
 }) {
   const copy = access.status === 'no_membership'
     ? {
@@ -4133,6 +4135,7 @@ function BusinessUnitAccessGate({
         <div className="auth-gate-actions">
           {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
         </div>
+        {switchControls}
       </section>
       {access.isOverallAdministrator ? (
         <BusinessUnitAccessAdministrationPage

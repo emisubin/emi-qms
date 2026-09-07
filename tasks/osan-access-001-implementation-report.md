@@ -1,11 +1,11 @@
-# TASK-OSAN-ACCESS-001 Change 001·002·003 구현 보고
+# TASK-OSAN-ACCESS-001 Change 001·002·003·004 구현 보고
 
 ## 1. 실행 기준과 상태
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - currentChangeTaskType: `BUGFIX`
 - canonicalTask: `TASK-OSAN-ACCESS-001`
-- canonicalChange: `TASK-OSAN-ACCESS-001 Change 001, Change 002, Change 003`
+- canonicalChange: `TASK-OSAN-ACCESS-001 Change 001, Change 002, Change 003, Change 004`
 - instructionChainRead: true
 - change001TaskIdentityGate: `PASS_REUSE`
 - change001RoadmapSequenceMatch: true
@@ -16,7 +16,7 @@
 - change001ImplementationWorktree: `/private/tmp/emi-osan-access-001`
 - change001ImplementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
 - change001ImplementationOwnerObserved: `NOT_REPORTED`
-- implementationStatus: `CHANGE_003_IMPLEMENTED_AWAITING_USER_VALIDATION`
+- implementationStatus: `CHANGE_004_IMPLEMENTED_AWAITING_USER_VALIDATION`
 - change002ApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
 - change002TaskIdentityGate: `PASS_REUSE`
 - change002RoadmapSequenceMatch: false
@@ -38,6 +38,12 @@
 - change003ImplementationBranch: `fix/task-osan-access-001-integrated-user-approval`
 - change003ImplementationBaseline: `11c1185ea9c550022e3f70d106e06a1c6bc517b1`
 - change003ImplementationWorktree: `/Users/parksubin/.codex/visualizations/2026/09/05/01a07195-0215-7572-8126-f3d7e385169a/emi-osan-change-003`
+- change004ApprovalSource: `USER_EXPLICIT_2026-09-07_AUTOMATIC_BUSINESS_ENTRY_AND_CHEONGJU_ADMIN_ONLY`
+- change004TaskIdentityGate: `PASS_REUSE`
+- change004ImplementationOwnerRequested: `GPT_5_6_SOL_HIGH_ONLY`
+- change004ImplementationOwnerObserved: `NOT_REPORTED`
+- change004ImplementationBranch: `fix/task-osan-access-001-integrated-user-approval`
+- change004ImplementationBaseline: `958661459786acfb564591b3c46251c9b854c50c`
 - change001FinalVerifierCorrectionTaskType: `P2_REMEDIATION`
 - change001FinalVerifierRequested: `GPT_6_ASTRA_HIGH`
 - change001FinalVerifierObserved: `NOT_REPORTED`
@@ -426,3 +432,23 @@ Change 003 사용자 검수 항목:
 첫 exact-head 3-DB 실제 화면 점검에서는 통합 API department 응답이 Frontend 계약의 `departmentId`, `defaultRoleCode`를 누락해, 부서 선택 뒤 역할을 결정할 수 없고 저장이 fail closed하는 interface 결함을 발견했다. 공용 business `Department` model을 바꾸지 않고 통합 API 전용 projection을 추가해 두 값을 반환하도록 고쳤다. 동시에 `system-administrator`가 관리 부서의 default role이기도 하다는 실제 identity 계약을 test fixture에 반영해 부서 변경 시에도 해당 특수 권한을 보존한다. 보정 후 Frontend typecheck, 역할 자동 기입·보존 targeted component 1건, 기존 단일 mock Chromium 1건을 각 1회만 실행해 모두 PASS했다. 첫 follow-up runtime build에서는 내부 `BusinessState`에 남은 공용 부서 타입 한 곳 때문에 compile 오류 2건이 발생했고, harness는 생성한 DB·role·Compose 자원을 정리했다. 그 한 곳을 전용 projection으로 바꾼 Release build는 경고 0·오류 0으로 PASS했다. 수정 commit 뒤 격리 3-DB runtime에서 전체 사용자 검수 동선을 다시 확인한다.
 
 Exact-head 검수 harness에는 초기 membership 0인 `Synthetic Cheongju Approval`과 `Synthetic Osan Approval`을 runtime-only fixture로 둔다. 각각 청주와 오산으로 승인된 뒤 같은 UUID의 `dev-sales`, `dev-quality`가 되어 해당 승인 계정으로 다시 접속할 수 있다. `dev-admin`은 양쪽 사업부를 선택할 수 있다. 외부 provider·worker·Azure·운영 DB는 사용하지 않는다.
+
+## 15. Change 004 자동 진입과 청주 전용 관리 동선
+
+Change 004는 `/api/me`가 양쪽 사업부 지정 총괄에게 `selection_required`를 반환할 때 전용 선택 화면을 열지 않는다. 현재 tab에 유효한 선택이 없으면 청주가 허용된 경우 청주를, 아니면 서버가 반환한 허용 목록의 첫 항목을 선택하고 기존 generation invalidation으로 새 header의 `/api/me`를 다시 확인한다. 유효한 `sessionStorage` 선택은 기존 header 계약으로 먼저 복구되며, 거부된 선택은 기존 fail-closed 초기화 뒤 같은 fallback을 사용한다. 단일 membership은 기존 implicit context 선고정·재조회 계약을 유지한다.
+
+Access gate에서는 사업부 이동 button, 선택 전용 문구와 선택 초기화 action을 제거했다. membership 0의 소속 승인 대기와 local-profile-pending의 사용자 등록 대기, 총괄이 대기 상태에서 사용하는 Change 003 통합 승인 표는 유지한다. Header selector는 기존 compact 디자인과 두 곳 이상 총괄 조건을 유지하고 빈 option을 만들지 않는다.
+
+오산 navigation은 홈·프로젝트·진행 관리만 구성하므로 관리자 item과 빈 관리 group이 생기지 않는다. 모든 admin workspace component는 오산 context에서 렌더하지 않는다. 오산에서 admin URL을 직접 열면 청주 membership이 있는 지정 총괄은 URL을 유지한 채 청주 context로 전환하며, 청주가 허용되지 않은 계정은 오산 홈으로 replace한다. 전환 전에 오산 header로 admin data API를 보내지 않는다. 청주 `관리자 > 사용자 관리`와 사업부·부서·자동 역할·부서장·활성 저장 계약은 변경하지 않았다.
+
+### 검수 전 표적 검증
+
+- Frontend typecheck: `PASS`.
+- `BusinessUnitAccess.test.tsx`: 최종 `20/20 PASS`. 자동 청주 fallback, 단일 membership 재확인, membership 0/local-profile-pending, selector 비노출, 오산 navigation, dual-overall 청주 admin 전환, 오산 단일 admin URL fail-closed, 통합 승인·자동 역할·ReviewSafe·revocation을 확인했다.
+- `business-unit-access.spec.ts`: 최초 실행에서 단일 membership desktop/mobile `1/1 PASS`. Dual-overall과 tab 두 사례는 반응형 DOM에 함께 존재하는 숨은 desktop/mobile select 중 `.first()`를 조작해 timeout되었다. Product 결함은 아니며 visible selector locator로 고친 뒤 실패한 두 사례만 재실행해 `2/2 PASS`했다.
+- 생성된 synthetic desktop·390px screenshot을 직접 열어 청주 통합 사용자 관리의 compact 표, 우측 상단 selector와 narrow viewport의 수평 scroll을 확인했다. 실제 사용자 식별자·credential·token·provider는 사용하지 않았다.
+- 전체 Backend 582, Frontend 297, Full-Stack 66, 전체 CI와 전체 lint는 사용자 지정 정책에 따라 실행하지 않았다. 이 변경은 Backend·DB·migration을 바꾸지 않는다.
+
+### 사용자 검수·게시 상태
+
+Change 004는 local commit과 exact-commit 격리 3-DB 5198/5098 검수 runtime까지만 승인됐다. 사용자 WIP와 5174/5081은 변경하지 않는다. 기존 PR #121 remote head, push, CI, `main`, Azure, Persistent UAT와 실제 provider는 변경하지 않는다. 사용자 직접 검수는 자동 진입, selector 표시 조건, 오산 관리자 menu 부재, 양쪽 전환, 청주 통합 사용자 관리, pending 상태와 direct admin URL 처리 순서로 대기한다.

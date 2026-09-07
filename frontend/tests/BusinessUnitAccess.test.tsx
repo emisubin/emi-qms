@@ -273,7 +273,7 @@ describe('business-unit access shell', () => {
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBeNull();
   });
 
-  it('lets only an overall administrator resolve a selection-required state', async () => {
+  it('automatically enters the deterministic Cheongju fallback for an overall administrator', async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
     const selectionRequired = {
       userId: adminUserId,
@@ -288,10 +288,10 @@ describe('business-unit access shell', () => {
         errorCode: 'business_unit_selection_required'
       }
     };
-    vi.stubGlobal('fetch', shellFetch((headers: Headers) => headers.get('X-Qms-Business-Unit') === 'OSAN'
+    vi.stubGlobal('fetch', shellFetch((headers: Headers) => headers.get('X-Qms-Business-Unit')
       ? selectedUser({
           status: 'selected',
-          selectedBusinessUnit: 'OSAN',
+          selectedBusinessUnit: headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN',
           allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
           isOverallAdministrator: true,
           errorCode: null
@@ -299,12 +299,13 @@ describe('business-unit access shell', () => {
       : selectionRequired, calls));
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: '오산 사업부로 이동' }));
 
-    expect(await screen.findByRole('heading', { name: '오산 사업부 홈' })).toBeInTheDocument();
-    expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('OSAN');
+    await waitFor(() => expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('CHEONGJU'));
+    expect(screen.queryByRole('heading', { name: '이 탭에서 사용할 사업부를 선택해 주세요.' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
+    expect((await screen.findAllByLabelText('사업부 선택'))[0]).toHaveValue('CHEONGJU');
     expect(calls.some((call) => call.path === '/api/me'
-      && call.headers.get('X-Qms-Business-Unit') === 'OSAN')).toBe(true);
+      && call.headers.get('X-Qms-Business-Unit') === 'CHEONGJU')).toBe(true);
   });
 
   it.each([
@@ -337,7 +338,7 @@ describe('business-unit access shell', () => {
 
   it.each([
     ['CHEONGJU', '사용자 관리'],
-    ['OSAN', '사용자 관리']
+    ['OSAN', '오산 사업부 홈']
   ] as const)('does not render a header selector for a %s-only overall administrator', async (
     businessUnit,
     title
@@ -360,7 +361,6 @@ describe('business-unit access shell', () => {
 
   it('binds an implicit single membership before loading selected-business data', async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
-    window.history.replaceState(null, '', '/admin/users');
     vi.stubGlobal('fetch', shellFetch(selectedUser({
       status: 'selected',
       selectedBusinessUnit: 'OSAN',
@@ -371,19 +371,13 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '현재 사업부 사용자 관리' })).toBeInTheDocument();
-    expect(await screen.findByText('Synthetic Local User')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '오산 사업부 홈' })).toBeInTheDocument();
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('OSAN');
     const meCalls = calls.filter((call) => call.path === '/api/me');
     expect(meCalls.length).toBeGreaterThanOrEqual(2);
     expect(meCalls[0].headers.get('X-Qms-Business-Unit')).toBeNull();
     expect(meCalls.at(-1)?.headers.get('X-Qms-Business-Unit')).toBe('OSAN');
-    expect(calls.filter((call) => call.path === '/api/admin/users')).toEqual([
-      expect.objectContaining({
-        headers: expect.objectContaining({})
-      })
-    ]);
-    expect(calls.find((call) => call.path === '/api/admin/users')?.headers.get('X-Qms-Business-Unit')).toBe('OSAN');
+    expect(calls.filter((call) => call.path === '/api/admin/users')).toHaveLength(0);
   });
 
   it('does not offer alternate selection to a normal user', async () => {
@@ -403,7 +397,7 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '이 탭에서 사용할 사업부를 선택해 주세요.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '사업부에 접속할 수 없습니다.' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
   });
@@ -428,18 +422,20 @@ describe('business-unit access shell', () => {
     expect(within(navigation).getByRole('button', { name: '진행 관리' })).toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'Pending' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'G2' })).not.toBeInTheDocument();
+    expect(within(navigation).queryByRole('button', { name: '사용자 관리' })).not.toBeInTheDocument();
   });
 
   it('integrates membership and business-unit profiles in user management', async () => {
+    const calls: Array<{ path: string; headers: Headers }> = [];
     selectBusinessUnit('OSAN');
     window.history.replaceState(null, '', '/admin/business-unit-access');
-    const fallbackFetch = shellFetch(selectedUser({
+    const fallbackFetch = shellFetch((headers: Headers) => selectedUser({
       status: 'selected',
-      selectedBusinessUnit: 'OSAN',
+      selectedBusinessUnit: (headers.get('X-Qms-Business-Unit') ?? 'CHEONGJU') as 'CHEONGJU' | 'OSAN',
       allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
       isOverallAdministrator: true,
       errorCode: null
-    }));
+    }), calls);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith('/access') && init?.method === 'PUT') {
@@ -456,11 +452,15 @@ describe('business-unit access shell', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '사용자 관리' })).toBeInTheDocument();
+    await waitFor(() => expect(calls.some((call) => call.path === '/api/admin/user-access/users')).toBe(true));
+    const adminRow = (await screen.findByText('Synthetic Overall Admin')).closest('tr');
+    expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('CHEONGJU');
+    expect(calls.filter((call) => call.path === '/api/admin/users'
+      && call.headers.get('X-Qms-Business-Unit') === 'OSAN')).toHaveLength(0);
     expect(screen.queryByText('사업부 소속 관리')).not.toBeInTheDocument();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
       '', '활성 상태', '사업부', '부서', '역할', '부서장', ''
     ]);
-    const adminRow = (await screen.findByText('Synthetic Overall Admin')).closest('tr');
     expect(adminRow).not.toBeNull();
     expect(within(adminRow!).getByText('총괄')).toBeInTheDocument();
 
@@ -550,17 +550,19 @@ describe('business-unit access shell', () => {
     expect(userRow).not.toBeNull();
     const feedbackId = userRow!.getAttribute('aria-describedby');
     expect(feedbackId).not.toBeNull();
-    expect(document.getElementById(feedbackId!)).toHaveTextContent('이 부서는 기본 역할이 없어 저장할 수 없습니다.');
+    expect(document.getElementById(feedbackId!)).toHaveTextContent('활성 사용자는 기본 역할이 있는 부서를 선택해야 합니다.');
     expect(within(userRow!).getByRole('button', { name: '저장' })).toBeDisabled();
   });
 
-  it('blocks gate membership mutations in ReviewSafe even when disabled controls are invoked', async () => {
+  it('blocks integrated membership mutations in ReviewSafe even when disabled controls are invoked', async () => {
+    selectBusinessUnit('CHEONGJU');
+    window.history.replaceState(null, '', '/admin/users');
     const access: BusinessUnitAccess = {
-      status: 'selection_required',
-      selectedBusinessUnit: null,
+      status: 'selected',
+      selectedBusinessUnit: 'CHEONGJU',
       allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
       isOverallAdministrator: true,
-      errorCode: 'business_unit_selection_required'
+      errorCode: null
     };
     const fetchMock = shellFetch(selectedUser(access), [], {
       ...defaultRuntimeMode,
@@ -657,27 +659,25 @@ describe('business-unit access shell', () => {
     ))).toHaveLength(0);
   });
 
-  it('limits Osan user administration to local profile fields', async () => {
+  it('fails closed to Osan home when a Cheongju-ineligible user opens an admin URL', async () => {
+    const calls: Array<{ path: string; headers: Headers }> = [];
     selectBusinessUnit('OSAN');
     window.history.replaceState(null, '', '/admin/users');
     vi.stubGlobal('fetch', shellFetch(selectedUser({
       status: 'selected',
       selectedBusinessUnit: 'OSAN',
-      allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+      allowedBusinessUnits: ['OSAN'],
       isOverallAdministrator: false,
       errorCode: null
-    })));
+    }), calls));
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '현재 사업부 사용자 관리' })).toBeInTheDocument();
-    expect(await screen.findByText('Synthetic Local User')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '수정' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '알림 설정' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '선택 삭제' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '선택 복구' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('사용자 전체 선택')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '오산 사업부 홈' })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(calls.filter((call) => call.path === '/api/admin/users')).toHaveLength(0);
+    const navigation = screen.getAllByRole('navigation', { name: '공통 메뉴' })[0];
+    expect(within(navigation).queryByRole('button', { name: '사용자 관리' })).not.toBeInTheDocument();
   });
 
   it('retains the full user administration controls in Cheongju', async () => {
@@ -702,11 +702,11 @@ describe('business-unit access shell', () => {
   });
 
   it('unmounts selected-business data when a page reports membership revocation', async () => {
-    selectBusinessUnit('OSAN');
+    selectBusinessUnit('CHEONGJU');
     window.history.replaceState(null, '', '/admin/users');
     const selected = selectedUser({
       status: 'selected',
-      selectedBusinessUnit: 'OSAN',
+      selectedBusinessUnit: 'CHEONGJU',
       allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
       isOverallAdministrator: true,
       errorCode: null
@@ -726,7 +726,7 @@ describe('business-unit access shell', () => {
     };
     const calls: Array<{ path: string; headers: Headers }> = [];
     const fallbackFetch = shellFetch((headers: Headers) => (
-      headers.get('X-Qms-Business-Unit') === 'OSAN' ? selected : revoked
+      headers.get('X-Qms-Business-Unit') === 'CHEONGJU' ? selected : revoked
     ), calls);
     let selectedBusinessRequestCount = 0;
     const generationBeforeRevocation = getBusinessUnitRequestState().generation;

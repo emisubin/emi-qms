@@ -2108,9 +2108,19 @@ function QmsAppShellContent({
   }, []);
 
   useEffect(() => {
-    if (currentUser.kind !== 'ready'
-      || !isOsan
-      || isOsanViewAllowed(view, currentUser.data)) {
+    if (currentUser.kind !== 'ready' || !isOsan) {
+      return;
+    }
+    if (isAdminWorkspace(view)) {
+      const access = resolveBusinessUnitAccess(currentUser.data);
+      if (access.isOverallAdministrator && access.allowedBusinessUnits.includes('CHEONGJU')) {
+        selectBusinessUnit('CHEONGJU');
+        return;
+      }
+      replaceView({ kind: 'home' });
+      return;
+    }
+    if (isOsanViewAllowed(view)) {
       return;
     }
     replaceView({ kind: 'home' });
@@ -2170,10 +2180,8 @@ function QmsAppShellContent({
         user={currentUser.data}
         access={businessUnitAccess}
         developmentUserKey={developmentUserKey}
-        mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
         membershipMutationAllowed={mutationEnabled}
         membershipMutationDisabledReason={membershipMutationDisabledReason}
-        onSelect={switchBusinessUnitContext}
         onLogout={onLogout}
       />
     );
@@ -2302,13 +2310,7 @@ function QmsAppShellContent({
     ? [
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
-        ...(canManageUsers || businessUnitAccess.isOverallAdministrator ? [{
-          label: '사용자 관리',
-          view: { kind: 'admin-users' } as View,
-          active: view.kind === 'admin-users',
-          group: '관리' as const
-        }] : [])
+        { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
       ]
     : cheongjuNavigationItems;
 
@@ -2623,7 +2625,7 @@ function QmsAppShellContent({
         <OsanAreaPlaceholder area="progress" />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'pending-types' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'pending-types' ? (
         <PendingTypeManagementPage developmentUserKey={developmentUserKey} canManage={canManagePendingTypes} />
       ) : null}
 
@@ -2996,7 +2998,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-dashboard' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-dashboard' ? (
         <AdminDashboardPage
           developmentUserKey={developmentUserKey}
           canManageUsers={canManageUsers}
@@ -3007,6 +3009,7 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready'
         && (!currentUser.data.approvalPending || businessUnitAccess.isOverallAdministrator)
+        && !isOsan
         && view.kind === 'admin-users' ? (
         <AdminUsersPage
           developmentUserKey={developmentUserKey}
@@ -3025,7 +3028,7 @@ function QmsAppShellContent({
       ) : null}
 
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-user-notification-preferences' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-user-notification-preferences' ? (
         <NotificationPreferencesPage
           developmentUserKey={developmentUserKey}
           targetUserId={view.userId}
@@ -3033,27 +3036,27 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-departments' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-departments' ? (
         <AdminDepartmentsPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-calendar-holidays' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-calendar-holidays' ? (
         <AdminCalendarHolidaysPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-permission-matrix' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-permission-matrix' ? (
         <AdminPermissionMatrixPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-master-change-logs' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-master-change-logs' ? (
         <AdminMasterChangeLogsPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-history' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-work-history' ? (
         <AdminWorkHistoryPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-send-notification' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-send-notification' ? (
         <AdminManualNotificationPage
           developmentUserKey={developmentUserKey}
           onOpenDeliveries={() => setView({ kind: 'admin-notification-deliveries', deliveryType: 'ManualTest' })}
@@ -3067,7 +3070,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-deliveries' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-notification-deliveries' ? (
         <AdminNotificationDeliveriesPage
           developmentUserKey={developmentUserKey}
           statusFilter={view.status ?? null}
@@ -3078,7 +3081,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-delivery-detail' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-notification-delivery-detail' ? (
         <AdminNotificationDeliveryDetailPage
           developmentUserKey={developmentUserKey}
           deliveryId={view.deliveryId}
@@ -3086,15 +3089,15 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-preference-audit' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-notification-preference-audit' ? (
         <NotificationPreferenceAuditPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-audit-events' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-audit-events' ? (
         <AuditPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-work-item-escalations' ? (
         <AdminWorkItemEscalationsPage
           developmentUserKey={developmentUserKey}
           statusFilter={view.status ?? null}
@@ -4078,7 +4081,6 @@ function BusinessUnitSelector({
         title={mutationInFlight ? '저장 작업이 끝난 뒤 사업부를 변경할 수 있습니다.' : undefined}
         onChange={(event) => onSelect(event.target.value as BusinessUnitCode)}
       >
-        {!access.selectedBusinessUnit ? <option value="">선택</option> : null}
         {access.allowedBusinessUnits.map((businessUnit) => (
           <option key={businessUnit} value={businessUnit}>{businessUnitLabel(businessUnit)}</option>
         ))}
@@ -4092,19 +4094,15 @@ function BusinessUnitAccessGate({
   user,
   access,
   developmentUserKey,
-  mutationInFlight,
   membershipMutationAllowed,
   membershipMutationDisabledReason,
-  onSelect,
   onLogout
 }: {
   user: CurrentUser;
   access: BusinessUnitAccess;
   developmentUserKey: string;
-  mutationInFlight: boolean;
   membershipMutationAllowed: boolean;
   membershipMutationDisabledReason: string | null;
-  onSelect: (businessUnit: BusinessUnitCode) => void;
   onLogout?: () => void;
 }) {
   const copy = access.status === 'no_membership'
@@ -4119,18 +4117,11 @@ function BusinessUnitAccessGate({
           title: `${access.selectedBusinessUnit ? businessUnitLabel(access.selectedBusinessUnit) : '선택한 사업부'} 사용자 등록이 필요합니다.`,
           message: '사업부의 System Administrator가 부서와 역할을 지정하면 업무 화면을 사용할 수 있습니다.'
         }
-      : access.status === 'selection_denied'
-        ? {
-            eyebrow: '사업부 선택 거부',
-            title: '이 계정으로 선택할 수 없는 사업부입니다.',
-            message: '현재 탭의 사업부 선택을 지웠습니다. 허용된 소속과 총괄 관리자 권한을 확인해 주세요.'
-          }
-        : {
-            eyebrow: '사업부 선택',
-            title: '이 탭에서 사용할 사업부를 선택해 주세요.',
-            message: '사업부를 선택하면 해당 사업부의 사용자 역할과 데이터 범위가 적용됩니다.'
-          };
-  const canSelect = canSwitchBusinessUnit(access);
+      : {
+          eyebrow: '사업부 접근 확인',
+          title: '사업부에 접속할 수 없습니다.',
+          message: '허용된 소속과 총괄 관리자 권한을 확인해 주세요.'
+        };
 
   return (
     <main className="auth-gate business-unit-access-gate">
@@ -4139,25 +4130,7 @@ function BusinessUnitAccessGate({
         <h1>{copy.title}</h1>
         <p>{copy.message}</p>
         <p className="muted-text">현재 계정: {user.displayName}{user.email ? ` (${user.email})` : ''}</p>
-        {canSelect ? (
-          <div className="business-unit-choice-list" aria-label="선택 가능한 사업부">
-            {access.allowedBusinessUnits.map((businessUnit) => (
-              <button
-                key={businessUnit}
-                type="button"
-                disabled={mutationInFlight}
-                onClick={() => onSelect(businessUnit)}
-              >
-                {businessUnitLabel(businessUnit)} 사업부로 이동
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {mutationInFlight ? <p role="status">저장 작업이 끝난 뒤 사업부를 변경할 수 있습니다.</p> : null}
         <div className="auth-gate-actions">
-          {access.status === 'selection_denied' ? (
-            <button type="button" onClick={() => resetBusinessUnitRequestContext(true)}>선택 초기화</button>
-          ) : null}
           {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
         </div>
       </section>
@@ -5358,7 +5331,7 @@ function businessUnitMembershipMutationDisabledReason(runtimeMode: LoadState<Run
     : '현재 실행 모드에서는 사업부 소속을 변경할 수 없습니다.';
 }
 
-function isOsanViewAllowed(view: View, user: CurrentUser) {
+function isOsanViewAllowed(view: View) {
   if (view.kind === 'home'
     || view.kind === 'privacy-notice'
     || view.kind === 'list'
@@ -5366,10 +5339,6 @@ function isOsanViewAllowed(view: View, user: CurrentUser) {
     || view.kind === 'detail'
     || view.kind === 'osan-progress') {
     return true;
-  }
-  if (view.kind === 'admin-users') {
-    return user.permissions.includes('users.manage')
-      || resolveBusinessUnitAccess(user).isOverallAdministrator;
   }
   return false;
 }

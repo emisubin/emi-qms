@@ -931,6 +931,17 @@ export async function getCurrentUser(developmentUserKey?: string): Promise<Curre
   const currentUser = await fetchJson<CurrentUser>('/api/me', developmentUserKey);
   const status = currentUser.businessUnitAccess?.status;
   const resolvedBusinessUnit = currentUser.businessUnitAccess?.selectedBusinessUnit ?? null;
+  if (status === 'selection_required'
+    && currentUser.businessUnitAccess?.isOverallAdministrator) {
+    const allowedBusinessUnits = currentUser.businessUnitAccess.allowedBusinessUnits;
+    const fallbackBusinessUnit = allowedBusinessUnits.includes('CHEONGJU')
+      ? 'CHEONGJU'
+      : allowedBusinessUnits[0];
+    if (fallbackBusinessUnit) {
+      selectBusinessUnit(fallbackBusinessUnit);
+      throw new BusinessUnitRequestInvalidatedError();
+    }
+  }
   if (status === 'selected' && resolvedBusinessUnit) {
     if (selectedBusinessUnit === null) {
       if (implicitBusinessUnitSelectionBlocked) {

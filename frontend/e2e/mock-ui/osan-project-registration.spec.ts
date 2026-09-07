@@ -17,7 +17,9 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('requestfailed', (request) => {
-    requestFailures.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    if (request.failure()?.errorText !== 'net::ERR_ABORTED') {
+      requestFailures.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    }
   });
   await installBackend(page, postedBodies, unexpectedRequests);
   await page.addInitScript(() => {

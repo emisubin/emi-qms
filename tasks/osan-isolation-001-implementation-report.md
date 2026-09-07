@@ -255,3 +255,7 @@ Task 전용 임시 worktree와 branch에 미커밋 결과를 보존한다. Commi
 Task 1의 다음 제품 Gate는 TASK-OSAN-ACCESS-001 구현 범위 승인이다. 제품 구현·evidence 독립 검토, Change 003 코드 검토와 사용자 검수는 통과했다. 동적 cleanup 검증은 `TASK-OSAN-VALIDATION-001`로 이관했고 legacy 잔여 자원 정리·Git 게시·운영 적용은 미완료다.
 
 Full-Stack 검증이 생성한 스크린샷 변경은 파일 기준 117개였다. 고정 62파일과 참조 overlay 24파일에 겹치지 않고 검증 전 변경이 없음을 확인한 뒤, 승인된 cleanup 범위에서 tracked 112파일만 HEAD로 원복하고 새 untracked 5파일만 삭제했다. 잔여 screenshot diff는 0이며 제품·테스트·harness 기준선은 그대로다. Parent의 shell syntax와 diff check도 통과했다.
+
+## Azure phase 1 승격 상태
+
+2026-09-07 사용자 지시로 Task 1~3만 `TASK-AZURE-DEPLOY-001 Change 031`에 승격 준비 중이다. 기존 운영 DB는 Cheongju로 보존하고 Directory·Osan DB를 같은 server에 추가하며, DB/role/identity/ledger와 PITR rehearsal이 모두 통과하기 전에는 serving 연결을 켜지 않는다. 최종 local source는 Backend `582/582`, 3-DB 전용 access·Osan `2/2`와 일반 Full-Stack `64/64`를 통과했다. 이 기록은 실제 Azure DB 생성이나 migration 완료를 뜻하지 않는다.

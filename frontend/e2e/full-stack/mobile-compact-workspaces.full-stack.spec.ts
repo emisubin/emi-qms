@@ -214,7 +214,6 @@ async function selectMobileDevelopmentUser(page: Page, userKey: string) {
   await trigger.click();
   const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await drawer.getByLabel('개발 사용자').selectOption(userKey);
-  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
   await expect(drawer).toBeHidden();
 }
 

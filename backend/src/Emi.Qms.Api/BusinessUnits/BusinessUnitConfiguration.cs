@@ -108,7 +108,7 @@ public sealed class BusinessUnitConfiguration
             BusinessSchemaVersion,
             externalNotificationsEnabled: false,
             escalationWorkerEnabled: false,
-            adminDeletionWorkerEnabled: true,
+            adminDeletionWorkerEnabled: false,
             errors);
 
         var targets = new[] { directory, cheongju, osan }.Where(target => target is not null).Cast<BusinessUnitDatabaseTarget>().ToList();

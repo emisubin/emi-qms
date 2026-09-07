@@ -1,13 +1,26 @@
 # 오산 시범 운영 — 기존 Azure 배포 Task로의 인계
 
+## 2026-09-07 phase 1 partial rollout override
+
+사용자는 후속 Task 4~6보다 먼저 완료된 Task 1~3만 Azure에 배포해 실제 프로젝트 기준정보 입력을 시작하도록 명시했다. 운영 Change는 기존 `TASK-AZURE-DEPLOY-001 Change 031`이며 새 rollout Task를 만들지 않는다.
+
+- 포함: Directory/사업부 해석, no-membership·local-profile-pending gate, 총괄 membership과 선택 사업부 local role 관리, Osan 프로젝트 create/list/detail.
+- 제외: 진행 mutation, 7단계 자동 완료, dashboard, Pending/hold/cancel/deleted/Excel, Osan external provider와 worker.
+- 기존 생산 DB는 Cheongju로 그대로 유지하고 Directory·Osan DB만 같은 server에 추가한다. DB 준비·PITR rehearsal 뒤 serving을 연결한다.
+- 일반 사용자의 dual-membership 전환 결함은 사용자 승인으로 보류했다. Phase 1 일반 사용자는 membership 한 곳만 부여한다.
+- Selector Change 002는 자동·시각 증빙 완료, 사용자 검수 대기다. Task 3 Change 005 사용자 검수 완료와 혼동하지 않는다.
+- Exact main merge 전에는 Azure mutation을 시작하지 않는다. 병합 뒤에도 DB/role/identity/migration → restore → Backend → Frontend → public/Cheongju/Osan 순서를 지킨다.
+
 - canonicalTaskId: `TASK-AZURE-DEPLOY-001`
 - sourceTask: `TASK-OSAN-PILOT-001`
 - taskType: `UAT_RUNTIME`
-- status: `PLANNED_HANDOFF`
+- status: `LOCAL_VALIDATION_COMPLETE_AWAITING_DRAFT_PR_CI`
 - reuseExistingTask: true
-- productionDeploymentApproved: false
-- migrationExecutionApproved: false
-- gitPublicationApproved: false
+- productionDeploymentApproved: true
+- migrationExecutionApproved: true
+- gitPublicationApproved: true
+- mainMergeApproved: false
+- selectorUserValidation: `PENDING`
 
 ## 목적과 기존 Task 재사용
 
@@ -35,3 +48,7 @@ OSAN-REVIEW-003의 오입력 신고·담당자·변경 금지 안내를 [통합 
 데이터 복구는 승인된 대상 DB에 한정한다. 전체 서버 복구본을 운영 청주·오산에 일괄 덮어쓰지 않는다. source·configuration·DB compatibility·worker ownership·rollback을 기존 배포 SOP와 연결해 확인한다.
 
 완료 증빙은 실제 적용 source, DB별 ledger/권한·health projection, 청주 회귀, 오산 1/N 대상 전체 완료, 외부 provider 비활성, 사용자 검수와 후속 관찰이다. Secret·개인 식별자·업무 원문은 tracked 기록에 넣지 않는다.
+
+## Change 031 로컬 준비 결과
+
+Backend `582/582`, Frontend `297/297`, mock browser `13/13`, Full-Stack `66/66`과 Bicep·ARM·release mock·workflow 정적 검증을 통과했다. 일반 Full-Stack `64`건과 별도 3-DB business-unit/Osan 시나리오 `2`건을 CI에서도 같은 경계로 실행하도록 정렬했다. 실제 Azure mutation은 없으며 Draft PR·필수 CI 다음에 selector 사용자 검수와 exact `main` merge 승인 Gate가 남는다.

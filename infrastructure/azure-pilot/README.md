@@ -8,7 +8,7 @@
 | --- | --- | ---: |
 | `foundation.bicep` | VNet, Container Apps environment, PostgreSQL, ACR, Azure Files, Key Vault, Log Analytics, Application Insights, Front Door profile·endpoint·custom rate limit | 1 |
 | `identity-access.bicep` | Backend·Frontend·migration·DB bootstrap identity가 필요한 Key Vault secret 하나씩만 읽도록 secret-scope RBAC 부여 | 3 |
-| `workloads.bicep` | ClamAV, Backend, DB role bootstrap job, migration job, Frontend. 기본값은 `activateWorkloads=false`라 minimum replica가 0 | 5, 8 |
+| `workloads.bicep` | ClamAV, Backend, DB role bootstrap·migration·membership backfill 수동 job, Frontend. 기본값은 `activateWorkloads=false`라 minimum replica가 0 | 5, 8 |
 | `edge.bicep` | Front Door origin·custom domain·managed TLS·route·WAF association | 9 |
 | `nginx.conf.template` | Front Door ID와 별도 origin verification header를 함께 검사하고 직접 origin 요청을 403으로 차단 | image build |
 | `*.parameters.example.json` | 실제 값이 없는 입력 예시. `.local.json` 복사본만 실제 배포에 사용 | 배포 전 |
@@ -21,12 +21,12 @@ Portal 업로드 순서는 다음과 같다.
 
 1. `foundation.json`
 2. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비
-3. Key Vault에 secret 12개 직접 입력
+3. Key Vault에 기존 secret 12개와 다중 DB 전환용 secret 8개를 직접 입력
 4. `identity-access.json`
 5. GitHub Actions에서 Backend·Frontend image 게시
-6. `workloads.json`을 `activateWorkloads=false`, `enableExternalNotifications=false`로 배포
-7. DB role bootstrap, migration과 PITR restore 검증
-8. `workloads.json`을 검증된 restore 시각과 `activateWorkloads=true`로 다시 배포
+6. `workloads.json`을 `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `activateWorkloads=false`, `enableExternalNotifications=false`로 배포해 Directory·Osan 빈 DB와 세 수동 job을 만든다.
+7. DB role bootstrap, migration, membership backfill과 PITR restore 검증
+8. `workloads.json`을 검증된 restore 시각, `configureServingBusinessUnits=true`, `activateWorkloads=true`로 다시 배포
 9. `edge.json`
 
 ARM JSON에 실제 값을 직접 적어 다시 저장하지 않는다. Portal이 표시하는 parameter 입력란 또는 GitHub Environment secret을 사용한다. `검토 + 만들기`의 최종 `만들기`는 실제 Azure resource 또는 사용량을 만들 수 있으므로 사용자가 비용을 확인한 뒤 직접 누른다.
@@ -84,7 +84,7 @@ Client secret은 만들지 않는다. 이 application의 service principal에는
 | `AcrPush` | 운영 ACR 한 개 |
 | `Container Apps Contributor` | 운영 Backend Container App 한 개 |
 | `Container Apps Contributor` | 운영 Frontend Container App 한 개 |
-| `Container Apps Jobs Contributor` | 운영 migration Container Apps Job 한 개 |
+| `Container Apps Jobs Contributor` | 운영 role bootstrap·migration·membership backfill Container Apps Job 세 개 각각 |
 
 Subscription 또는 resource group 범위의 `Contributor`는 부여하지 않는다.
 
@@ -98,10 +98,11 @@ Foundation과 ACR이 실제로 생성되고 비용 실행을 결정한 뒤에만
 4. `source_sha`에 실행 시점 `main`의 최신 full 40자리 commit SHA를 입력한다.
 5. ACR image 두 개가 게시되어 비용이 발생할 수 있음을 확인하는 checkbox를 선택한다.
 6. Migration 실행과 운영 Backend·Frontend revision 교체를 승인하는 checkbox를 선택한다.
-7. **Run workflow**를 누른다.
-8. 완료된 run의 Summary에서 source SHA, Backend·Frontend digest, migration·두 앱·공개 보안 검사가 모두 성공인지 확인한다.
+7. 최초 다중 DB 전환의 DB 준비 run에서는 role bootstrap과 membership backfill을 선택하고 `database_prepare_only=true`로 실행한다.
+8. 새 3-DB 상태의 PITR restore rehearsal을 통과한 뒤 같은 exact main SHA를 `force_full_release=true`로 다시 실행한다. 이 두 번째 run에서는 bootstrap·backfill을 반복하지 않는다.
+9. 완료된 run의 Summary에서 source SHA, Backend·Frontend digest, migration·두 앱·공개 보안 검사가 모두 성공인지 확인한다.
 
-Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push한 뒤 digest를 고정한다. 운영 기준선이 준비됐는지 먼저 확인하고, migration job을 새 Backend digest로 실행해 성공한 경우에만 Backend, Frontend 순서로 single revision image를 교체한다. 각 revision은 exact `Healthy`이면서 running state가 `Running` 또는 `RunningAtMaxScale`이어야 하고, `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 차단한다. 공개 `/health/live` `200`, 익명 root·API `401`도 확인한다. Migration 실패 시 앱은 바뀌지 않으며, 앱 교체나 최종 공개 검사 실패 시 직전 image로 best-effort rollback한다.
+Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push한 뒤 digest를 고정한다. 최초 다중 DB 준비 run은 role bootstrap → migration → membership backfill까지만 실행해 기존 앱 traffic을 유지한다. Restore rehearsal 뒤 `force_full_release=true` run이 전체 scope를 다시 계산하고 migration을 idempotent하게 확인한 뒤 Backend, Frontend 순서로 single revision image를 교체한다. 각 revision은 exact `Healthy`이면서 running state가 `Running` 또는 `RunningAtMaxScale`이어야 하고, `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 차단한다. 공개 `/health/live` `200`, 익명 root·API `401`도 확인한다. DB job 실패 시 앱은 바뀌지 않으며, 앱 교체나 최종 공개 검사 실패 시 직전 image로 best-effort rollback한다.
 
 이 workflow source를 `main`에 게시하는 것만으로 실제 운영 release가 실행되지는 않는다. 실제 run은 별도 명시 실행으로 남긴다.
 
@@ -132,6 +133,14 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 | `database-admin-connection-string` | Foundation의 PostgreSQL 관리자 연결. DB role bootstrap job만 읽음 |
 | `database-migration-connection-string` | `Username=pms_migrator`, 별도 32자 이상 password, `SSL Mode=VerifyFull` |
 | `database-runtime-connection-string` | `Username=pms_app`, migration과 다른 32자 이상 password, `SSL Mode=VerifyFull` |
+| `directory-database-admin-connection-string` | 같은 server의 Directory DB를 가리키는 관리자 연결 |
+| `directory-database-migration-connection-string` | `Username=pms_directory_migrator`, 별도 32자 이상 password, `SSL Mode=VerifyFull` |
+| `directory-database-runtime-connection-string` | `Username=pms_directory_app`, 별도 32자 이상 password, `SSL Mode=VerifyFull` |
+| `osan-database-admin-connection-string` | 같은 server의 Osan DB를 가리키는 관리자 연결 |
+| `osan-database-migration-connection-string` | `Username=pms_osan_migrator`, 별도 32자 이상 password, `SSL Mode=VerifyFull` |
+| `osan-database-runtime-connection-string` | `Username=pms_osan_app`, 별도 32자 이상 password, `SSL Mode=VerifyFull` |
+| `business-unit-backfill-user-ids` | 기존 청주 active Entra 사용자 중 명시 승인된 내부 user ID를 세미콜론으로 구분한 private 목록 |
+| `business-unit-overall-administrator-user-ids` | 위 승인 목록의 부분집합인 총괄 관리자 내부 user ID 목록 |
 | `bootstrap-administrator-emails` | 비상 관리자 두 명의 email을 세미콜론으로 구분 |
 | `development-operator-emails` | 실제 Entra 인증을 사용하는 지정 개발 검수 사용자 email. 운영 보안 우회 없이 기존 업무 권한 전체를 합성하며 Backend만 읽음 |
 | `front-door-origin-verify-token` | Foundation secure parameter와 동일한 64자 이상 random 값 |
@@ -142,18 +151,18 @@ Foundation이 identity와 Key Vault를 만든 뒤 사용자가 secret을 입력�
 | `web-push-vapid-public-key` | PWA Web Push VAPID 공개키. Backend만 읽음 |
 | `web-push-vapid-private-key` | PWA Web Push VAPID 비밀키. Backend만 읽음 |
 
-세 DB 연결은 같은 host, port와 database를 가리켜야 하고 세 username·password는 서로 달라야 한다. Secret 원문은 CLI 인자, shell history, deployment output, screenshot과 문서에 남기지 않는다. Portal의 Key Vault secret 입력 화면을 사용하고, 만료일을 설정한다.
+같은 target의 admin·migration·runtime 연결은 같은 host, port와 database를 가리킨다. 세 target은 같은 server endpoint와 서로 다른 database를 사용하고 여섯 bounded role과 password를 분리한다. 기존 `database-*` secret 3개와 기존 DB는 Cheongju에 그대로 사용해 데이터 이동과 legacy image rollback 위험을 피한다. Secret 원문은 CLI 인자, shell history, deployment output, screenshot과 문서에 남기지 않는다. Portal의 Key Vault secret 입력 화면을 사용하고, 만료일을 설정한다.
 
 ## Managed identity와 secret 접근표
 
 | Identity | 허용 secret |
 | --- | --- |
-| Backend | runtime DB, 비상 관리자 목록, 지정 개발 검수 사용자 목록, Gmail 계정·app password, Teams activity client secret, Web Push VAPID 공개키·비밀키 |
+| Backend | Cheongju·Directory·Osan runtime DB, 비상 관리자 목록, 지정 개발 검수 사용자 목록, Gmail 계정·app password, Teams activity client secret, Web Push VAPID 공개키·비밀키 |
 | Frontend | Front Door origin verification token, Entra access gate client secret |
-| Migration | migration DB |
-| Database bootstrap | admin DB, migration DB, runtime DB |
+| Migration | 세 migration DB와 backfill 승인 ID 목록 2개 |
+| Database bootstrap | 세 DB의 admin·migration·runtime 연결 9개 |
 
-`identity-access.bicep`은 위 14개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
+`enableBusinessUnits=false`에서는 기존 14개 조합, `true`에서는 26개 조합을 secret resource scope로만 만든다. vault scope의 `Key Vault Secrets User`는 금지한다.
 
 새 환경에서는 세 role-name 선택 입력을 빈 값으로 두면 배포 정의가 결정적 이름을 만든다. 현재 운영처럼 Portal·CLI에서 먼저 만든 동일 역할을 코드가 인수해야 할 때는 `frontendAccessGateRoleAssignmentName`, `backendWebPushVapidPublicKeyRoleAssignmentName`, `backendWebPushVapidPrivateKeyRoleAssignmentName`에 기존 role assignment 이름을 ignored `identity-access.parameters.local.json`으로 전달한다. 기존 역할을 먼저 삭제하지 않으며, `what-if`에서 role assignment Create/Delete가 모두 `0`인지 확인한 뒤 배포한다. 실제 이름은 Repository에 기록하지 않는다.
 
@@ -190,13 +199,29 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 
 ## 실제 배포 순서
 
+### 기존 운영 환경의 오산 1단계 전환
+
+1. exact current-main SHA, 기존 두 app의 immutable rollback image, server 상태·14일 PITR·private network, 기존 user DB 1개와 두 manual job 상태를 먼저 기록한다.
+2. 기존 DB를 Cheongju canonical DB로 그대로 유지하고 Directory·Osan 빈 DB만 같은 Flexible Server에 추가한다. 기존 DB rename·copy·overwrite는 하지 않는다.
+3. 새 connection secret 6개와 backfill private ID secret 2개를 만든다. 일반 사용자는 Cheongju 또는 Osan 한 곳만 넣고, 다중 membership은 지정 총괄 관리자에만 사용한다.
+4. `identity-access`를 `enableBusinessUnits=true`로 적용하고 secret-scope assignment `26`, vault-scope assignment `0`을 확인한다.
+5. `workloads`를 기존 immutable image와 `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `activateWorkloads=true`, 현재 청주 provider 활성 상태로 적용한다. 이 단계는 Directory·Osan DB와 새 membership job을 만들되 공개 Backend의 connection/env를 바꾸지 않는다. Job 3개가 모두 `Manual`, Backend/Frontend가 `Single`, Backend max replica가 `1`인지 확인한다.
+6. GitHub release를 `run_database_bootstrap=true`, `run_membership_backfill=true`, `database_prepare_only=true`로 실행한다. 세 DB role bootstrap, Directory `0001..0002`, Cheongju·Osan `0001..0087`, 승인 Cheongju membership backfill 성공 뒤 기존 public app이 그대로 응답하는지 확인한다.
+7. 이 새 3-DB restore point로 별도 PITR server를 만들고 세 DB 존재, identity·ledger, privacy-safe aggregate와 bounded role 연결을 확인한다. 운영 server를 덮어쓰지 않으며 rehearsal 실패 시 application 교체를 중단한다.
+8. 성공 시각을 `restoreVerifiedAtUtc`에 반영하고 `configureServingBusinessUnits=true`로 workload를 적용한다. 직전 legacy image가 기존 Cheongju 연결로 응답하는지 확인한 뒤 같은 exact main SHA를 `force_full_release=true`로 실행한다. 두 번째 run은 bootstrap·backfill을 선택하지 않는다.
+9. Backend ready 뒤 Frontend ready, public `200/401/401`, Cheongju regression, 제한된 Osan account의 local profile/role과 create/list/detail 준비를 확인한다. 정정 경로가 승인되기 전에는 fake 운영 프로젝트를 만들지 않는다.
+
+DB job 또는 restore가 실패하면 새 application revision을 만들지 않는다. Directory·Osan은 public 접근에 연결되지 않은 상태로 두고 기존 Cheongju app health를 다시 확인한다. Application 이상은 직전 immutable image로 되돌리며 이미 적용된 additive migration은 down하지 않고 forward-fix한다.
+
+### 새 환경 생성
+
 1. 사용자가 budget 알림을 먼저 만든다.
 2. Foundation local parameter 파일을 만들고 Azure resource를 생성한다.
 3. Frontend 사전 인증용 single-tenant Entra web app과 공개 callback을 준비하고 client identifier를 workload 입력으로 보존한다.
-4. Key Vault에 위 12개 secret을 직접 입력한다.
-5. `identity-access.bicep`을 적용하고 14개 role assignment가 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
+4. Key Vault에 위 20개 secret을 직접 입력한다.
+5. `identity-access.bicep`을 적용하고 business-unit mode의 26개 role assignment가 모두 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
 6. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
-7. `activateWorkloads=false`, `enableExternalNotifications=false`로 workload와 두 manual job을 배치한다.
+7. `activateWorkloads=false`, `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `enableExternalNotifications=false`로 workload와 세 manual job을 배치한다.
 8. `database-role-bootstrap` job을 한 번 실행해 `pms_migrator`와 `pms_app`을 만들고 권한 probe를 통과시킨다.
 9. migration job을 한 번 실행하고 migration ledger가 Exact인지 확인한다. 이 job이 신규 DB object의 runtime 권한도 재조정한다.
 10. PostgreSQL PITR restore rehearsal을 수행하고 1시간 안에 복구·연결·ledger 검증이 되는지 확인한다. 임시 restore server는 사용자 비용 경계에서 정리한다.

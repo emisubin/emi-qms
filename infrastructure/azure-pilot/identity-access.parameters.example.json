@@ -17,6 +17,9 @@
     "keyVaultName": {
       "value": "FROM_FOUNDATION_OUTPUT"
     },
+    "enableBusinessUnits": {
+      "value": true
+    },
     "frontendAccessGateRoleAssignmentName": {
       "value": ""
     },

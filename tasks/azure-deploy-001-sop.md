@@ -132,3 +132,18 @@ DB 복구, edge·인증과 actual provider smoke는 `PRE_TRAFFIC_GATE`다. Git m
 - Teams·Gmail test 성공/실패
 
 hostname, email, tenant/client identifier, token, secret, connection string, 실제 업무명과 첨부 원문은 기록하지 않는다.
+
+## 6. Change 031 — 기존 운영의 오산 1단계 전환
+
+1. Exact latest `main`, 직전 Backend·Frontend immutable image, active revision·replica, PostgreSQL Ready·용량·14일 PITR·private network, user DB 수와 manual job mode를 privacy-safe projection으로 기록한다.
+2. 운영 기존 DB를 Cheongju로 그대로 유지한다. `workloads`를 기존 image, `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `activateWorkloads=true`로 what-if한 뒤 Directory·Osan DB 두 개와 job 변경만 적용한다. Public app revision 변경이 보이면 중단한다.
+3. 기존 3개 connection secret은 Cheongju에 유지하고 Directory·Osan 6개와 backfill private ID 2개를 Key Vault에 넣는다. Identity access what-if에서 예상 secret-scope assignment만 생성되고 Delete와 vault-scope read가 0인지 확인한다.
+4. OIDC identity에 role bootstrap·migration·membership backfill job 세 개의 exact job-scope 권한이 있는지 확인한다. 세 job은 `Manual`, Backend·Frontend는 `Single`, Backend max replica는 `1`이어야 한다.
+5. Latest main SHA의 수동 release를 bootstrap·backfill 선택, `database_prepare_only=true`로 실행한다. Bootstrap → migration → backfill이 모두 성공하기 전에는 app stage를 실행하지 않는다.
+6. Directory ledger `2/2 Exact`, Cheongju·Osan business ledger `87/87 Exact`, identity contract `0001`/`0086`, 세 DB 이름·역할·same-server와 no-fallback, bounded runtime role negative probe를 확인한다. 실제 업무 데이터는 count/aggregate로만 확인하고 fake record를 만들지 않는다.
+7. 새 restore point로 별도 PITR server를 만들고 세 DB, ledger·identity·aggregate를 확인한다. 운영 server를 덮어쓰지 않는다. 실패하면 Osan serving을 계속 분리하고 Cheongju public health를 확인한다.
+8. Restore 성공 시각을 기록하고 `configureServingBusinessUnits=true`로 workload를 what-if/apply한다. 기존 image로 public `200/401/401`을 확인한 뒤 같은 exact main SHA의 `force_full_release=true` run으로 Backend, Frontend 순서로 교체한다.
+9. 새 digest의 Ready/Running, public `200/401/401`, direct origin 차단, Cheongju 회귀와 제한된 Osan create/list/detail 준비를 확인한다. Task 4·5, Pending/hold/cancel/deleted/Excel과 Osan provider/worker는 disabled여야 한다.
+10. 일반 사용자에게는 Cheongju 또는 Osan membership 한 곳만 부여한다. 총괄만 다중 membership을 가질 수 있다. 정정 경로가 승인되기 전에는 fake production project를 생성하지 않는다.
+
+어느 단계든 실패하면 downstream을 중단한다. DB 준비 실패는 기존 app을 유지하고, app 실패는 직전 immutable image로 되돌리며 additive migration은 down하지 않는다.

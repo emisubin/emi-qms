@@ -2588,6 +2588,7 @@ function QmsAppShellContent({
         <QrScanLandingPage
           key={view.token}
           developmentUserKey={developmentUserKey}
+          runtimeReady={runtimeMode.kind === 'ready'}
           token={view.token}
           onOpenPath={(path) => {
             window.history.pushState(null, '', path);

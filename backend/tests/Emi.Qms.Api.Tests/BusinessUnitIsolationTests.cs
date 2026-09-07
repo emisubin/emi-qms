@@ -78,6 +78,10 @@ public sealed class BusinessUnitIsolationTests
         var businessUnits = BusinessUnitConfiguration.Read(configuration);
 
         Assert.True(businessUnits.IsValid);
+        var osan = businessUnits.GetBusiness(BusinessUnitCodes.Osan);
+        Assert.False(osan.ExternalNotificationsEnabled);
+        Assert.False(osan.EscalationWorkerEnabled);
+        Assert.False(osan.AdminDeletionWorkerEnabled);
         Assert.Empty(businessUnits.ValidateOperationConnections(
             configuration,
             BusinessUnitConnectionPurpose.Runtime));
@@ -316,7 +320,7 @@ public sealed class BusinessUnitIsolationTests
             inspector);
         await AssertDatabaseContractFailuresBlockRequestsAsync(databases);
         await AssertOsanNotificationBoundariesAsync(databases);
-        await AssertWorkerFailureDoesNotSkipOtherUnitAsync(databases);
+        await AssertWorkerFailureDoesNotRunDisabledUnitAsync(databases);
         await AssertMigrationPreflightRejectsBeforeMutationAsync(
             databases,
             migrationCatalog);
@@ -2696,7 +2700,7 @@ public sealed class BusinessUnitIsolationTests
         Assert.Equal(0, handler.CallCount);
     }
 
-    private static async Task AssertWorkerFailureDoesNotSkipOtherUnitAsync(IsolationDatabaseSet databases)
+    private static async Task AssertWorkerFailureDoesNotRunDisabledUnitAsync(IsolationDatabaseSet databases)
     {
         await databases.ExecuteAsync(
             BusinessUnitCodes.Cheongju,
@@ -2714,7 +2718,7 @@ public sealed class BusinessUnitIsolationTests
             () => purge.PurgeDueAsync(TestContext.Current.CancellationToken));
         Assert.Contains("1 target(s)", exception.Message, StringComparison.Ordinal);
         Assert.Equal(
-            0L,
+            1L,
             await databases.ReadScalarAsync<long>(
                 BusinessUnitCodes.Osan,
                 BusinessUnitConnectionPurpose.Migration,
@@ -3175,8 +3179,8 @@ public sealed class BusinessUnitIsolationTests
                 ["BusinessUnits:Units:Osan:ExpectedSchemaVersion"] = BusinessUnitConfiguration.BusinessSchemaVersion,
                 ["BusinessUnits:DevelopmentSeedUnits:0"] = BusinessUnitCodes.Cheongju,
                 ["BusinessUnits:DevelopmentSeedUnits:1"] = BusinessUnitCodes.Osan,
-                ["BusinessUnits:MembershipBackfill:ApprovedUserIds:0"] = AdminUserId.ToString("D"),
-                ["BusinessUnits:MembershipBackfill:OverallAdministratorUserIds:0"] = AdminUserId.ToString("D"),
+                ["BusinessUnits:MembershipBackfill:ApprovedUserIdsDelimited"] = $" {AdminUserId:D};{AdminUserId:D} ",
+                ["BusinessUnits:MembershipBackfill:OverallAdministratorUserIdsDelimited"] = AdminUserId.ToString("D"),
                 ["DevelopmentData:SeedEnabled"] = "true",
                 ["DevAuthentication:Enabled"] = "true",
                 ["Database:ApplyMigrationsOnStartup"] = "false",

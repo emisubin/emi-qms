@@ -188,9 +188,13 @@ public sealed class BusinessUnitMembershipBackfillRunner(
 
     private HashSet<Guid> ReadApprovedIds(string key)
     {
-        var raw = configuration
+        var configuredItems = configuration
             .GetSection($"{BusinessUnitConfiguration.SectionName}:MembershipBackfill:{key}")
             .Get<string[]>() ?? [];
+        var delimitedItems = (configuration[
+                $"{BusinessUnitConfiguration.SectionName}:MembershipBackfill:{key}Delimited"] ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var raw = configuredItems.Concat(delimitedItems);
         var ids = new HashSet<Guid>();
         foreach (var value in raw)
         {

@@ -27,6 +27,9 @@ param databaseBootstrapIdentityId string
 @description('Key Vault name from foundation.bicep.')
 param keyVaultName string
 
+@description('Existing PostgreSQL Flexible Server name from foundation.bicep.')
+param postgresServerName string
+
 @description('Application Insights connection string from foundation.bicep.')
 param applicationInsightsConnectionString string
 
@@ -84,13 +87,156 @@ param enableExternalNotifications bool = false
 @description('Activate minimum replicas only after migration and readiness gates pass.')
 param activateWorkloads bool = false
 
+@description('Enable the isolated Directory, Cheongju, and Osan database topology.')
+param enableBusinessUnits bool = false
+
+@description('Attach the isolated business-unit runtime connections to the public Backend only after database restore readiness is proven.')
+param configureServingBusinessUnits bool = false
+
+@description('Existing production database retained as the Cheongju source of truth.')
+param cheongjuDatabaseName string = 'emi_qms'
+
+@description('Directory database created on the existing PostgreSQL server before role bootstrap.')
+param directoryDatabaseName string = 'emi_qms_directory'
+
+@description('Osan database created on the existing PostgreSQL server before role bootstrap.')
+param osanDatabaseName string = 'emi_qms_osan'
+
 var enabled = enableExternalNotifications ? 'true' : 'false'
 var disabled = enableExternalNotifications ? 'false' : 'true'
 var minimumReplicaCount = activateWorkloads ? 1 : 0
 var publicOrigin = 'https://${publicHost}'
+var servingBusinessUnitsEnabled = enableBusinessUnits && configureServingBusinessUnits
+var businessUnitOperationConfigurationEnvironment = enableBusinessUnits ? [
+  {
+    name: 'BusinessUnits__Enabled'
+    value: 'true'
+  }
+  {
+    name: 'BusinessUnits__Directory__Code'
+    value: 'DIRECTORY'
+  }
+  {
+    name: 'BusinessUnits__Directory__RuntimeConnection'
+    value: 'QmsDirectoryRuntime'
+  }
+  {
+    name: 'BusinessUnits__Directory__MigrationConnection'
+    value: 'QmsDirectoryMigration'
+  }
+  {
+    name: 'BusinessUnits__Directory__AdministratorConnection'
+    value: 'QmsDirectoryAdmin'
+  }
+  {
+    name: 'BusinessUnits__Directory__ExpectedDatabaseName'
+    value: directoryDatabaseName
+  }
+  {
+    name: 'BusinessUnits__Directory__MigrationRoleName'
+    value: 'pms_directory_migrator'
+  }
+  {
+    name: 'BusinessUnits__Directory__RuntimeRoleName'
+    value: 'pms_directory_app'
+  }
+  {
+    name: 'BusinessUnits__Directory__ExpectedSchemaVersion'
+    value: '0001_business_unit_directory'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__Code'
+    value: 'CHEONGJU'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__RuntimeConnection'
+    value: 'QmsCheongjuRuntime'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__MigrationConnection'
+    value: 'QmsCheongjuMigration'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__AdministratorConnection'
+    value: 'QmsCheongjuAdmin'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__ExpectedDatabaseName'
+    value: cheongjuDatabaseName
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__MigrationRoleName'
+    value: 'pms_migrator'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__RuntimeRoleName'
+    value: 'pms_app'
+  }
+  {
+    name: 'BusinessUnits__Units__Cheongju__ExpectedSchemaVersion'
+    value: '0086_business_unit_database_identity'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__Code'
+    value: 'OSAN'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__RuntimeConnection'
+    value: 'QmsOsanRuntime'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__MigrationConnection'
+    value: 'QmsOsanMigration'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__AdministratorConnection'
+    value: 'QmsOsanAdmin'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__ExpectedDatabaseName'
+    value: osanDatabaseName
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__MigrationRoleName'
+    value: 'pms_osan_migrator'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__RuntimeRoleName'
+    value: 'pms_osan_app'
+  }
+  {
+    name: 'BusinessUnits__Units__Osan__ExpectedSchemaVersion'
+    value: '0086_business_unit_database_identity'
+  }
+] : []
+var servingBusinessUnitConfigurationEnvironment = servingBusinessUnitsEnabled
+  ? businessUnitOperationConfigurationEnvironment
+  : []
 
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
   name: containerAppsEnvironmentName
+}
+
+resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' existing = {
+  name: postgresServerName
+}
+
+resource directoryDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = if (enableBusinessUnits) {
+  parent: postgresServer
+  name: directoryDatabaseName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+}
+
+resource osanDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = if (enableBusinessUnits) {
+  parent: postgresServer
+  name: osanDatabaseName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
 }
 
 var backendInternalHost = 'backend.internal.${containerAppsEnvironment.properties.defaultDomain}'
@@ -140,7 +286,7 @@ var databaseBootstrapRegistryConfiguration = [
     server: registryServer
   }
 ]
-var backendSecrets = [
+var backendSecrets = concat([
   {
     identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}database-runtime-connection-string'
@@ -181,8 +327,19 @@ var backendSecrets = [
     keyVaultUrl: '${keyVaultSecretBase}web-push-vapid-private-key'
     name: 'web-push-vapid-private-key'
   }
-]
-var servingBackendEnvironment = [
+], servingBusinessUnitsEnabled ? [
+  {
+    identity: backendIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}directory-database-runtime-connection-string'
+    name: 'directory-database-runtime-connection-string'
+  }
+  {
+    identity: backendIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-runtime-connection-string'
+    name: 'osan-database-runtime-connection-string'
+  }
+] : [])
+var servingBackendEnvironment = concat([
   {
     name: 'ASPNETCORE_ENVIRONMENT'
     value: 'Production'
@@ -411,17 +568,41 @@ var servingBackendEnvironment = [
     name: 'Notifications__Mail__Smtp__Password'
     secretRef: 'gmail-app-password'
   }
-]
+], servingBusinessUnitConfigurationEnvironment, servingBusinessUnitsEnabled ? [
+  {
+    name: 'ConnectionStrings__QmsDirectoryRuntime'
+    secretRef: 'directory-database-runtime-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsCheongjuRuntime'
+    secretRef: 'database-runtime-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanRuntime'
+    secretRef: 'osan-database-runtime-connection-string'
+  }
+] : [])
 
-var migrationSecrets = [
+var migrationSecrets = concat([
   {
     identity: migrationIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}database-migration-connection-string'
     name: 'database-migration-connection-string'
   }
-]
+], enableBusinessUnits ? [
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}directory-database-migration-connection-string'
+    name: 'directory-database-migration-connection-string'
+  }
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-migration-connection-string'
+    name: 'osan-database-migration-connection-string'
+  }
+] : [])
 
-var migrationEnvironment = [
+var migrationEnvironment = concat([
   {
     name: 'ASPNETCORE_ENVIRONMENT'
     value: 'Production'
@@ -438,9 +619,22 @@ var migrationEnvironment = [
     name: 'Database__RuntimeRoleName'
     value: 'pms_app'
   }
-]
+], businessUnitOperationConfigurationEnvironment, enableBusinessUnits ? [
+  {
+    name: 'ConnectionStrings__QmsDirectoryMigration'
+    secretRef: 'directory-database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsCheongjuMigration'
+    secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanMigration'
+    secretRef: 'osan-database-migration-connection-string'
+  }
+] : [])
 
-var databaseBootstrapSecrets = [
+var databaseBootstrapSecrets = concat([
   {
     identity: databaseBootstrapIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}database-admin-connection-string'
@@ -456,9 +650,40 @@ var databaseBootstrapSecrets = [
     keyVaultUrl: '${keyVaultSecretBase}database-runtime-connection-string'
     name: 'database-runtime-connection-string'
   }
-]
+], enableBusinessUnits ? [
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}directory-database-admin-connection-string'
+    name: 'directory-database-admin-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}directory-database-migration-connection-string'
+    name: 'directory-database-migration-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}directory-database-runtime-connection-string'
+    name: 'directory-database-runtime-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-admin-connection-string'
+    name: 'osan-database-admin-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-migration-connection-string'
+    name: 'osan-database-migration-connection-string'
+  }
+  {
+    identity: databaseBootstrapIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-runtime-connection-string'
+    name: 'osan-database-runtime-connection-string'
+  }
+] : [])
 
-var databaseBootstrapEnvironment = [
+var databaseBootstrapEnvironment = concat([
   {
     name: 'ASPNETCORE_ENVIRONMENT'
     value: 'Production'
@@ -475,7 +700,91 @@ var databaseBootstrapEnvironment = [
     name: 'ConnectionStrings__QmsDatabaseRuntime'
     secretRef: 'database-runtime-connection-string'
   }
-]
+], businessUnitOperationConfigurationEnvironment, enableBusinessUnits ? [
+  {
+    name: 'ConnectionStrings__QmsDirectoryAdmin'
+    secretRef: 'directory-database-admin-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsDirectoryMigration'
+    secretRef: 'directory-database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsDirectoryRuntime'
+    secretRef: 'directory-database-runtime-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsCheongjuAdmin'
+    secretRef: 'database-admin-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsCheongjuMigration'
+    secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsCheongjuRuntime'
+    secretRef: 'database-runtime-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanAdmin'
+    secretRef: 'osan-database-admin-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanMigration'
+    secretRef: 'osan-database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanRuntime'
+    secretRef: 'osan-database-runtime-connection-string'
+  }
+] : [])
+
+var membershipBackfillSecrets = enableBusinessUnits ? [
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}directory-database-migration-connection-string'
+    name: 'directory-database-migration-connection-string'
+  }
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}database-migration-connection-string'
+    name: 'database-migration-connection-string'
+  }
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}business-unit-backfill-user-ids'
+    name: 'business-unit-backfill-user-ids'
+  }
+  {
+    identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}business-unit-overall-administrator-user-ids'
+    name: 'business-unit-overall-administrator-user-ids'
+  }
+] : []
+
+var membershipBackfillEnvironment = concat([
+  {
+    name: 'ASPNETCORE_ENVIRONMENT'
+    value: 'Production'
+  }
+], businessUnitOperationConfigurationEnvironment, enableBusinessUnits ? [
+  {
+    name: 'ConnectionStrings__QmsDirectoryMigration'
+    secretRef: 'directory-database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsCheongjuMigration'
+    secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited'
+    secretRef: 'business-unit-backfill-user-ids'
+  }
+  {
+    name: 'BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited'
+    secretRef: 'business-unit-overall-administrator-user-ids'
+  }
+] : [])
 
 resource clamAv 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'clamav'
@@ -692,6 +1001,48 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
           resources: {
             cpu: json('1.0')
             memory: '2Gi'
+          }
+        }
+      ]
+    }
+    workloadProfileName: 'Consumption'
+  }
+}
+
+resource membershipBackfillJob 'Microsoft.App/jobs@2024-03-01' = if (enableBusinessUnits) {
+  name: 'business-unit-membership-backfill'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${migrationIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnvironment.id
+    configuration: {
+      manualTriggerConfig: {
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      registries: migrationRegistryConfiguration
+      replicaRetryLimit: 0
+      replicaTimeout: 900
+      secrets: membershipBackfillSecrets
+      triggerType: 'Manual'
+    }
+    template: {
+      containers: [
+        {
+          args: [
+            '--backfill-business-unit-memberships'
+          ]
+          env: membershipBackfillEnvironment
+          image: backendImage
+          name: 'business-unit-membership-backfill'
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
           }
         }
       ]
@@ -928,6 +1279,11 @@ output frontendName string = frontend.name
 output frontendFqdn string = frontend.properties.configuration.ingress.fqdn
 output migrationJobName string = migrationJob.name
 output databaseBootstrapJobName string = databaseBootstrapJob.name
+output membershipBackfillJobName string = enableBusinessUnits ? membershipBackfillJob.name : ''
+output directoryDatabaseResourceId string = enableBusinessUnits ? directoryDatabase.id : ''
+output osanDatabaseResourceId string = enableBusinessUnits ? osanDatabase.id : ''
 output workloadsActivated bool = activateWorkloads
 output externalNotificationsEnabled bool = enableExternalNotifications
+output businessUnitsEnabled bool = enableBusinessUnits
+output servingBusinessUnitsConfigured bool = servingBusinessUnitsEnabled
 output frontendPreAuthenticationEnabled bool = true

@@ -25,6 +25,9 @@ test('three databases keep tab context, stale reads, mutation locks, reset, and 
   await implicitContext.close();
 
   const cheongjuContext = await browser.newContext();
+  await cheongjuContext.addInitScript(() => {
+    window.localStorage.setItem('emi-qms-development-user-key', 'dev-admin');
+  });
   const cheongjuPage = await cheongjuContext.newPage();
   await cheongjuPage.goto('/');
   await expect(cheongjuPage.getByRole('heading', { name: '이 탭에서 사용할 사업부를 선택해 주세요.' })).toBeVisible();
@@ -61,6 +64,9 @@ test('three databases keep tab context, stale reads, mutation locks, reset, and 
   await expect(cheongjuPage.locator('select[aria-label="사업부 선택"]:visible')).toBeEnabled();
 
   const osanContext = await browser.newContext();
+  await osanContext.addInitScript(() => {
+    window.localStorage.setItem('emi-qms-development-user-key', 'dev-admin');
+  });
   const osanPage = await osanContext.newPage();
   await osanPage.goto('/');
   await expect(osanPage.getByRole('heading', { name: '이 탭에서 사용할 사업부를 선택해 주세요.' })).toBeVisible();
@@ -132,10 +138,12 @@ test('three databases keep tab context, stale reads, mutation locks, reset, and 
   await expect(osanPage.getByRole('heading', { name: '이 계정으로 선택할 수 없는 사업부입니다.' })).toBeVisible();
   expect(await osanPage.evaluate(() => window.sessionStorage.getItem('emi.qms.business-unit'))).toBeNull();
   await expect(osanPage.getByText('Osan Boundary Profile')).toHaveCount(0);
-  await osanPage.getByRole('button', { name: '청주 사업부로 이동' }).click();
+  await expect(osanPage.getByRole('button', { name: '청주 사업부로 이동' })).toHaveCount(0);
+  await osanPage.getByRole('button', { name: '선택 초기화' }).click();
   await expect.poll(() => osanPage.evaluate(() => window.sessionStorage.getItem('emi.qms.business-unit')))
     .toBe('CHEONGJU');
   await expect(osanPage.getByRole('heading', { name: '이 계정으로 선택할 수 없는 사업부입니다.' })).toHaveCount(0);
+  await expect(osanPage.getByLabel('사업부 선택')).toHaveCount(0);
 
   await Promise.all([cheongjuContext.close(), osanContext.close()]);
 });

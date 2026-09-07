@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "6818577442622291798"
+      "templateHash": "7540065454267204224"
     }
   },
   "parameters": {
@@ -62,6 +62,12 @@
       "type": "string",
       "metadata": {
         "description": "Key Vault name from foundation.bicep."
+      }
+    },
+    "postgresServerName": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing PostgreSQL Flexible Server name from foundation.bicep."
       }
     },
     "applicationInsightsConnectionString": {
@@ -181,6 +187,41 @@
       "metadata": {
         "description": "Activate minimum replicas only after migration and readiness gates pass."
       }
+    },
+    "enableBusinessUnits": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable the isolated Directory, Cheongju, and Osan database topology."
+      }
+    },
+    "configureServingBusinessUnits": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Attach the isolated business-unit runtime connections to the public Backend only after database restore readiness is proven."
+      }
+    },
+    "cheongjuDatabaseName": {
+      "type": "string",
+      "defaultValue": "emi_qms",
+      "metadata": {
+        "description": "Existing production database retained as the Cheongju source of truth."
+      }
+    },
+    "directoryDatabaseName": {
+      "type": "string",
+      "defaultValue": "emi_qms_directory",
+      "metadata": {
+        "description": "Directory database created on the existing PostgreSQL server before role bootstrap."
+      }
+    },
+    "osanDatabaseName": {
+      "type": "string",
+      "defaultValue": "emi_qms_osan",
+      "metadata": {
+        "description": "Osan database created on the existing PostgreSQL server before role bootstrap."
+      }
     }
   },
   "variables": {
@@ -188,6 +229,9 @@
     "disabled": "[if(parameters('enableExternalNotifications'), 'false', 'true')]",
     "minimumReplicaCount": "[if(parameters('activateWorkloads'), 1, 0)]",
     "publicOrigin": "[format('https://{0}', parameters('publicHost'))]",
+    "servingBusinessUnitsEnabled": "[and(parameters('enableBusinessUnits'), parameters('configureServingBusinessUnits'))]",
+    "businessUnitOperationConfigurationEnvironment": "[if(parameters('enableBusinessUnits'), createArray(createObject('name', 'BusinessUnits__Enabled', 'value', 'true'), createObject('name', 'BusinessUnits__Directory__Code', 'value', 'DIRECTORY'), createObject('name', 'BusinessUnits__Directory__RuntimeConnection', 'value', 'QmsDirectoryRuntime'), createObject('name', 'BusinessUnits__Directory__MigrationConnection', 'value', 'QmsDirectoryMigration'), createObject('name', 'BusinessUnits__Directory__AdministratorConnection', 'value', 'QmsDirectoryAdmin'), createObject('name', 'BusinessUnits__Directory__ExpectedDatabaseName', 'value', parameters('directoryDatabaseName')), createObject('name', 'BusinessUnits__Directory__MigrationRoleName', 'value', 'pms_directory_migrator'), createObject('name', 'BusinessUnits__Directory__RuntimeRoleName', 'value', 'pms_directory_app'), createObject('name', 'BusinessUnits__Directory__ExpectedSchemaVersion', 'value', '0001_business_unit_directory'), createObject('name', 'BusinessUnits__Units__Cheongju__Code', 'value', 'CHEONGJU'), createObject('name', 'BusinessUnits__Units__Cheongju__RuntimeConnection', 'value', 'QmsCheongjuRuntime'), createObject('name', 'BusinessUnits__Units__Cheongju__MigrationConnection', 'value', 'QmsCheongjuMigration'), createObject('name', 'BusinessUnits__Units__Cheongju__AdministratorConnection', 'value', 'QmsCheongjuAdmin'), createObject('name', 'BusinessUnits__Units__Cheongju__ExpectedDatabaseName', 'value', parameters('cheongjuDatabaseName')), createObject('name', 'BusinessUnits__Units__Cheongju__MigrationRoleName', 'value', 'pms_migrator'), createObject('name', 'BusinessUnits__Units__Cheongju__RuntimeRoleName', 'value', 'pms_app'), createObject('name', 'BusinessUnits__Units__Cheongju__ExpectedSchemaVersion', 'value', '0086_business_unit_database_identity'), createObject('name', 'BusinessUnits__Units__Osan__Code', 'value', 'OSAN'), createObject('name', 'BusinessUnits__Units__Osan__RuntimeConnection', 'value', 'QmsOsanRuntime'), createObject('name', 'BusinessUnits__Units__Osan__MigrationConnection', 'value', 'QmsOsanMigration'), createObject('name', 'BusinessUnits__Units__Osan__AdministratorConnection', 'value', 'QmsOsanAdmin'), createObject('name', 'BusinessUnits__Units__Osan__ExpectedDatabaseName', 'value', parameters('osanDatabaseName')), createObject('name', 'BusinessUnits__Units__Osan__MigrationRoleName', 'value', 'pms_osan_migrator'), createObject('name', 'BusinessUnits__Units__Osan__RuntimeRoleName', 'value', 'pms_osan_app'), createObject('name', 'BusinessUnits__Units__Osan__ExpectedSchemaVersion', 'value', '0086_business_unit_database_identity')), createArray())]",
+    "servingBusinessUnitConfigurationEnvironment": "[if(variables('servingBusinessUnitsEnabled'), variables('businessUnitOperationConfigurationEnvironment'), createArray())]",
     "backendRegistryConfiguration": [
       {
         "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
@@ -212,44 +256,31 @@
         "server": "[parameters('registryServer')]"
       }
     ],
-    "migrationEnvironment": [
-      {
-        "name": "ASPNETCORE_ENVIRONMENT",
-        "value": "Production"
-      },
-      {
-        "name": "ConnectionStrings__QmsDatabase",
-        "secretRef": "database-migration-connection-string"
-      },
-      {
-        "name": "Database__MigrationRoleName",
-        "value": "pms_migrator"
-      },
-      {
-        "name": "Database__RuntimeRoleName",
-        "value": "pms_app"
-      }
-    ],
-    "databaseBootstrapEnvironment": [
-      {
-        "name": "ASPNETCORE_ENVIRONMENT",
-        "value": "Production"
-      },
-      {
-        "name": "ConnectionStrings__QmsDatabaseAdmin",
-        "secretRef": "database-admin-connection-string"
-      },
-      {
-        "name": "ConnectionStrings__QmsDatabaseMigration",
-        "secretRef": "database-migration-connection-string"
-      },
-      {
-        "name": "ConnectionStrings__QmsDatabaseRuntime",
-        "secretRef": "database-runtime-connection-string"
-      }
-    ]
+    "migrationEnvironment": "[concat(createArray(createObject('name', 'ASPNETCORE_ENVIRONMENT', 'value', 'Production'), createObject('name', 'ConnectionStrings__QmsDatabase', 'secretRef', 'database-migration-connection-string'), createObject('name', 'Database__MigrationRoleName', 'value', 'pms_migrator'), createObject('name', 'Database__RuntimeRoleName', 'value', 'pms_app')), variables('businessUnitOperationConfigurationEnvironment'), if(parameters('enableBusinessUnits'), createArray(createObject('name', 'ConnectionStrings__QmsDirectoryMigration', 'secretRef', 'directory-database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsCheongjuMigration', 'secretRef', 'database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsOsanMigration', 'secretRef', 'osan-database-migration-connection-string')), createArray()))]",
+    "databaseBootstrapEnvironment": "[concat(createArray(createObject('name', 'ASPNETCORE_ENVIRONMENT', 'value', 'Production'), createObject('name', 'ConnectionStrings__QmsDatabaseAdmin', 'secretRef', 'database-admin-connection-string'), createObject('name', 'ConnectionStrings__QmsDatabaseMigration', 'secretRef', 'database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsDatabaseRuntime', 'secretRef', 'database-runtime-connection-string')), variables('businessUnitOperationConfigurationEnvironment'), if(parameters('enableBusinessUnits'), createArray(createObject('name', 'ConnectionStrings__QmsDirectoryAdmin', 'secretRef', 'directory-database-admin-connection-string'), createObject('name', 'ConnectionStrings__QmsDirectoryMigration', 'secretRef', 'directory-database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsDirectoryRuntime', 'secretRef', 'directory-database-runtime-connection-string'), createObject('name', 'ConnectionStrings__QmsCheongjuAdmin', 'secretRef', 'database-admin-connection-string'), createObject('name', 'ConnectionStrings__QmsCheongjuMigration', 'secretRef', 'database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsCheongjuRuntime', 'secretRef', 'database-runtime-connection-string'), createObject('name', 'ConnectionStrings__QmsOsanAdmin', 'secretRef', 'osan-database-admin-connection-string'), createObject('name', 'ConnectionStrings__QmsOsanMigration', 'secretRef', 'osan-database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsOsanRuntime', 'secretRef', 'osan-database-runtime-connection-string')), createArray()))]",
+    "membershipBackfillEnvironment": "[concat(createArray(createObject('name', 'ASPNETCORE_ENVIRONMENT', 'value', 'Production')), variables('businessUnitOperationConfigurationEnvironment'), if(parameters('enableBusinessUnits'), createArray(createObject('name', 'ConnectionStrings__QmsDirectoryMigration', 'secretRef', 'directory-database-migration-connection-string'), createObject('name', 'ConnectionStrings__QmsCheongjuMigration', 'secretRef', 'database-migration-connection-string'), createObject('name', 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited', 'secretRef', 'business-unit-backfill-user-ids'), createObject('name', 'BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited', 'secretRef', 'business-unit-overall-administrator-user-ids')), createArray()))]"
   },
   "resources": [
+    {
+      "condition": "[parameters('enableBusinessUnits')]",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', parameters('postgresServerName'), parameters('directoryDatabaseName'))]",
+      "properties": {
+        "charset": "UTF8",
+        "collation": "en_US.utf8"
+      }
+    },
+    {
+      "condition": "[parameters('enableBusinessUnits')]",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', parameters('postgresServerName'), parameters('osanDatabaseName'))]",
+      "properties": {
+        "charset": "UTF8",
+        "collation": "en_US.utf8"
+      }
+    },
     {
       "type": "Microsoft.App/containerApps",
       "apiVersion": "2024-03-01",
@@ -357,282 +388,12 @@
             "transport": "http"
           },
           "registries": "[variables('backendRegistryConfiguration')]",
-          "secrets": [
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "database-runtime-connection-string"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}bootstrap-administrator-emails', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "bootstrap-administrator-emails"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}development-operator-emails', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "development-ops"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}gmail-username', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "gmail-username"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}gmail-app-password', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "gmail-app-password"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}teams-activity-client-secret', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "teams-activity-client-secret"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}web-push-vapid-public-key', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "web-push-vapid-public-key"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}web-push-vapid-private-key', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "web-push-vapid-private-key"
-            }
-          ]
+          "secrets": "[concat(createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'database-runtime-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}bootstrap-administrator-emails', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'bootstrap-administrator-emails'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}development-operator-emails', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'development-ops'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}gmail-username', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'gmail-username'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}gmail-app-password', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'gmail-app-password'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}teams-activity-client-secret', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'teams-activity-client-secret'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}web-push-vapid-public-key', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'web-push-vapid-public-key'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}web-push-vapid-private-key', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'web-push-vapid-private-key')), if(variables('servingBusinessUnitsEnabled'), createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}directory-database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'directory-database-runtime-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'keyVaultUrl', format('{0}osan-database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'osan-database-runtime-connection-string')), createArray()))]"
         },
         "template": {
           "containers": [
             {
-              "env": [
-                {
-                  "name": "ASPNETCORE_ENVIRONMENT",
-                  "value": "Production"
-                },
-                {
-                  "name": "ASPNETCORE_URLS",
-                  "value": "http://+:8080"
-                },
-                {
-                  "name": "AllowedHosts",
-                  "value": "[format('{0};{1}', parameters('publicHost'), format('backend.internal.{0}', reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName')), '2024-03-01').defaultDomain))]"
-                },
-                {
-                  "name": "Authentication__Mode",
-                  "value": "EntraId"
-                },
-                {
-                  "name": "Authentication__BootstrapAdminEmails",
-                  "secretRef": "bootstrap-administrator-emails"
-                },
-                {
-                  "name": "Authentication__DevelopmentOperatorEmails",
-                  "secretRef": "development-ops"
-                },
-                {
-                  "name": "AzureAd__Instance",
-                  "value": "[environment().authentication.loginEndpoint]"
-                },
-                {
-                  "name": "AzureAd__TenantId",
-                  "value": "[parameters('entraTenantId')]"
-                },
-                {
-                  "name": "AzureAd__ClientId",
-                  "value": "[parameters('entraApiClientId')]"
-                },
-                {
-                  "name": "AzureAd__SpaClientId",
-                  "value": "[parameters('entraSpaClientId')]"
-                },
-                {
-                  "name": "AzureAd__Audience",
-                  "value": "[parameters('entraApiAudience')]"
-                },
-                {
-                  "name": "AzureAd__Domain",
-                  "value": "[parameters('entraDomain')]"
-                },
-                {
-                  "name": "Frontend__Origin",
-                  "value": "[variables('publicOrigin')]"
-                },
-                {
-                  "name": "Frontend__RedirectUri",
-                  "value": "[variables('publicOrigin')]"
-                },
-                {
-                  "name": "ReverseProxy__KnownNetworks",
-                  "value": "[parameters('containerAppsSubnetPrefix')]"
-                },
-                {
-                  "name": "RateLimiting__Enabled",
-                  "value": "true"
-                },
-                {
-                  "name": "UploadSecurity__Enabled",
-                  "value": "true"
-                },
-                {
-                  "name": "UploadSecurity__FailClosed",
-                  "value": "true"
-                },
-                {
-                  "name": "UploadSecurity__ScannerHost",
-                  "value": "[reference(resourceId('Microsoft.App/containerApps', 'clamav'), '2024-03-01').configuration.ingress.fqdn]"
-                },
-                {
-                  "name": "UploadSecurity__ScannerPort",
-                  "value": "3310"
-                },
-                {
-                  "name": "UploadSecurity__RejectImageMetadata",
-                  "value": "true"
-                },
-                {
-                  "name": "Database__ApplyMigrationsOnStartup",
-                  "value": "false"
-                },
-                {
-                  "name": "Database__RuntimeRoleName",
-                  "value": "pms_app"
-                },
-                {
-                  "name": "DevelopmentData__SeedEnabled",
-                  "value": "false"
-                },
-                {
-                  "name": "DevAuthentication__Enabled",
-                  "value": "false"
-                },
-                {
-                  "name": "AdminUserSwitch__Enabled",
-                  "value": "false"
-                },
-                {
-                  "name": "Operations__Backup__RestoreVerifiedAtUtc",
-                  "value": "[parameters('restoreVerifiedAtUtc')]"
-                },
-                {
-                  "name": "Operations__Monitoring__Enabled",
-                  "value": "true"
-                },
-                {
-                  "name": "Operations__Monitoring__SecurityAlertSink",
-                  "value": "[parameters('securityAlertSink')]"
-                },
-                {
-                  "name": "ConnectionStrings__QmsDatabase",
-                  "secretRef": "database-runtime-connection-string"
-                },
-                {
-                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
-                  "value": "[parameters('applicationInsightsConnectionString')]"
-                },
-                {
-                  "name": "Notifications__Links__BaseUrl",
-                  "value": "[variables('publicOrigin')]"
-                },
-                {
-                  "name": "Notifications__Dispatch__Enabled",
-                  "value": "[variables('enabled')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__Enabled",
-                  "value": "[variables('enabled')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__DryRun",
-                  "value": "[variables('disabled')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__PersonalChannelStrategy",
-                  "value": "TeamsActivity"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__TenantId",
-                  "value": "[parameters('entraTenantId')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__ClientId",
-                  "value": "[parameters('teamsActivityClientId')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__ClientSecret",
-                  "secretRef": "teams-activity-client-secret"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__ManifestId",
-                  "value": "[parameters('teamsManifestExternalId')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__TeamsManifestExternalId",
-                  "value": "[parameters('teamsManifestExternalId')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__TeamsAppId",
-                  "value": "[parameters('teamsActivityClientId')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__TeamsCatalogAppId",
-                  "value": "[parameters('teamsCatalogAppId')]"
-                },
-                {
-                  "name": "Notifications__TeamsActivity__TopicWebUrl",
-                  "value": "[variables('publicOrigin')]"
-                },
-                {
-                  "name": "Notifications__WebPush__Enabled",
-                  "value": "[variables('enabled')]"
-                },
-                {
-                  "name": "Notifications__WebPush__DryRun",
-                  "value": "[variables('disabled')]"
-                },
-                {
-                  "name": "Notifications__WebPush__PublicKey",
-                  "secretRef": "web-push-vapid-public-key"
-                },
-                {
-                  "name": "Notifications__WebPush__PrivateKey",
-                  "secretRef": "web-push-vapid-private-key"
-                },
-                {
-                  "name": "Notifications__Mail__Enabled",
-                  "value": "[variables('enabled')]"
-                },
-                {
-                  "name": "Notifications__Mail__DryRun",
-                  "value": "[variables('disabled')]"
-                },
-                {
-                  "name": "Notifications__Mail__Provider",
-                  "value": "Smtp"
-                },
-                {
-                  "name": "Notifications__Mail__SenderAddress",
-                  "secretRef": "gmail-username"
-                },
-                {
-                  "name": "Notifications__Mail__Smtp__Host",
-                  "value": "smtp.gmail.com"
-                },
-                {
-                  "name": "Notifications__Mail__Smtp__Port",
-                  "value": "587"
-                },
-                {
-                  "name": "Notifications__Mail__Smtp__Security",
-                  "value": "StartTls"
-                },
-                {
-                  "name": "Notifications__Mail__Smtp__Username",
-                  "secretRef": "gmail-username"
-                },
-                {
-                  "name": "Notifications__Mail__Smtp__Password",
-                  "secretRef": "gmail-app-password"
-                }
-              ],
+              "env": "[concat(createArray(createObject('name', 'ASPNETCORE_ENVIRONMENT', 'value', 'Production'), createObject('name', 'ASPNETCORE_URLS', 'value', 'http://+:8080'), createObject('name', 'AllowedHosts', 'value', format('{0};{1}', parameters('publicHost'), format('backend.internal.{0}', reference(resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName')), '2024-03-01').defaultDomain))), createObject('name', 'Authentication__Mode', 'value', 'EntraId'), createObject('name', 'Authentication__BootstrapAdminEmails', 'secretRef', 'bootstrap-administrator-emails'), createObject('name', 'Authentication__DevelopmentOperatorEmails', 'secretRef', 'development-ops'), createObject('name', 'AzureAd__Instance', 'value', environment().authentication.loginEndpoint), createObject('name', 'AzureAd__TenantId', 'value', parameters('entraTenantId')), createObject('name', 'AzureAd__ClientId', 'value', parameters('entraApiClientId')), createObject('name', 'AzureAd__SpaClientId', 'value', parameters('entraSpaClientId')), createObject('name', 'AzureAd__Audience', 'value', parameters('entraApiAudience')), createObject('name', 'AzureAd__Domain', 'value', parameters('entraDomain')), createObject('name', 'Frontend__Origin', 'value', variables('publicOrigin')), createObject('name', 'Frontend__RedirectUri', 'value', variables('publicOrigin')), createObject('name', 'ReverseProxy__KnownNetworks', 'value', parameters('containerAppsSubnetPrefix')), createObject('name', 'RateLimiting__Enabled', 'value', 'true'), createObject('name', 'UploadSecurity__Enabled', 'value', 'true'), createObject('name', 'UploadSecurity__FailClosed', 'value', 'true'), createObject('name', 'UploadSecurity__ScannerHost', 'value', reference(resourceId('Microsoft.App/containerApps', 'clamav'), '2024-03-01').configuration.ingress.fqdn), createObject('name', 'UploadSecurity__ScannerPort', 'value', '3310'), createObject('name', 'UploadSecurity__RejectImageMetadata', 'value', 'true'), createObject('name', 'Database__ApplyMigrationsOnStartup', 'value', 'false'), createObject('name', 'Database__RuntimeRoleName', 'value', 'pms_app'), createObject('name', 'DevelopmentData__SeedEnabled', 'value', 'false'), createObject('name', 'DevAuthentication__Enabled', 'value', 'false'), createObject('name', 'AdminUserSwitch__Enabled', 'value', 'false'), createObject('name', 'Operations__Backup__RestoreVerifiedAtUtc', 'value', parameters('restoreVerifiedAtUtc')), createObject('name', 'Operations__Monitoring__Enabled', 'value', 'true'), createObject('name', 'Operations__Monitoring__SecurityAlertSink', 'value', parameters('securityAlertSink')), createObject('name', 'ConnectionStrings__QmsDatabase', 'secretRef', 'database-runtime-connection-string'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', parameters('applicationInsightsConnectionString')), createObject('name', 'Notifications__Links__BaseUrl', 'value', variables('publicOrigin')), createObject('name', 'Notifications__Dispatch__Enabled', 'value', variables('enabled')), createObject('name', 'Notifications__TeamsActivity__Enabled', 'value', variables('enabled')), createObject('name', 'Notifications__TeamsActivity__DryRun', 'value', variables('disabled')), createObject('name', 'Notifications__TeamsActivity__PersonalChannelStrategy', 'value', 'TeamsActivity'), createObject('name', 'Notifications__TeamsActivity__TenantId', 'value', parameters('entraTenantId')), createObject('name', 'Notifications__TeamsActivity__ClientId', 'value', parameters('teamsActivityClientId')), createObject('name', 'Notifications__TeamsActivity__ClientSecret', 'secretRef', 'teams-activity-client-secret'), createObject('name', 'Notifications__TeamsActivity__ManifestId', 'value', parameters('teamsManifestExternalId')), createObject('name', 'Notifications__TeamsActivity__TeamsManifestExternalId', 'value', parameters('teamsManifestExternalId')), createObject('name', 'Notifications__TeamsActivity__TeamsAppId', 'value', parameters('teamsActivityClientId')), createObject('name', 'Notifications__TeamsActivity__TeamsCatalogAppId', 'value', parameters('teamsCatalogAppId')), createObject('name', 'Notifications__TeamsActivity__TopicWebUrl', 'value', variables('publicOrigin')), createObject('name', 'Notifications__WebPush__Enabled', 'value', variables('enabled')), createObject('name', 'Notifications__WebPush__DryRun', 'value', variables('disabled')), createObject('name', 'Notifications__WebPush__PublicKey', 'secretRef', 'web-push-vapid-public-key'), createObject('name', 'Notifications__WebPush__PrivateKey', 'secretRef', 'web-push-vapid-private-key'), createObject('name', 'Notifications__Mail__Enabled', 'value', variables('enabled')), createObject('name', 'Notifications__Mail__DryRun', 'value', variables('disabled')), createObject('name', 'Notifications__Mail__Provider', 'value', 'Smtp'), createObject('name', 'Notifications__Mail__SenderAddress', 'secretRef', 'gmail-username'), createObject('name', 'Notifications__Mail__Smtp__Host', 'value', 'smtp.gmail.com'), createObject('name', 'Notifications__Mail__Smtp__Port', 'value', '587'), createObject('name', 'Notifications__Mail__Smtp__Security', 'value', 'StartTls'), createObject('name', 'Notifications__Mail__Smtp__Username', 'secretRef', 'gmail-username'), createObject('name', 'Notifications__Mail__Smtp__Password', 'secretRef', 'gmail-app-password')), variables('servingBusinessUnitConfigurationEnvironment'), if(variables('servingBusinessUnitsEnabled'), createArray(createObject('name', 'ConnectionStrings__QmsDirectoryRuntime', 'secretRef', 'directory-database-runtime-connection-string'), createObject('name', 'ConnectionStrings__QmsCheongjuRuntime', 'secretRef', 'database-runtime-connection-string'), createObject('name', 'ConnectionStrings__QmsOsanRuntime', 'secretRef', 'osan-database-runtime-connection-string')), createArray()))]",
               "image": "[parameters('backendImage')]",
               "name": "backend",
               "probes": [
@@ -727,13 +488,7 @@
           "registries": "[variables('migrationRegistryConfiguration')]",
           "replicaRetryLimit": 0,
           "replicaTimeout": 1800,
-          "secrets": [
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "database-migration-connection-string"
-            }
-          ],
+          "secrets": "[concat(createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'database-migration-connection-string')), if(parameters('enableBusinessUnits'), createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}directory-database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'directory-database-migration-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}osan-database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'osan-database-migration-connection-string')), createArray()))]",
           "triggerType": "Manual"
         },
         "template": {
@@ -748,6 +503,50 @@
               "resources": {
                 "cpu": "[json('1.0')]",
                 "memory": "2Gi"
+              }
+            }
+          ]
+        },
+        "workloadProfileName": "Consumption"
+      }
+    },
+    {
+      "condition": "[parameters('enableBusinessUnits')]",
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "business-unit-membership-backfill",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))))]": {}
+        }
+      },
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+        "configuration": {
+          "manualTriggerConfig": {
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "registries": "[variables('migrationRegistryConfiguration')]",
+          "replicaRetryLimit": 0,
+          "replicaTimeout": 900,
+          "secrets": "[if(parameters('enableBusinessUnits'), createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}directory-database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'directory-database-migration-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'database-migration-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}business-unit-backfill-user-ids', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'business-unit-backfill-user-ids'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('migrationIdentityId'), '/'))), 'keyVaultUrl', format('{0}business-unit-overall-administrator-user-ids', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'business-unit-overall-administrator-user-ids')), createArray())]",
+          "triggerType": "Manual"
+        },
+        "template": {
+          "containers": [
+            {
+              "args": [
+                "--backfill-business-unit-memberships"
+              ],
+              "env": "[variables('membershipBackfillEnvironment')]",
+              "image": "[parameters('backendImage')]",
+              "name": "business-unit-membership-backfill",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
               }
             }
           ]
@@ -776,23 +575,7 @@
           "registries": "[variables('databaseBootstrapRegistryConfiguration')]",
           "replicaRetryLimit": 0,
           "replicaTimeout": 900,
-          "secrets": [
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}database-admin-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "database-admin-connection-string"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "database-migration-connection-string"
-            },
-            {
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/')))]",
-              "keyVaultUrl": "[format('{0}database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri))]",
-              "name": "database-runtime-connection-string"
-            }
-          ],
+          "secrets": "[concat(createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}database-admin-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'database-admin-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'database-migration-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'database-runtime-connection-string')), if(parameters('enableBusinessUnits'), createArray(createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}directory-database-admin-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'directory-database-admin-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}directory-database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'directory-database-migration-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}directory-database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'directory-database-runtime-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}osan-database-admin-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'osan-database-admin-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}osan-database-migration-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'osan-database-migration-connection-string'), createObject('identity', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'keyVaultUrl', format('{0}osan-database-runtime-connection-string', format('{0}secrets/', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri)), 'name', 'osan-database-runtime-connection-string')), createArray()))]",
           "triggerType": "Manual"
         },
         "template": {
@@ -1023,6 +806,18 @@
       "type": "string",
       "value": "database-role-bootstrap"
     },
+    "membershipBackfillJobName": {
+      "type": "string",
+      "value": "[if(parameters('enableBusinessUnits'), 'business-unit-membership-backfill', '')]"
+    },
+    "directoryDatabaseResourceId": {
+      "type": "string",
+      "value": "[if(parameters('enableBusinessUnits'), resourceId('Microsoft.DBforPostgreSQL/flexibleServers/databases', parameters('postgresServerName'), parameters('directoryDatabaseName')), '')]"
+    },
+    "osanDatabaseResourceId": {
+      "type": "string",
+      "value": "[if(parameters('enableBusinessUnits'), resourceId('Microsoft.DBforPostgreSQL/flexibleServers/databases', parameters('postgresServerName'), parameters('osanDatabaseName')), '')]"
+    },
     "workloadsActivated": {
       "type": "bool",
       "value": "[parameters('activateWorkloads')]"
@@ -1030,6 +825,14 @@
     "externalNotificationsEnabled": {
       "type": "bool",
       "value": "[parameters('enableExternalNotifications')]"
+    },
+    "businessUnitsEnabled": {
+      "type": "bool",
+      "value": "[parameters('enableBusinessUnits')]"
+    },
+    "servingBusinessUnitsConfigured": {
+      "type": "bool",
+      "value": "[variables('servingBusinessUnitsEnabled')]"
     },
     "frontendPreAuthenticationEnabled": {
       "type": "bool",

@@ -342,3 +342,7 @@ Never-settling stale Promise, response header에서 controller 조기 해제, to
 ### 사용자 검수 결과와 남은 항목
 
 Change 001의 자동 검증과 fresh GPT-6 read-only 제품 품질 검증은 완료했다. Change 002는 사용자 지정 단독 Sol 경로에서 자동·시각 검증과 self-review를 완료했고 사용자 직접 검수는 대기한다. Task 3 Change 005 현재 화면은 사용자가 검수 완료했다. Local commit은 승인됐고 push·PR·merge와 운영 runtime Task는 별도 승인 대상으로 남아 있다.
+
+### Azure phase 1 승격 상태
+
+`TASK-AZURE-DEPLOY-001 Change 031`은 로그인·사업부 해석, no-membership·local-profile-pending gate, 총괄 membership과 선택 사업부 local role 관리를 포함한다. 일반 사용자의 dual-membership 전환 결함은 사용자 승인으로 보류했으며 운영에서는 일반 계정에 membership 한 곳만 부여한다. Change 002 selector는 자동·시각 검증 완료, 사용자 검수 대기 상태를 유지한다. Change 031 최종 source에서 Backend `582/582`, Frontend `297/297`, mock `13/13`, 일반/전용 Full-Stack `64+1+1=66/66`과 배포 정적 검증을 통과했다. Azure mutation과 실제 계정 검증은 아직 수행하지 않았다.

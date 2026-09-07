@@ -288,6 +288,10 @@ jobs:
         run: corepack pnpm --filter emi-qms-frontend exec playwright install --with-deps chromium
       - name: Full-stack Playwright E2E
         run: corepack pnpm --filter emi-qms-frontend run e2e:full-stack
+      - name: Business-unit access isolated Full-Stack E2E
+        run: scripts/e2e-business-unit-access-full-stack.sh
+      - name: Osan project registration isolated Full-Stack E2E
+        run: scripts/e2e-osan-project-registration-full-stack.sh
       - name: Upload full-stack Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

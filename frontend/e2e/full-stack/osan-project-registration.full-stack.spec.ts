@@ -13,7 +13,9 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   page.on('requestfailed', (failedRequest) => {
-    requestFailures.push(`${failedRequest.method()} ${new URL(failedRequest.url()).pathname}`);
+    if (failedRequest.failure()?.errorText !== 'net::ERR_ABORTED') {
+      requestFailures.push(`${failedRequest.method()} ${new URL(failedRequest.url()).pathname}`);
+    }
   });
 
   await page.addInitScript(() => {
@@ -46,9 +48,9 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
 
   await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '프로젝트' }).click();
-  await expect(page.getByRole('heading', { name: '오산 프로젝트' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
   await expect(page.getByText('등록된 프로젝트가 없습니다.')).toBeVisible();
-  await page.getByRole('button', { name: '프로젝트 등록' }).first().click();
+  await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
 
   await page.getByLabel('프로젝트 Title').fill('  오산 통합 프로젝트  ');
   await page.getByLabel('프로젝트 코드').fill('  OSAN  001  ');
@@ -61,19 +63,24 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 
   await expect(page.getByRole('heading', { name: '오산 통합 프로젝트' })).toBeVisible();
-  await expect(page.getByText('OSAN  001', { exact: true })).toBeVisible();
+  const summary = page.locator('[data-presentation-contract="project-summary-v1"]');
+  await expect(summary).toBeVisible();
+  await summary.locator('details > summary').click();
+  await expect(summary.getByText('OSAN  001', { exact: true })).toBeVisible();
   await expect(page.getByText('001-PO/+', { exact: true })).toBeVisible();
   await expect(page.getByText('000-W/O', { exact: true })).toBeVisible();
-  const targetSection = page.locator('.osan-project-targets');
-  await expect(targetSection.getByRole('article')).toHaveCount(2);
-  for (const target of await targetSection.getByRole('article').all()) {
-    await expect(target.getByRole('listitem')).toHaveCount(7);
-    await expect(target.getByText('시작 전')).toHaveCount(8);
+  const targetTable = page.getByRole('table', { name: '진행 관리 대상 현황' });
+  const targetRows = targetTable.getByRole('row');
+  await expect(targetRows).toHaveCount(3);
+  for (const target of [targetRows.nth(1), targetRows.nth(2)]) {
+    await expect(target).toContainText('시작 전');
+    await expect(target).toContainText('0/7단계 완료');
   }
 
-  await page.getByRole('button', { name: '목록으로' }).click();
-  await expect(page.getByRole('heading', { name: '오산 프로젝트' })).toBeVisible();
-  await expect(page.locator('.osan-project-card__code')).toHaveText('OSAN  001');
+  await page.getByRole('navigation', { name: '현재 위치' }).getByRole('button', { name: '프로젝트' }).click();
+  await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
+  const projectRow = page.getByTestId('osan-project-list-desktop').getByRole('row', { name: '오산 통합 프로젝트 상세 열기' });
+  await expect(projectRow.locator('.project-code-value')).toHaveText('OSAN  001');
 
   const osanList = await request.get(`${backendUrl}/api/osan/projects`, {
     headers: requestHeaders('OSAN')

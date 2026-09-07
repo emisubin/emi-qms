@@ -338,3 +338,7 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 ### 4. 사용자 검수 결과와 남은 항목
 
 자동 검증에서는 오산 등록·목록·상세, 값 보존, 수량별 대상과 7단계, 동시성·idempotency·rollback, 청주 불변을 local 합성 환경에서 확인했다. Change 002의 별도 오산 UI는 Change 003에서 제거했고, Change 004에서 목록 행·카드와 상세 표시를 공용화했다. Change 005는 비교 범위를 목록 page 전체로 바로잡아 제목, 검색·납기 filter, KPI, 상태 tab과 목록을 같은 composition으로 통합했다. 같은 run의 desktop/mobile 증빙 8개를 Parent와 fresh verifier가 눈으로 확인했고 사용자는 2026-09-07 현재 Task 3 화면 검수 완료를 명시했다. 이 완료는 Task 2의 새 selector 가시성 보정, Task 4~6, Persistent UAT, 실제 provider, push·PR·merge·main 반영을 포함하지 않는다.
+
+### Azure phase 1 승격 상태
+
+사용자는 완료된 Task 3 create/list/detail을 `TASK-AZURE-DEPLOY-001 Change 031`로 먼저 공개 배포하도록 지시했다. 진행 mutation·자동 완료·dashboard와 Pending/hold/cancel/deleted/Excel은 제외하며 Osan external provider와 worker는 disabled다. 최종 local source는 Backend `582/582`, Frontend `297/297`, mock `13/13`, 일반/전용 Full-Stack `64+1+1=66/66`과 배포 정적 검증을 통과했다. 승인된 정정 경로가 없으므로 배포 검증은 fake production project를 만들지 않고, 첫 실제 입력과 Microsoft 365 계정 검수는 직접 관찰된 뒤에만 완료로 기록한다.

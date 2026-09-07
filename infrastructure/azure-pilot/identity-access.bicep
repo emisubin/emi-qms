@@ -15,6 +15,9 @@ param databaseBootstrapIdentityId string
 @description('Key Vault name from foundation.bicep. All required secrets must exist before this deployment.')
 param keyVaultName string
 
+@description('Grant the existing workload identities access to the isolated Directory and Osan database secrets.')
+param enableBusinessUnits bool = false
+
 @description('Optional existing role assignment name used to adopt a manually created Frontend Entra access-gate secret assignment during redeployment.')
 param frontendAccessGateRoleAssignmentName string = ''
 
@@ -62,6 +65,46 @@ resource databaseMigrationSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' 
 resource databaseRuntimeSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
   parent: keyVault
   name: 'database-runtime-connection-string'
+}
+
+resource directoryDatabaseAdminSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'directory-database-admin-connection-string'
+}
+
+resource directoryDatabaseMigrationSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'directory-database-migration-connection-string'
+}
+
+resource directoryDatabaseRuntimeSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'directory-database-runtime-connection-string'
+}
+
+resource osanDatabaseAdminSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'osan-database-admin-connection-string'
+}
+
+resource osanDatabaseMigrationSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'osan-database-migration-connection-string'
+}
+
+resource osanDatabaseRuntimeSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'osan-database-runtime-connection-string'
+}
+
+resource businessUnitBackfillUserIdsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'business-unit-backfill-user-ids'
+}
+
+resource businessUnitOverallAdministratorUserIdsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (enableBusinessUnits) {
+  parent: keyVault
+  name: 'business-unit-overall-administrator-user-ids'
 }
 
 resource bootstrapAdministratorsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
@@ -112,6 +155,26 @@ resource webPushVapidPrivateKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07
 resource backendDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(databaseRuntimeSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
   scope: databaseRuntimeSecret
+  properties: {
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource backendDirectoryDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(directoryDatabaseRuntimeSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
+  scope: directoryDatabaseRuntimeSecret
+  properties: {
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource backendOsanDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(osanDatabaseRuntimeSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
+  scope: osanDatabaseRuntimeSecret
   properties: {
     principalId: backendIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -225,6 +288,46 @@ resource migrationDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@20
   }
 }
 
+resource migrationDirectoryDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(directoryDatabaseMigrationSecret.id, migrationIdentity.id, 'KeyVaultSecretsUser')
+  scope: directoryDatabaseMigrationSecret
+  properties: {
+    principalId: migrationIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource migrationOsanDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(osanDatabaseMigrationSecret.id, migrationIdentity.id, 'KeyVaultSecretsUser')
+  scope: osanDatabaseMigrationSecret
+  properties: {
+    principalId: migrationIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource migrationBackfillUserIdsSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(businessUnitBackfillUserIdsSecret.id, migrationIdentity.id, 'KeyVaultSecretsUser')
+  scope: businessUnitBackfillUserIdsSecret
+  properties: {
+    principalId: migrationIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource migrationOverallAdministratorUserIdsSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(businessUnitOverallAdministratorUserIdsSecret.id, migrationIdentity.id, 'KeyVaultSecretsUser')
+  scope: businessUnitOverallAdministratorUserIdsSecret
+  properties: {
+    principalId: migrationIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
 resource bootstrapAdminDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(databaseAdminSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
   scope: databaseAdminSecret
@@ -255,4 +358,64 @@ resource bootstrapRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAssignm
   }
 }
 
-output secretScopedRoleAssignmentCount int = 13
+resource bootstrapDirectoryAdminDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(directoryDatabaseAdminSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
+  scope: directoryDatabaseAdminSecret
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource bootstrapDirectoryMigrationDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(directoryDatabaseMigrationSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
+  scope: directoryDatabaseMigrationSecret
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource bootstrapDirectoryRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(directoryDatabaseRuntimeSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
+  scope: directoryDatabaseRuntimeSecret
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource bootstrapOsanAdminDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(osanDatabaseAdminSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
+  scope: osanDatabaseAdminSecret
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource bootstrapOsanMigrationDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(osanDatabaseMigrationSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
+  scope: osanDatabaseMigrationSecret
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+resource bootstrapOsanRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessUnits) {
+  name: guid(osanDatabaseRuntimeSecret.id, databaseBootstrapIdentity.id, 'KeyVaultSecretsUser')
+  scope: osanDatabaseRuntimeSecret
+  properties: {
+    principalId: databaseBootstrapIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}
+
+output secretScopedRoleAssignmentCount int = enableBusinessUnits ? 26 : 14

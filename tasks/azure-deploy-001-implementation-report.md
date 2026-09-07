@@ -1055,3 +1055,40 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 - Change 027: 위 절의 게시·배포 대기 문구는 historical approval snapshot이다. G2 기반 기능은 후속 main·Azure 통합 release에 포함됐으며 현재 대기 상태가 아니다.
 - Change 028~029: G2 Change 003과 사이트 접속을 exact current-main에 통합해 Azure release `33577473523`으로 배포했다.
 - Change 030: G2 Change 004 제품 PR #119를 exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74`로 병합하고 Azure release `33589472932`으로 Backend·Frontend를 교체했다. Migration은 생략했고 공개 health·익명 차단·G2 2026-08-28 수식 일치를 확인했다.
+
+## 15. Change 031 — 오산 1단계 등록 전용 배포 준비
+
+### 목적과 승인 범위
+
+사용자는 2026-09-07 오산 Task 1~3만 먼저 Azure 공개 환경에 배포하도록 명시했다. 이 순서 변경은 `TASK-AZURE-DEPLOY-001`의 Change 031로 기록하며 Task 4 진행·자동 완료와 Task 5 dashboard는 포함하지 않는다. Read-only 운영 사전 점검, 배포 정의·검증·문서 변경, local commit, remote branch·Draft PR·CI와 main 병합 뒤 승인된 Azure 조작이 범위다. Exact `main` merge는 현재 별도 명시 승인을 기다린다.
+
+### 운영 기준선과 구현
+
+- 운영 PostgreSQL은 Ready, Burstable B2s 2 vCore/4 GiB, 32 GiB이며 사용률은 낮은 편이다. 14일 PITR가 활성이고 최근 자동 backup은 연속 성공했다. Public network는 꺼져 있고 private VNet/DNS를 사용한다.
+- 현재 user DB는 기존 업무 DB 한 개다. 이를 이름 변경·복사 없이 Cheongju canonical DB로 유지하고 Directory·Osan 빈 DB만 같은 server에 추가한다.
+- 기존 DB secret 3개는 Cheongju admin/migration/runtime으로 보존한다. Directory·Osan은 분리된 6개 connection secret과 4개 bounded role을 추가한다. Backend, migration과 bootstrap identity의 권한은 합계 26개 secret resource scope로 제한하고 vault scope 권한은 허용하지 않는다.
+- `workloads`는 DB/job 준비와 public Backend 연결 전환을 `enableBusinessUnits`와 `configureServingBusinessUnits`로 분리한다. 첫 적용은 serving 설정을 건드리지 않고 Directory·Osan DB와 세 manual job만 준비한다. Restore rehearsal 뒤 serving connection/env를 연결하고 새 Backend digest를 적용한다.
+- Release는 role bootstrap → Directory `0001..0002` 및 두 business DB `0001..0087` migration → 승인된 Cheongju membership backfill → Backend → Frontend 순서다. DB 준비 전용 run 뒤 별도 PITR server에서 3-DB restore를 확인하고 같은 exact main SHA의 강제 전체 run을 수행한다.
+- 오산 external notification, escalation, scheduled deletion worker를 비활성으로 고정했다. 일반 사용자는 phase 1에서 membership 한 곳만 부여하며 dual-membership 전환 결함은 사용자 승인 아래 보류한다.
+
+### 검증 상태
+
+- Bicep compile, tracked ARM 구조 동등성, Azure artifact 정적 검증, release 정상·bootstrap/migration/backfill 실패·DB-only·rollback mock, workflow actionlint와 shell syntax가 통과했다.
+- Frontend lint error 0, typecheck, production build, unit `297/297`, mock Chromium `13/13`이 통과했다. 정상 navigation의 `net::ERR_ABORTED`는 저장소의 기존 기준대로 오류 집계에서 제외하고 non-aborted failure는 계속 0을 요구한다.
+- Backend Release 전체 `582/582`, 단일 DB Full-Stack `64/64`, 3-DB business-unit access `1/1`, 3-DB Osan create/list/detail·Cheongju 불변 `1/1`이 최종 source에서 통과했다. Full-Stack 최종 합계는 `66/66`이며 각 run의 synthetic DB·role·process·container·network cleanup도 통과했다.
+- 운영 Azure mutation, DB 생성·secret/RBAC 적용, image push, migration, app revision 교체는 아직 `0`건이다.
+
+### Finding과 복구
+
+| ID | 등급 | 상태 | 내용과 처리 |
+| --- | --- | --- | --- |
+| `AZURE-OSAN-DB-CREATE-01` | P1 | `RESOLVED_LOCAL` | Role bootstrap보다 먼저 Directory·Osan DB를 만드는 정의가 없었다. Workload template에 조건부 database resource 두 개를 추가했다. |
+| `AZURE-OSAN-PRETRAFFIC-01` | P1 | `RESOLVED_LOCAL` | DB 준비용 workload 적용이 public Backend env/revision을 함께 바꿀 수 있었다. Serving 연결을 별도 flag로 분리해 restore 검증 전에는 기존 public 설정을 보존한다. |
+| `AZURE-OSAN-WORKER-01` | P2 | `RESOLVED_LOCAL` | 오산 scheduled deletion worker가 활성 metadata를 상속했다. 오산은 notification·escalation·deletion worker 모두 disabled로 고정했다. |
+| `AZURE-OSAN-CI-3DB-01` | P2 | `RESOLVED_LOCAL` | 서로 다른 DB topology를 요구하는 business-unit/Osan 시나리오를 일반 단일 DB Full-Stack harness가 함께 수집해 잘못된 실패를 만들었다. 일반 config에서 두 파일을 제외하고 CI가 각 전용 3-DB harness를 별도 실행하도록 고정해 `64+1+1=66/66`을 확인했다. |
+| `AZURE-OSAN-QR-RUNTIME-01` | P2 | `RESOLVED_LOCAL` | QR landing의 resolve POST가 runtime mode 확정 전에 시작돼 정상 Production에서도 review-safe mutation lock을 잘못 적용할 수 있었다. Runtime ready 뒤 resolve를 시작하도록 보정하고 실제 Backend QR 회귀를 집중·전체 실행에서 재확인했다. |
+| `AZURE-OSAN-E2E-DRIFT-01` | P3 | `RESOLVED_LOCAL` | 개발 사용자 전환 뒤 shell remount와 Change 002·Task 3 Change 003~005의 현재 selector·공용 UI 계약을 일부 오래된 E2E 기대가 반영하지 못했다. 메뉴 자동 닫힘, 단일 membership 초기화, 공용 Osan 목록·상세 역할/이름으로 정렬했다. 제품 workflow는 QR race 외에 변경하지 않았다. |
+| `AZURE-OSAN-DUAL-MEMBERSHIP-01` | P2 | `RISK_ACCEPTED` | 일반 사용자를 두 사업부에 동시에 배정하면 전환할 수 없다. 사용자 승인으로 이번 수정에서 제외하고 phase 1 일반 계정은 membership 정확히 한 곳만 부여한다. 실제 첫 계정 배정 전 재확인한다. |
+| `AZURE-OSAN-SELECTOR-VALIDATION-01` | User gate | `OPEN` | Change 002 자동·desktop/mobile 시각 검증은 완료됐지만 사용자 검수 완료 기록은 없다. Draft PR과 운영 후 사용자 확인에서 대기 상태를 유지한다. |
+
+Application 문제는 직전 immutable Backend·Frontend image로 되돌린다. 기존 image는 계속 legacy Cheongju connection을 사용하므로 Directory·Osan additive DB/migration과 호환된다. Schema는 down하지 않으며 DB 이상은 Osan serving을 연결하지 않고 Cheongju health를 확인한 뒤 forward-fix한다.

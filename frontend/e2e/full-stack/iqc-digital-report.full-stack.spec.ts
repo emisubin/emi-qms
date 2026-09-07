@@ -152,7 +152,12 @@ async function reportId(request: APIRequestContext, attemptId: string) {
 async function ensureMobileUser(page: Page, userKey: string) {
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  await drawer.getByLabel('개발 사용자').selectOption(userKey);
+  const selector = drawer.getByLabel('개발 사용자');
+  if (await selector.inputValue() === userKey) {
+    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  } else {
+    await selector.selectOption(userKey);
+  }
   await expect(drawer).toBeHidden();
 }
 

@@ -458,3 +458,9 @@ Change 003·004 exact-head `a5142b6573e70b75d2a4aea4dc43c5d42e229c9b`의 3-DB ru
 이 승인은 기존 Draft PR #121의 같은 head branch non-force 갱신과 최종 remote CI 1회를 포함한다. Exact `main` merge, Azure, Persistent UAT, 실제 provider와 운영 DB·image mutation은 포함하지 않는다. CI 통과 뒤 PR exact head/base/mergeable/latest main을 확인하고 `main` 병합 직전에서 멈춘다.
 
 OpenAI 공식 모델 문서는 높은 reasoning effort가 더 긴 응답 시간을 만들 수 있고 실제 latency는 end-to-end workload로 측정해야 한다고 안내한다. GPT-6 출시가 GPT-5.6 Sol 자체 속도를 낮췄다는 공식 근거는 확인되지 않았다. 이번 세션에서 관찰된 긴 시간은 앞선 xhigh, 22~28분 Backend 전체, 12~15분 Full-Stack 전체의 반복, 3-DB/Docker 준비·정리, CI 재실행, UI 재작업, workspace permission 전환, 긴 Repository gate·문서와 parent handoff가 누적된 결과다. High가 xhigh보다 항상 빠르다고 보장하지 않으며, 검수 전 targeted test와 최종 게시 head의 전체 CI 1회 정책은 긴 suite 고정비와 불필요한 재실행을 줄인다.
+
+### 첫 PR CI 실패와 표적 보정
+
+검수 기록 commit `d34d372220f3cf082752690986de212e544c31ec`의 자동 CI run `34136633185`에서 Change Classification·Workflow Validation·Frontend는 PASS했고, Backend는 583/584 PASS, Full-Stack 일반 묶음은 63/64 PASS 뒤 격리 2건 skip, CI Gate는 FAIL했다. Backend는 통합 사용자 승인 뒤에도 onboarding 사용자가 pending이라고 본 legacy test 기대값이 원인이었고, Full-Stack은 이미 선택된 mock 사용자를 다시 선택해 자동 business resolution과 menu open을 경쟁시킨 helper가 원인이었다. 제품 권한·routing·데이터 계약 실패는 관찰되지 않았다.
+
+Backend assertion을 현재 통합 승인 결과에 맞추고, mobile helper가 실제 값이 바뀔 때만 user selection event를 만들도록 보정했다. 전체 로컬 suite는 반복하지 않았다. 영향받은 Full-Stack spec 1건은 격리 3-DB에서 `1/1 PASS`, Backend test project targeted build는 경고 0·오류 0, 실패했던 Backend 3-DB fact는 `1/1 PASS`했으며 각각 owned runtime 자원을 정리했다. 이 보정의 push가 자동 생성하는 새 PR CI만 최종 전체 회귀로 추적하고 첫 run retry나 수동 workflow dispatch는 하지 않는다.

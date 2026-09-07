@@ -112,3 +112,12 @@ Backend resolver/API schema, DB/migration, 관리자 권한 확대, 새 route/pa
 - [x] 오산에서 admin URL을 직접 열면 청주 가능 총괄은 같은 admin URL의 청주 context로 전환되고, 오산 단일 사용자는 홈으로 이동한다.
 
 사용자 검수는 `COMPLETED`다. Exact-head runtime은 검수 뒤 owned session으로 정상 종료했고 5098/5198 listener와 해당 격리 Compose container·network·volume 잔여 0건을 확인했다. 다음 단계는 기존 Draft PR #121 non-force 갱신과 최종 remote CI 1회이며 exact `main` merge 전에서 멈춘다.
+
+## 9. 첫 PR CI와 실패 보정
+
+사용자 검수 기록 commit `d34d372220f3cf082752690986de212e544c31ec`을 기존 Draft PR #121에 non-force push해 자동 시작된 CI run `34136633185`를 최종 head의 첫 전체 회귀로 실행했다. Change Classification과 Workflow Validation, Frontend는 PASS했다. Full-Stack은 일반 64건 중 63건이 통과하고 1건이 실패해 사업부 격리 2건을 건너뛰었으며, Backend는 584건 중 583건이 통과하고 1건이 실패했다. CI Gate는 두 필수 job 실패를 반영해 FAIL했다. 같은 run을 재시도하거나 workflow를 수동 중복 실행하지 않았다.
+
+- Full-Stack 실패는 mobile helper가 이미 선택된 `dev-quality`를 다시 `selectOption`해 인위적인 change event를 발생시키고, Change 004의 자동 사업부 확정에 따른 두 번째 shell mount가 바로 다음에 연 품질 menu를 닫는 test interaction race였다. 현재 값이 같으면 drawer를 명시적으로 닫고, 다를 때만 실제 사용자 전환을 수행하도록 helper를 보정했다. 실패 spec 한 건만 격리 3-DB로 재실행해 `1/1 PASS`했고 owned DB·container·network를 정리했다.
+- Backend 실패는 Change 003 통합 저장으로 완전한 활성 Osan local profile을 받은 Entra onboarding 사용자를 뒤의 ReviewSafe 무변경 검증에서 여전히 `ApprovalPending=True`로 기대한 legacy assertion이었다. Directory와 local row 무변경 assertion은 유지하고 현재 승인 결과에 맞게 `ApprovalPending=False`를 기대하도록 보정했다. Test project targeted build는 경고 0·오류 0, 해당 3-DB fact는 `1/1 PASS`했고 owned DB·container·network를 정리했다.
+
+보정 allowlist는 `backend/tests/Emi.Qms.Api.Tests/BusinessUnitIsolationTests.cs`, `frontend/e2e/full-stack/iqc-digital-report.full-stack.spec.ts`와 이 CI 기록을 위한 Change 004·implementation report다. 보정 commit의 non-force push가 새 전체 PR CI를 자동 시작하는 것은 실패 수정 뒤 최종 head를 검증하기 위한 불가피한 재실행이며, 별도 수동 dispatch나 첫 run retry는 하지 않는다.

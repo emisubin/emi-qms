@@ -2965,7 +2965,7 @@ public sealed class BusinessUnitIsolationTests
         Assert.Equal(
             directoryBefore.Split(':', 2)[0],
             existing.FindFirst(QmsClaimTypes.UserId)?.Value);
-        Assert.Equal(bool.TrueString, existing.FindFirst(QmsClaimTypes.ApprovalPending)?.Value);
+        Assert.Equal(bool.FalseString, existing.FindFirst(QmsClaimTypes.ApprovalPending)?.Value);
         Assert.Equal(
             directoryBefore,
             await databases.ReadScalarAsync<string>(

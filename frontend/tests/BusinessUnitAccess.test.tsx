@@ -398,7 +398,7 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '사업부에 접속할 수 없습니다.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '사용자 승인이 필요합니다.' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
   });

@@ -2,7 +2,7 @@
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - currentChangeTaskType: `BUGFIX`
-- status: `CHANGE_002_IMPLEMENTED_AWAITING_USER_VALIDATION`
+- status: `CHANGE_003_IMPLEMENTED_AWAITING_USER_VALIDATION`
 - parentTask: `TASK-OSAN-PILOT-001`
 - implementationApproved: true
 - implementationApprovalSource: `USER_EXPLICIT_2026-09-06_NEXT_TASK_START`
@@ -13,6 +13,9 @@
 - gitPublicationApproved: false
 - currentChangeApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
 - currentImplementationBranch: `feat/task-osan-project-001-project-registration`
+- change003ApprovalSource: `USER_EXPLICIT_2026-09-07_INTEGRATED_USER_APPROVAL`
+- change003ImplementationBranch: `fix/task-osan-access-001-integrated-user-approval`
+- change003ImplementationBaseline: `11c1185ea9c550022e3f70d106e06a1c6bc517b1`
 - 선행조건: 충족 — TASK-OSAN-ISOLATION-001 제품 구현·자동 검증·사용자 검수 완료, 미완료 Docker lifecycle 동적 검증은 TASK-OSAN-VALIDATION-001로 이관. 사용자가 2026-09-06 “다음작업 시작해”로 이 Task 구현을 승인했고, 이어서 Task 1 local 기준선 commit과 Task 2 branch/worktree 생성을 승인했다.
 
 ## 목적과 계약
@@ -36,7 +39,7 @@ Backend membership/authorization/admin endpoints, Frontend App/auth/api/menu/cac
 
 실행 시 최신 instruction chain·Task identity·Roadmap·branch/runtime 상태를 읽고 exact 파일 allowlist와 검증 명령을 고정한다. 기존 WIP가 남은 현 branch에서 제품 개발을 자동 시작하거나 사용자의 WIP를 정리하지 않는다.
 
-[Change 001 구현 방향서](osan-access-001-change-001.md)가 최초 구현 계약과 Task 전용 branch 전환 전 상태를 기록한다. [Change 002](osan-access-001-change-002.md)는 사용자 검수에서 확인한 단일 소속 selector 가시성 결함과 현재 보정 범위를 기록한다.
+[Change 001 구현 방향서](osan-access-001-change-001.md)가 최초 구현 계약과 Task 전용 branch 전환 전 상태를 기록한다. [Change 002](osan-access-001-change-002.md)는 사용자 검수에서 확인한 단일 소속 selector 가시성 결함을 기록한다. [Change 003](osan-access-001-change-003.md)은 별도 사업부 소속 관리 화면을 기존 사용자 관리에 통합하고 첫 승인과 승인 후 사업부별 접근 수정을 한 저장으로 처리하는 최신 계약이다.
 
 ## 완료 기준
 
@@ -57,3 +60,5 @@ Backend membership/authorization/admin endpoints, Frontend App/auth/api/menu/cac
 사용자·사업부 bootstrap 입력 방법과 권한 matrix를 문서화하고 Task 3에 인증된 오산 생성/진행 actor 계약을 전달한다.
 
 실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. Change 001은 fresh GPT-6 High 검증에서 확인된 Finding을 모두 보정해 제품 P0/P1/P2 `0/0/0`, `GO`로 끝났고 사용자는 직접 검수를 오산 마지막 일괄 검수로 이관했다. 2026-09-07 사용자는 Task 3 Change 005 화면 검수를 완료한 뒤 단일 소속 사용자에게 사업부 선택 UI를 아예 표시하지 말라고 지시했다. Change 002는 사용자 지정 `GPT_5_6_SOL_XHIGH_ONLY` 경로로 active 목적지가 두 곳 이상인 총괄에게만 선택 UI가 보이도록 보정하고 component 18/18, 전체 Frontend 297/297, mock browser 3/3, 3-DB 격리 2/2와 desktop/mobile 직접 확인을 통과했다. 이번 보정의 사용자 검수는 대기하며 local commit은 승인됐다. Push·PR·merge·운영 적용은 승인되지 않았다.
+
+2026-09-07 Change 003은 사용자 명시 승인으로 기존 `관리자 > 사용자 관리`에 Directory 승인 대기 사용자와 사업부별 부서·역할·부서장·활성을 통합했다. 일반 사용자는 한 사업부 이하, 지정 총괄만 다중 소속이며 총괄 designation과 local `users.manage`는 분리한다. Directory 0003은 local profile commit 뒤 membership을 공개하고 회수는 membership을 먼저 차단하며, operation ID·version·RetryRequired와 공통 correlation으로 재시도와 감사를 연결한다. 검수 전 최소 집중 검증은 통과했고 전체 회귀는 사용자 지시대로 검수 뒤 최종 게시 head에서 한 번만 실행한다. Change 003은 local commit 기반 사용자 검수 대기이며 PR #121·`main`·Azure는 변경하지 않는다.

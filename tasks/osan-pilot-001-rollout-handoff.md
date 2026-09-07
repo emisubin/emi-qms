@@ -9,18 +9,20 @@
 - 기존 생산 DB는 Cheongju로 그대로 유지하고 Directory·Osan DB만 같은 server에 추가한다. DB 준비·PITR rehearsal 뒤 serving을 연결한다.
 - 일반 사용자의 dual-membership 전환 결함은 사용자 승인으로 보류했다. Phase 1 일반 사용자는 membership 한 곳만 부여한다.
 - Selector Change 002는 자동·시각 증빙 완료, 사용자 검수 대기다. Task 3 Change 005 사용자 검수 완료와 혼동하지 않는다.
+- Change 003은 별도 사업부 소속 관리 화면을 사용자 관리에 통합하고 local-first publish·membership-first revoke·일반 사용자 1개 사업부 강제를 추가했다. Local 검증 완료 뒤 exact local commit 사용자 검수 단계이며 기존 PR #121과 Change 031 배포 후보에는 아직 포함되지 않았다.
 - Exact main merge 전에는 Azure mutation을 시작하지 않는다. 병합 뒤에도 DB/role/identity/migration → restore → Backend → Frontend → public/Cheongju/Osan 순서를 지킨다.
 
 - canonicalTaskId: `TASK-AZURE-DEPLOY-001`
 - sourceTask: `TASK-OSAN-PILOT-001`
 - taskType: `UAT_RUNTIME`
-- status: `LOCAL_VALIDATION_COMPLETE_AWAITING_DRAFT_PR_CI`
+- status: `CHANGE_003_LOCAL_IMPLEMENTED_AWAITING_USER_VALIDATION`
 - reuseExistingTask: true
 - productionDeploymentApproved: true
 - migrationExecutionApproved: true
 - gitPublicationApproved: true
 - mainMergeApproved: false
 - selectorUserValidation: `PENDING`
+- integratedUserApprovalValidation: `PENDING`
 
 ## 목적과 기존 Task 재사용
 
@@ -52,3 +54,5 @@ OSAN-REVIEW-003의 오입력 신고·담당자·변경 금지 안내를 [통합 
 ## Change 031 로컬 준비 결과
 
 Backend `582/582`, Frontend `297/297`, mock browser `13/13`, Full-Stack `66/66`과 Bicep·ARM·release mock·workflow 정적 검증을 통과했다. 일반 Full-Stack `64`건과 별도 3-DB business-unit/Osan 시나리오 `2`건을 CI에서도 같은 경계로 실행하도록 정렬했다. 실제 Azure mutation은 없으며 Draft PR·필수 CI 다음에 selector 사용자 검수와 exact `main` merge 승인 Gate가 남는다.
+
+위 수치는 PR #121 exact head `11c1185ea9c550022e3f70d106e06a1c6bc517b1`의 Change 031 역사적 결과다. Change 003 local source에는 적용할 수 없다. 사용자는 Change 003 검수 전 광범위 회귀를 금지하고 검수 완료 뒤 최종 게시 head에서 전체 회귀를 한 번만 실행하도록 지시했다. 따라서 다음 순서는 Change 003 exact local commit 사용자 검수 → 승인된 push로 PR #121 갱신 → 최종 head 전체 CI/회귀 1회 → exact `main` merge 승인 → 기존 DB/restore/app 배포 gate 재개다. 검수·게시 전에는 Azure와 운영 DB를 변경하지 않는다.

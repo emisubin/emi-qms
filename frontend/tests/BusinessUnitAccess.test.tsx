@@ -28,6 +28,19 @@ const defaultRuntimeMode = {
 };
 
 function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' | 'OSAN'> = ['CHEONGJU']) {
+  const departmentId = '10000000-0000-0000-0000-000000000001';
+  const unitProfile = (businessUnitCode: 'CHEONGJU' | 'OSAN', active: boolean, canManage = true) => ({
+    businessUnitCode,
+    membershipActive: active,
+    localProfileExists: active,
+    isActive: active,
+    departmentId: active ? departmentId : null,
+    departmentCode: active ? 'management-support' : null,
+    departmentName: active ? '경영지원' : null,
+    roles: active ? ['management-support'] : [],
+    isDepartmentHead: false,
+    canManage
+  });
   return {
     users: [
       {
@@ -36,7 +49,13 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
         displayName: 'Synthetic Overall Admin',
         email: null,
         memberships: ['CHEONGJU', 'OSAN'],
-        isOverallAdministrator: true
+        isOverallAdministrator: true,
+        accessVersion: 1,
+        pendingOperationId: null,
+        pendingOperationStatus: null,
+        pendingFailureCode: null,
+        pendingProfiles: [],
+        profiles: [unitProfile('CHEONGJU', true), unitProfile('OSAN', true)]
       },
       {
         userId: '50000000-0000-0000-0000-000000000002',
@@ -44,10 +63,25 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
         displayName: 'Synthetic New User',
         email: 'new-user@example.invalid',
         memberships: newUserMemberships,
-        isOverallAdministrator: false
+        isOverallAdministrator: false,
+        accessVersion: 0,
+        pendingOperationId: null,
+        pendingOperationStatus: null,
+        pendingFailureCode: null,
+        pendingProfiles: [],
+        profiles: [
+          unitProfile('CHEONGJU', newUserMemberships.includes('CHEONGJU')),
+          unitProfile('OSAN', newUserMemberships.includes('OSAN'))
+        ]
       }
     ],
-    availableBusinessUnits: ['CHEONGJU', 'OSAN']
+    availableBusinessUnits: ['CHEONGJU', 'OSAN'],
+    businessUnits: ['CHEONGJU', 'OSAN'].map((code) => ({
+      code,
+      canManage: true,
+      departments: [{ departmentId, code: 'management-support', name: '경영지원', defaultRoleCode: 'management-support' }],
+      roles: [{ roleId: '20000000-0000-0000-0000-000000000001', code: 'management-support', name: '경영지원' }]
+    }))
   };
 }
 
@@ -143,7 +177,7 @@ function shellFetch(
         }]
       });
     }
-    if (url.pathname === '/api/admin/business-unit-access/users') {
+    if (url.pathname === '/api/admin/user-access/users') {
       return json(membershipAdministrationResponse());
     }
     return json({ title: 'unexpected test request' }, 404);
@@ -285,7 +319,7 @@ describe('business-unit access shell', () => {
 
   it.each([
     ['CHEONGJU', '사용자 관리'],
-    ['OSAN', '현재 사업부 사용자 관리']
+    ['OSAN', '사용자 관리']
   ] as const)('does not render a header selector for a %s-only overall administrator', async (
     businessUnit,
     title
@@ -378,7 +412,7 @@ describe('business-unit access shell', () => {
     expect(within(navigation).queryByRole('button', { name: 'G2' })).not.toBeInTheDocument();
   });
 
-  it('separates overall membership management from selected-unit user roles', async () => {
+  it('integrates membership and business-unit profiles in user management', async () => {
     selectBusinessUnit('OSAN');
     window.history.replaceState(null, '', '/admin/business-unit-access');
     const fallbackFetch = shellFetch(selectedUser({
@@ -390,10 +424,11 @@ describe('business-unit access shell', () => {
     }));
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname.endsWith('/memberships') && init?.method === 'PUT') {
+      if (url.pathname.endsWith('/access') && init?.method === 'PUT') {
         return json({
           changed: true,
-          snapshot: membershipAdministrationResponse(['CHEONGJU', 'OSAN'])
+          accessVersion: 1,
+          snapshot: membershipAdministrationResponse(['OSAN'])
         });
       }
       return fallbackFetch(input, init);
@@ -402,26 +437,32 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '사업부 소속 관리' })).toBeInTheDocument();
-    expect(screen.getByText(/총괄 관리자 지정은 여기서 변경할 수 없습니다/)).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: '현재 사업부 사용자 관리' }).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('heading', { name: '사용자 관리' })).toBeInTheDocument();
+    expect(screen.getByText(/총괄 관리자 지정은 별도 관리됩니다/)).toBeInTheDocument();
+    expect(screen.queryByText('사업부 소속 관리')).not.toBeInTheDocument();
     const adminCard = (await screen.findByText('총괄 관리자')).closest('article');
     expect(adminCard).not.toBeNull();
     expect(within(adminCard!).getByText('총괄 관리자')).toBeInTheDocument();
-    expect(within(adminCard!).getByLabelText('청주')).toBeChecked();
-    expect(within(adminCard!).getByLabelText('오산')).toBeChecked();
+    expect(within(adminCard!).getAllByLabelText('소속·활성')).toHaveLength(2);
 
     const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
     expect(newUserCard).not.toBeNull();
-    const osanMembership = within(newUserCard!).getByLabelText('오산');
+    const unitGroups = within(newUserCard!).getAllByRole('group');
+    const cheongjuGroup = unitGroups.find((group) => within(group).queryByText('청주'))!;
+    const osanGroup = unitGroups.find((group) => within(group).queryByText('오산'))!;
+    const cheongjuMembership = within(cheongjuGroup).getByLabelText('소속·활성');
+    const osanMembership = within(osanGroup).getByLabelText('소속·활성');
     await waitFor(() => expect(osanMembership).toBeEnabled());
+    fireEvent.click(cheongjuMembership);
     fireEvent.click(osanMembership);
-    const saveMembership = within(newUserCard!).getByRole('button', { name: '소속 저장' });
+    fireEvent.change(within(osanGroup).getByLabelText('부서'), { target: { value: '10000000-0000-0000-0000-000000000001' } });
+    fireEvent.click(within(osanGroup).getByLabelText('경영지원'));
+    const saveMembership = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
     expect(saveMembership).toBeEnabled();
     fireEvent.click(saveMembership);
-    expect(await screen.findByRole('status')).toHaveTextContent('사업부 소속을 저장했습니다.');
+    expect(await screen.findByRole('status')).toHaveTextContent('사용자 접근 정보를 저장했습니다.');
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/memberships') && init?.method === 'PUT'
+      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(1);
   });
 
@@ -448,8 +489,8 @@ describe('business-unit access shell', () => {
     const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
     expect(newUserCard).not.toBeNull();
     expect(screen.getByText('검수 전용 읽기 모드에서는 사업부 소속을 변경할 수 없습니다.')).toBeInTheDocument();
-    const checkbox = within(newUserCard!).getByLabelText('오산');
-    const save = within(newUserCard!).getByRole('button', { name: '소속 저장' });
+    const checkbox = within(newUserCard!).getAllByLabelText('소속·활성')[1];
+    const save = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
     expect(checkbox).toBeDisabled();
     expect(save).toBeDisabled();
 
@@ -460,7 +501,7 @@ describe('business-unit access shell', () => {
 
     expect(checkbox).not.toBeChecked();
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/memberships') && init?.method === 'PUT'
+      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
   });
 
@@ -484,8 +525,8 @@ describe('business-unit access shell', () => {
     expect(screen.getByText('실행 모드를 확인하는 동안에는 사업부 소속을 변경할 수 없습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
-    const checkbox = within(newUserCard!).getByLabelText('오산');
-    const save = within(newUserCard!).getByRole('button', { name: '소속 저장' });
+    const checkbox = within(newUserCard!).getAllByLabelText('소속·활성')[1];
+    const save = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
     expect(checkbox).toBeDisabled();
     expect(save).toBeDisabled();
     checkbox.removeAttribute('disabled');
@@ -493,7 +534,7 @@ describe('business-unit access shell', () => {
     save.removeAttribute('disabled');
     fireEvent.click(save);
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/memberships') && init?.method === 'PUT'
+      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
   });
 
@@ -515,8 +556,8 @@ describe('business-unit access shell', () => {
     expect(await screen.findByText('실행 모드를 확인할 수 없어 사업부 소속 변경을 차단했습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
-    const checkbox = within(newUserCard!).getByLabelText('오산');
-    const save = within(newUserCard!).getByRole('button', { name: '소속 저장' });
+    const checkbox = within(newUserCard!).getAllByLabelText('소속·활성')[1];
+    const save = within(newUserCard!).getByRole('button', { name: '사용자 저장' });
     expect(checkbox).toBeDisabled();
     expect(save).toBeDisabled();
     checkbox.removeAttribute('disabled');
@@ -524,7 +565,7 @@ describe('business-unit access shell', () => {
     save.removeAttribute('disabled');
     fireEvent.click(save);
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/memberships') && init?.method === 'PUT'
+      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
   });
 
@@ -535,7 +576,7 @@ describe('business-unit access shell', () => {
       status: 'selected',
       selectedBusinessUnit: 'OSAN',
       allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
-      isOverallAdministrator: true,
+      isOverallAdministrator: false,
       errorCode: null
     })));
 
@@ -558,7 +599,7 @@ describe('business-unit access shell', () => {
       status: 'selected',
       selectedBusinessUnit: 'CHEONGJU',
       allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
-      isOverallAdministrator: true,
+      isOverallAdministrator: false,
       errorCode: null
     })));
 
@@ -603,7 +644,7 @@ describe('business-unit access shell', () => {
     const generationBeforeRevocation = getBusinessUnitRequestState().generation;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/admin/users') {
+      if (url.pathname === '/api/admin/user-access/users') {
         selectedBusinessRequestCount += 1;
         return json({
           errorCode: 'directory_membership_required',

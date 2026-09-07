@@ -33,6 +33,7 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         if (!hasSelectedLocalProfile)
         {
             if (context.Request.Path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
+                || context.Request.Path.StartsWithSegments("/api/admin/user-access")
                 || context.Request.Path.StartsWithSegments("/api/admin/business-unit-access")
                 || (selection.IsOverallAdministrator
                     && context.Request.Path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)))
@@ -83,6 +84,7 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             || path.StartsWithSegments("/api/me/profile-photo")
             || path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/api/business-units")
+            || path.StartsWithSegments("/api/admin/user-access")
             || path.StartsWithSegments("/api/admin/business-unit-access"))
         {
             return true;

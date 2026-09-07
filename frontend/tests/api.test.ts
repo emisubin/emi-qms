@@ -12,7 +12,7 @@ import {
   setAccessTokenProvider,
   setRuntimeMutationAllowed,
   updateAdminUser,
-  updateBusinessUnitMemberships
+  updateBusinessUnitUserAccess
 } from '../src/api';
 
 function json(body: unknown, status = 200) {
@@ -155,17 +155,26 @@ describe('business-unit API request context', () => {
     })));
     selectBusinessUnit('CHEONGJU');
 
-    const mutation = updateBusinessUnitMemberships(
+    const mutation = updateBusinessUnitUserAccess(
       'dev-admin',
       '50000000-0000-0000-0000-000000000001',
-      ['CHEONGJU', 'OSAN']);
+      '70000000-0000-0000-0000-000000000001',
+      0,
+      [{
+        businessUnitCode: 'CHEONGJU',
+        departmentId: '10000000-0000-0000-0000-000000000001',
+        roleCodes: ['system-administrator'],
+        isActive: true,
+        isDepartmentHead: false
+      }]);
 
     expect(getBusinessUnitRequestState().inFlightMutationCount).toBe(1);
     expect(() => selectBusinessUnit('OSAN')).toThrowError('저장 작업이 끝난 뒤 사업부를 변경해 주세요.');
 
     resolveFetch(json({
       changed: true,
-      snapshot: { users: [], availableBusinessUnits: ['CHEONGJU', 'OSAN'] }
+      accessVersion: 1,
+      snapshot: { users: [], availableBusinessUnits: ['CHEONGJU', 'OSAN'], businessUnits: [] }
     }));
     await mutation;
 

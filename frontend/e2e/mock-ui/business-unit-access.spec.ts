@@ -2,7 +2,7 @@ import { expect, type Route, test } from '@playwright/test';
 
 const adminUserId = '50000000-0000-0000-0000-000000000001';
 
-test('overall administrator selects Osan, sees the restricted shell, and manages memberships', async ({ page }, testInfo) => {
+test('overall administrator selects Osan, sees the restricted shell, and manages integrated user access', async ({ page }, testInfo) => {
   let markMembershipMutationStarted!: () => void;
   let releaseMembershipMutation!: () => void;
   const membershipMutationStarted = new Promise<void>((resolve) => {
@@ -51,15 +51,16 @@ test('overall administrator selects Osan, sees the restricted shell, and manages
             }
           });
     }
-    if (path === '/api/admin/business-unit-access/users') {
+    if (path === '/api/admin/user-access/users') {
       return fulfillJson(route, membershipSnapshot());
     }
-    if (path.endsWith('/memberships') && request.method() === 'PUT') {
+    if (path.endsWith('/access') && request.method() === 'PUT') {
       markMembershipMutationStarted();
       await membershipMutationReleased;
       return fulfillJson(route, {
         changed: true,
-        snapshot: membershipSnapshot(['CHEONGJU', 'OSAN'])
+        accessVersion: 1,
+        snapshot: membershipSnapshot(['OSAN'])
       });
     }
     return fulfillJson(route, { title: 'closed in synthetic Osan scope' }, 404);
@@ -76,19 +77,26 @@ test('overall administrator selects Osan, sees the restricted shell, and manages
   await expect(navigation.getByRole('button', { name: 'G2' })).toHaveCount(0);
   await expect(navigation.getByRole('button', { name: 'Pending' })).toHaveCount(0);
 
-  await navigation.getByRole('button', { name: '사업부 소속 관리' }).click();
-  await expect(page.getByRole('heading', { name: '사업부 소속 관리' })).toBeVisible();
+  await navigation.getByRole('button', { name: '사용자 관리' }).click();
+  await expect(page.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
+  await expect(navigation.getByRole('button', { name: '사업부 소속 관리' })).toHaveCount(0);
   const adminCard = page.locator('article').filter({ hasText: 'Synthetic Overall Admin' });
   await expect(adminCard.getByText('Synthetic Overall Admin')).toBeVisible();
   await expect(page.getByText('총괄 관리자', { exact: true })).toBeVisible();
 
   const userCard = page.locator('article').filter({ hasText: 'Synthetic New User' });
-  await userCard.getByRole('checkbox', { name: '오산' }).check();
-  await userCard.getByRole('button', { name: '소속 저장' }).click();
+  const unitGroups = userCard.getByRole('group');
+  await unitGroups.filter({ hasText: '청주' }).getByRole('checkbox', { name: '소속·활성' }).uncheck();
+  const osanGroup = unitGroups.filter({ hasText: '오산' });
+  await osanGroup.getByRole('checkbox', { name: '소속·활성' }).check();
+  await osanGroup.getByRole('combobox', { name: '부서' })
+    .selectOption('10000000-0000-0000-0000-000000000005');
+  await osanGroup.getByRole('checkbox', { name: '품질' }).check();
+  await userCard.getByRole('button', { name: '사용자 저장' }).click();
   await membershipMutationStarted;
   await expect(page.getByLabel('사업부 선택').first()).toBeDisabled();
   releaseMembershipMutation();
-  await expect(page.getByRole('status').filter({ hasText: '사업부 소속을 저장했습니다.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '사용자 접근 정보를 저장했습니다.' })).toBeVisible();
   await expect(page.getByLabel('사업부 선택').first()).toBeEnabled();
 
   await page.screenshot({ path: testInfo.outputPath('business-unit-access-desktop.png'), fullPage: true });
@@ -117,7 +125,7 @@ test('each tab keeps and restores its own business-unit selection', async ({ pag
         ? currentUser(selectedBusinessUnit)
         : selectionRequiredUser());
     }
-    if (path === '/api/admin/business-unit-access/users') {
+    if (path === '/api/admin/user-access/users') {
       return fulfillJson(route, membershipSnapshot());
     }
     return fulfillJson(route, { title: 'closed in synthetic business-unit scope' }, 404);
@@ -179,7 +187,7 @@ test('single-business overall administrator sees no selector on desktop or mobil
             }
           });
     }
-    if (path === '/api/admin/business-unit-access/users') {
+    if (path === '/api/admin/user-access/users') {
       return fulfillJson(route, membershipSnapshot());
     }
     return fulfillJson(route, { title: 'closed in synthetic business-unit scope' }, 404);
@@ -266,6 +274,18 @@ function selectionRequiredUser() {
 }
 
 function membershipSnapshot(userMemberships = ['CHEONGJU']) {
+  const unitProfile = (businessUnitCode: 'CHEONGJU' | 'OSAN', active: boolean) => ({
+    businessUnitCode,
+    membershipActive: active,
+    localProfileExists: active,
+    isActive: active,
+    departmentId: active ? '10000000-0000-0000-0000-000000000005' : null,
+    departmentCode: active ? 'quality' : null,
+    departmentName: active ? '품질' : null,
+    roles: active ? ['quality'] : [],
+    isDepartmentHead: false,
+    canManage: true
+  });
   return {
     users: [
       {
@@ -274,7 +294,13 @@ function membershipSnapshot(userMemberships = ['CHEONGJU']) {
         displayName: 'Synthetic Overall Admin',
         email: null,
         memberships: ['CHEONGJU', 'OSAN'],
-        isOverallAdministrator: true
+        isOverallAdministrator: true,
+        accessVersion: 1,
+        pendingOperationId: null,
+        pendingOperationStatus: null,
+        pendingFailureCode: null,
+        pendingProfiles: [],
+        profiles: [unitProfile('CHEONGJU', true), unitProfile('OSAN', true)]
       },
       {
         userId: '50000000-0000-0000-0000-000000000002',
@@ -282,10 +308,34 @@ function membershipSnapshot(userMemberships = ['CHEONGJU']) {
         displayName: 'Synthetic New User',
         email: 'new-user@example.invalid',
         memberships: userMemberships,
-        isOverallAdministrator: false
+        isOverallAdministrator: false,
+        accessVersion: 0,
+        pendingOperationId: null,
+        pendingOperationStatus: null,
+        pendingFailureCode: null,
+        pendingProfiles: [],
+        profiles: [
+          unitProfile('CHEONGJU', userMemberships.includes('CHEONGJU')),
+          unitProfile('OSAN', userMemberships.includes('OSAN'))
+        ]
       }
     ],
-    availableBusinessUnits: ['CHEONGJU', 'OSAN']
+    availableBusinessUnits: ['CHEONGJU', 'OSAN'],
+    businessUnits: ['CHEONGJU', 'OSAN'].map((code) => ({
+      code,
+      canManage: true,
+      departments: [{
+        departmentId: '10000000-0000-0000-0000-000000000005',
+        code: 'quality',
+        name: '품질',
+        defaultRoleCode: 'quality'
+      }],
+      roles: [{
+        roleId: '20000000-0000-0000-0000-000000000005',
+        code: 'quality',
+        name: '품질'
+      }]
+    }))
   };
 }
 

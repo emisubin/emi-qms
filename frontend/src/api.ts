@@ -29,9 +29,10 @@ import type {
   AdminUsersResponse,
   BusinessUnitAccessAdministrationResponse,
   BusinessUnitCode,
-  BusinessUnitMembershipUpdateResponse,
+  BusinessUnitUserAccessUpdateResponse,
   CurrentUser,
   ProfilePhotoMetadata,
+  UpdateBusinessUnitUserAccessProfile,
   UpdateAdminUserRequest
 } from './identity';
 import type { HomeMetricsResponse } from './home';
@@ -1020,22 +1021,24 @@ export async function getBusinessUnitAccessUsers(
   developmentUserKey?: string
 ): Promise<BusinessUnitAccessAdministrationResponse> {
   return fetchJson<BusinessUnitAccessAdministrationResponse>(
-    '/api/admin/business-unit-access/users',
+    '/api/admin/user-access/users',
     developmentUserKey
   );
 }
 
-export async function updateBusinessUnitMemberships(
+export async function updateBusinessUnitUserAccess(
   developmentUserKey: string | undefined,
   userId: string,
-  businessUnitCodes: BusinessUnitCode[]
-): Promise<BusinessUnitMembershipUpdateResponse> {
-  return fetchJson<BusinessUnitMembershipUpdateResponse>(
-    `/api/admin/business-unit-access/users/${encodeURIComponent(userId)}/memberships`,
+  operationId: string,
+  expectedVersion: number,
+  profiles: UpdateBusinessUnitUserAccessProfile[]
+): Promise<BusinessUnitUserAccessUpdateResponse> {
+  return fetchJson<BusinessUnitUserAccessUpdateResponse>(
+    `/api/admin/user-access/users/${encodeURIComponent(userId)}/access`,
     developmentUserKey,
     {
       method: 'PUT',
-      body: JSON.stringify({ businessUnitCodes })
+      body: JSON.stringify({ operationId, expectedVersion, profiles })
     }
   );
 }

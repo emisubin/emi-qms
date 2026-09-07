@@ -138,13 +138,13 @@ public sealed class DatabaseRuntimePrivilegeManager
                   on table public.schema_migrations, public.qms_database_identity,
                       public.directory_business_units, public.directory_identities,
                       public.directory_business_unit_memberships, public.directory_overall_administrators,
-                      public.directory_membership_audit_events
+                      public.directory_membership_audit_events, public.directory_user_access_operations
                   from {runtime};
               grant select
                   on table public.schema_migrations, public.qms_database_identity,
                       public.directory_business_units, public.directory_identities,
                       public.directory_business_unit_memberships, public.directory_overall_administrators,
-                      public.directory_membership_audit_events
+                      public.directory_membership_audit_events, public.directory_user_access_operations
                   to {runtime};
 
               revoke all privileges on all sequences in schema public from {runtime};

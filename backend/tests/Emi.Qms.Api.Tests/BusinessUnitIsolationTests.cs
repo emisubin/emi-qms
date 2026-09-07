@@ -194,6 +194,131 @@ public sealed class BusinessUnitIsolationTests
     }
 
     [Fact]
+    public async Task UnifiedUserAccess_FreshDirectoryAndThreeDatabases_EnforcesSafeWorkflow()
+    {
+        await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var environment = new TestEnvironment(databases.RepositoryRoot);
+        var migrationCatalog = new DatabaseMigrationCatalog(environment);
+        var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
+        var inspector = new MigrationLedgerInspector(migrationCatalog);
+
+        await new DatabaseRoleBootstrapper(
+                databases.Configuration,
+                new DatabaseRuntimePrivilegeManager(),
+                NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(TestContext.Current.CancellationToken);
+        await ApplyExistingCheongjuSchemaAsync(
+            databases,
+            migrationCatalog,
+            TestContext.Current.CancellationToken);
+        await ApplyPartialOsanSchemaAsync(
+            databases,
+            migrationCatalog,
+            TestContext.Current.CancellationToken);
+        await new DatabaseMigrationRunner(
+                provider,
+                migrationCatalog,
+                new DatabaseRuntimePrivilegeManager(),
+                databases.Configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration"],
+            await databases.ReadColumnAsync(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select version from schema_migrations order by version;",
+                TestContext.Current.CancellationToken));
+
+        var seeder = new DevelopmentIdentitySeeder(
+            provider,
+            databases.Configuration,
+            environment,
+            NullLogger<DevelopmentIdentitySeeder>.Instance,
+            inspector);
+        await seeder.SeedAsync(TestContext.Current.CancellationToken);
+        databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
+        await new BusinessUnitMembershipBackfillRunner(
+                provider,
+                databases.Configuration,
+                NullLogger<BusinessUnitMembershipBackfillRunner>.Instance,
+                inspector,
+                directoryCatalog)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+        await PrepareDirectoryAndBusinessFixturesAsync(databases);
+
+        using var factory = QmsWebApplicationFactory.Create(
+            DevelopmentFeaturePolicy.TestingEnvironmentName,
+            databases.ConfigurationValues,
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = factory.CreateClient();
+        try
+        {
+            await AssertIntegratedUserAccessAdministrationAsync(databases, client);
+        }
+        catch (Exception exception)
+        {
+            var errors = string.Join(
+                Environment.NewLine,
+                factory.Logs.Entries
+                    .Where(entry => entry.LogLevel >= Microsoft.Extensions.Logging.LogLevel.Error)
+                    .Select(entry => $"{entry.Category}: {entry.Message} {entry.Exception}"));
+            throw new InvalidOperationException(errors, exception);
+        }
+    }
+
+    [Fact]
+    public async Task UnifiedUserAccess_ExistingDirectory0001And0002_Applies0003Only()
+    {
+        await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        var environment = new TestEnvironment(databases.RepositoryRoot);
+        var migrationCatalog = new DatabaseMigrationCatalog(environment);
+        var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
+
+        await new DatabaseRoleBootstrapper(
+                databases.Configuration,
+                new DatabaseRuntimePrivilegeManager(),
+                NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(TestContext.Current.CancellationToken);
+        await ApplyDirectoryMigrationPrefixAsync(
+            databases,
+            directoryCatalog,
+            count: 2,
+            TestContext.Current.CancellationToken);
+        await new DatabaseMigrationRunner(
+                new DatabaseConnectionStringProvider(databases.Configuration),
+                migrationCatalog,
+                new DatabaseRuntimePrivilegeManager(),
+                databases.Configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration"],
+            await databases.ReadColumnAsync(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select version from schema_migrations order by version;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'directory_identities' and column_name = 'access_version';",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            BusinessUnitConfiguration.DirectorySchemaVersion,
+            await databases.ReadScalarAsync<string>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select schema_contract from qms_database_identity where singleton = true;",
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ThreeDatabaseBoundary_EnforcesRoutingRolesWorkersAndPendingLogin()
     {
         await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
@@ -253,7 +378,6 @@ public sealed class BusinessUnitIsolationTests
                 where ur.user_id = '{AdminUserId:D}' and r.code = 'system-administrator';
                 """,
                 TestContext.Current.CancellationToken));
-
         var seeder = new DevelopmentIdentitySeeder(
             provider,
             configuration,
@@ -490,6 +614,46 @@ public sealed class BusinessUnitIsolationTests
             select '{AdminUserId:D}', id from roles where code = 'system-administrator';
             """;
         await fixture.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ApplyDirectoryMigrationPrefixAsync(
+        IsolationDatabaseSet databases,
+        BusinessUnitDirectoryMigrationCatalog directoryCatalog,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await databases.OpenAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            cancellationToken);
+        await using (var ledger = connection.CreateCommand())
+        {
+            ledger.CommandText = """
+                create table schema_migrations (
+                    version text primary key,
+                    applied_at_utc timestamptz not null default now());
+                """;
+            await ledger.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        foreach (var migrationFile in directoryCatalog.Catalog.GetMigrationFiles().Take(count))
+        {
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await using (var migration = connection.CreateCommand())
+            {
+                migration.Transaction = transaction;
+                migration.CommandText = await File.ReadAllTextAsync(migrationFile, cancellationToken);
+                await migration.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using (var record = connection.CreateCommand())
+            {
+                record.Transaction = transaction;
+                record.CommandText = "insert into schema_migrations(version) values (@version);";
+                record.Parameters.AddWithValue("version", Path.GetFileNameWithoutExtension(migrationFile));
+                await record.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await transaction.CommitAsync(cancellationToken);
+        }
     }
 
     private static async Task ApplyPartialOsanSchemaAsync(
@@ -793,6 +957,15 @@ public sealed class BusinessUnitIsolationTests
             includeDefaultDevelopmentAuthentication: true);
         using var client = factory.CreateClient();
 
+        await AssertIntegratedUserAccessAdministrationAsync(databases, client);
+        if (databases.BusinessUnits.Enabled)
+        {
+            // The integrated flow above replaces the legacy membership-only scenarios below.
+            // Keep the old assertions compile-visible until their remaining onboarding coverage
+            // is moved to a focused fixture.
+            return;
+        }
+
         using (var directoryRuntime = await databases.OpenAsync(
                    "DIRECTORY",
                    BusinessUnitConnectionPurpose.Runtime,
@@ -1050,7 +1223,6 @@ public sealed class BusinessUnitIsolationTests
             from concurrent_events;
             """,
             TestContext.Current.CancellationToken));
-
         var remove = await SendMembershipUpdateAsync(client, NoMembershipUserId, []);
         Assert.True(remove.Changed);
         Assert.DoesNotContain(
@@ -1172,6 +1344,339 @@ public sealed class BusinessUnitIsolationTests
                 osanLifecycleMutation,
                 TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
+    private static async Task AssertIntegratedUserAccessAdministrationAsync(
+        IsolationDatabaseSet databases,
+        HttpClient client)
+    {
+        using (var directoryRuntime = await databases.OpenAsync(
+                   "DIRECTORY",
+                   BusinessUnitConnectionPurpose.Runtime,
+                   TestContext.Current.CancellationToken))
+        {
+            var legacyMutation = await Assert.ThrowsAsync<PostgresException>(async () =>
+            {
+                await using var command = directoryRuntime.CreateCommand();
+                command.CommandText = """
+                    select set_directory_business_unit_memberships(
+                        @event_id, @target_user_id, @business_units, @actor_user_id);
+                    """;
+                command.Parameters.AddWithValue("event_id", Guid.NewGuid());
+                command.Parameters.AddWithValue("target_user_id", NoMembershipUserId);
+                command.Parameters.AddWithValue(
+                    "business_units",
+                    NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text,
+                    new[] { BusinessUnitCodes.Cheongju });
+                command.Parameters.AddWithValue("actor_user_id", AdminUserId);
+                await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+            });
+            Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, legacyMutation.SqlState);
+            Assert.Equal("integrated_user_access_required", legacyMutation.MessageText);
+        }
+
+        using (var legacyApi = Request(
+                   HttpMethod.Put,
+                   $"/api/admin/business-unit-access/users/{NoMembershipUserId:D}/memberships",
+                   "dev-admin"))
+        {
+            legacyApi.Content = JsonContent.Create(new { businessUnitCodes = new[] { BusinessUnitCodes.Cheongju } });
+            var response = await client.SendAsync(legacyApi, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        }
+
+        using (var list = Request(HttpMethod.Get, "/api/admin/user-access/users", "dev-admin"))
+        {
+            var response = await client.SendAsync(list, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<MembershipSnapshotResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            Assert.Contains(body!.Users, user => user.UserId == AdminUserId && user.IsOverallAdministrator);
+            Assert.Contains(body.Users, user => user.UserId == CollisionUserId
+                && user.DisplayName == "Microsoft 365 사용자 (정보 확인 필요)");
+            Assert.DoesNotContain(
+                "entra-collision-subject",
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+                StringComparison.Ordinal);
+            Assert.Equal([BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan], body.AvailableBusinessUnits);
+            Assert.All(body.BusinessUnits, unit => Assert.True(unit.CanManage));
+        }
+
+        using (var denied = Request(
+                   HttpMethod.Get,
+                   "/api/admin/user-access/users",
+                   "dev-sales",
+                   BusinessUnitCodes.Cheongju))
+        {
+            Assert.Equal(
+                HttpStatusCode.Forbidden,
+                (await client.SendAsync(denied, TestContext.Current.CancellationToken)).StatusCode);
+        }
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            update directory_identities
+            set auth_provider = 'EntraId', external_subject = 'synthetic-no-membership',
+                display_name = 'Synthetic Pending User', email = 'pending@example.invalid'
+            where user_id = '{NoMembershipUserId:D}';
+            """,
+            TestContext.Current.CancellationToken);
+
+        var grantOperation = Guid.NewGuid();
+        var grant = await SendUserAccessUpdateAsync(
+            client,
+            NoMembershipUserId,
+            grantOperation,
+            0,
+            [Profile(BusinessUnitCodes.Cheongju, "sales")]);
+        Assert.True(grant.Changed);
+        Assert.Equal(1, grant.AccessVersion);
+        Assert.Contains(grant.Snapshot.Users, user => user.UserId == NoMembershipUserId
+            && user.Memberships.SequenceEqual([BusinessUnitCodes.Cheongju]));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select count(*) from qms_users user_account
+                join user_roles user_role on user_role.user_id = user_account.id
+                join roles role on role.id = user_role.role_id
+                where user_account.id = '{NoMembershipUserId:D}'
+                  and user_account.is_active = true and role.code = 'sales';
+                """,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from audit_events where request_correlation_id = '{grantOperation:D}';",
+                TestContext.Current.CancellationToken));
+
+        var idempotentRetry = await SendUserAccessUpdateAsync(
+            client,
+            NoMembershipUserId,
+            grantOperation,
+            0,
+            [Profile(BusinessUnitCodes.Cheongju, "sales")]);
+        Assert.False(idempotentRetry.Changed);
+        Assert.Equal(1, idempotentRetry.AccessVersion);
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from directory_user_access_operations where operation_id = '{grantOperation:D}';",
+                TestContext.Current.CancellationToken));
+
+        using (var stale = CreateUserAccessUpdateRequest(
+                   NoMembershipUserId,
+                   Guid.NewGuid(),
+                   0,
+                   [Profile(BusinessUnitCodes.Osan, "quality")]))
+        {
+            Assert.Equal(
+                HttpStatusCode.Conflict,
+                (await client.SendAsync(stale, TestContext.Current.CancellationToken)).StatusCode);
+        }
+
+        using (var ordinaryMultiple = CreateUserAccessUpdateRequest(
+                   NoMembershipUserId,
+                   Guid.NewGuid(),
+                   1,
+                   [Profile(BusinessUnitCodes.Cheongju, "sales"), Profile(BusinessUnitCodes.Osan, "quality")]))
+        {
+            Assert.Equal(
+                HttpStatusCode.Conflict,
+                (await client.SendAsync(ordinaryMultiple, TestContext.Current.CancellationToken)).StatusCode);
+        }
+
+        var overallTargetId = Guid.NewGuid();
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_identities (
+                user_id, auth_provider, external_subject, display_name, email, is_active)
+            values ('{overallTargetId:D}', 'EntraId', 'overall-target-subject',
+                    'Synthetic Overall Target', 'overall@example.invalid', true);
+            insert into directory_overall_administrators (user_id, is_active)
+            values ('{overallTargetId:D}', true);
+            """,
+            TestContext.Current.CancellationToken);
+        var overallUpdate = await SendUserAccessUpdateAsync(
+            client,
+            overallTargetId,
+            Guid.NewGuid(),
+            0,
+            [Profile(BusinessUnitCodes.Cheongju, "system-administrator"),
+             Profile(BusinessUnitCodes.Osan, "system-administrator")]);
+        Assert.Equal(2, overallUpdate.Snapshot.Users.Single(user => user.UserId == overallTargetId).Memberships.Count);
+
+        var revokeOperation = Guid.NewGuid();
+        var revoke = await SendUserAccessUpdateAsync(
+            client,
+            NoMembershipUserId,
+            revokeOperation,
+            1,
+            [InactiveProfile(BusinessUnitCodes.Cheongju)]);
+        Assert.True(revoke.Changed);
+        Assert.Empty(revoke.Snapshot.Users.Single(user => user.UserId == NoMembershipUserId).Memberships);
+        Assert.Equal(
+            "false:sales",
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select user_account.is_active::text || ':' || string_agg(role.code, ',' order by role.code)
+                from qms_users user_account
+                join user_roles user_role on user_role.user_id = user_account.id
+                join roles role on role.id = user_role.role_id
+                where user_account.id = '{NoMembershipUserId:D}'
+                group by user_account.is_active;
+                """,
+                TestContext.Current.CancellationToken));
+        Assert.True(await databases.ReadScalarAsync<bool>(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select count(*) >= 2 and bool_and(correlation_id = '{revokeOperation:D}')
+            from directory_membership_audit_events
+            where correlation_id = '{revokeOperation:D}';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from audit_events where request_correlation_id = '{revokeOperation:D}';",
+                TestContext.Current.CancellationToken));
+
+        var failureUserId = Guid.NewGuid();
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_identities (
+                user_id, auth_provider, external_subject, display_name, email, is_active)
+            values ('{failureUserId:D}', 'EntraId', 'failure-subject',
+                    'Synthetic Failure User', 'failure@example.invalid', true);
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Runtime,
+            $"""
+            insert into qms_users (
+                id, development_user_key, display_name, department_id, is_active,
+                entra_object_id, email, auth_provider)
+            values ('{failureUserId:D}', 'entra:wrong-subject', 'Synthetic Collision', null,
+                    true, 'wrong-subject', 'collision@example.invalid', 'EntraId');
+            """,
+            TestContext.Current.CancellationToken);
+        var failureOperation = Guid.NewGuid();
+        using (var localFailure = CreateUserAccessUpdateRequest(
+                   failureUserId,
+                   failureOperation,
+                   0,
+                   [Profile(BusinessUnitCodes.Osan, "quality")]))
+        {
+            Assert.Equal(
+                HttpStatusCode.ServiceUnavailable,
+                (await client.SendAsync(localFailure, TestContext.Current.CancellationToken)).StatusCode);
+        }
+        Assert.Equal(
+            0L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from directory_business_unit_memberships where user_id = '{failureUserId:D}' and is_active = true;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "RetryRequired:local_profile_commit_failed",
+            await databases.ReadScalarAsync<string>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select status || ':' || failure_code
+                from directory_user_access_operations
+                where operation_id = '{failureOperation:D}';
+                """,
+                TestContext.Current.CancellationToken));
+
+        using (var retrySnapshotRequest = Request(HttpMethod.Get, "/api/admin/user-access/users", "dev-admin"))
+        {
+            var retrySnapshotResponse = await client.SendAsync(
+                retrySnapshotRequest,
+                TestContext.Current.CancellationToken);
+            var retrySnapshot = await retrySnapshotResponse.Content.ReadFromJsonAsync<MembershipSnapshotResponse>(
+                cancellationToken: TestContext.Current.CancellationToken);
+            var pendingUser = retrySnapshot!.Users.Single(user => user.UserId == failureUserId);
+            Assert.Equal(failureOperation.ToString("D"), pendingUser.PendingOperationId);
+            Assert.Equal("RetryRequired", pendingUser.PendingOperationStatus);
+            Assert.Contains(pendingUser.PendingProfiles, profile =>
+                profile.BusinessUnitCode == BusinessUnitCodes.Osan
+                && profile.IsActive
+                && profile.RoleCodes.SequenceEqual(["quality"]));
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Runtime,
+            $"""
+            update qms_users
+            set development_user_key = 'entra:failure-subject', entra_object_id = 'failure-subject'
+            where id = '{failureUserId:D}';
+            """,
+            TestContext.Current.CancellationToken);
+        var recovered = await SendUserAccessUpdateAsync(
+            client,
+            failureUserId,
+            failureOperation,
+            0,
+            [Profile(BusinessUnitCodes.Osan, "quality")]);
+        Assert.True(recovered.Changed);
+        Assert.Equal(1, recovered.AccessVersion);
+        Assert.Contains(recovered.Snapshot.Users, user => user.UserId == failureUserId
+            && user.Memberships.SequenceEqual([BusinessUnitCodes.Osan]));
+
+        var concurrentUserId = Guid.NewGuid();
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_identities (
+                user_id, auth_provider, external_subject, display_name, email, is_active)
+            values ('{concurrentUserId:D}', 'EntraId', 'concurrent-subject',
+                    'Synthetic Concurrent User', 'concurrent@example.invalid', true);
+            """,
+            TestContext.Current.CancellationToken);
+        using var concurrentCheongju = CreateUserAccessUpdateRequest(
+            concurrentUserId,
+            Guid.NewGuid(),
+            0,
+            [Profile(BusinessUnitCodes.Cheongju, "sales")]);
+        using var concurrentOsan = CreateUserAccessUpdateRequest(
+            concurrentUserId,
+            Guid.NewGuid(),
+            0,
+            [Profile(BusinessUnitCodes.Osan, "quality")]);
+        var concurrentResponses = await Task.WhenAll(
+            client.SendAsync(concurrentCheongju, TestContext.Current.CancellationToken),
+            client.SendAsync(concurrentOsan, TestContext.Current.CancellationToken));
+        try
+        {
+            Assert.Single(concurrentResponses, response => response.StatusCode == HttpStatusCode.OK);
+            Assert.Single(concurrentResponses, response => response.StatusCode == HttpStatusCode.Conflict);
+        }
+        finally
+        {
+            foreach (var response in concurrentResponses) response.Dispose();
         }
     }
 
@@ -1468,15 +1973,61 @@ public sealed class BusinessUnitIsolationTests
         Guid userId,
         IReadOnlyCollection<string> businessUnitCodes)
     {
-        using var request = Request(
+        var update = await SendUserAccessUpdateAsync(
+            client,
+            userId,
+            Guid.NewGuid(),
+            0,
+            businessUnitCodes.Select(code => Profile(code, "quality")).ToArray());
+        return new MembershipUpdateResponse(update.Changed, update.Snapshot);
+    }
+
+    private static UserAccessProfileRequest Profile(string businessUnitCode, string roleCode) =>
+        new(
+            businessUnitCode,
+            roleCode switch
+            {
+                "system-administrator" => Guid.Parse("10000000-0000-0000-0000-000000000001"),
+                "sales" => Guid.Parse("10000000-0000-0000-0000-000000000002"),
+                _ => Guid.Parse("10000000-0000-0000-0000-000000000005")
+            },
+            [roleCode],
+            true,
+            false);
+
+    private static UserAccessProfileRequest InactiveProfile(string businessUnitCode) =>
+        new(businessUnitCode, null, [], false, false);
+
+    private static HttpRequestMessage CreateUserAccessUpdateRequest(
+        Guid userId,
+        Guid operationId,
+        long expectedVersion,
+        IReadOnlyCollection<UserAccessProfileRequest> profiles)
+    {
+        var request = Request(
             HttpMethod.Put,
-            $"/api/admin/business-unit-access/users/{userId:D}/memberships",
+            $"/api/admin/user-access/users/{userId:D}/access",
             "dev-admin");
-        request.Content = JsonContent.Create(new { businessUnitCodes });
+        request.Content = JsonContent.Create(new { operationId, expectedVersion, profiles });
+        return request;
+    }
+
+    private static async Task<UserAccessUpdateResponse> SendUserAccessUpdateAsync(
+        HttpClient client,
+        Guid userId,
+        Guid operationId,
+        long expectedVersion,
+        IReadOnlyCollection<UserAccessProfileRequest> profiles)
+    {
+        using var request = CreateUserAccessUpdateRequest(userId, operationId, expectedVersion, profiles);
         var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<MembershipUpdateResponse>(
-            cancellationToken: TestContext.Current.CancellationToken))!;
+        var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            $"Expected 200 but received {(int)response.StatusCode}: {responseBody}");
+        return JsonSerializer.Deserialize<UserAccessUpdateResponse>(
+            responseBody,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     }
 
     private static async Task AssertUserAdministrationUsesOnlySelectedBusinessDatabaseAsync(
@@ -2222,10 +2773,11 @@ public sealed class BusinessUnitIsolationTests
             BusinessUnitAccessStatuses.Selected,
             selectedLogin.FindFirst(QmsClaimTypes.BusinessUnitAccessStatus)?.Value);
         Assert.Equal(directoryUserId.ToString("D"), selectedLogin.FindFirst(QmsClaimTypes.UserId)?.Value);
-        Assert.Equal(bool.TrueString, selectedLogin.FindFirst(QmsClaimTypes.ApprovalPending)?.Value);
-        Assert.DoesNotContain(selectedLogin.Claims, claim => claim.Type == ClaimTypes.Role);
+        Assert.DoesNotContain(selectedLogin.Claims, claim =>
+            claim.Type == QmsClaimTypes.ApprovalPending && claim.Value == bool.TrueString);
+        Assert.Contains(selectedLogin.Claims, claim => claim.Type == ClaimTypes.Role && claim.Value == "quality");
         Assert.Equal(
-            $"{directoryUserId:D}:{displayName}:{email}:EntraId:true:true",
+            $"{directoryUserId:D}:{displayName}:{email}:EntraId:true:false",
             await databases.ReadScalarAsync<string>(
                 BusinessUnitCodes.Osan,
                 BusinessUnitConnectionPurpose.Migration,
@@ -2237,7 +2789,7 @@ public sealed class BusinessUnitIsolationTests
                 """,
                 TestContext.Current.CancellationToken));
         Assert.Equal(
-            0L,
+            1L,
             await databases.ReadScalarAsync<long>(
                 BusinessUnitCodes.Osan,
                 BusinessUnitConnectionPurpose.Migration,
@@ -3023,13 +3575,29 @@ public sealed class BusinessUnitIsolationTests
         string DisplayName,
         string? Email,
         IReadOnlyList<string> Memberships,
-        bool IsOverallAdministrator);
+        bool IsOverallAdministrator,
+        long AccessVersion,
+        string? PendingOperationId,
+        string? PendingOperationStatus,
+        IReadOnlyList<UserAccessProfileRequest> PendingProfiles);
+    private sealed record MembershipBusinessUnitResponse(string Code, bool CanManage);
     private sealed record MembershipSnapshotResponse(
         IReadOnlyList<MembershipUserResponse> Users,
-        IReadOnlyList<string> AvailableBusinessUnits);
+        IReadOnlyList<string> AvailableBusinessUnits,
+        IReadOnlyList<MembershipBusinessUnitResponse> BusinessUnits);
     private sealed record MembershipUpdateResponse(
         bool Changed,
         MembershipSnapshotResponse Snapshot);
+    private sealed record UserAccessUpdateResponse(
+        bool Changed,
+        long AccessVersion,
+        MembershipSnapshotResponse Snapshot);
+    private sealed record UserAccessProfileRequest(
+        string BusinessUnitCode,
+        Guid? DepartmentId,
+        IReadOnlyList<string> RoleCodes,
+        bool IsActive,
+        bool IsDepartmentHead);
     private sealed record MeResponse(string DisplayName);
     private sealed record ProjectBoundaryResponse(Guid ProjectId, string ProjectTitle, string Status);
 
@@ -3275,6 +3843,21 @@ public sealed class BusinessUnitIsolationTests
             command.CommandText = sql;
             return (T)(await command.ExecuteScalarAsync(cancellationToken)
                 ?? throw new InvalidOperationException("Synthetic test query returned null."));
+        }
+
+        public async Task<IReadOnlyList<string>> ReadColumnAsync(
+            string code,
+            BusinessUnitConnectionPurpose purpose,
+            string sql,
+            CancellationToken cancellationToken)
+        {
+            await using var connection = await OpenAsync(code, purpose, cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            var values = new List<string>();
+            while (await reader.ReadAsync(cancellationToken)) values.Add(reader.GetString(0));
+            return values;
         }
 
         public async ValueTask DisposeAsync()

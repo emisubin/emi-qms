@@ -168,7 +168,7 @@ import {
   updateAdminCalendarHoliday,
   updateAdminDepartment,
   updateAdminUser,
-  updateBusinessUnitMemberships,
+  updateBusinessUnitUserAccess,
   updateProjectProductionPlanSetDefault,
   updateProjectProductionPlanSetScope,
   updateProjectDepartmentAssignees,
@@ -356,7 +356,6 @@ type View =
   | { kind: 'pending-detail'; pendingId: string }
   | { kind: 'pending-types' }
   | { kind: 'admin-dashboard' }
-  | { kind: 'admin-business-unit-access' }
   | { kind: 'admin-users'; filter?: 'approval-pending' }
   | { kind: 'admin-user-notification-preferences'; userId: string }
   | { kind: 'admin-departments' }
@@ -424,7 +423,6 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
       } as const)[view.area];
     case 'qr-scan': return 'Projects';
     case 'pending-types':
-    case 'admin-business-unit-access':
     case 'admin-dashboard':
     case 'admin-users':
     case 'admin-user-notification-preferences':
@@ -805,7 +803,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/admin/business-unit-access') {
-    return { kind: 'admin-business-unit-access' };
+    return { kind: 'admin-users' };
   }
 
   if (window.location.pathname === '/admin/users') {
@@ -1400,8 +1398,6 @@ function pathForView(view: View) {
       return '/admin/pending-types';
     case 'admin-dashboard':
       return '/admin';
-    case 'admin-business-unit-access':
-      return '/admin/business-unit-access';
     case 'admin-users':
       return `/admin/users${view.filter === 'approval-pending' ? '?filter=approval-pending' : ''}`;
     case 'admin-user-notification-preferences':
@@ -2224,7 +2220,8 @@ function QmsAppShellContent({
   const canManageG2Inventory = permissions.includes('G2.Inventory.Manage');
   const canManageG2Targets = permissions.includes('G2.Target.Manage');
   const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
-  const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
+  const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator
+    || businessUnitAccess.isOverallAdministrator;
   const canBrowseOperationalPages = permissions.includes('projects.read');
   const canReadPendingWorkspace = canReadPending || canBrowseOperationalPages;
   const switchDevelopmentUser = (nextUserKey: string) => {
@@ -2306,28 +2303,14 @@ function QmsAppShellContent({
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
         { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
-        ...(canManageUsers ? [{
-          label: '현재 사업부 사용자 관리',
+        ...(canManageUsers || businessUnitAccess.isOverallAdministrator ? [{
+          label: '사용자 관리',
           view: { kind: 'admin-users' } as View,
           active: view.kind === 'admin-users',
           group: '관리' as const
-        }] : []),
-        ...(businessUnitAccess.isOverallAdministrator ? [{
-          label: '사업부 소속 관리',
-          view: { kind: 'admin-business-unit-access' } as View,
-          active: view.kind === 'admin-business-unit-access',
-          group: '관리' as const
         }] : [])
       ]
-    : [
-        ...cheongjuNavigationItems,
-        ...(businessUnitAccess.isOverallAdministrator ? [{
-          label: '사업부 소속 관리',
-          view: { kind: 'admin-business-unit-access' } as View,
-          active: view.kind === 'admin-business-unit-access',
-          group: '관리' as const
-        }] : [])
-      ];
+    : cheongjuNavigationItems;
 
   const activeNavigationLabel = view.kind === 'privacy-notice'
     ? '개인정보·이용 안내'
@@ -2537,11 +2520,11 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready'
         && currentUser.data.approvalPending
-        && view.kind !== 'admin-business-unit-access' ? (
+        && view.kind !== 'admin-users' ? (
         <ApprovalPendingPage
           user={currentUser.data}
           onOpenBusinessUnitAccess={businessUnitAccess.isOverallAdministrator
-            ? () => setView({ kind: 'admin-business-unit-access' })
+            ? () => setView({ kind: 'admin-users' })
             : undefined}
           onLogout={onLogout}
         />
@@ -3022,29 +3005,25 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
+      {currentUser.kind === 'ready'
+        && (!currentUser.data.approvalPending || businessUnitAccess.isOverallAdministrator)
+        && view.kind === 'admin-users' ? (
         <AdminUsersPage
           developmentUserKey={developmentUserKey}
           filter={view.filter}
           restrictedToLocalProfile={isOsan}
+          overallAccess={businessUnitAccess.isOverallAdministrator}
+          currentUserId={currentUser.data.userId}
+          selectedBusinessUnit={selectedBusinessUnit}
+          mutationAllowed={mutationEnabled}
+          mutationDisabledReason={membershipMutationDisabledReason}
+          onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
           onOpenNotificationSettings={isOsan
             ? undefined
             : (userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
         />
       ) : null}
 
-      {currentUser.kind === 'ready'
-        && businessUnitAccess.isOverallAdministrator
-        && view.kind === 'admin-business-unit-access' ? (
-          <BusinessUnitAccessAdministrationPage
-            currentUserId={currentUser.data.userId}
-            developmentUserKey={developmentUserKey}
-            selectedBusinessUnit={selectedBusinessUnit}
-            mutationAllowed={mutationEnabled}
-            mutationDisabledReason={membershipMutationDisabledReason}
-            onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
-          />
-        ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-user-notification-preferences' ? (
         <NotificationPreferencesPage
@@ -4949,6 +4928,7 @@ function OsanAreaPlaceholder({ area }: { area: 'home' | 'progress' }) {
 
 function BusinessUnitAccessAdministrationPage({
   developmentUserKey,
+  filter,
   currentUserId,
   selectedBusinessUnit,
   mutationAllowed,
@@ -4956,6 +4936,7 @@ function BusinessUnitAccessAdministrationPage({
   onCurrentSelectionRemoved
 }: {
   developmentUserKey: string;
+  filter?: 'approval-pending';
   currentUserId: string;
   selectedBusinessUnit: BusinessUnitCode | null;
   mutationAllowed: boolean;
@@ -4963,7 +4944,8 @@ function BusinessUnitAccessAdministrationPage({
   onCurrentSelectionRemoved: () => void;
 }) {
   const [state, setState] = useState<LoadState<BusinessUnitAccessAdministrationResponse>>({ kind: 'loading' });
-  const [drafts, setDrafts] = useState<Record<string, BusinessUnitCode[]>>({});
+  const [drafts, setDrafts] = useState<Record<string, IntegratedUserAccessDraft[]>>({});
+  const [operationIds, setOperationIds] = useState<Record<string, string>>({});
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -4972,27 +4954,34 @@ function BusinessUnitAccessAdministrationPage({
     getBusinessUnitAccessUsers(developmentUserKey)
       .then((data) => {
         setState(data.users.length > 0 ? { kind: 'ready', data } : { kind: 'empty' });
-        setDrafts(Object.fromEntries(data.users.map((directoryUser) => [directoryUser.userId, directoryUser.memberships])));
+        setDrafts(buildIntegratedUserAccessDrafts(data));
+        setOperationIds(Object.fromEntries(data.users
+          .filter((user) => user.pendingOperationId)
+          .map((user) => [user.userId, user.pendingOperationId as string])));
       })
-      .catch((error: unknown) => setState(toLoadError(error, '사업부 소속 목록을 불러올 수 없습니다.')));
+      .catch((error: unknown) => setState(toLoadError(error, '사용자 접근 목록을 불러올 수 없습니다.')));
   }, [developmentUserKey]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const toggleMembership = (directoryUser: BusinessUnitAccessAdministrationUser, businessUnit: BusinessUnitCode) => {
+  const changeDraft = (
+    directoryUser: BusinessUnitAccessAdministrationUser,
+    businessUnit: BusinessUnitCode,
+    change: (draft: IntegratedUserAccessDraft) => IntegratedUserAccessDraft
+  ) => {
     if (!mutationAllowed) {
-      setFeedback(mutationDisabledReason ?? '현재 사업부 소속을 변경할 수 없습니다.');
+      setFeedback(mutationDisabledReason ?? '현재 사용자 접근 정보를 변경할 수 없습니다.');
       return;
     }
     setDrafts((current) => {
-      const memberships = current[directoryUser.userId] ?? directoryUser.memberships;
+      const userDrafts = current[directoryUser.userId] ?? [];
       return {
         ...current,
-        [directoryUser.userId]: memberships.includes(businessUnit)
-          ? memberships.filter((item) => item !== businessUnit)
-          : [...memberships, businessUnit]
+        [directoryUser.userId]: userDrafts.map((draft) => (
+          draft.businessUnitCode === businessUnit ? change(draft) : draft
+        ))
       };
     });
     setFeedback(null);
@@ -5003,24 +4992,47 @@ function BusinessUnitAccessAdministrationPage({
       setFeedback(mutationDisabledReason ?? '현재 사업부 소속을 변경할 수 없습니다.');
       return;
     }
-    const memberships = drafts[directoryUser.userId] ?? directoryUser.memberships;
+    const profiles = (drafts[directoryUser.userId] ?? []).filter((draft) => {
+      const current = directoryUser.profiles.find((profile) => profile.businessUnitCode === draft.businessUnitCode);
+      return draft.isActive || current?.membershipActive || current?.localProfileExists;
+    });
+    const activeProfiles = profiles.filter((profile) => profile.isActive);
+    if (!directoryUser.isOverallAdministrator && activeProfiles.length > 1) {
+      setFeedback('일반 사용자는 한 사업부에만 소속될 수 있습니다.');
+      return;
+    }
+    if (activeProfiles.some((profile) => !profile.departmentId || profile.roleCodes.length === 0)) {
+      setFeedback('활성 사업부마다 부서와 역할을 한 개 이상 지정해 주세요.');
+      return;
+    }
+    const operationId = directoryUser.pendingOperationId
+      ?? operationIds[directoryUser.userId]
+      ?? window.crypto.randomUUID();
+    setOperationIds((current) => ({ ...current, [directoryUser.userId]: operationId }));
     setSavingUserId(directoryUser.userId);
     setFeedback(null);
     try {
-      const result = await updateBusinessUnitMemberships(
+      const result = await updateBusinessUnitUserAccess(
         developmentUserKey,
         directoryUser.userId,
-        memberships);
+        operationId,
+        directoryUser.accessVersion,
+        profiles);
       setState(result.snapshot.users.length > 0 ? { kind: 'ready', data: result.snapshot } : { kind: 'empty' });
-      setDrafts(Object.fromEntries(result.snapshot.users.map((item) => [item.userId, item.memberships])));
-      setFeedback(result.changed ? '사업부 소속을 저장했습니다.' : '변경된 사업부 소속이 없습니다.');
+      setDrafts(buildIntegratedUserAccessDrafts(result.snapshot));
+      setOperationIds((current) => {
+        const next = { ...current };
+        delete next[directoryUser.userId];
+        return next;
+      });
+      setFeedback(result.changed ? '사용자 접근 정보를 저장했습니다.' : '같은 저장 작업이 이미 완료되어 현재 상태를 확인했습니다.');
       if (directoryUser.userId === currentUserId
         && selectedBusinessUnit
-        && !memberships.includes(selectedBusinessUnit)) {
+        && !profiles.some((profile) => profile.businessUnitCode === selectedBusinessUnit && profile.isActive)) {
         onCurrentSelectionRemoved();
       }
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : '사업부 소속을 저장할 수 없습니다.');
+      setFeedback(error instanceof Error ? error.message : '사용자 접근 정보를 저장할 수 없습니다.');
     } finally {
       setSavingUserId(null);
     }
@@ -5030,24 +5042,36 @@ function BusinessUnitAccessAdministrationPage({
     <section className="panel-section business-unit-access-admin">
       <DsPageHeader
         className="page-header"
-        eyebrow="전체 사업부 관리"
-        title="사업부 소속 관리"
-        description="계정의 청주·오산 소속을 지정합니다. 총괄 관리자 지정은 여기서 변경할 수 없습니다."
+        eyebrow="관리자"
+        title="사용자 관리"
+        description="첫 승인과 사업부별 부서·역할·부서장·활성 상태를 한 번에 저장합니다. 총괄 관리자 지정은 별도 관리됩니다."
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
       {mutationDisabledReason ? (
         <p className="account-review-safe-note" role="status">{mutationDisabledReason}</p>
       ) : null}
       {feedback ? <p className="action-feedback" role="status">{feedback}</p> : null}
-      {state.kind === 'loading' ? <p role="status">사업부 소속을 불러오는 중입니다.</p> : null}
+      {state.kind === 'loading' ? <p role="status">사용자 접근 정보를 불러오는 중입니다.</p> : null}
       {state.kind === 'empty' ? <DsEmptyState title="관리할 계정이 없습니다." description="활성 디렉터리 계정이 등록되면 여기에 표시됩니다." /> : null}
       {state.kind === 'forbidden' || state.kind === 'not-found' || state.kind === 'error' ? <StateMessage state={state} /> : null}
       {state.kind === 'ready' ? (
         <div className="business-unit-access-list">
-          {state.data.users.map((directoryUser) => {
-            const memberships = drafts[directoryUser.userId] ?? directoryUser.memberships;
-            const changed = state.data.availableBusinessUnits.some(
-              (businessUnit) => memberships.includes(businessUnit) !== directoryUser.memberships.includes(businessUnit));
+          {state.data.users
+            .filter((directoryUser) => filter !== 'approval-pending' || directoryUser.memberships.length === 0)
+            .map((directoryUser) => {
+            const userDrafts = drafts[directoryUser.userId] ?? [];
+            const changed = userDrafts.some((draft) => {
+              const current = directoryUser.profiles.find((profile) => profile.businessUnitCode === draft.businessUnitCode);
+              return current?.membershipActive !== draft.isActive
+                || current?.isActive !== draft.isActive
+                || current?.departmentId !== draft.departmentId
+                || current?.isDepartmentHead !== draft.isDepartmentHead
+                || JSON.stringify([...(current?.roles ?? [])].sort()) !== JSON.stringify([...draft.roleCodes].sort());
+            });
+            const hasIncompleteActiveProfile = userDrafts.some(
+              (draft) => draft.isActive && (!draft.departmentId || draft.roleCodes.length === 0));
+            const hasForbiddenMultipleMemberships = !directoryUser.isOverallAdministrator
+              && userDrafts.filter((draft) => draft.isActive).length > 1;
             return (
               <article key={directoryUser.userId} className="business-unit-access-card">
                 <div>
@@ -5055,31 +5079,100 @@ function BusinessUnitAccessAdministrationPage({
                   <small>{directoryUser.email
                     ?? (directoryUser.authProvider === 'Dev' ? '개발 계정' : 'Microsoft 365 계정')}</small>
                 </div>
-                <fieldset>
-                  <legend>소속 사업부</legend>
-                  {state.data.availableBusinessUnits.map((businessUnit) => (
-                    <label key={businessUnit}>
-                      <input
-                        type="checkbox"
-                        checked={memberships.includes(businessUnit)}
-                        disabled={!mutationAllowed || savingUserId === directoryUser.userId}
-                        title={!mutationAllowed ? mutationDisabledReason ?? undefined : undefined}
-                        onChange={() => toggleMembership(directoryUser, businessUnit)}
-                      />
-                      {businessUnitLabel(businessUnit)}
-                    </label>
-                  ))}
-                </fieldset>
+                <div className="business-unit-profile-grid">
+                  {userDrafts.map((draft) => {
+                    const unit = state.data.businessUnits.find((item) => item.code === draft.businessUnitCode);
+                    const disabled = !mutationAllowed || savingUserId === directoryUser.userId
+                      || directoryUser.authProvider === 'Dev' || unit?.canManage !== true;
+                    return (
+                      <fieldset key={draft.businessUnitCode} disabled={disabled}>
+                        <legend>{businessUnitLabel(draft.businessUnitCode)}</legend>
+                        <label className="inline-check">
+                          <input
+                            type="checkbox"
+                            checked={draft.isActive}
+                            onChange={(event) => changeDraft(directoryUser, draft.businessUnitCode, (current) => ({
+                              ...current,
+                              isActive: event.target.checked,
+                              isDepartmentHead: event.target.checked ? current.isDepartmentHead : false
+                            }))}
+                          />
+                          소속·활성
+                        </label>
+                        {unit?.canManage ? (
+                          <>
+                            <label>
+                              부서
+                              <select
+                                value={draft.departmentId ?? ''}
+                                disabled={!draft.isActive}
+                                onChange={(event) => changeDraft(directoryUser, draft.businessUnitCode, (current) => ({
+                                  ...current,
+                                  departmentId: event.target.value || null,
+                                  isDepartmentHead: event.target.value ? current.isDepartmentHead : false
+                                }))}
+                              >
+                                <option value="">부서 선택</option>
+                                {unit.departments.map((department) => (
+                                  <option key={department.departmentId} value={department.departmentId}>{department.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="inline-check">
+                              <input
+                                type="checkbox"
+                                checked={draft.isDepartmentHead}
+                                disabled={!draft.isActive || !draft.departmentId}
+                                onChange={(event) => changeDraft(directoryUser, draft.businessUnitCode, (current) => ({
+                                  ...current,
+                                  isDepartmentHead: event.target.checked
+                                }))}
+                              />
+                              부서장
+                            </label>
+                            <div className="role-checkboxes" aria-label={`${businessUnitLabel(draft.businessUnitCode)} 역할`}>
+                              {unit.roles.map((role) => (
+                                <label key={role.code} className="inline-check">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.roleCodes.includes(role.code)}
+                                    disabled={!draft.isActive}
+                                    onChange={() => changeDraft(directoryUser, draft.businessUnitCode, (current) => ({
+                                      ...current,
+                                      roleCodes: current.roleCodes.includes(role.code)
+                                        ? current.roleCodes.filter((code) => code !== role.code)
+                                        : [...current.roleCodes, role.code].sort()
+                                    }))}
+                                  />
+                                  {role.name}
+                                </label>
+                              ))}
+                            </div>
+                          </>
+                        ) : <small>이 사업부의 사용자 관리 권한이 없습니다.</small>}
+                      </fieldset>
+                    );
+                  })}
+                </div>
                 <span className="business-unit-overall-status">
                   {directoryUser.isOverallAdministrator ? '총괄 관리자' : '일반 사용자'}
                 </span>
+                {directoryUser.pendingOperationStatus === 'RetryRequired' ? (
+                  <span className="status-badge warning" role="status">저장 재시도 필요</span>
+                ) : null}
+                {hasForbiddenMultipleMemberships ? <small className="warning-text">일반 사용자는 한 사업부만 선택할 수 있습니다.</small> : null}
+                {hasIncompleteActiveProfile ? <small className="warning-text">활성 사업부의 부서와 역할을 지정해 주세요.</small> : null}
                 <button
                   type="button"
-                  disabled={!mutationAllowed || !changed || savingUserId !== null}
+                  disabled={!mutationAllowed || (!changed && directoryUser.pendingOperationStatus !== 'RetryRequired')
+                    || savingUserId !== null || hasIncompleteActiveProfile || hasForbiddenMultipleMemberships
+                    || directoryUser.authProvider === 'Dev'}
                   title={!mutationAllowed ? mutationDisabledReason ?? undefined : undefined}
                   onClick={() => void save(directoryUser)}
                 >
-                  {savingUserId === directoryUser.userId ? '저장 중…' : '소속 저장'}
+                  {savingUserId === directoryUser.userId
+                    ? '저장 중…'
+                    : directoryUser.pendingOperationStatus === 'RetryRequired' ? '같은 작업 재시도' : '사용자 저장'}
                 </button>
               </article>
             );
@@ -5088,6 +5181,31 @@ function BusinessUnitAccessAdministrationPage({
       ) : null}
     </section>
   );
+}
+
+type IntegratedUserAccessDraft = {
+  businessUnitCode: BusinessUnitCode;
+  departmentId: string | null;
+  roleCodes: string[];
+  isActive: boolean;
+  isDepartmentHead: boolean;
+};
+
+function buildIntegratedUserAccessDrafts(snapshot: BusinessUnitAccessAdministrationResponse) {
+  return Object.fromEntries(snapshot.users.map((user) => [
+    user.userId,
+    snapshot.availableBusinessUnits.map((businessUnitCode) => {
+      const profile = user.profiles.find((item) => item.businessUnitCode === businessUnitCode);
+      const pendingProfile = user.pendingProfiles.find((item) => item.businessUnitCode === businessUnitCode);
+      return {
+        businessUnitCode,
+        departmentId: pendingProfile?.departmentId ?? profile?.departmentId ?? null,
+        roleCodes: [...(pendingProfile?.roleCodes ?? profile?.roles ?? [])],
+        isActive: pendingProfile?.isActive ?? profile?.membershipActive === true,
+        isDepartmentHead: pendingProfile?.isDepartmentHead ?? profile?.isDepartmentHead === true
+      } satisfies IntegratedUserAccessDraft;
+    })
+  ]));
 }
 
 function businessUnitMembershipMutationDisabledReason(runtimeMode: LoadState<RuntimeMode>): string | null {
@@ -5115,10 +5233,10 @@ function isOsanViewAllowed(view: View, user: CurrentUser) {
     return true;
   }
   if (view.kind === 'admin-users') {
-    return user.permissions.includes('users.manage');
+    return user.permissions.includes('users.manage')
+      || resolveBusinessUnitAccess(user).isOverallAdministrator;
   }
-  return view.kind === 'admin-business-unit-access'
-    && resolveBusinessUnitAccess(user).isOverallAdministrator;
+  return false;
 }
 
 function ApprovalPendingPage({
@@ -5139,7 +5257,7 @@ function ApprovalPendingPage({
         actions={(
           <>
             {onOpenBusinessUnitAccess ? (
-              <button type="button" onClick={onOpenBusinessUnitAccess}>사업부 소속 관리</button>
+              <button type="button" onClick={onOpenBusinessUnitAccess}>사용자 관리</button>
             ) : null}
             {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
           </>
@@ -5265,7 +5383,36 @@ function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) 
   return `${prefix}${suffix}`;
 }
 
-function AdminUsersPage({
+function AdminUsersPage(props: {
+  developmentUserKey: string;
+  filter?: 'approval-pending';
+  restrictedToLocalProfile?: boolean;
+  overallAccess?: boolean;
+  currentUserId: string;
+  selectedBusinessUnit: BusinessUnitCode | null;
+  mutationAllowed: boolean;
+  mutationDisabledReason: string | null;
+  onCurrentSelectionRemoved: () => void;
+  onOpenNotificationSettings?: (userId: string) => void;
+}) {
+  if (props.overallAccess) {
+    return (
+      <BusinessUnitAccessAdministrationPage
+        developmentUserKey={props.developmentUserKey}
+        filter={props.filter}
+        currentUserId={props.currentUserId}
+        selectedBusinessUnit={props.selectedBusinessUnit}
+        mutationAllowed={props.mutationAllowed}
+        mutationDisabledReason={props.mutationDisabledReason}
+        onCurrentSelectionRemoved={props.onCurrentSelectionRemoved}
+      />
+    );
+  }
+
+  return <LocalAdminUsersPage {...props} />;
+}
+
+function LocalAdminUsersPage({
   developmentUserKey,
   filter,
   restrictedToLocalProfile = false,
@@ -8379,7 +8526,6 @@ function isProcurementWorkspace(view: View) {
 function isAdminWorkspace(view: View) {
   return view.kind === 'admin-dashboard'
     || view.kind === 'pending-types'
-    || view.kind === 'admin-business-unit-access'
     || view.kind === 'admin-users'
     || view.kind === 'admin-user-notification-preferences'
     || view.kind === 'admin-departments'

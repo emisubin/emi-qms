@@ -8,8 +8,12 @@ cd "${repo_root}"
 source "${repo_root}/scripts/lib/e2e-safety.sh"
 
 self_test_mode=""
+review_server_mode=""
 if [[ "${1:-}" == "--self-test-backend-startup-failure" ]]; then
   self_test_mode="$1"
+  shift
+elif [[ "${1:-}" == "--review-server" ]]; then
+  review_server_mode="$1"
   shift
 fi
 
@@ -30,9 +34,12 @@ done
 
 resource_scope_initialized=0
 backend_pid=""
+frontend_pid=""
 backend_log="$(mktemp -t emi-qms-business-unit-backend.XXXXXX.log)"
+frontend_log="$(mktemp -t emi-qms-business-unit-frontend.XXXXXX.log)"
 operation_log="$(mktemp -t emi-qms-business-unit-setup.XXXXXX.log)"
 backend_pid_file="$(mktemp -t emi-qms-business-unit-backend.XXXXXX.pid)"
+frontend_pid_file="$(mktemp -t emi-qms-business-unit-frontend.XXXXXX.pid)"
 backend_expected_cwd="${repo_root}"
 backend_dll="${repo_root}/backend/src/Emi.Qms.Api/bin/Release/net10.0/Emi.Qms.Api.dll"
 backend_expected_command_marker="${backend_dll}"
@@ -185,12 +192,50 @@ wait_for_port_to_close() {
   return 1
 }
 
+assert_owned_frontend_process() {
+  local listener_pids
+  [[ "${frontend_pid}" =~ ^[0-9]+$ && -f "${frontend_pid_file}" ]] || return "${process_ownership_exit_code}"
+  [[ "$(cat "${frontend_pid_file}")" == "${frontend_pid}" ]] || return "${process_ownership_exit_code}"
+  kill -0 "${frontend_pid}" 2>/dev/null || return 1
+  [[ "$(read_process_cwd "${frontend_pid}")" == "${repo_root}/frontend" ]] || return "${process_ownership_exit_code}"
+  [[ "$(read_process_session "${frontend_pid}")" == "${backend_expected_session}" ]] || return "${process_ownership_exit_code}"
+  [[ "$(read_process_command "${frontend_pid}")" == *"vite"* ]] || return "${process_ownership_exit_code}"
+  listener_pids="$(read_listener_pids "${E2E_FRONTEND_PORT}")"
+  [[ "${listener_pids}" == "${frontend_pid}" ]] || return "${process_ownership_exit_code}"
+}
+
+wait_for_frontend_ready() {
+  local url="$1"
+  for _ in $(seq 1 120); do
+    if ! kill -0 "${frontend_pid}" 2>/dev/null; then
+      e2e_safety_error "Owned frontend exited before readiness."
+      return 1
+    fi
+    if curl --fail --silent --show-error "${url}" >/dev/null 2>&1; then
+      assert_owned_frontend_process || return $?
+      return 0
+    fi
+    sleep 1
+  done
+  e2e_safety_error "Owned frontend did not become ready before the bounded deadline."
+  return 1
+}
+
 cleanup() {
   local original_exit_code="$?"
   local cleanup_exit_code=0
   trap - EXIT INT TERM
   set +e
 
+  if [[ -n "${frontend_pid}" ]] && kill -0 "${frontend_pid}" 2>/dev/null; then
+    if assert_owned_frontend_process; then
+      kill "${frontend_pid}" >/dev/null 2>&1
+      wait "${frontend_pid}" >/dev/null 2>&1
+    else
+      e2e_safety_error "Frontend ownership changed during cleanup; the process was not terminated."
+      cleanup_exit_code="${process_ownership_exit_code}"
+    fi
+  fi
   if [[ -n "${backend_pid}" ]] && kill -0 "${backend_pid}" 2>/dev/null; then
     if assert_owned_backend_process true; then
       kill "${backend_pid}" >/dev/null 2>&1
@@ -214,9 +259,10 @@ cleanup() {
     [[ "$(run_admin_scalar "select count(*) from pg_roles where rolname in ('${directory_migrator}', '${directory_runtime}', '${cheongju_migrator}', '${cheongju_runtime}', '${osan_migrator}', '${osan_runtime}');")" == "0" ]] || { echo "Synthetic role drop assertion failed." >&2; cleanup_exit_code=1; }
     e2e_stop_project >/dev/null 2>&1 || { echo "Synthetic Compose cleanup failed." >&2; cleanup_exit_code=1; }
   fi
-  rm -f "${backend_log}" "${operation_log}" "${backend_pid_file}" \
+  rm -f "${backend_log}" "${frontend_log}" "${operation_log}" "${backend_pid_file}" "${frontend_pid_file}" \
     || { echo "Synthetic temporary-file cleanup failed." >&2; cleanup_exit_code=1; }
-  [[ ! -e "${backend_log}" && ! -e "${operation_log}" && ! -e "${backend_pid_file}" ]] \
+  [[ ! -e "${backend_log}" && ! -e "${frontend_log}" && ! -e "${operation_log}" \
+      && ! -e "${backend_pid_file}" && ! -e "${frontend_pid_file}" ]] \
     || { echo "Synthetic temporary-file cleanup assertion failed." >&2; cleanup_exit_code=1; }
 
   if [[ "${cleanup_exit_code}" -eq 0 ]]; then
@@ -317,12 +363,15 @@ run_admin_psql "${directory_database}" "
 insert into directory_identities (user_id, auth_provider, external_subject, display_name, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'Dev', 'dev-admin', 'Synthetic Overall Admin', true),
-  ('50000000-0000-0000-0000-000000000002', 'Dev', 'dev-sales', 'Synthetic Sales User', true);
+  ('50000000-0000-0000-0000-000000000002', 'Dev', 'dev-sales', 'Synthetic Sales User', true),
+  ('50000000-0000-0000-0000-000000000005', 'Dev', 'dev-quality', 'Synthetic Osan User', true),
+  ('71000000-0000-0000-0000-000000000003', 'EntraId', 'synthetic-pending-user', 'Synthetic Pending User', true);
 insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'CHEONGJU', true),
   ('50000000-0000-0000-0000-000000000001', 'OSAN', true),
-  ('50000000-0000-0000-0000-000000000002', 'CHEONGJU', true);
+  ('50000000-0000-0000-0000-000000000002', 'CHEONGJU', true),
+  ('50000000-0000-0000-0000-000000000005', 'OSAN', true);
 insert into directory_overall_administrators (user_id, is_active)
 values ('50000000-0000-0000-0000-000000000001', true);"
 
@@ -364,6 +413,29 @@ run_admin_psql "${osan_database}" "
 update qms_users set display_name = 'Osan Admin' where id = '50000000-0000-0000-0000-000000000001';
 insert into qms_users (id, development_user_key, display_name, department_id, is_active, auth_provider)
 values ('79000000-0000-0000-0000-000000000001', 'boundary-profile', 'Osan Boundary Profile', null, true, 'Dev');"
+
+if [[ "${review_server_mode}" == "--review-server" ]]; then
+  (
+    cd "${repo_root}/frontend"
+    export VITE_AUTH_MODE=Dev
+    export VITE_API_BASE_URL="http://127.0.0.1:${E2E_BACKEND_PORT}"
+    export VITE_DEV_USER_KEY=dev-admin
+    export VITE_DEV_SERVER_PORT="${E2E_FRONTEND_PORT}"
+    exec ./node_modules/.bin/vite --host 127.0.0.1 --port "${E2E_FRONTEND_PORT}" --strictPort
+  ) >"${frontend_log}" 2>&1 &
+  frontend_pid="$!"
+  printf '%s\n' "${frontend_pid}" >"${frontend_pid_file}"
+  wait_for_frontend_ready "http://127.0.0.1:${E2E_FRONTEND_PORT}/admin/users"
+  echo "Synthetic exact-source review server is ready."
+  echo "Frontend URL: http://127.0.0.1:${E2E_FRONTEND_PORT}/admin/users"
+  echo "Personas: dev-admin (overall), dev-sales (Cheongju only), dev-quality (Osan only)."
+  echo "Pending user: Synthetic Pending User. External providers and workers are disabled."
+  while kill -0 "${backend_pid}" 2>/dev/null && kill -0 "${frontend_pid}" 2>/dev/null; do
+    sleep 5
+  done
+  e2e_safety_error "A review server component exited unexpectedly."
+  exit 1
+fi
 
 echo "Business-unit access Full-Stack E2E uses owned tmpfs PostgreSQL with three databases and six bounded roles."
 cd frontend

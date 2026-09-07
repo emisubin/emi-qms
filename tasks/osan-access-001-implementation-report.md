@@ -1,11 +1,11 @@
-# TASK-OSAN-ACCESS-001 Change 001·002 구현 보고
+# TASK-OSAN-ACCESS-001 Change 001·002·003 구현 보고
 
 ## 1. 실행 기준과 상태
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - currentChangeTaskType: `BUGFIX`
 - canonicalTask: `TASK-OSAN-ACCESS-001`
-- canonicalChange: `TASK-OSAN-ACCESS-001 Change 001, Change 002`
+- canonicalChange: `TASK-OSAN-ACCESS-001 Change 001, Change 002, Change 003`
 - instructionChainRead: true
 - change001TaskIdentityGate: `PASS_REUSE`
 - change001RoadmapSequenceMatch: true
@@ -16,7 +16,7 @@
 - change001ImplementationWorktree: `/private/tmp/emi-osan-access-001`
 - change001ImplementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
 - change001ImplementationOwnerObserved: `NOT_REPORTED`
-- implementationStatus: `CHANGE_002_IMPLEMENTED_AWAITING_USER_VALIDATION`
+- implementationStatus: `CHANGE_003_IMPLEMENTED_AWAITING_USER_VALIDATION`
 - change002ApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
 - change002TaskIdentityGate: `PASS_REUSE`
 - change002RoadmapSequenceMatch: false
@@ -28,6 +28,16 @@
 - change002ImplementationBranch: `feat/task-osan-project-001-project-registration`
 - change002ImplementationBaseline: `d7401610311638317a2606416845492f03ae58fb`
 - change002ImplementationWorktree: `/private/tmp/emi-osan-project-001`
+- change003ApprovalSource: `USER_EXPLICIT_2026-09-07_INTEGRATED_USER_APPROVAL`
+- change003TaskIdentityGate: `PASS_REUSE`
+- change003RoadmapSequenceMatch: false
+- change003ExplicitRoadmapOverrideApproved: true
+- change003ImplementationOwnerRequested: `GPT_5_6_SOL_XHIGH_ONLY`
+- change003ImplementationOwnerObserved: `NOT_REPORTED`
+- change003Gpt6ReviewProhibitedByUser: true
+- change003ImplementationBranch: `fix/task-osan-access-001-integrated-user-approval`
+- change003ImplementationBaseline: `11c1185ea9c550022e3f70d106e06a1c6bc517b1`
+- change003ImplementationWorktree: `/Users/parksubin/.codex/visualizations/2026/09/05/01a07195-0215-7572-8126-f3d7e385169a/emi-osan-change-003`
 - change001FinalVerifierCorrectionTaskType: `P2_REMEDIATION`
 - change001FinalVerifierRequested: `GPT_6_ASTRA_HIGH`
 - change001FinalVerifierObserved: `NOT_REPORTED`
@@ -346,3 +356,56 @@ Change 001의 자동 검증과 fresh GPT-6 read-only 제품 품질 검증은 완
 ### Azure phase 1 승격 상태
 
 `TASK-AZURE-DEPLOY-001 Change 031`은 로그인·사업부 해석, no-membership·local-profile-pending gate, 총괄 membership과 선택 사업부 local role 관리를 포함한다. 일반 사용자의 dual-membership 전환 결함은 사용자 승인으로 보류했으며 운영에서는 일반 계정에 membership 한 곳만 부여한다. Change 002 selector는 자동·시각 검증 완료, 사용자 검수 대기 상태를 유지한다. Change 031 최종 source에서 Backend `582/582`, Frontend `297/297`, mock `13/13`, 일반/전용 Full-Stack `64+1+1=66/66`과 배포 정적 검증을 통과했다. Azure mutation과 실제 계정 검증은 아직 수행하지 않았다.
+
+## 13. Change 003 통합 사용자 승인 구현
+
+### 사용자 문제와 최종 동작
+
+기존 화면은 총괄의 `사업부 소속 관리`와 선택 사업부의 `사용자 관리`가 나뉘어 있었다. Membership을 먼저 저장한 뒤 local profile의 부서·역할을 따로 채워야 했기 때문에 첫 로그인 사용자가 `local_profile_pending`에 머물 수 있었다.
+
+Change 003은 별도 왼쪽 메뉴와 화면을 제거하고 기존 `관리자 > 사용자 관리` 하나로 합쳤다. Directory에 등록된 첫 로그인 승인 대기 사용자도 목록에 나타난다. 총괄 관리자는 사업부별 부서, 역할 1개 이상, 부서장 여부와 활성 상태를 한 화면에서 한 번 저장한다. 기존 `/admin/business-unit-access` bookmark는 같은 사용자 관리 화면으로 이동하지만 별도 화면이나 메뉴를 되살리지 않는다.
+
+### 저장·권한·감사 계약
+
+- Additive Directory migration `0003_unified_user_access_administration`은 `access_version`과 durable operation 원장을 추가한다. 원장은 원래 요청한 사업부별 부서·역할·부서장·활성 payload도 보관해 페이지를 새로 연 뒤 같은 operation을 정확히 재시도할 수 있다. Identity contract 상수는 Directory `0001_business_unit_directory`, business `0086_business_unit_database_identity` 그대로다. Business migration은 추가하지 않았다.
+- Grant/update는 같은 Directory UUID와 Entra subject를 검증하고 각 사업부 local profile·부서·역할·부서장·활성을 먼저 commit한 뒤 Directory membership을 공개한다. Local 단계가 실패하면 새 membership은 0이고 operation은 개인정보 없는 `RetryRequired` 상태로 남는다.
+- 회수는 Directory membership을 먼저 차단하고 local profile을 비활성화한다. 부서·역할 snapshot은 보존하며 같은 operation 재시도로 forward-fix할 수 있다.
+- Operation ID와 request fingerprint는 응답 유실 뒤 같은 요청을 중복 없이 완료 상태로 돌려준다. Expected version 불일치는 409로 거부한다.
+- 일반 사용자는 active membership 한 곳 이하를 DB 함수에서 강제한다. 다중 소속은 active Directory overall designation이 있는 사용자만 허용한다. Overall designation과 사업부의 local `system-administrator`·`users.manage`는 자동 변환하지 않는다.
+- Actor는 active 총괄이어야 하고 변경 대상이 걸친 각 사업부에서 local `users.manage`를 가져야 한다. Department와 role catalog는 해당 사업부 DB에서 각각 다시 검증한다. DB fallback은 없다.
+- Directory audit와 각 사업부 field audit는 같은 operation UUID를 correlation ID로 사용한다. 기존 membership-only PUT과 DB function은 통합 저장을 요구하는 안정된 오류로 fail closed한다.
+
+### 검수 전 최소 검증과 정책
+
+사용자는 Change 003 사용자 검수 전에는 Backend 582, Frontend 297, Full-Stack 66, 전체 CI와 광범위 회귀를 다시 실행하지 않고, 검수 완료 뒤 원격 `main` 병합 준비의 최종 head에서 한 번만 실행하라고 명시했다. 따라서 이전 Change 031 전체 결과는 역사적 기록으로 보존하고 Change 003 증거로 재사용하지 않았다.
+
+| 검증 | 결과 |
+| --- | --- |
+| Backend test project compile | PASS, 경고 0·오류 0 |
+| Audit mutation endpoint 분류 | 4/4 PASS |
+| Directory 0003 fresh/existing + 통합 3-DB 핵심 | 2/2 PASS |
+| Frontend typecheck | PASS |
+| BusinessUnitAccess/API component | 35/35 PASS |
+| 통합 사용자 관리 Chromium smoke | 1/1 PASS |
+| Frontend 전체 | 명령 필터 오지정으로 의도치 않게 1회 실행, 297/297 PASS; 정책 위반으로 기록하고 반복 금지 |
+| 전체 Backend/Full-Stack/CI | 사용자 지정 정책으로 검수 뒤 최종 head 1회 대기 |
+
+3-DB 집중 검증은 성공, local failure 뒤 membership 0과 RetryRequired·durable payload 복원·보정 뒤 동일 operation 재시도, 응답 유실 뒤 완료 operation 멱등 재시도, 같은 expected version의 동시 요청 1개 성공·1개 충돌, 일반 사용자 다중 소속 거절, 지정 총괄의 사업부별 서로 다른 local profile, 회수 뒤 membership 0·local snapshot 비활성 보존, Directory/사업부 audit correlation을 확인했다. Fresh Directory 0001→0003과 existing 0001/0002→0003 모두 exact ledger이며 identity contract `0001`을 유지한다.
+
+### Finding, rollback과 게시 상태
+
+구현 중 실제 DB 검증이 존재하지 않는 `departments.default_role_code` 조회와 field audit에 허용되지 않는 route key 형식을 찾았다. 현재 department identity policy를 사용하고 고정 endpoint name `UpdateIntegratedUserAccess`를 audit route key로 전달하도록 보정한 뒤 실패한 집중 Fact만 재실행했고, 최종 2/2 묶음도 통과했다.
+
+Migration 0003은 down migration 없이 additive로 유지한다. 이전 image의 membership-only mutation은 `integrated_user_access_required`로 fail closed한다. 이전 image가 0003 ledger에서 ready라고 주장하지 않으며, 운영 적용 전 배포 Task에서 새 image 재배포/forward-fix를 복구 경로로 고정해야 한다. Change 003 자체는 운영 DB나 Azure에 적용하지 않았다.
+
+기존 PR #121 remote head `11c1185ea9c550022e3f70d106e06a1c6bc517b1`는 그대로다. Change 003은 `fix/task-osan-access-001-integrated-user-approval`의 local commit과 exact-commit 격리 검수 runtime까지만 승인됐다. Push, CI, `main` merge, Azure mutation은 실행하지 않는다. Change 002 selector 사용자 검수 완료를 추정하지 않으며 Change 003 검수에서 함께 확인한다.
+
+Change 003 사용자 검수 항목:
+
+- [ ] 총괄에게 청주·오산 selector가 보이고 단일 청주·단일 오산 사용자에게 selector·빈 label이 보이지 않는다.
+- [ ] 왼쪽 관리자 메뉴에는 `사용자 관리`만 있고 `사업부 소속 관리`가 없다.
+- [ ] 첫 로그인 승인 대기 사용자가 사용자 관리 목록에 표시된다.
+- [ ] 한 화면에서 사업부, 해당 사업부 부서, 역할, 부서장 여부를 지정해 한 번 저장할 수 있다.
+- [ ] 이미 승인된 사용자의 사업부별 부서·역할·부서장·활성을 같은 화면에서 수정할 수 있다.
+- [ ] 일반 사용자는 두 사업부를 동시에 활성화할 수 없고 총괄 표시는 local 역할과 별도로 보인다.
+- [ ] 오산 shell에는 G2, Pending, hold/cancel 등 phase 1 제외 기능이 나타나지 않는다.

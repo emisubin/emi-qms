@@ -40,6 +40,7 @@ export interface BusinessUnitAccess {
 export interface BusinessUnitAccessAdministrationResponse {
   users: BusinessUnitAccessAdministrationUser[];
   availableBusinessUnits: BusinessUnitCode[];
+  businessUnits: BusinessUnitAccessAdministrationUnit[];
 }
 
 export interface BusinessUnitAccessAdministrationUser {
@@ -49,10 +50,45 @@ export interface BusinessUnitAccessAdministrationUser {
   email: string | null;
   memberships: BusinessUnitCode[];
   isOverallAdministrator: boolean;
+  accessVersion: number;
+  pendingOperationId: string | null;
+  pendingOperationStatus: 'Preparing' | 'RetryRequired' | null;
+  pendingFailureCode: string | null;
+  pendingProfiles: UpdateBusinessUnitUserAccessProfile[];
+  profiles: BusinessUnitAccessAdministrationProfile[];
 }
 
-export interface BusinessUnitMembershipUpdateResponse {
+export interface BusinessUnitAccessAdministrationProfile {
+  businessUnitCode: BusinessUnitCode;
+  membershipActive: boolean;
+  localProfileExists: boolean;
+  isActive: boolean;
+  departmentId: string | null;
+  departmentCode: string | null;
+  departmentName: string | null;
+  roles: string[];
+  isDepartmentHead: boolean;
+  canManage: boolean;
+}
+
+export interface BusinessUnitAccessAdministrationUnit {
+  code: BusinessUnitCode;
+  canManage: boolean;
+  departments: AdminDepartment[];
+  roles: AdminRole[];
+}
+
+export interface UpdateBusinessUnitUserAccessProfile {
+  businessUnitCode: BusinessUnitCode;
+  departmentId: string | null;
+  roleCodes: string[];
+  isActive: boolean;
+  isDepartmentHead: boolean;
+}
+
+export interface BusinessUnitUserAccessUpdateResponse {
   changed: boolean;
+  accessVersion: number;
   snapshot: BusinessUnitAccessAdministrationResponse;
 }
 

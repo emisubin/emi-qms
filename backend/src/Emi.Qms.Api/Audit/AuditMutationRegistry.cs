@@ -183,6 +183,7 @@ public static partial class AuditMutationRegistry
         PUT /api/admin/calendar/holidays/{holidayId:guid}
         PUT /api/admin/departments/{departmentId:guid}
         PUT /api/admin/business-unit-access/users/{userId:guid}/memberships
+        PUT /api/admin/user-access/users/{userId:guid}/access
         PUT /api/admin/users/{userId:guid}/notification-preferences
         PUT /api/form-templates/lqc-items/{productTypeId:guid}/current
         PUT /api/form-templates/lqc-items/{productTypeId:guid}/operating-status

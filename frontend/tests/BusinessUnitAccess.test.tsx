@@ -187,6 +187,8 @@ describe('business-unit access shell', () => {
 
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: '공통 메뉴' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
   });
 
   it('settles a normal no-membership gate without requesting denied runtime or business data', async () => {
@@ -253,6 +255,57 @@ describe('business-unit access shell', () => {
       && call.headers.get('X-Qms-Business-Unit') === 'OSAN')).toBe(true);
   });
 
+  it.each([
+    ['CHEONGJU', '청주 사용자 등록이 필요합니다.'],
+    ['OSAN', '오산 사용자 등록이 필요합니다.']
+  ] as const)('does not show a single-option business-unit choice for a %s-only overall administrator at the access gate', async (
+    businessUnit,
+    title
+  ) => {
+    vi.stubGlobal('fetch', shellFetch({
+      userId: adminUserId,
+      developmentUserKey: 'dev-admin',
+      displayName: 'Single Membership Overall Admin',
+      email: null,
+      businessUnitAccess: {
+        status: 'local_profile_pending',
+        selectedBusinessUnit: businessUnit,
+        allowedBusinessUnits: [businessUnit],
+        isOverallAdministrator: true,
+        errorCode: 'business_unit_local_profile_pending'
+      }
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['CHEONGJU', '사용자 관리'],
+    ['OSAN', '현재 사업부 사용자 관리']
+  ] as const)('does not render a header selector for a %s-only overall administrator', async (
+    businessUnit,
+    title
+  ) => {
+    selectBusinessUnit(businessUnit);
+    window.history.replaceState(null, '', '/admin/users');
+    vi.stubGlobal('fetch', shellFetch(selectedUser({
+      status: 'selected',
+      selectedBusinessUnit: businessUnit,
+      allowedBusinessUnits: [businessUnit],
+      isOverallAdministrator: true,
+      errorCode: null
+    })));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
+    expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
+  });
+
   it('binds an implicit single membership before loading selected-business data', async () => {
     const calls: Array<{ path: string; headers: Headers }> = [];
     window.history.replaceState(null, '', '/admin/users');
@@ -300,6 +353,7 @@ describe('business-unit access shell', () => {
 
     expect(await screen.findByRole('heading', { name: '이 탭에서 사용할 사업부를 선택해 주세요.' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
   });
 
   it('keeps the Osan shell restricted and redirects a closed direct route', async () => {
@@ -428,6 +482,8 @@ describe('business-unit access shell', () => {
     const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
     expect(newUserCard).not.toBeNull();
     expect(screen.getByText('실행 모드를 확인하는 동안에는 사업부 소속을 변경할 수 없습니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
     const checkbox = within(newUserCard!).getByLabelText('오산');
     const save = within(newUserCard!).getByRole('button', { name: '소속 저장' });
     expect(checkbox).toBeDisabled();
@@ -457,6 +513,8 @@ describe('business-unit access shell', () => {
     const newUserCard = (await screen.findByText('Synthetic New User')).closest('article');
     expect(newUserCard).not.toBeNull();
     expect(await screen.findByText('실행 모드를 확인할 수 없어 사업부 소속 변경을 차단했습니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('사업부 선택')).not.toBeInTheDocument();
     const checkbox = within(newUserCard!).getByLabelText('오산');
     const save = within(newUserCard!).getByRole('button', { name: '소속 저장' });
     expect(checkbox).toBeDisabled();

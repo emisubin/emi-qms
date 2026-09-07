@@ -2374,7 +2374,7 @@ function QmsAppShellContent({
               <strong>{activeNavigationLabel}</strong>
             </span>
           </div>
-          {businessUnitAccess.isOverallAdministrator && businessUnitAccess.allowedBusinessUnits.length > 1 ? (
+          {canSwitchBusinessUnit(businessUnitAccess) ? (
             <BusinessUnitSelector
               access={businessUnitAccess}
               mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
@@ -2448,7 +2448,7 @@ function QmsAppShellContent({
             <h1>EMI PMS</h1>
           </div>
           <div className="topbar-actions">
-            {businessUnitAccess.isOverallAdministrator && businessUnitAccess.allowedBusinessUnits.length > 1 ? (
+            {canSwitchBusinessUnit(businessUnitAccess) ? (
               <BusinessUnitSelector
                 access={businessUnitAccess}
                 mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
@@ -4073,6 +4073,10 @@ function businessUnitLabel(code: BusinessUnitCode) {
   return code === 'OSAN' ? '오산' : '청주';
 }
 
+function canSwitchBusinessUnit(access: BusinessUnitAccess) {
+  return access.isOverallAdministrator && access.allowedBusinessUnits.length > 1;
+}
+
 function BusinessUnitSelector({
   access,
   mutationInFlight,
@@ -4146,7 +4150,7 @@ function BusinessUnitAccessGate({
             title: '이 탭에서 사용할 사업부를 선택해 주세요.',
             message: '사업부를 선택하면 해당 사업부의 사용자 역할과 데이터 범위가 적용됩니다.'
           };
-  const canSelect = access.isOverallAdministrator && access.allowedBusinessUnits.length > 0;
+  const canSelect = canSwitchBusinessUnit(access);
 
   return (
     <main className="auth-gate business-unit-access-gate">

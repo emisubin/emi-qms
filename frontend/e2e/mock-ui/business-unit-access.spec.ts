@@ -140,7 +140,79 @@ test('each tab keeps and restores its own business-unit selection', async ({ pag
   await expect(secondTab.getByLabel('사업부 선택').first()).toHaveValue('OSAN');
 });
 
-function currentUser(selectedBusinessUnit: 'CHEONGJU' | 'OSAN') {
+test('single-business overall administrator sees no selector on desktop or mobile', async ({ page }, testInfo) => {
+  let localProfileReady = false;
+
+  await page.route('http://localhost:5080/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/health/ready') {
+      return fulfillJson(route, { status: 'ready', database: { reason: 'reachable' } });
+    }
+    if (path === '/api/runtime-mode') {
+      return fulfillJson(route, {
+        mode: 'Development',
+        reviewSafe: false,
+        mutationAllowed: true,
+        databaseReadOnly: false,
+        ready: true,
+        reason: 'development'
+      });
+    }
+    if (path === '/api/me') {
+      return fulfillJson(route, localProfileReady
+        ? currentUser('OSAN', ['OSAN'])
+        : {
+            userId: adminUserId,
+            developmentUserKey: 'dev-admin',
+            displayName: 'Synthetic Osan-only Overall Admin',
+            email: null,
+            businessUnitAccessStatus: 'local_profile_pending',
+            allowedBusinessUnits: ['OSAN'],
+            isOverallAdministrator: true,
+            errorCode: 'business_unit_local_profile_pending',
+            businessUnitAccess: {
+              status: 'local_profile_pending',
+              selectedBusinessUnit: 'OSAN',
+              allowedBusinessUnits: ['OSAN'],
+              isOverallAdministrator: true,
+              errorCode: 'business_unit_local_profile_pending'
+            }
+          });
+    }
+    if (path === '/api/admin/business-unit-access/users') {
+      return fulfillJson(route, membershipSnapshot());
+    }
+    return fulfillJson(route, { title: 'closed in synthetic business-unit scope' }, 404);
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '오산 사용자 등록이 필요합니다.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /사업부로 이동/ })).toHaveCount(0);
+  await expect(page.getByLabel('사업부 선택')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('single-membership-gate-desktop.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('button', { name: /사업부로 이동/ })).toHaveCount(0);
+  await expect(page.getByLabel('사업부 선택')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+  await page.screenshot({ path: testInfo.outputPath('single-membership-gate-mobile.png'), fullPage: true });
+
+  localProfileReady = true;
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
+  await expect(page.getByLabel('사업부 선택')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+  await page.screenshot({ path: testInfo.outputPath('single-membership-shell-mobile.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByLabel('사업부 선택')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('single-membership-shell-desktop.png'), fullPage: true });
+});
+
+function currentUser(
+  selectedBusinessUnit: 'CHEONGJU' | 'OSAN',
+  allowedBusinessUnits: Array<'CHEONGJU' | 'OSAN'> = ['CHEONGJU', 'OSAN']
+) {
   const principal = {
     userId: adminUserId,
     developmentUserKey: 'dev-admin',
@@ -166,7 +238,7 @@ function currentUser(selectedBusinessUnit: 'CHEONGJU' | 'OSAN') {
     businessUnitAccess: {
       status: 'selected',
       selectedBusinessUnit,
-      allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+      allowedBusinessUnits,
       isOverallAdministrator: true,
       errorCode: null
     }

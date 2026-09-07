@@ -1,7 +1,8 @@
 # TASK-OSAN-ACCESS-001 — 사업부 사용자 관리와 총괄 전환
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- status: `IMPLEMENTED_AWAITING_BATCHED_USER_VALIDATION`
+- currentChangeTaskType: `BUGFIX`
+- status: `CHANGE_002_IMPLEMENTED_AWAITING_USER_VALIDATION`
 - parentTask: `TASK-OSAN-PILOT-001`
 - implementationApproved: true
 - implementationApprovalSource: `USER_EXPLICIT_2026-09-06_NEXT_TASK_START`
@@ -10,6 +11,8 @@
 - implementationBaseline: `670b2ea`
 - runtimeMutationApproved: false
 - gitPublicationApproved: false
+- currentChangeApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
+- currentImplementationBranch: `feat/task-osan-project-001-project-registration`
 - 선행조건: 충족 — TASK-OSAN-ISOLATION-001 제품 구현·자동 검증·사용자 검수 완료, 미완료 Docker lifecycle 동적 검증은 TASK-OSAN-VALIDATION-001로 이관. 사용자가 2026-09-06 “다음작업 시작해”로 이 Task 구현을 승인했고, 이어서 Task 1 local 기준선 commit과 Task 2 branch/worktree 생성을 승인했다.
 
 ## 목적과 계약
@@ -33,7 +36,7 @@ Backend membership/authorization/admin endpoints, Frontend App/auth/api/menu/cac
 
 실행 시 최신 instruction chain·Task identity·Roadmap·branch/runtime 상태를 읽고 exact 파일 allowlist와 검증 명령을 고정한다. 기존 WIP가 남은 현 branch에서 제품 개발을 자동 시작하거나 사용자의 WIP를 정리하지 않는다.
 
-[Change 001 구현 방향서](osan-access-001-change-001.md)가 현재 구현 계약과 Task 전용 branch 전환 전 상태를 기록한다.
+[Change 001 구현 방향서](osan-access-001-change-001.md)가 최초 구현 계약과 Task 전용 branch 전환 전 상태를 기록한다. [Change 002](osan-access-001-change-002.md)는 사용자 검수에서 확인한 단일 소속 selector 가시성 결함과 현재 보정 범위를 기록한다.
 
 ## 완료 기준
 
@@ -45,6 +48,7 @@ Backend membership/authorization/admin endpoints, Frontend App/auth/api/menu/cac
 - [x] Backend/frontend occupied port는 자원 생성 전 거부하고, bootstrap/migration 뒤 backend startup 실패 주입은 생성한 3 DB·6 role·Compose/process/temp file을 trap으로 정리한다.
 - [x] 일반 미소속 사용자는 `/api/me` 결과로 승인 대기 상태를 먼저 확정하고 runtime·업무 API를 호출하지 않으며, 마지막 소속 회수 뒤에도 한 번만 context를 무효화하고 안정된 대기 화면에 머문다.
 - [x] 청주 기존 메뉴·권한·개발용 테스트 사용자 전환과 총괄 기능 혼동 없음.
+- [x] 사업부 selector와 이동 button은 active 접근 가능 사업부가 두 곳 이상인 총괄에게만 표시되고, 단일 청주·단일 오산·미소속 사용자는 빈 label을 포함한 선택 UI를 보지 않음.
 
 실제 Microsoft 365 provider redirect를 포함한 end-to-end logout은 이 Change의 실제 provider 금지 경계에 따른 `N/A` 항목이다. 전용 browser harness에서 실행한 것으로 표현하지 않는다.
 
@@ -52,4 +56,4 @@ Backend membership/authorization/admin endpoints, Frontend App/auth/api/menu/cac
 
 사용자·사업부 bootstrap 입력 방법과 권한 matrix를 문서화하고 Task 3에 인증된 오산 생성/진행 actor 계약을 전달한다.
 
-실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. Fresh GPT-6 High 검증에서 확인된 implicit context, ReviewSafe no-write, legacy identity label, membership lock ordering, Entra logout wiring, combined three-DB browser/harness cleanup과 미소속 runtime remount loop Finding을 Change 001 안에서 보정했고, 최종 독립 검증은 제품 P0/P1/P2 `0/0/0`으로 `GO`를 판정했다. Privacy-safe desktop/mobile screenshot도 다시 생성해 직접 확인했다. 사용자는 2026-09-07 Task 2 사용자 검수를 오산 개발 마지막 일괄 검수로 미루고 Task 3 진행을 승인했다. Task 2 local commit은 같은 메시지에서 승인됐으며 push·PR·merge·운영 적용은 승인되지 않았다. 모든 품질·Git·운영 gate는 Root 지침을 따른다.
+실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. Change 001은 fresh GPT-6 High 검증에서 확인된 Finding을 모두 보정해 제품 P0/P1/P2 `0/0/0`, `GO`로 끝났고 사용자는 직접 검수를 오산 마지막 일괄 검수로 이관했다. 2026-09-07 사용자는 Task 3 Change 005 화면 검수를 완료한 뒤 단일 소속 사용자에게 사업부 선택 UI를 아예 표시하지 말라고 지시했다. Change 002는 사용자 지정 `GPT_5_6_SOL_XHIGH_ONLY` 경로로 active 목적지가 두 곳 이상인 총괄에게만 선택 UI가 보이도록 보정하고 component 18/18, 전체 Frontend 297/297, mock browser 3/3, 3-DB 격리 2/2와 desktop/mobile 직접 확인을 통과했다. 이번 보정의 사용자 검수는 대기하며 local commit은 승인됐다. Push·PR·merge·운영 적용은 승인되지 않았다.

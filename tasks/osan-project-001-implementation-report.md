@@ -22,7 +22,9 @@
 - implementationWorktree: `/private/tmp/emi-osan-project-001`
 - implementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
 - implementationOwnerObserved: `NOT_REPORTED`
-- implementationStatus: `IMPLEMENTED_AWAITING_USER_VALIDATION`
+- implementationStatus: `USER_VALIDATION_COMPLETE`
+- userValidationStatus: `COMPLETE`
+- userValidationSource: `USER_EXPLICIT_2026-09-07_CURRENT_TASK_VALIDATION_COMPLETE`
 - finalVerifierRequested: `GPT_6_ASTRA_HIGH`
 - finalVerifierObserved: `NOT_REPORTED`
 - finalVerifierResult: `GO`
@@ -230,7 +232,7 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 | Mock desktop·390px | 적용 | `PASS` | Change 005 paired production-preview browser 1/1, 청주·오산 screenshot 8개 직접 비교, console/request failure/unexpected request/overflow 각 0 |
 | 실제 synthetic combined full-stack | 적용 | `PASS_PRIOR_EVIDENCE_REUSED` | 직전 3 DB·6 role create/list/detail와 DB row assertion·owned cleanup; 최신 selected-OSAN 3 DB endpoint targeted 2/2로 보정 경로 확인 |
 | Persistent UAT·실제 provider | 미적용 | `N/A` | 승인 범위 밖이며 로컬 합성 환경만 사용 |
-| 사용자 직접 검수 | 대기 | `PENDING_CURRENT_SCREEN_REVIEW_AND_FINAL_BATCH` | Change 005 목록 전체 구성은 local synthetic server에서 검수하고 전체 흐름은 오산 개발 마지막 일괄 검수로 추적 |
+| 사용자 직접 검수 | 적용 | `COMPLETE` | 사용자가 2026-09-07 Change 005가 반영된 현재 Task 3 화면의 검수 완료를 명시 |
 
 ## 5. 품질 Finding과 제한
 
@@ -294,30 +296,30 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 
 ## 8. 사용자 검수 checklist
 
-- [ ] 오산 프로젝트 목록과 권한 있는 사용자의 `신규 프로젝트` 버튼을 확인한다.
-- [ ] 등록 화면에 승인된 8개 항목만 정해진 순서로 표시되는지 확인한다.
-- [ ] PO/W/O 빈값과 앞자리 0·기호가 상세에 그대로 보이는지 확인한다.
-- [ ] 같은 Title·다른 code는 생성되고, 같은/outer-trimmed code는 이해 가능한 오류로 막히는지 확인한다.
-- [ ] 수량 1과 500은 성공하고 0·음수·소수·501은 막히는지 확인한다.
-- [ ] 실패 뒤 입력이 유지되고 빠른 중복 submit으로 프로젝트가 중복되지 않는지 확인한다.
-- [ ] 상세에서 N개 대상의 상태가 `시작 전`, 현재 단계가 `입고검사`, 진행이 `0/7`인지 확인한다.
-- [ ] Desktop/mobile 목록이 청주와 같은 제목 → 검색·납기 filter → 요약 → 상태 tab → 행·카드 순서로 표시되는지 확인한다.
-- [ ] 오산에는 전체·시작 전·완료만 있고 Pending·보류·취소·삭제·Excel·선택 내보내기가 나타나지 않는지 확인한다.
-- [ ] 상세가 청주 상세 UI를 사용하고 부서 tab은 `진행 관리` 하나, tab 내용은 청주 제조 현황과 같은 표·모바일 카드인지 확인한다.
-- [ ] 프로젝트 코드의 대소문자와 내부 연속 공백이 desktop/mobile 목록·상세에서 그대로 보이는지 확인한다.
-- [ ] 청주 프로젝트 목록·등록·상세가 기존처럼 동작하는지 확인한다.
+- [x] 오산 프로젝트 목록과 권한 있는 사용자의 `신규 프로젝트` 버튼을 확인한다.
+- [x] 등록 화면에 승인된 8개 항목만 정해진 순서로 표시되는지 확인한다.
+- [x] PO/W/O 빈값과 앞자리 0·기호가 상세에 그대로 보이는지 확인한다.
+- [x] 같은 Title·다른 code는 생성되고, 같은/outer-trimmed code는 이해 가능한 오류로 막히는지 확인한다.
+- [x] 수량 1과 500은 성공하고 0·음수·소수·501은 막히는지 확인한다.
+- [x] 실패 뒤 입력이 유지되고 빠른 중복 submit으로 프로젝트가 중복되지 않는지 확인한다.
+- [x] 상세에서 N개 대상의 상태가 `시작 전`, 현재 단계가 `입고검사`, 진행이 `0/7`인지 확인한다.
+- [x] Desktop/mobile 목록이 청주와 같은 제목 → 검색·납기 filter → 요약 → 상태 tab → 행·카드 순서로 표시되는지 확인한다.
+- [x] 오산에는 전체·시작 전·완료만 있고 Pending·보류·취소·삭제·Excel·선택 내보내기가 나타나지 않는지 확인한다.
+- [x] 상세가 청주 상세 UI를 사용하고 부서 tab은 `진행 관리` 하나, tab 내용은 청주 제조 현황과 같은 표·모바일 카드인지 확인한다.
+- [x] 프로젝트 코드의 대소문자와 내부 연속 공백이 desktop/mobile 목록·상세에서 그대로 보이는지 확인한다.
+- [x] 청주 프로젝트 목록·등록·상세가 기존처럼 동작하는지 확인한다.
 
-상태: `사용자 검수 대기 — Change 005 현재 화면 검수 및 마지막 오산 일괄 검수`.
+상태: `사용자 검수 완료 — USER_EXPLICIT_2026-09-07_CURRENT_TASK_VALIDATION_COMPLETE`.
 
 ## 9. 필수 산출물 상태
 
 | 산출물 | 위치 | 상태 |
 | --- | --- | --- |
-| Implementation report | `tasks/osan-project-001-implementation-report.md` | `IMPLEMENTED_AWAITING_USER_VALIDATION` |
+| Implementation report | `tasks/osan-project-001-implementation-report.md` | `USER_VALIDATION_COMPLETE` |
 | SOP | 이 보고서 6절 | `COMPLETE_LOCAL_SCOPE` |
 | 사용자 안내 | 이 보고서 7절 | `COMPLETE_LOCAL_SCOPE` |
-| Roadmap update | `docs/00-product-roadmap.md`, `tasks/osan-project-001.md` | `IMPLEMENTED_AWAITING_USER_VALIDATION` |
-| 사용자 검수 checklist | 이 보고서 8절 | `PENDING_CURRENT_SCREEN_REVIEW_AND_FINAL_BATCH_BY_USER` |
+| Roadmap update | `docs/00-product-roadmap.md`, `tasks/osan-project-001.md` | `USER_VALIDATION_COMPLETE` |
+| 사용자 검수 checklist | 이 보고서 8절 | `COMPLETE_BY_USER_2026-09-07` |
 
 ## 10. 블로그 초안
 
@@ -335,4 +337,4 @@ Mock browser도 production build/preview에서 독립 실행하고 screenshot ou
 
 ### 4. 사용자 검수 결과와 남은 항목
 
-자동 검증에서는 오산 등록·목록·상세, 값 보존, 수량별 대상과 7단계, 동시성·idempotency·rollback, 청주 불변을 local 합성 환경에서 확인했다. Change 002의 별도 오산 UI는 Change 003에서 제거했고, Change 004에서 목록 행·카드와 상세 표시를 공용화했다. Change 005는 비교 범위를 목록 page 전체로 바로잡아 제목, 검색·납기 filter, KPI, 상태 tab과 목록을 같은 composition으로 통합했다. 같은 run의 desktop/mobile 증빙 8개를 Parent와 fresh verifier가 눈으로 확인했으며 현재 화면은 local synthetic server에서 사용자 검수 대기다. 전체 업무 검수는 마지막 오산 일괄 검수로도 추적한다. Persistent UAT, 실제 provider, push·PR·merge·main 반영은 수행하지 않았다.
+자동 검증에서는 오산 등록·목록·상세, 값 보존, 수량별 대상과 7단계, 동시성·idempotency·rollback, 청주 불변을 local 합성 환경에서 확인했다. Change 002의 별도 오산 UI는 Change 003에서 제거했고, Change 004에서 목록 행·카드와 상세 표시를 공용화했다. Change 005는 비교 범위를 목록 page 전체로 바로잡아 제목, 검색·납기 filter, KPI, 상태 tab과 목록을 같은 composition으로 통합했다. 같은 run의 desktop/mobile 증빙 8개를 Parent와 fresh verifier가 눈으로 확인했고 사용자는 2026-09-07 현재 Task 3 화면 검수 완료를 명시했다. 이 완료는 Task 2의 새 selector 가시성 보정, Task 4~6, Persistent UAT, 실제 provider, push·PR·merge·main 반영을 포함하지 않는다.

@@ -1,7 +1,9 @@
 # TASK-OSAN-PROJECT-001 — 오산 프로젝트 등록과 진행 대상 생성
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- status: `IMPLEMENTED_AWAITING_USER_VALIDATION`
+- status: `USER_VALIDATION_COMPLETE`
+- userValidationStatus: `COMPLETE`
+- userValidationSource: `USER_EXPLICIT_2026-09-07_CURRENT_TASK_VALIDATION_COMPLETE`
 - parentTask: `TASK-OSAN-PILOT-001`
 - implementationApproved: true
 - implementationApprovalSource: `USER_EXPLICIT_APPROVAL_2026-09-07`
@@ -53,4 +55,4 @@ Projects contracts/store/endpoints, common progress template adapter·snapshot/�
 
 프로젝트·대상·snapshot·profile 생성 계약을 Task 4에 전달한다. 이 Task 완료를 사용자 진행 기능 전체 완료로 표시하지 않는다.
 
-실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Change 001의 Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2를 보정했고 전체 자동 검증을 통과했다. Change 002의 별도 오산 UI는 Change 003에서 제거했으며, Change 004에서 목록 행·카드와 상세 표시 영역을 공용화했다. 사용자 검수에서 목록 page 전체 구성이 다름을 확인한 뒤 Change 005로 제목, 검색·납기 filter, KPI, 상태 tab과 목록 순서까지 같은 composition으로 통합했다. 같은 run의 desktop/mobile paired screenshot 8개와 열린 local 화면을 눈으로 확인했고 fresh GPT-6 High가 `PASS / GO`, 최종 open P0/P1/P2/P3 `0/0/0/0`을 반환했다. 사용자 화면 검수는 열어 둔 local synthetic server와 마지막 오산 일괄 검수에서 추적하며 품질 Gate를 통과한 exact allowlist를 local commit한다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.
+실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Change 001의 Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2를 보정했고 전체 자동 검증을 통과했다. Change 002의 별도 오산 UI는 Change 003에서 제거했으며, Change 004에서 목록 행·카드와 상세 표시 영역을 공용화했다. 사용자 검수에서 목록 page 전체 구성이 다름을 확인한 뒤 Change 005로 제목, 검색·납기 filter, KPI, 상태 tab과 목록 순서까지 같은 composition으로 통합했다. 같은 run의 desktop/mobile paired screenshot 8개와 열린 local 화면을 눈으로 확인했고 fresh GPT-6 High가 `PASS / GO`, 최종 open P0/P1/P2/P3 `0/0/0/0`을 반환했다. 사용자는 2026-09-07 Change 005가 반영된 현재 Task 3 화면의 검수 완료를 명시했다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.

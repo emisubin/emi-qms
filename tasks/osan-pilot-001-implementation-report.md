@@ -11,7 +11,8 @@
 - 제품 코드·DB·runtime·provider: 변경 없음
 - Task 1 사용자 검수: 완료 — `USER_EXPLICIT_APPROVAL_2026-09-06`
 - Task 2 local commit: 완료 — `2e29938f754f3d95444df2b341a921cfd1fca43f`
-- Task 3: 구현·자동 검증·parent review·fresh GPT-6 High 독립 재검증 완료 — 마지막 일괄 사용자 검수 대기
+- Task 3: 구현·자동 검증·독립 재검증·사용자 검수 완료 — `USER_EXPLICIT_2026-09-07_CURRENT_TASK_VALIDATION_COMPLETE`
+- Task 2 Change 002: 단일 소속 selector 가시성 보정·자동/시각 검증 완료 — 사용자 검수 대기
 - Push·PR·Merge: 미수행·미승인
 
 ## 2. 실제 변경과 기술적 결정
@@ -73,7 +74,7 @@ Open 문서 P0/P1/P2는 0/0/0이다. RESOLVED는 문서의 모호함 해소이�
 - [x] 권한 있는 사용자가 전체 현황을 확인하는 대시보드를 제공한다.
 - [x] 오산 흐름에는 중단·펜딩 상태를 두지 않는다.
 
-이 사용자 검수 완료는 Task 1 결과와 후속 오산 제품 계약에 대한 확인이다. Task 2는 구현·자동 검증을 마쳤고 화면 검수는 사용자의 지시에 따라 마지막 일괄 검수에서 진행한다. Task 3는 별도 구현 승인을 받아 구현·자동 검증·parent review와 fresh GPT-6 High 독립 재검증을 마쳤고 open P0/P1/P2/P3 `0/0/0/0`, `GO`다. 화면 검수는 같은 마지막 일괄 검수에 남긴다. 아직 구현하지 않은 Task 4~5의 제품 동작, Change 003 Docker runtime, 실제 Azure DB·Persistent UAT·provider와 운영 개통을 완료로 만들지 않는다.
+Task 1 사용자 검수 완료는 Task 1 결과와 후속 오산 제품 계약에 대한 확인이다. Task 2 최초 구현의 화면 검수는 사용자의 지시에 따라 마지막 일괄 검수에서 진행한다. Task 3는 별도 구현 승인 아래 자동 검증과 독립 재검증을 마쳤고 open P0/P1/P2/P3 `0/0/0/0`, `GO`로 끝난 뒤 사용자가 2026-09-07 Change 005 현재 화면의 검수 완료를 명시했다. 이어 요청한 Task 2 Change 002 selector 가시성 보정은 자동·시각 검증을 통과했으며 사용자 검수는 별도 대기한다. 아직 구현하지 않은 Task 4~5의 제품 동작, Change 003 Docker runtime, 실제 Azure DB·Persistent UAT·provider와 운영 개통을 완료로 만들지 않는다.
 
 ## 6. SOP·사용자 안내와 산출물
 
@@ -91,4 +92,4 @@ Open 문서 P0/P1/P2는 0/0/0이다. RESOLVED는 문서의 모호함 해소이�
 
 이번 문서 수정의 rollback은 새 문서를 승인된 경로에서 제거하고 Roadmap의 이번 추가 구역만 되돌리는 것이다. 기존 Roadmap WIP 전체 checkout이나 사용자 첨부 삭제는 하지 않는다. 이번 작업에서는 rollback·cleanup·Git mutation을 실행하지 않는다.
 
-Task 2 `TASK-OSAN-ACCESS-001`은 총괄 소속 관리, 사업부별 local 권한, 탭별 전환·요청 무효화, 오산 제한 shell과 신규 Entra 대기 흐름을 로컬 구현했다. Backend 전체 576/576, 실제 3개 DB 격리·동시성 2/2, Frontend 284/284, mock browser 2/2와 실제 3개 DB browser 1/1을 통과했다. Fresh GPT-6 High 검토에서 확인된 모든 P1/P2를 같은 Change에서 보정해 최종 open P0/P1/P2는 `0/0/0`, 판정은 `GO`다. [Task 2 구현 보고](osan-access-001-implementation-report.md)에 변경·Finding·검증 결과를 추적하며 local commit `2e29938f754f3d95444df2b341a921cfd1fca43f`로 고정했다. 사용자 화면 검수는 마지막 일괄 검수로 이관했다. Task 3은 8개 입력의 오산 등록·목록·상세, 수량별 대상과 7단계 snapshot, DB 중복·재시도·감사·격리를 구현해 Backend 582/582, Frontend 291/291, mock browser 1/1과 실제 3개 DB full-stack 1/1을 통과했다. Parent review P2 네 건과 fresh verifier P2 세 건을 모두 보정했고 최종 open P0/P1/P2/P3는 `0/0/0/0`, 판정은 `GO`다. 허용 범위를 자동 local commit하며 사용자 화면 검수는 마지막 일괄 검수에 남긴다. Task 1의 Docker 동적 검증 P2는 별도로 Task 6에서 Azure·Persistent UAT 개통 전에 다시 확인한다. 기존 검사 container와 image의 legacy 자원 2개는 사용자가 직접 삭제할 예정이며 P3 `USER_MANUAL_ACTION_PLANNED`, 결과 대기 상태다. 기존 GOV-CODEX-002 Change 017~020은 사용자 검수·Git 게시 미실행 상태로 보존한다. Push·PR·merge·실제 provider·Persistent UAT·운영 적용은 승인되거나 수행되지 않았다.
+Task 2 `TASK-OSAN-ACCESS-001`은 총괄 소속 관리, 사업부별 local 권한, 탭별 전환·요청 무효화, 오산 제한 shell과 신규 Entra 대기 흐름을 로컬 구현했다. 최초 구현은 Backend 전체 576/576, 실제 3개 DB 격리·동시성 2/2, Frontend 284/284, mock browser 2/2와 실제 3개 DB browser 1/1을 통과했고 local commit `2e29938f754f3d95444df2b341a921cfd1fca43f`로 고정했다. 사용자의 2026-09-07 후속 지시로 Change 002는 actual active 목적지가 둘 이상인 총괄에게만 selector를 표시한다. Frontend 297/297, mock browser 3/3, 실제 3-DB 격리 2/2와 desktop/mobile 직접 확인을 통과했으며 사용자 검수는 대기한다. Task 3은 8개 입력의 오산 등록·목록·상세, 수량별 대상과 7단계 snapshot, DB 중복·재시도·감사·격리를 구현하고 누적 검증과 Change 005의 목록 전체 화면 보정을 완료했다. 사용자는 2026-09-07 현재 Task 3 화면 검수 완료를 명시했다. Task 1의 Docker 동적 검증 P2는 별도로 Task 6에서 Azure·Persistent UAT 개통 전에 다시 확인한다. 기존 검사 container와 image의 legacy 자원 2개는 사용자가 직접 삭제할 예정이며 P3 `USER_MANUAL_ACTION_PLANNED`, 결과 대기 상태다. 기존 GOV-CODEX-002 Change 017~020은 사용자 검수·Git 게시 미실행 상태로 보존한다. Push·PR·merge·실제 provider·Persistent UAT·운영 적용은 승인되거나 수행되지 않았다.

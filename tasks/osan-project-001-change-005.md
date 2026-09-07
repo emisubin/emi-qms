@@ -3,7 +3,9 @@
 ## 1. 승인·Gate·기준선
 
 - taskType: `BUGFIX`
-- changeStatus: `IMPLEMENTED_AWAITING_USER_VALIDATION`
+- changeStatus: `USER_VALIDATION_COMPLETE`
+- userValidationStatus: `COMPLETE`
+- userValidationSource: `USER_EXPLICIT_2026-09-07_CURRENT_TASK_VALIDATION_COMPLETE`
 - instructionChainRead: true
 - instructionConflictCount: 0
 - taskIdentityGate: `PASS_REUSE`
@@ -111,6 +113,6 @@ Change 004는 “같은 화면”의 비교 단위를 목록 행·카드, 상세
 
 ## 10. 사용자 검수 상태
 
-상태: `PENDING_CURRENT_SCREEN_REVIEW_AND_FINAL_BATCH`.
+상태: `COMPLETE — USER_EXPLICIT_2026-09-07_CURRENT_TASK_VALIDATION_COMPLETE`.
 
-현재 local synthetic 화면에서 오산 목록의 전체 구성과 청주 대비 허용된 기능 차이를 확인한다. 전체 오산 업무 흐름 검수는 기존 결정대로 마지막 일괄 검수에도 남긴다.
+사용자는 2026-09-07 Change 005가 반영된 현재 Task 3 화면의 검수 완료를 명시했다. 이 완료는 Task 3의 프로젝트 등록·목록·상세와 승인된 청주형 전체 page composition에 한정한다. 별도로 요청한 Task 2 selector 가시성 Change 002, 아직 구현하지 않은 Task 4~6, Push·PR·merge·Persistent UAT·provider·운영 적용을 완료로 만들지 않는다.

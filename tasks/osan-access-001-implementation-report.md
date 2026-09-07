@@ -1,26 +1,38 @@
-# TASK-OSAN-ACCESS-001 Change 001 구현 보고
+# TASK-OSAN-ACCESS-001 Change 001·002 구현 보고
 
 ## 1. 실행 기준과 상태
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
+- currentChangeTaskType: `BUGFIX`
 - canonicalTask: `TASK-OSAN-ACCESS-001`
-- canonicalChange: `TASK-OSAN-ACCESS-001 Change 001`
+- canonicalChange: `TASK-OSAN-ACCESS-001 Change 001, Change 002`
 - instructionChainRead: true
-- taskIdentityGate: `PASS_REUSE`
-- roadmapSequenceMatch: true
-- implementationApprovalSource: `USER_EXPLICIT_2026-09-06_NEXT_TASK_START`
-- localBaselineApprovalSource: `USER_EXPLICIT_2026-09-06_APPROVED`
-- implementationBranch: `feat/task-osan-access-001-membership-switching`
-- implementationBaseline: `670b2eafaa142f4be2febec206bd4f494707aea0`
-- implementationWorktree: `/private/tmp/emi-osan-access-001`
-- implementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
-- implementationOwnerObserved: `NOT_REPORTED`
-- implementationStatus: `IMPLEMENTED_AWAITING_USER_VALIDATION`
-- finalVerifierCorrectionTaskType: `P2_REMEDIATION`
-- finalVerifierRequested: `GPT_6_ASTRA_HIGH`
-- finalVerifierObserved: `NOT_REPORTED`
-- finalVerifierVerdict: `GO`
-- finalVerifierManifestSha256: `1debc180aadde8afb84853829ac7ca0b78d79cdffc0e5ef2b1de4b8acd347bb6`
+- change001TaskIdentityGate: `PASS_REUSE`
+- change001RoadmapSequenceMatch: true
+- change001ImplementationApprovalSource: `USER_EXPLICIT_2026-09-06_NEXT_TASK_START`
+- change001LocalBaselineApprovalSource: `USER_EXPLICIT_2026-09-06_APPROVED`
+- change001ImplementationBranch: `feat/task-osan-access-001-membership-switching`
+- change001ImplementationBaseline: `670b2eafaa142f4be2febec206bd4f494707aea0`
+- change001ImplementationWorktree: `/private/tmp/emi-osan-access-001`
+- change001ImplementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
+- change001ImplementationOwnerObserved: `NOT_REPORTED`
+- implementationStatus: `CHANGE_002_IMPLEMENTED_AWAITING_USER_VALIDATION`
+- change002ApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
+- change002TaskIdentityGate: `PASS_REUSE`
+- change002RoadmapSequenceMatch: false
+- change002ExplicitRoadmapOverrideApproved: true
+- change002ImplementationOwnerRequested: `GPT_5_6_SOL_XHIGH_ONLY`
+- change002ImplementationOwnerObserved: `NOT_REPORTED`
+- change002Gpt6ReviewRequested: false
+- change002Gpt6ReviewProhibitedByUser: true
+- change002ImplementationBranch: `feat/task-osan-project-001-project-registration`
+- change002ImplementationBaseline: `d7401610311638317a2606416845492f03ae58fb`
+- change002ImplementationWorktree: `/private/tmp/emi-osan-project-001`
+- change001FinalVerifierCorrectionTaskType: `P2_REMEDIATION`
+- change001FinalVerifierRequested: `GPT_6_ASTRA_HIGH`
+- change001FinalVerifierObserved: `NOT_REPORTED`
+- change001FinalVerifierVerdict: `GO`
+- change001FinalVerifierManifestSha256: `1debc180aadde8afb84853829ac7ca0b78d79cdffc0e5ef2b1de4b8acd347bb6`
 - gitPublicationApproved: false
 - persistentRuntimeMutationApproved: false
 
@@ -33,6 +45,8 @@
 - `frontend/tests/auth.test.tsx`: Parent가 `PARENT_APPROVED_SAME_TASK_TEST_DEPENDENCY_2026-09-07`로 추가한 기존 Entra logout handler test-only 경로
 
 네 차례 Fresh verifier가 확인한 implicit single-membership context, stored selection 없는 membership denial, ReviewSafe Entra write와 gate mutation control, raw external subject label, membership lock ordering, 실제 logout wiring, combined full-stack 및 process ownership/cleanup, 일반 미소속 runtime remount loop를 보정했다. 최종 보정 소스에 대한 새 집중·전체·browser 검증 결과만 아래 최종 증거로 사용한다.
+
+Change 002는 Task 3 Change 005 화면의 사용자 검수 완료 직후 사용자가 직접 요청한 selector 가시성 보정이다. 사용자는 GPT-6 없이 GPT-5.6 Sol Extra high가 단독 구현·검증·기록·local commit하도록 지시했다. 현재 Roadmap의 Task 4보다 이 보정을 먼저 수행하라는 명시적 우선순위 변경으로 `TASK-OSAN-ACCESS-001`을 재사용했고, 기존 Change 001의 GPT-6 검증 기록은 역사적 근거로 보존하되 Change 002에 새 GPT-6 검증을 요청하거나 실행하지 않았다.
 
 ## 2. 구현 결과
 
@@ -81,6 +95,7 @@
 - Frontend는 `/api/me`의 access 상태를 먼저 확정한다. 일반 `no_membership`은 runtime mode나 업무 API를 호출하지 않고 안정된 대기 화면에 머물며, `selected` 또는 총괄 gate에서만 runtime mode를 조회한다.
 - `no_membership`, `selection_required`, `selection_denied`, `local_profile_pending`, `selected`를 분리해 업무 DB 화면을 열기 전에 안내한다.
 - 둘 이상 소속을 가진 지정 총괄만 selector를 사용한다. 일반 사용자의 다른 사업부 header 선택은 서버에서 거부된다.
+- Change 002에서 desktop header, mobile header와 업무 진입 gate의 가시성 판정을 하나의 helper로 통일했다. 총괄 designation만 있거나 active `allowedBusinessUnits`가 한 곳 이하이면 selector, 단일 이동 button과 selector label을 렌더링하지 않는다.
 - 오산 shell은 홈, 프로젝트 placeholder, 진행 관리 placeholder와 허용된 local/overall 관리만 제공한다. G2, Pending, hold/cancel과 Task 3~5 업무 route는 닫혀 있다.
 - 오산 진행 안내는 G2·Pending·hold·cancel을 오산에서 사용하지 않는다고 명시하고, 승인된 7단계 진행 UI는 후속 진행 Task에서 제공한다고 안내한다.
 
@@ -127,11 +142,39 @@
 - `tasks/osan-access-001-change-001.md`
 - `tasks/osan-access-001-implementation-report.md`
 
+Change 002 실제 변경은 다음 12개 파일이다.
+
+- `frontend/src/App.tsx`
+- `frontend/tests/BusinessUnitAccess.test.tsx`
+- `frontend/e2e/mock-ui/business-unit-access.spec.ts`
+- `tasks/osan-access-001-change-002.md`
+- `tasks/osan-access-001.md`
+- `tasks/osan-access-001-implementation-report.md`
+- `tasks/osan-project-001-change-005.md`
+- `tasks/osan-project-001.md`
+- `tasks/osan-project-001-implementation-report.md`
+- `tasks/osan-pilot-001.md`
+- `tasks/osan-pilot-001-implementation-report.md`
+- `docs/00-product-roadmap.md`
+
 Change가 제안한 `frontend/e2e/mock/business-unit-access.spec.ts` 대신 실제 기존 mock harness의 동등 경로인 `frontend/e2e/mock-ui/business-unit-access.spec.ts`를 사용했다. 기존 API test 파일은 없었으므로 allowlist의 신규 `frontend/tests/api.test.ts`를 사용했다. Combined 검증은 shared single-DB harness를 바꾸지 않고 승인된 additive script, config와 spec 세 파일로 구현했다.
 
 최종 manifest는 기존 파일 수정 15개와 신규 파일 12개, 합계 27개다. 신규 파일을 Git 상태 용어인 “untracked Task 파일”로 잘못 일반화하지 않는다.
 
 ## 4. 검증 결과
+
+### Change 002 selector 가시성 검증
+
+- `corepack pnpm exec vitest run tests/BusinessUnitAccess.test.tsx`: `1 file / 18 tests PASS`. 단일 청주·단일 오산의 local-profile-pending gate와 selected shell에서 selection UI가 없고, 기존 no-membership·selection-required·selection-denied·loading/error·mutation lock 회귀가 통과했다.
+- `corepack pnpm exec vitest run`: `36 files / 297 tests PASS`.
+- `corepack pnpm exec playwright test e2e/mock-ui/business-unit-access.spec.ts`: `3/3 PASS`. 복수 사업부 전환, 탭별 독립 선택과 단일 오산 총괄의 gate/shell desktop·390px selector 부재를 같은 run에서 확인했다.
+- `bash scripts/test-business-unit-isolation.sh`: 실제 PostgreSQL 3-DB `2/2 PASS`. Backend의 active membership·active business unit filtering, inactive/revoked membership 거부와 총괄/일반 권한 경계를 재확인했다.
+- `corepack pnpm run lint`: 오류 0, 기존 `frontend/src/main.tsx` Fast Refresh warning 1.
+- `corepack pnpm run typecheck`: `PASS`.
+- `corepack pnpm run build`: 399 modules, `PASS`; 기존 500 kB chunk warning만 남았다.
+- 1440×900·390×844 단일 오산 gate와 shell screenshot 4개를 직접 확인했다. selector와 빈 label은 없고 390px horizontal overflow는 0이다.
+- 변경 문서 local Markdown link 227개 누락 0, 추가 diff의 non-fixture email/private key/bearer/client secret 0, tracked/staged browser·build artifact 0과 `git diff --check` PASS를 확인했다.
+- Change 002 self-review 결과 open P0/P1/P2는 `0/0/0`이다. 사용자 지시에 따라 GPT-6 review는 실행하지 않았다.
 
 ### 최종 집중 검증
 
@@ -194,7 +237,7 @@ Change가 제안한 `frontend/e2e/mock/business-unit-access.spec.ts` 대신 실�
 | 실제 synthetic combined full-stack | 적용 | PASS | 실제 3 DB·6 bounded role·backend·Vite·Chromium 1/1, exact listener ownership과 cleanup assertion |
 | Harness negative | 적용 | PASS | occupied backend/frontend port는 자원 생성 전 각 exit 64와 sentinel 유지, post-bootstrap launch failure는 exit 98 감지·trap cleanup 뒤 self-test exit 0 |
 | Persistent UAT·실제 provider | 미적용 | N/A | 이 Change의 승인·안전 경계에서 명시적으로 제외 |
-| 사용자 직접 검수 | 적용 | 대기 | 자동 검증과 분리하며 fresh GPT-6 검증 후 사용자 확인 필요 |
+| 사용자 직접 검수 | 적용 | `CHANGE_001_FINAL_BATCH_AND_CHANGE_002_PENDING` | Change 002 자동·시각 검증 뒤 사용자 확인 대기; 사용자 지시에 따라 새 GPT-6 검증 없음 |
 
 시행착오 기록: delayed-body test double의 non-configurable property 때문에 집중 test 1건이 실패했고 descriptor를 고쳤다. 첫 full-stack setup은 한 transaction 안의 `DROP/CREATE DATABASE` 때문에 exit 1이었고 명령을 분리했다. Browser selector visibility, StrictMode와 checkbox 경쟁을 실제 UI 상태 대기로 보정했다. 전체 Frontend 병렬 실행의 test-results 경쟁과 이전 DOM assertion도 검증 순차화와 current-profile helper로 해소했다. 두 번째 verifier 보정에서 `dotnet run` wrapper PID와 실제 listener child PID/cwd가 달라 ownership 검증이 두 run을 exit 65로 안전 중단했고 불일치 process를 kill하지 않았다. Release DLL을 직접 실행해 PID와 listener를 하나로 만든 뒤 정상 ownership을 검증했다. 최종 lock-order test 첫 run은 동시 시나리오를 통과한 뒤 test-only overall actor 두 명을 활성 상태로 남겨 기존 count assertion이 1 expected/3 actual로 실패했으며, fixture를 비활성화한 최종 run은 2/2로 통과했다.
 
@@ -209,29 +252,36 @@ Change가 제안한 `frontend/e2e/mock/business-unit-access.spec.ts` 대신 실�
 - 마지막 full-stack run이 공통 test-results를 정리한 뒤 mock browser 2/2를 다시 실행해 desktop/mobile screenshot을 재생성했다. Parent가 두 파일을 직접 열어 synthetic identity, 사업부 selector, membership card, 역할 구분과 390px 배치를 확인했다. Playwright가 시작한 Vite process는 종료됐고 screenshot은 ignored test-results에 보존되어 tracked/status-visible artifact는 0건이다.
 - 기준선 diff와 신규 12개 파일을 검사한 결과 비허용 email domain, private-key literal과 hardcoded bearer token은 각각 0건이다. 문서와 fixture의 identity·email·UUID는 synthetic placeholder만 사용한다.
 - 실제 Azure, Persistent UAT, 외부 provider와 production data는 사용하거나 변경하지 않았다.
+- Change 002 screenshot은 `single-membership-gate-desktop.png`, `single-membership-gate-mobile.png`, `single-membership-shell-desktop.png`, `single-membership-shell-mobile.png` 네 synthetic artifact다. 이름과 화면에는 synthetic placeholder만 있고 실제 사용자·credential·token은 없다. 모두 ignored `frontend/test-results/` 아래에 있어 tracked/staged artifact가 되지 않는다.
 
 ## 6. 남은 검증 한계
 
 실제 Microsoft 365 provider redirect는 호출하지 않았다. Provider/Azure mutation 금지 경계를 지키면서 mocked MSAL account와 `logoutRedirect`를 사용한 component/auth test가 App의 실제 계정 메뉴 logout action과 handler를 실행해 tab storage 삭제, outstanding read abort/generation 무효화, active account 해제 및 redirect 연결을 검증했다. Combined browser spec은 production reset primitive의 tab storage 삭제와 gate remount를 검증하며 provider redirect를 실행했다고 주장하지 않는다.
 
-Persistent UAT, 실제 Azure/Entra와 실제 사용자의 수동 검수는 실행하지 않았다. 현재 결과는 local synthetic 구현·회귀 근거이며 운영 적용 또는 사용자 검수 완료 근거가 아니다.
+Persistent UAT, 실제 Azure/Entra와 Change 002의 사용자 수동 검수는 실행하지 않았다. 현재 Change 002 결과는 local synthetic 구현·회귀 근거이며 운영 적용 또는 이 보정의 사용자 검수 완료 근거가 아니다.
+
+사용자는 Task 3 Change 005 현재 화면의 검수 완료를 명시했다. 이는 Change 002 selector 보정의 사용자 검수 완료와 별개이며, Change 002는 자동·시각 검증 완료 뒤 사용자 검수 대기 상태다.
 
 ## 7. Git·게시 확인
 
 Sol 구현자는 승인 범위의 worktree file edit만 수행했고 Stage, commit, push, PR 생성, merge, branch 전환, branch mutation, worktree 제거와 canonical clone 변경을 수행하지 않았다. 제품 품질 GO 뒤 Parent는 이 Task의 문서 3개를 canonical clone에 동기화하고 Roadmap·상위 오산 Task/보고서·통합 검증 인계 상태만 갱신했다. Task 2 제품 코드는 canonical clone에 복사하지 않았고 기존 canonical WIP를 정리·stage·commit하지 않았다.
 
-## 8. Fresh 독립 검증 결과
+위 문단은 Change 001 당시 실행 이력이다. Change 002는 현재 cumulative Task 3 branch에서 사용자의 exact 지시에 따라 구현·검증·문서 동기화 후 exact allowlist만 local commit한다. Push·PR·merge·branch/worktree 정리·Persistent UAT·provider·운영 mutation은 수행하지 않는다.
+
+## 8. Change 001 Fresh 독립 검증과 Change 002 단독 검증
 
 Fresh GPT-6 High read-only verifier는 기준선 `670b2eafaa142f4be2febec206bd4f494707aea0` 대비 기록 상태 전환 전의 최종 제품·테스트·Task 문서 27개 스냅샷을 직접 읽고, 검증 전후 HEAD·branch·status·staged 상태와 각 파일 SHA-256이 동일함을 확인했다. 요청 모델은 `gpt-6-astra/high`, 관측 모델은 도구 미보고로 `NOT_REPORTED`이며 그 검증 스냅샷의 manifest digest는 `1debc180aadde8afb84853829ac7ca0b78d79cdffc0e5ef2b1de4b8acd347bb6`이다. 이후 Parent가 바꾼 것은 GO·사용자 검수 대기 상태와 screenshot retention을 반영하는 Task 문서뿐이며, 최종 기록 verifier가 별도 지문으로 동기화를 확인한다.
 
 최종 판정은 `GO`, open P0/P1/P2는 `0/0/0`이다. 이 판정은 Task 2의 제품 품질 gate만 닫는다. 사용자는 2026-09-07 사용자 검수를 오산 개발 마지막 일괄 검수로 미루고 Task 2 local commit 및 Task 3 진행을 승인했다. Push, PR, merge, runtime·provider·Persistent UAT 승인은 포함하지 않는다. Screenshot retention P3는 mock browser 2/2 재실행, 파일 재생성, Parent 직접 시각 확인과 이 기록 보정으로 해소했다.
+
+Change 002는 사용자 명시 지시에 따라 GPT-6 review 없이 요청된 GPT-5.6 Sol Extra high 한 명이 implementation direction, 구현, 테스트, 시각 확인, self-review, 기록과 local commit을 수행한다. 실행 수단은 실제 모델을 반환하지 않아 관측 모델은 `NOT_REPORTED`로 기록한다. Component·전체 Frontend·browser·실제 PostgreSQL 검증과 diff/privacy/secret/문서 검사를 기준으로 open P0/P1/P2 `0/0/0`을 확인했다.
 
 ## 9. 영향·제외 범위
 
 - API: `/api/me` business-unit envelope, exact overall membership GET/PUT와 선택 business의 기존 user GET/PATCH만 영향을 받는다.
 - DB/Migration: additive directory migration `0002`; 기존 business migration과 기존 `0001`은 수정하지 않았다. Membership·overall directory와 local role/department/project source를 합치지 않는다.
 - Authorization: overall designation, local `system-administrator`, local `users.manage`를 서로 자동 변환하지 않는다. 오산의 Task 3~5/G2/Pending/hold/cancel route는 계속 닫혀 있다.
-- UI/UX: 선택·대기·local profile pending·revocation gate, selector lock, restricted Osan shell과 local user edit 범위만 추가했다. 청주 lifecycle/notification/export control은 보존했다.
+- UI/UX: 선택·대기·local profile pending·revocation gate, selector lock, restricted Osan shell과 local user edit 범위를 유지한다. Change 002는 actual active 목적지가 둘 이상인 총괄에게만 selector를 표시하고 단일 소속 사용자의 선택 UI를 완전히 숨긴다. 청주 lifecycle/notification/export control은 보존했다.
 - Excel/PDF/첨부: 새 문서 format이나 export endpoint는 추가하지 않았다. 기존 GET blob/첨부/PDF/template 소비는 business generation 뒤 검증되며 POST export는 body 완료까지 switch lock을 유지한다.
 - Worker/provider: 외부 worker·mail·Teams·Azure provider 등록과 호출을 변경하지 않았다.
 - 실제 provider, Persistent UAT, production, Task 3~5, overall designation UI, cross-business 집계는 제외했다.
@@ -244,22 +294,22 @@ Fresh GPT-6 High read-only verifier는 기준선 `670b2eafaa142f4be2febec206bd4f
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | 최종 독립 검증 GO 반영·마지막 일괄 사용자 검수 대기 | 이 문서 전체 |
+| Implementation report | Change 001 GO와 Change 002 구현·자동/시각 검증 완료, 사용자 검수 대기 | 이 문서 전체 |
 | SOP | runtime fail-closed와 harness process ownership 절차 작성됨·운영 적용 전 검증 필요 | 이 문서 §2, §10 |
-| User manual | 상태 화면, ReviewSafe disabled reason과 소속/권한 관리 설명 작성됨·마지막 일괄 사용자 검수 대기 | 이 문서 §2 |
-| Roadmap update | 제품 품질 GO 뒤 Parent가 canonical Roadmap·상위 Task/보고서·통합 검증 인계를 사용자 검수 대기로 동기화함 | canonical `docs/00-product-roadmap.md`, `tasks/osan-pilot-001.md`, 이 worktree `tasks/osan-access-001.md` |
-| User validation checklist | 작성됨·마지막 일괄 사용자 검수 대기 | 아래 checklist |
+| User manual | 상태 화면, 실제 전환 가능한 사용자만 보는 selector와 소속/권한 관리 설명 작성됨 | 이 문서 §2 |
+| Roadmap update | Task 3 사용자 검수 완료와 Task 2 Change 002 사용자 검수 대기를 분리해 동기화함 | `docs/00-product-roadmap.md`, `tasks/osan-pilot-001.md`, `tasks/osan-access-001.md` |
+| User validation checklist | Change 002 항목 추가·사용자 검수 대기 | 아래 checklist |
 
 사용자 검수 checklist:
 
-- [ ] 총괄 계정에서 청주와 오산 selector, 사업부 소속 관리가 의도대로 보인다.
+- [ ] active 사업부가 두 곳 이상인 총괄에게 청주·오산 selector가 보이고, 단일 청주·단일 오산 사용자에게는 selector·단일 이동 button·빈 label이 전혀 보이지 않는다.
 - [ ] 일반 사용자에게 다른 사업부 선택과 총괄 소속 관리가 보이지 않는다.
 - [ ] 오산의 현재 사업부 사용자 관리에서 local profile 필드만 수정할 수 있다.
 - [ ] 오산에서 G2, Pending, hold/cancel과 lifecycle/notification/export control이 보이지 않는다.
 - [ ] 청주 사용자 관리와 기존 업무 메뉴가 유지된다.
 - [ ] 소속 회수 뒤 열린 오산 화면이 즉시 gate로 이동하고 이전 업무 데이터가 남지 않는다.
 
-상태는 `Checklist 작성됨 / 자동 검증 완료 / 사용자 검수 대기 — 마지막 일괄 검수`다. Frontend 검수 URL과 Backend URL은 영구 runtime을 시작하지 않았으므로 `N/A`이며, 실행별로 할당한 synthetic temporary backend/frontend port의 process는 종료·정리됐다.
+상태는 `Checklist 갱신 / Change 002 자동·시각 검증 완료 / 사용자 검수 대기`다. Frontend 검수 URL과 Backend URL은 영구 runtime을 시작하지 않았으므로 `N/A`이며, 실행별로 할당한 synthetic temporary backend/frontend port의 process는 종료·정리됐다.
 
 ## 12. Finding과 개발 블로그 기록
 
@@ -274,11 +324,12 @@ Fresh GPT-6 High read-only verifier는 기준선 `670b2eafaa142f4be2febec206bd4f
 - Provider-backed redirect logout 검증: `N/A`. 실제 provider 금지 경계이며 combined harness Finding의 미해결 상태로 분류하지 않는다.
 - `OSAN-ACCESS-FILE-MANIFEST-WORDING` P3: `RESOLVED`. 보고서의 부정확한 “12개 untracked Task 파일”을 “신규 12개 파일”과 최종 manifest 27개로 바로잡았다.
 - `OSAN-ACCESS-SCREENSHOT-RETENTION` P3: `RESOLVED`. 마지막 full-stack run 뒤 사라진 ignored screenshot 두 파일을 mock browser 2/2 재실행으로 다시 만들고 Parent가 desktop/mobile 이미지를 직접 확인했다.
-- Open P0/P1/P2: final fresh GPT-6 High 판정 `0/0/0`, `GO`. 사용자 검수와 Git·운영 gate는 별도다.
+- `OSAN-ACCESS-SELECTOR-VISIBILITY` P2: `RESOLVED`. 정상 shell은 목적지 두 곳 이상을 검사했지만 access gate는 한 곳 이상만 검사해 단일 소속 총괄에게도 이동 button을 보였다. 세 렌더 경로를 공통 actual-switchability 판정으로 통일하고 single Cheongju/Osan, multi, no-membership, loading/error, desktop/mobile 회귀를 확인했다.
+- Open P0/P1/P2: Change 001 final fresh GPT-6 High 판정과 Change 002 단독 self-review 모두 `0/0/0`. 사용자 검수와 Git·운영 gate는 별도다.
 
 ### 해결한 업무 문제
 
-총괄 membership과 사업부 local 권한을 분리하면서도 신규 Microsoft 365 사용자가 directory 대기에서 local 역할 승인까지 이동할 수 있게 했다. 열린 탭이 소속 변경 뒤 다른 DB로 조용히 넘어가거나 이전 조회를 표시하는 경로도 닫았다.
+총괄 membership과 사업부 local 권한을 분리하면서도 신규 Microsoft 365 사용자가 directory 대기에서 local 역할 승인까지 이동할 수 있게 했다. 열린 탭이 소속 변경 뒤 다른 DB로 조용히 넘어가거나 이전 조회를 표시하는 경로도 닫았다. Change 002에서는 실제 대체 목적지가 없는 사용자가 의미 없는 단일 선택 UI를 보지 않게 했다.
 
 ### 기술적 결정과 검토한 대안
 
@@ -290,4 +341,4 @@ Never-settling stale Promise, response header에서 controller 조기 해제, to
 
 ### 사용자 검수 결과와 남은 항목
 
-자동 검증과 fresh GPT-6 read-only 제품 품질 검증은 완료했다. 사용자 직접 검수는 사용자의 2026-09-07 지시에 따라 오산 개발 마지막에 일괄 진행한다. Local commit은 승인됐고 push·PR·merge와 운영 runtime Task는 별도 승인 대상으로 남아 있다.
+Change 001의 자동 검증과 fresh GPT-6 read-only 제품 품질 검증은 완료했다. Change 002는 사용자 지정 단독 Sol 경로에서 자동·시각 검증과 self-review를 완료했고 사용자 직접 검수는 대기한다. Task 3 Change 005 현재 화면은 사용자가 검수 완료했다. Local commit은 승인됐고 push·PR·merge와 운영 runtime Task는 별도 승인 대상으로 남아 있다.

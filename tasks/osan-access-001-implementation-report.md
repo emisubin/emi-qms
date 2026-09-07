@@ -16,7 +16,7 @@
 - change001ImplementationWorktree: `/private/tmp/emi-osan-access-001`
 - change001ImplementationOwnerRequested: `GPT_5_6_SOL_XHIGH`
 - change001ImplementationOwnerObserved: `NOT_REPORTED`
-- implementationStatus: `CHANGE_004_IMPLEMENTED_AWAITING_USER_VALIDATION`
+- implementationStatus: `CHANGE_003_004_USER_VALIDATED_AWAITING_PR_CI`
 - change002ApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
 - change002TaskIdentityGate: `PASS_REUSE`
 - change002RoadmapSequenceMatch: false
@@ -49,7 +49,11 @@
 - change001FinalVerifierObserved: `NOT_REPORTED`
 - change001FinalVerifierVerdict: `GO`
 - change001FinalVerifierManifestSha256: `1debc180aadde8afb84853829ac7ca0b78d79cdffc0e5ef2b1de4b8acd347bb6`
-- gitPublicationApproved: false
+- gitPublicationApproved: true
+- remoteCiApproved: true
+- mainMergeApproved: false
+- userValidationStatus: `COMPLETED`
+- latestUserApprovalSource: `USER_EXPLICIT_2026-09-08_NEXT_TASK_APPROVED`
 - persistentRuntimeMutationApproved: false
 
 구현 전에 canonical Root 지침과 이 worktree의 Backend·Frontend·Scripts 지침, Product Roadmap, Task 종료 정책, Validation Matrix, Privacy-safe Evidence, 승인 Task와 Change 001을 다시 읽었다. Fresh GPT-6 High NO-GO 보정을 시작하기 전에도 현재 instruction chain, branch, 기준선과 dirty diff를 다시 확인했다. Parent가 Change 001에 기록한 제품 allowlist 확장과 Task 전용 combined full-stack test infrastructure 확장을 적용한다.
@@ -274,9 +278,7 @@ Change가 제안한 `frontend/e2e/mock/business-unit-access.spec.ts` 대신 실�
 
 실제 Microsoft 365 provider redirect는 호출하지 않았다. Provider/Azure mutation 금지 경계를 지키면서 mocked MSAL account와 `logoutRedirect`를 사용한 component/auth test가 App의 실제 계정 메뉴 logout action과 handler를 실행해 tab storage 삭제, outstanding read abort/generation 무효화, active account 해제 및 redirect 연결을 검증했다. Combined browser spec은 production reset primitive의 tab storage 삭제와 gate remount를 검증하며 provider redirect를 실행했다고 주장하지 않는다.
 
-Persistent UAT, 실제 Azure/Entra와 Change 002의 사용자 수동 검수는 실행하지 않았다. 현재 Change 002 결과는 local synthetic 구현·회귀 근거이며 운영 적용 또는 이 보정의 사용자 검수 완료 근거가 아니다.
-
-사용자는 Task 3 Change 005 현재 화면의 검수 완료를 명시했다. 이는 Change 002 selector 보정의 사용자 검수 완료와 별개이며, Change 002는 자동·시각 검증 완료 뒤 사용자 검수 대기 상태다.
+Persistent UAT와 실제 Azure/Entra는 실행하지 않았다. Change 002 selector 보정과 Change 003·004 최종 동작은 local exact-head synthetic 검수에서 사용자가 수락했으며, 이는 운영 적용 또는 실제 provider 검증 근거가 아니다.
 
 ## 7. Git·게시 확인
 
@@ -310,22 +312,22 @@ Change 002는 사용자 명시 지시에 따라 GPT-6 review 없이 요청된 GP
 
 | 산출물 | 상태 | 위치 |
 | --- | --- | --- |
-| Implementation report | Change 001 GO와 Change 002 구현·자동/시각 검증 완료, 사용자 검수 대기 | 이 문서 전체 |
+| Implementation report | Change 001~004 구현·자동/시각 검증과 사용자 검수 완료, PR CI 대기 | 이 문서 전체 |
 | SOP | runtime fail-closed와 harness process ownership 절차 작성됨·운영 적용 전 검증 필요 | 이 문서 §2, §10 |
 | User manual | 상태 화면, 실제 전환 가능한 사용자만 보는 selector와 소속/권한 관리 설명 작성됨 | 이 문서 §2 |
-| Roadmap update | Task 3 사용자 검수 완료와 Task 2 Change 002 사용자 검수 대기를 분리해 동기화함 | `docs/00-product-roadmap.md`, `tasks/osan-pilot-001.md`, `tasks/osan-access-001.md` |
-| User validation checklist | Change 002 항목 추가·사용자 검수 대기 | 아래 checklist |
+| Roadmap update | Task 2 Change 003·004 검수 완료와 PR CI 승인 상태를 상위 Task·rollout 인계에 동기화함 | `tasks/osan-access-001.md`, `tasks/osan-pilot-001-rollout-handoff.md` |
+| User validation checklist | Change 003·004 exact-head 사용자 검수 완료 | 아래 checklist |
 
 사용자 검수 checklist:
 
-- [ ] active 사업부가 두 곳 이상인 총괄에게 청주·오산 selector가 보이고, 단일 청주·단일 오산 사용자에게는 selector·단일 이동 button·빈 label이 전혀 보이지 않는다.
-- [ ] 일반 사용자에게 다른 사업부 선택과 총괄 소속 관리가 보이지 않는다.
-- [ ] 오산의 현재 사업부 사용자 관리에서 local profile 필드만 수정할 수 있다.
-- [ ] 오산에서 G2, Pending, hold/cancel과 lifecycle/notification/export control이 보이지 않는다.
-- [ ] 청주 사용자 관리와 기존 업무 메뉴가 유지된다.
-- [ ] 소속 회수 뒤 열린 오산 화면이 즉시 gate로 이동하고 이전 업무 데이터가 남지 않는다.
+- [x] active 사업부가 두 곳 이상인 총괄에게 청주·오산 selector가 보이고, 단일 청주·단일 오산 사용자에게는 selector·단일 이동 button·빈 label이 전혀 보이지 않는다.
+- [x] 총괄은 선택 전용 화면 없이 유효한 tab 선택 또는 청주 fallback으로 진입하고 우측 selector로 전환한다.
+- [x] 오산 navigation에는 사용자 관리와 기타 관리자 item·빈 관리 group이 없다.
+- [x] 청주 사용자 관리에서 청주·오산 승인 대기 사용자의 사업부·부서·자동 역할·부서장·활성을 지정할 수 있다.
+- [x] membership 0과 local-profile-pending 안내가 유지된다.
+- [x] 오산 admin URL은 청주 가능 총괄에게 청주 context로 복구되고 오산 단일 사용자는 홈으로 fail closed한다.
 
-상태는 `Checklist 갱신 / Change 002 자동·시각 검증 완료 / 사용자 검수 대기`다. Frontend 검수 URL과 Backend URL은 영구 runtime을 시작하지 않았으므로 `N/A`이며, 실행별로 할당한 synthetic temporary backend/frontend port의 process는 종료·정리됐다.
+상태는 `Change 003·004 사용자 검수 완료 / Draft PR #121 최종 CI 대기`다. Exact-head 5198/5098 runtime과 synthetic 3-DB 자원은 검수 뒤 종료·정리됐다.
 
 ## 12. Finding과 개발 블로그 기록
 
@@ -357,11 +359,11 @@ Never-settling stale Promise, response header에서 controller 조기 해제, to
 
 ### 사용자 검수 결과와 남은 항목
 
-Change 001의 자동 검증과 fresh GPT-6 read-only 제품 품질 검증은 완료했다. Change 002는 사용자 지정 단독 Sol 경로에서 자동·시각 검증과 self-review를 완료했고 사용자 직접 검수는 대기한다. Task 3 Change 005 현재 화면은 사용자가 검수 완료했다. Local commit은 승인됐고 push·PR·merge와 운영 runtime Task는 별도 승인 대상으로 남아 있다.
+Change 001의 자동 검증과 당시 fresh GPT-6 read-only 제품 품질 검증은 완료했다. Change 002~004는 사용자 지정 단독 Sol 경로에서 자동·시각 검증과 self-review를 완료했고, 2026-09-08 사용자가 exact-head 검수 결과를 수락했다. Draft PR #121 갱신과 최종 remote CI 1회는 승인됐으며 exact `main` merge와 운영 runtime은 승인되지 않았다.
 
 ### Azure phase 1 승격 상태
 
-`TASK-AZURE-DEPLOY-001 Change 031`은 로그인·사업부 해석, no-membership·local-profile-pending gate, 총괄 membership과 선택 사업부 local role 관리를 포함한다. 일반 사용자의 dual-membership 전환 결함은 사용자 승인으로 보류했으며 운영에서는 일반 계정에 membership 한 곳만 부여한다. Change 002 selector는 자동·시각 검증 완료, 사용자 검수 대기 상태를 유지한다. Change 031 최종 source에서 Backend `582/582`, Frontend `297/297`, mock `13/13`, 일반/전용 Full-Stack `64+1+1=66/66`과 배포 정적 검증을 통과했다. Azure mutation과 실제 계정 검증은 아직 수행하지 않았다.
+`TASK-AZURE-DEPLOY-001 Change 031`은 로그인·사업부 해석, no-membership·local-profile-pending gate, 총괄 membership과 선택 사업부 local role 관리를 포함한다. 일반 사용자는 한 사업부 이하로 강제하고 지정 총괄만 다중 소속을 사용한다. Change 002~004 사용자 검수는 완료됐지만 Change 031의 역사적 전체 검증 수치를 새 head에 재사용하지 않는다. Azure mutation과 실제 계정 검증은 아직 수행하지 않았다.
 
 ## 13. Change 003 통합 사용자 승인 구현
 
@@ -451,4 +453,8 @@ Access gate에서는 사업부 이동 button, 선택 전용 문구와 선택 초
 
 ### 사용자 검수·게시 상태
 
-Change 004는 local commit과 exact-commit 격리 3-DB 5198/5098 검수 runtime까지만 승인됐다. 사용자 WIP와 5174/5081은 변경하지 않는다. 기존 PR #121 remote head, push, CI, `main`, Azure, Persistent UAT와 실제 provider는 변경하지 않는다. 사용자 직접 검수는 자동 진입, selector 표시 조건, 오산 관리자 menu 부재, 양쪽 전환, 청주 통합 사용자 관리, pending 상태와 direct admin URL 처리 순서로 대기한다.
+Change 003·004 exact-head `a5142b6573e70b75d2a4aea4dc43c5d42e229c9b`의 3-DB runtime에서 자동 진입, selector 표시 조건, 오산 관리자 menu 부재, 양쪽 전환, 청주 통합 사용자 관리와 실제 synthetic 승인, pending 상태와 direct admin URL 처리를 확인했다. 2026-09-08 검수 안내 직후 사용자의 최신 원문 `다음작업 승인.`에 따라 `userValidationStatus=COMPLETED`로 기록한다. Runtime은 owned session으로 정상 종료했고 5098/5198 listener와 해당 Compose container·network·volume 잔여 0건을 확인했다.
+
+이 승인은 기존 Draft PR #121의 같은 head branch non-force 갱신과 최종 remote CI 1회를 포함한다. Exact `main` merge, Azure, Persistent UAT, 실제 provider와 운영 DB·image mutation은 포함하지 않는다. CI 통과 뒤 PR exact head/base/mergeable/latest main을 확인하고 `main` 병합 직전에서 멈춘다.
+
+OpenAI 공식 모델 문서는 높은 reasoning effort가 더 긴 응답 시간을 만들 수 있고 실제 latency는 end-to-end workload로 측정해야 한다고 안내한다. GPT-6 출시가 GPT-5.6 Sol 자체 속도를 낮췄다는 공식 근거는 확인되지 않았다. 이번 세션에서 관찰된 긴 시간은 앞선 xhigh, 22~28분 Backend 전체, 12~15분 Full-Stack 전체의 반복, 3-DB/Docker 준비·정리, CI 재실행, UI 재작업, workspace permission 전환, 긴 Repository gate·문서와 parent handoff가 누적된 결과다. High가 xhigh보다 항상 빠르다고 보장하지 않으며, 검수 전 targeted test와 최종 게시 head의 전체 CI 1회 정책은 긴 suite 고정비와 불필요한 재실행을 줄인다.

@@ -3,7 +3,9 @@
 ## 1. 승인·Gate·기준선
 
 - taskType: `BUGFIX`
-- changeStatus: `IMPLEMENTED_AWAITING_USER_VALIDATION`
+- changeStatus: `USER_VALIDATED_AWAITING_PR_CI`
+- userValidationStatus: `COMPLETED`
+- userValidationSource: `USER_EXPLICIT_2026-09-08_NEXT_TASK_APPROVED`
 - canonicalTask: `TASK-OSAN-ACCESS-001`
 - canonicalChange: `TASK-OSAN-ACCESS-001 Change 003`
 - instructionChainRead: true
@@ -21,11 +23,13 @@
 - implementationBranch: `fix/task-osan-access-001-integrated-user-approval`
 - implementationBaseline: `11c1185ea9c550022e3f70d106e06a1c6bc517b1`
 - originMainBaseline: `574cea66f602eb65eb1d110801d331151731b0a6`
-- gitPublicationApproved: false
+- gitPublicationApproved: true
+- remoteCiApproved: true
+- mainMergeApproved: false
 - persistentRuntimeMutationApproved: false
 - providerOperationApproved: false
 
-사용자는 기존 Azure 배포 순서를 멈추고 첫 로그인 승인과 사업부별 사용자 수정을 기존 `관리자 > 사용자 관리` 한 화면에 통합하라고 명시 승인했다. 이 승인은 구현·전체 로컬 검증·local commit·격리 3-DB 사용자 검수 서버 준비까지 포함하며 push, PR #121 변경, CI 재실행, `main` 병합, Azure와 운영 DB mutation은 포함하지 않는다.
+사용자는 기존 Azure 배포 순서를 멈추고 첫 로그인 승인과 사업부별 사용자 수정을 기존 `관리자 > 사용자 관리` 한 화면에 통합하라고 명시 승인했다. 2026-09-08 검수 안내 직후 사용자의 최신 원문 `다음작업 승인.`은 Change 003·004 결과 검수 수락, 기존 Draft PR #121의 non-force 갱신과 최종 remote CI 1회 실행 승인이다. Exact `main` 병합, Azure와 운영 DB mutation은 포함하지 않는다.
 
 ## 2. Purpose identity와 검색 결과
 
@@ -140,12 +144,12 @@ Allowlist의 기존 test 파일이 실제 checkout에 없거나 더 좁은 기�
 
 ## 8. 게시·운영·검수 상태
 
-- 기존 PR #121 remote head는 `11c1185ea9c550022e3f70d106e06a1c6bc517b1`로 유지한다.
-- Change 003 local commit은 격리 branch에서 만든 뒤 그 exact commit의 검수 runtime만 연다.
-- 검수 runtime은 같은 Full-Stack 안전 harness의 `--review-server` mode로 tmpfs PostgreSQL, Directory·Cheongju·Osan 3개 DB, 6개 bounded role과 외부 provider/worker 비활성 fixture만 사용한다.
-- push, PR #121 갱신, CI, `main` merge, Azure와 운영 DB mutation은 실행하지 않는다.
+- Change 003·004 exact local head `a5142b6573e70b75d2a4aea4dc43c5d42e229c9b`의 격리 3-DB 검수에서 통합 승인, compact 표, 자동 진입, selector 조건, 오산 관리자 navigation 제거와 direct admin URL 처리를 확인했고 사용자가 결과를 수락했다.
+- 검수 runtime은 owned session으로 정상 종료했고 5098/5198 listener와 해당 Compose container·network·volume 잔여 0건을 확인했다.
+- 기존 Draft PR #121은 최신 `origin/main` 정합성을 확인한 뒤 같은 head branch에 non-force push하고, 최종 head의 required remote CI를 딱 한 번 실행한다.
+- Exact `main` merge, Azure와 운영 DB mutation은 승인되지 않았다.
 - Migration 0003은 additive이며 down migration을 제공하지 않는다. 이전 image의 독립 membership write는 `integrated_user_access_required`로 fail closed한다. 이전 image가 새 ledger를 수용한다고 주장하지 않으며 운영 적용 전 Change 031에서 새 image 재배포/forward-fix 경로를 고정한다.
-- Change 002는 자동·시각 증거가 있지만 사용자 직접 검수 완료 기록은 없다. Change 003 검수 화면에서 selector 세 경우와 통합 승인 흐름을 함께 확인한다.
+- Change 002 selector 조건도 Change 003·004 exact-head 검수 화면에서 함께 수락됐다.
 
 ## 9. 사용자 UI 피드백 반영 — compact table
 

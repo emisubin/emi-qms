@@ -2,7 +2,7 @@
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - currentChangeTaskType: `BUGFIX`
-- status: `CHANGE_004_IMPLEMENTED_AWAITING_USER_VALIDATION`
+- status: `CHANGE_003_004_USER_VALIDATED_AWAITING_PR_CI`
 - parentTask: `TASK-OSAN-PILOT-001`
 - implementationApproved: true
 - implementationApprovalSource: `USER_EXPLICIT_2026-09-06_NEXT_TASK_START`
@@ -10,7 +10,11 @@
 - implementationBranch: `feat/task-osan-access-001-membership-switching`
 - implementationBaseline: `670b2ea`
 - runtimeMutationApproved: false
-- gitPublicationApproved: false
+- gitPublicationApproved: true
+- remoteCiApproved: true
+- mainMergeApproved: false
+- userValidationStatus: `COMPLETED`
+- latestUserApprovalSource: `USER_EXPLICIT_2026-09-08_NEXT_TASK_APPROVED`
 - currentChangeApprovalSource: `USER_EXPLICIT_2026-09-07_SELECTOR_VISIBILITY_FIX`
 - currentImplementationBranch: `feat/task-osan-project-001-project-registration`
 - change003ApprovalSource: `USER_EXPLICIT_2026-09-07_INTEGRATED_USER_APPROVAL`
@@ -64,8 +68,8 @@ Backend membership/authorization/admin endpoints, Frontend App/auth/api/menu/cac
 
 사용자·사업부 bootstrap 입력 방법과 권한 matrix를 문서화하고 Task 3에 인증된 오산 생성/진행 actor 계약을 전달한다.
 
-실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. Change 001은 fresh GPT-6 High 검증에서 확인된 Finding을 모두 보정해 제품 P0/P1/P2 `0/0/0`, `GO`로 끝났고 사용자는 직접 검수를 오산 마지막 일괄 검수로 이관했다. 2026-09-07 사용자는 Task 3 Change 005 화면 검수를 완료한 뒤 단일 소속 사용자에게 사업부 선택 UI를 아예 표시하지 말라고 지시했다. Change 002는 사용자 지정 `GPT_5_6_SOL_XHIGH_ONLY` 경로로 active 목적지가 두 곳 이상인 총괄에게만 선택 UI가 보이도록 보정하고 component 18/18, 전체 Frontend 297/297, mock browser 3/3, 3-DB 격리 2/2와 desktop/mobile 직접 확인을 통과했다. 이번 보정의 사용자 검수는 대기하며 local commit은 승인됐다. Push·PR·merge·운영 적용은 승인되지 않았다.
+실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. Change 001은 fresh GPT-6 High 검증에서 확인된 Finding을 모두 보정해 제품 P0/P1/P2 `0/0/0`, `GO`로 끝났고 사용자는 직접 검수를 오산 마지막 일괄 검수로 이관했다. 2026-09-07 사용자는 Task 3 Change 005 화면 검수를 완료한 뒤 단일 소속 사용자에게 사업부 선택 UI를 아예 표시하지 말라고 지시했다. Change 002는 사용자 지정 `GPT_5_6_SOL_XHIGH_ONLY` 경로로 active 목적지가 두 곳 이상인 총괄에게만 선택 UI가 보이도록 보정하고 component 18/18, 전체 Frontend 297/297, mock browser 3/3, 3-DB 격리 2/2와 desktop/mobile 직접 확인을 통과했다. 이 selector 조건은 Change 003·004 exact-head 검수에서 함께 수락됐다.
 
-2026-09-07 Change 003은 사용자 명시 승인으로 기존 `관리자 > 사용자 관리`에 Directory 승인 대기 사용자와 사업부별 부서·역할·부서장·활성을 통합했다. 일반 사용자는 한 사업부 이하, 지정 총괄만 다중 소속이며 총괄 designation과 local `users.manage`는 분리한다. Directory 0003은 local profile commit 뒤 membership을 공개하고 회수는 membership을 먼저 차단하며, operation ID·version·RetryRequired와 공통 correlation으로 재시도와 감사를 연결한다. 검수 전 최소 집중 검증은 통과했고 전체 회귀는 사용자 지시대로 검수 뒤 최종 게시 head에서 한 번만 실행한다. Change 003은 local commit 기반 사용자 검수 대기이며 PR #121·`main`·Azure는 변경하지 않는다.
+2026-09-07 Change 003은 사용자 명시 승인으로 기존 `관리자 > 사용자 관리`에 Directory 승인 대기 사용자와 사업부별 부서·역할·부서장·활성을 통합했다. 일반 사용자는 한 사업부 이하, 지정 총괄만 다중 소속이며 총괄 designation과 local `users.manage`는 분리한다. Directory 0003은 local profile commit 뒤 membership을 공개하고 회수는 membership을 먼저 차단하며, operation ID·version·RetryRequired와 공통 correlation으로 재시도와 감사를 연결한다. 검수 전 최소 집중 검증은 통과했고 2026-09-08 사용자가 Change 003·004 exact-head 결과를 수락했다.
 
-2026-09-07 Change 004는 선택 전용 화면을 제거했다. 단일 membership은 기존 generation 재확인 뒤 해당 사업부로 자동 진입하고, 양쪽 사업부 지정 총괄은 유효한 tab 선택을 유지하며 없거나 무효하면 청주를 우선 선택한다. 오산 navigation에는 관리자 item·group을 만들지 않는다. 오산에서 admin URL을 직접 열면 청주가 허용된 총괄은 URL을 유지한 채 청주로 전환하고, 그 외 계정은 오산 홈으로 이동한다. 청주 통합 사용자 관리와 membership 0·local-profile-pending 상태는 유지한다. Targeted component `20/20`, mock Chromium desktop/mobile·tab 시나리오가 통과했고 전체 회귀는 실행하지 않았다. Local commit과 exact-commit 격리 검수 runtime만 승인됐으며 PR #121·`main`·Azure는 변경하지 않는다.
+2026-09-07 Change 004는 선택 전용 화면을 제거했다. 단일 membership은 기존 generation 재확인 뒤 해당 사업부로 자동 진입하고, 양쪽 사업부 지정 총괄은 유효한 tab 선택을 유지하며 없거나 무효하면 청주를 우선 선택한다. 오산 navigation에는 관리자 item·group을 만들지 않는다. 오산에서 admin URL을 직접 열면 청주가 허용된 총괄은 URL을 유지한 채 청주로 전환하고, 그 외 계정은 오산 홈으로 이동한다. 청주 통합 사용자 관리와 membership 0·local-profile-pending 상태는 유지한다. Targeted component `20/20`, mock Chromium desktop/mobile·tab 시나리오가 통과했다. 최신 사용자 원문 `다음작업 승인.`에 따라 사용자 검수는 완료됐고, Draft PR #121 갱신과 최종 remote CI 1회를 실행한다. Exact `main` merge·Azure·운영 mutation은 승인되지 않았다.

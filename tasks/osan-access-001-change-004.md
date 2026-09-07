@@ -3,7 +3,9 @@
 ## 1. 승인·Gate·기준선
 
 - taskType: `BUGFIX`
-- changeStatus: `IMPLEMENTED_AWAITING_USER_VALIDATION`
+- changeStatus: `USER_VALIDATED_AWAITING_PR_CI`
+- userValidationStatus: `COMPLETED`
+- userValidationSource: `USER_EXPLICIT_2026-09-08_NEXT_TASK_APPROVED`
 - canonicalTask: `TASK-OSAN-ACCESS-001`
 - canonicalChange: `TASK-OSAN-ACCESS-001 Change 004`
 - instructionChainRead: true
@@ -18,11 +20,13 @@
 - implementationOwnerObserved: `NOT_REPORTED`
 - implementationBranch: `fix/task-osan-access-001-integrated-user-approval`
 - implementationBaseline: `958661459786acfb564591b3c46251c9b854c50c`
-- gitPublicationApproved: false
+- gitPublicationApproved: true
+- remoteCiApproved: true
+- mainMergeApproved: false
 - persistentRuntimeMutationApproved: false
 - providerOperationApproved: false
 
-사용자는 Change 003을 보존하면서 전용 사업부 선택 화면을 제거하고, 단일 membership과 지정 총괄을 유효한 tab 선택 또는 deterministic fallback으로 자동 진입시키며, 오산 shell의 관리자 navigation을 전부 제거하라고 명시 승인했다. 이 승인은 승인 범위의 구현·targeted 검증·local commit·격리 3-DB 검수 runtime 준비를 포함한다. 기존 PR #121 remote head, push, CI, `main`, Azure와 Persistent UAT mutation은 포함하지 않는다.
+사용자는 Change 003을 보존하면서 전용 사업부 선택 화면을 제거하고, 단일 membership과 지정 총괄을 유효한 tab 선택 또는 deterministic fallback으로 자동 진입시키며, 오산 shell의 관리자 navigation을 전부 제거하라고 명시 승인했다. 2026-09-08 검수 안내 직후 사용자의 최신 원문 `다음작업 승인.`은 Change 003·004 결과 검수 수락, 기존 Draft PR #121의 non-force 갱신과 최종 remote CI 1회 실행 승인이다. Exact `main` 병합, Azure와 Persistent UAT mutation은 포함하지 않는다.
 
 ## 2. Purpose identity와 검색 결과
 
@@ -100,9 +104,11 @@ Backend resolver/API schema, DB/migration, 관리자 권한 확대, 새 route/pa
 
 ## 8. 사용자 검수 항목
 
-- [ ] 단일 청주 사용자는 자동 진입하고 selector·빈 label이 없다.
-- [ ] 단일 오산 사용자는 자동 진입하고 selector와 왼쪽 관리자 item·빈 관리 group이 없다.
-- [ ] 지정 총괄은 선택 화면 없이 마지막 유효 tab 사업부 또는 청주 fallback으로 진입하고 우측 상단 selector로 양쪽을 전환한다.
-- [ ] 청주 관리자 메뉴와 통합 사용자 관리가 유지되며 청주·오산 승인 대기 사용자를 한 행에서 설정할 수 있다.
-- [ ] membership 0과 local-profile-pending 안내가 유지된다.
-- [ ] 오산에서 admin URL을 직접 열면 청주 가능 총괄은 같은 admin URL의 청주 context로 전환되고, 오산 단일 사용자는 홈으로 이동한다.
+- [x] 단일 청주 사용자는 자동 진입하고 selector·빈 label이 없다.
+- [x] 단일 오산 사용자는 자동 진입하고 selector와 왼쪽 관리자 item·빈 관리 group이 없다.
+- [x] 지정 총괄은 선택 화면 없이 마지막 유효 tab 사업부 또는 청주 fallback으로 진입하고 우측 상단 selector로 양쪽을 전환한다.
+- [x] 청주 관리자 메뉴와 통합 사용자 관리가 유지되며 청주·오산 승인 대기 사용자를 한 행에서 설정할 수 있다.
+- [x] membership 0과 local-profile-pending 안내가 유지된다.
+- [x] 오산에서 admin URL을 직접 열면 청주 가능 총괄은 같은 admin URL의 청주 context로 전환되고, 오산 단일 사용자는 홈으로 이동한다.
+
+사용자 검수는 `COMPLETED`다. Exact-head runtime은 검수 뒤 owned session으로 정상 종료했고 5098/5198 listener와 해당 격리 Compose container·network·volume 잔여 0건을 확인했다. 다음 단계는 기존 Draft PR #121 non-force 갱신과 최종 remote CI 1회이며 exact `main` merge 전에서 멈춘다.

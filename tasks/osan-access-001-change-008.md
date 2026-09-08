@@ -71,7 +71,7 @@
 
 - `ApprovalReadinessPolicy`로 로그인 claim, `/api/me`, 관리자 사용자 집계, 홈 집계와 통합 사용자 목록의 승인 준비 판정을 통일했다. 활성 membership만 있어도 local profile·활성 부서·그 부서 기본 역할이 하나라도 빠지면 승인 대기로 남는다.
 - 통합 저장은 `user_roles.assignment_source`를 읽어 `explicit` 역할만 보존하고, 현재 부서 기본 역할과 overall System Administrator를 서버에서 다시 만든다. 부서가 바뀌면 부서장 flag는 같은 요청의 명시 확인 marker가 있을 때만 true가 된다.
-- 기존 backfill job은 대상의 현재 membership을 잠그고 일반 사용자 다중 membership을 거부한다. 활성 Cheongju local readiness가 없는 membership은 audit와 함께 차단하며, 이미 Osan으로 이동한 일반 사용자와 ready profile은 그대로 둔다. Overall은 두 membership과 양 DB System Administrator를 유지한다.
+- 기존 backfill job은 대상의 현재 membership을 잠그고 일반 사용자 다중 membership을 거부한다. 일반 사용자의 현재 부서 기본 역할 provenance를 정규화하고, 현재 부서와 다른 `department-default` 역할 및 ordinary의 잘못 남은 System Administrator를 제거한다. 그 보정이 발생하면 과거 부서장 flag도 해제하며 privacy-safe aggregate 보정 수를 job log에 남긴다. 활성 Cheongju local readiness가 없는 membership은 Directory audit와 함께 차단하고 이미 Osan으로 이동한 일반 사용자와 ready profile은 그대로 둔다. Overall과 비기본 `explicit` 특별 역할은 보존한다.
 - `0088_system_administrator_access_consistency.sql`은 기존 역할 source를 보수적으로 분류하고 System Administrator에 현재 permission catalog 전체를 매핑한다. 새 permission insert에도 같은 역할을 자동 매핑하는 DB invariant를 추가했다. identity contract 상수 `Directory 0001` / `Business 0086`은 변경하지 않았다.
 - Compact 사용자 관리 표는 pending 사업부 선택을 활성 의도와 연결하고, `RetryRequired` 또는 2분 이상 진행이 멈춘 `Preparing`을 같은 operation ID로 재시도할 수 있게 표시한다. 기존 표·selector·Osan navigation 계약은 유지했다.
 
@@ -80,7 +80,7 @@
 - Backend Release compile: PASS, warning `0`, error `0`.
 - Frontend TypeScript typecheck: PASS.
 - Migration `0088` existing 적용·2회 멱등, assignment source, 전체 permission와 future insert invariant: `1/1 PASS`.
-- 격리 3-DB 통합 사용자 접근 단일 Fact: `1/1 PASS`. Roleless backfill membership `0`, 승인 readiness, 부서 이동 시 old default/head 회수와 explicit 역할 보존, 복수 overall·양 DB 전체 permission, local 실패 membership `0`, 멱등 retry, version 충돌, ordinary dual 거부와 회수를 포함한다.
+- 격리 3-DB 통합 사용자 접근 단일 Fact: `1/1 PASS`. Roleless active membership 회수와 허용된 `AccessRevoked` audit, 현재 부서 default provenance 정규화, 부서 이동 시 stale System Administrator/head 회수와 비기본 explicit 역할 보존, 승인 readiness, 복수 overall·양 DB 전체 permission, local 실패 membership `0`, 멱등 retry, version 충돌, ordinary dual 거부와 회수를 포함한다.
 - Compact 사용자 관리 mock Chromium desktop/mobile와 selector: `3/3 PASS`.
 - 첫 migration test 시도는 기존 localhost 개발 DB의 인증 상태가 fixture와 달라 제품 코드 도달 전 실패했다. Owned 임시 PostgreSQL fixture로 전환한 뒤 통과했고 임시 container를 정리했다. 제품 test failure는 없다.
 - 사용자 지시대로 local 전체 Backend/Frontend/Full-Stack suite는 실행하지 않았다. 전체 회귀는 exact PR head의 원격 CI 한 번으로 수행한다.
@@ -88,6 +88,7 @@
 - 두 번째 CI run `34196291730`은 fixture의 빈 `explicitRoles`가 TypeScript에서 `never[]`로 추론된 정적 오류를 찾았다. Fixture 값을 `string[]`으로 명시하고 frontend typecheck와 같은 targeted file만 재검증한다.
 - 세 번째 CI run `34196560187`은 일반 Full-stack 64건 중 61건 PASS, 3건 FAIL, Backend 585건 중 563건 PASS, 22건 FAIL이었다. 실패는 System Administrator를 감사 전용으로 가정한 기존 API/E2E 기대, 새 approval readiness에 필요한 부서가 빠진 identity fixture, migration 이후 달라진 permission 배정 수치가 Change 008 계약과 충돌한 테스트 계약 drift였다. Pending 생성 201과 프로젝트·생산계획·구매·패널 편집 권한을 permission catalog 계약으로 정렬하고, 승인된 identity fixture에는 유효 부서와 기본 역할을 함께 준비하며, 테스트 데이터 상태를 바꾸는 중복 hold 요청은 제거한다. 제품 runtime 로직 추가 변경은 없다.
 - 세 번째 CI에서 실패한 Backend 메서드만 theory를 포함해 격리 PostgreSQL에서 재실행했고 `39/39 PASS`했다. Full-stack 실패 3건도 같은 환경에서 각각 재실행해 `3/3 PASS`했으며, 접힌 `추가 기능` 안의 Excel controls는 실제 사용자 interaction 순서로 펼친 뒤 확인했다. Owned 임시 PostgreSQL은 종료·정리했다.
+- exact head `981aafe3c8f05477b8f162e06865dac6043e594f`의 네 번째 CI `34200870327`은 Backend `585/585`, Frontend, Full-stack `64/64`, Workflow Validation과 CI Gate가 전부 PASS했다. 이후 운영 repair self-review에서 기존 ordinary stale managed role/head 보정이 backfill에 빠진 것을 발견해 위 단일 3-DB Fact로 보정했으며, 이 후속 변경은 새 exact head의 원격 CI 한 번으로 다시 검증한다.
 
 ## 현재 상태와 다음 Gate
 

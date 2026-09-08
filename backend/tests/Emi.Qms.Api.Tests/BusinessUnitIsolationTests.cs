@@ -242,7 +242,39 @@ public sealed class BusinessUnitIsolationTests
         await seeder.SeedAsync(TestContext.Current.CancellationToken);
         databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
         databases.Configuration["BusinessUnits:MembershipBackfill:ApprovedUserIdsDelimited"] =
-            $"{AdminUserId:D};{NoRoleUserId:D}";
+            $"{AdminUserId:D};{NoRoleUserId:D};{SalesUserId:D}";
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_identities (
+                user_id, auth_provider, external_subject, display_name, is_active)
+            values (
+                '{NoRoleUserId:D}', 'Dev', 'dev-no-role', 'Dev User Without Role', true)
+            on conflict (user_id) do nothing;
+
+            insert into directory_business_unit_memberships (
+                user_id, business_unit_code, is_active)
+            values ('{NoRoleUserId:D}', 'CHEONGJU', true)
+            on conflict (user_id, business_unit_code) do update
+            set is_active = true, updated_at_utc = now();
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            update qms_users
+            set is_department_head = true
+            where id = '{SalesUserId:D}';
+
+            insert into user_roles (user_id, role_id, assignment_source)
+            select '{SalesUserId:D}', role.id, 'explicit'
+            from roles role
+            where role.code in ('design', 'system-administrator')
+            on conflict (user_id, role_id) do update set assignment_source = 'explicit';
+            """,
+            TestContext.Current.CancellationToken);
         var reconciled = await new BusinessUnitMembershipBackfillRunner(
                 provider,
                 databases.Configuration,
@@ -250,7 +282,7 @@ public sealed class BusinessUnitIsolationTests
                 inspector,
                 directoryCatalog)
             .ApplyAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(2, reconciled);
+        Assert.Equal(3, reconciled);
         Assert.Equal(
             2L,
             await databases.ReadScalarAsync<long>(
@@ -264,6 +296,41 @@ public sealed class BusinessUnitIsolationTests
                 "DIRECTORY",
                 BusinessUnitConnectionPurpose.Migration,
                 $"select count(*) from directory_business_unit_memberships where user_id = '{NoRoleUserId:D}' and is_active = true;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from directory_membership_audit_events where user_id = '{NoRoleUserId:D}' and action = 'AccessRevoked';",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "false:design:explicit,sales:department-default",
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select user_account.is_department_head::text || ':'
+                    || string_agg(role.code || ':' || user_role.assignment_source, ',' order by role.code)
+                from qms_users user_account
+                join user_roles user_role on user_role.user_id = user_account.id
+                join roles role on role.id = user_role.role_id
+                where user_account.id = '{SalesUserId:D}'
+                group by user_account.is_department_head;
+                """,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select count(*)
+                from directory_business_unit_memberships
+                where user_id = '{SalesUserId:D}'
+                  and business_unit_code = 'CHEONGJU'
+                  and is_active = true;
+                """,
                 TestContext.Current.CancellationToken));
         Assert.Equal(
             1L,
@@ -949,14 +1016,17 @@ public sealed class BusinessUnitIsolationTests
                 ('{SalesUserId:D}', 'Dev', 'dev-sales', true),
                 ('{NoMembershipUserId:D}', 'Dev', 'dev-no-membership', true),
                 ('{LocalProfileUserId:D}', 'EntraId', 'local-profile-user', true),
-                ('{CollisionUserId:D}', 'EntraId', 'entra-collision-subject', true);
+                ('{CollisionUserId:D}', 'EntraId', 'entra-collision-subject', true)
+            on conflict (user_id) do nothing;
 
             insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
             values
                 ('{SalesUserId:D}', 'CHEONGJU', true),
                 ('{LocalProfileUserId:D}', 'CHEONGJU', true),
                 ('{LocalProfileUserId:D}', 'OSAN', true),
-                ('{CollisionUserId:D}', 'OSAN', true);
+                ('{CollisionUserId:D}', 'OSAN', true)
+            on conflict (user_id, business_unit_code) do update
+            set is_active = excluded.is_active, updated_at_utc = now();
             """,
             TestContext.Current.CancellationToken);
     }

@@ -131,3 +131,10 @@
 - Access Change 008은 Business additive `0088`, 역할 assignment source, 공통 readiness, stale operation retry와 readiness-aware 기존 backfill repair를 사용한다. Directory migration과 identity contract 상수는 바꾸지 않는다.
 - Local 집중 검증은 compile/typecheck, migration `1/1`, 격리 3-DB `1/1`, compact UI mock `3/3`이 통과했다. 전체 회귀는 PR exact head의 required CI 한 번만 수행한다.
 - 재배포 순서는 운영 dry-run aggregate → Business `0088` 양 DB → backfill repair → Backend → routing/security/권한 smoke → Frontend → 실제 로그인 UI smoke다. 예상 밖 identity 대상·삭제·권한 확대가 나오면 해당 단계만 중단하고 현재 revision `39/28`을 유지한다.
+
+## 12. Change 008 병합·DB 준비와 inspection gate
+
+- PR #123은 exact head `f947ae352ba7dc11475cc1e6feda24dcbb810df1`, CI `34204857666` 전체 PASS 뒤 승인 범위에서 squash merge했다. 배포 source는 exact main `d1e7d1fb20fa8976843b441ba7b5e46b54723aee`다.
+- Database prepare-only run `34207947257`는 Backend image `sha256:300a6632c650c0f8bec481db923a6305540978918d8673adb142e7dcf6f2f823`을 게시하고 migration을 완료했다. Backend/Frontend public revision과 repair backfill은 이 단계에서 SKIPPED되어 rollback point `39/28`을 유지한다.
+- 기존 release에는 repair dry-run mode가 없어 action-time gate의 숫자 증거를 만들 수 없었다. 사용자 승인 범위의 최소 보정으로 기존 manual backfill job을 one-off rollback-only inspection으로 실행하는 workflow 입력을 추가하며, 새 secret·role assignment·DB·영구 job 변경은 만들지 않는다.
+- Inspection 결과는 승인 identity, overall, membership activate/deactivate, default-role normalization, managed-role removal, department-head reset 수만 기록한다. Job 실패 또는 marker 누락은 repair apply와 app handover를 막는다.

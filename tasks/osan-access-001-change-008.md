@@ -96,3 +96,12 @@
 - 최신 `origin/main`은 구현 기준선 `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`과 일치한다.
 - Local commit 뒤 non-force push와 새 PR을 만들고 required CI가 전부 통과한 exact head만 승인된 squash merge·Azure migration/repair/app handover에 사용한다.
 - 운영 mutation 전 privacy-safe dry-run에서 active membership인데 local readiness가 없는 수, ordinary System Administrator·부서장 후보, overall과 permission 누락 수, 진행 중 operation 수를 확인한다. 예상 밖 identity·삭제·권한 확대가 있으면 해당 repair만 중단한다.
+
+## 병합 후 운영 repair inspection 보정
+
+- PR #123 exact head `f947ae352ba7dc11475cc1e6feda24dcbb810df1`의 최종 CI `34204857666`은 Backend, Frontend, Full-Stack과 required CI Gate가 전부 PASS했다. 승인된 squash merge의 main SHA는 `d1e7d1fb20fa8976843b441ba7b5e46b54723aee`다.
+- DB-only release `34207947257`에서 Business migration `0088`을 Cheongju와 Osan에 먼저 적용했고 public app revision과 repair data는 아직 바꾸지 않았다.
+- 운영 VNet 내부 job을 직접 시작하는 로컬 경로가 자동 action policy에 차단되고 Portal control도 초기화 timeout이 반복됐다. 사용자의 기존 승인과 후속 지시에 따라 기존 GitHub production environment workflow에 `inspect_membership_backfill`을 추가한다. 이 옵션은 exact backfill 코드를 세 DB transaction에서 실행해 대상·변경 수를 계산한 뒤 모두 rollback하고 숫자 marker만 release log로 가져온다.
+- Inspection은 기존 manual job의 저장된 image·command·secret·RBAC를 바꾸지 않고 one-off execution override만 사용한다. 일반 apply와 inspection 동시 선택, 증거 marker 누락, job 실패는 모두 public handover 전에 차단한다.
+- 기준선은 merge 후 exact main `d1e7d1fb20fa8976843b441ba7b5e46b54723aee`, continuation branch는 `fix/task-osan-access-001-repair-dry-run`이다. Root/Backend/Scripts 지침과 변경된 기준선을 다시 확인했으며 `instructionChainRead=true`, `taskType=BUGFIX`, `taskIdentityGate=PASS_REUSE`, `explicitRoadmapOverrideApproved=true`를 유지한다.
+- 집중 검증: Backend compile warning/error `0/0`, release mock PASS, 격리 3-DB dry-run 무변경 단일 Fact `1/1 PASS`. 새 exact head의 원격 CI를 병합 전 최종 전체 회귀로 사용한다.

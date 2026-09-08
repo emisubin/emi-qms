@@ -147,3 +147,10 @@
 - 첫 운영 inspection run `34215200743`은 one-off job execution 생성 전에 `MEMBERSHIP_BACKFILL_INSPECTION_FAILED`로 중단됐다. Public Backend/Frontend와 repair data는 변경되지 않아 기존 revision `39/28`을 유지한다.
 - Azure CLI에 전달하는 leading-dash container argument가 option으로 다시 해석되지 않도록 `--args=<value>` 형태로 고정한다. Release mock은 이 exact argument shape를 요구해 동일 회귀를 차단한다.
 - 보정 범위는 release script와 mock test뿐이다. 새 resource·secret·RBAC·영구 job 설정은 만들지 않으며, exact main CI 뒤 rollback-only inspection을 다시 실행한다.
+
+## 14. Inspection one-off 환경 보존 보정
+
+- PR #125 보정은 exact main `3c859f56359d1fc9c305a51ffd0f162cdfb86f27`에 반영됐고, 두 번째 inspection run `34216520695`는 새 image build와 exact inspect argument 전달 뒤 앱 시작 단계에서 중단됐다. Public revision과 repair data mutation은 `0`이다.
+- Privacy-safe Log Analytics 확인 결과, one-off container override가 기존 manual job의 환경 변수 `31`개를 상속하지 않아 execution의 환경 변수가 `0`개가 됐다. 이 때문에 실제 job template에 존재하는 BusinessUnits 3-DB 설정 대신 사용하지 않는 legacy 단일 DB 연결 검증 경로가 선택됐다.
+- Inspection 시작 전 기존 job template에서 값 환경과 secret reference, CPU, memory를 읽고 필수 3-DB migration 연결·승인 identity 입력이 모두 있는지 검증한다. One-off execution에는 이 template을 복사하고 exact immutable image와 inspect argument만 바꾼다. 원문 secret·identity는 출력하거나 tracked file에 기록하지 않는다.
+- Template 환경 누락·형식 오류는 `MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURATION_INVALID`로 repair·handover 전에 중단한다. Release mock은 환경·resource 보존과 누락 fail-closed를 직접 검증한다. 영구 job update, DB write, public app handover는 이 보정에 포함되지 않는다.

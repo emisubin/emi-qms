@@ -1010,7 +1010,7 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
 }
 
 resource membershipBackfillJob 'Microsoft.App/jobs@2024-03-01' = if (enableBusinessUnits) {
-  name: 'business-unit-membership-backfill'
+  name: 'business-unit-member-backfill'
   location: location
   identity: {
     type: 'UserAssigned'
@@ -1039,7 +1039,7 @@ resource membershipBackfillJob 'Microsoft.App/jobs@2024-03-01' = if (enableBusin
           ]
           env: membershipBackfillEnvironment
           image: backendImage
-          name: 'business-unit-membership-backfill'
+          name: 'business-unit-member-backfill'
           resources: {
             cpu: json('0.5')
             memory: '1Gi'

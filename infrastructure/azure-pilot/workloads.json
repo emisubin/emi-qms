@@ -514,7 +514,7 @@
       "condition": "[parameters('enableBusinessUnits')]",
       "type": "Microsoft.App/jobs",
       "apiVersion": "2024-03-01",
-      "name": "business-unit-membership-backfill",
+      "name": "business-unit-member-backfill",
       "location": "[parameters('location')]",
       "identity": {
         "type": "UserAssigned",
@@ -543,7 +543,7 @@
               ],
               "env": "[variables('membershipBackfillEnvironment')]",
               "image": "[parameters('backendImage')]",
-              "name": "business-unit-membership-backfill",
+              "name": "business-unit-member-backfill",
               "resources": {
                 "cpu": "[json('0.5')]",
                 "memory": "1Gi"
@@ -808,7 +808,7 @@
     },
     "membershipBackfillJobName": {
       "type": "string",
-      "value": "[if(parameters('enableBusinessUnits'), 'business-unit-membership-backfill', '')]"
+      "value": "[if(parameters('enableBusinessUnits'), 'business-unit-member-backfill', '')]"
     },
     "directoryDatabaseResourceId": {
       "type": "string",

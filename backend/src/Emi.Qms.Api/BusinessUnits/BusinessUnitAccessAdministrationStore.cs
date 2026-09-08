@@ -37,6 +37,7 @@ public sealed record BusinessUnitAccessAdministrationUser(
     Guid UserId,
     string AuthProvider,
     string DisplayName,
+    string? AccountId,
     string? Email,
     IReadOnlyList<string> Memberships,
     bool IsOverallAdministrator,
@@ -44,6 +45,7 @@ public sealed record BusinessUnitAccessAdministrationUser(
     string? PendingOperationId,
     string? PendingOperationStatus,
     string? PendingFailureCode,
+    bool? PendingIsOverallAdministrator,
     IReadOnlyList<BusinessUnitUserAccessProfileRequest> PendingProfiles,
     IReadOnlyList<BusinessUnitAccessAdministrationProfile> Profiles);
 
@@ -62,6 +64,7 @@ public sealed record BusinessUnitUserAccessProfileRequest(
 public sealed record BusinessUnitUserAccessUpdateRequest(
     Guid OperationId,
     long ExpectedVersion,
+    bool IsOverallAdministrator,
     IReadOnlyList<BusinessUnitUserAccessProfileRequest>? Profiles);
 
 public sealed record BusinessUnitUserAccessUpdateResult(
@@ -88,7 +91,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
             var target = connectionStringProvider.BusinessUnits.GetBusiness(businessUnitCode);
             businessStates.Add(
                 businessUnitCode,
-                await ReadBusinessStateAsync(target, actorUserId, directoryState.Users, cancellationToken));
+                await ReadBusinessStateAsync(target, directoryState.Users, cancellationToken));
         }
 
         var units = directoryState.AvailableBusinessUnits.Select(code =>
@@ -101,24 +104,38 @@ public sealed class BusinessUnitAccessAdministrationStore(
                 business.CanManage ? business.Roles : []);
         }).ToList();
 
-        var users = directoryState.Users.Select(user => user with
+        var users = directoryState.Users.Select(user =>
         {
-            Profiles = directoryState.AvailableBusinessUnits.Select(code =>
+            var identityKey = directoryState.IdentityKeys[user.UserId];
+            var identityProfile = directoryState.AvailableBusinessUnits
+                .Select(code => businessStates[code].Profiles.GetValueOrDefault(user.UserId))
+                .FirstOrDefault(profile => profile is not null && IdentityMatches(identityKey, profile));
+            return user with
             {
-                var business = businessStates[code];
-                business.Profiles.TryGetValue(user.UserId, out var profile);
-                return new BusinessUnitAccessAdministrationProfile(
-                    code,
-                    user.Memberships.Contains(code, StringComparer.Ordinal),
-                    business.CanManage && profile is not null,
-                    business.CanManage && profile?.IsActive == true,
-                    business.CanManage ? profile?.DepartmentId : null,
-                    business.CanManage ? profile?.DepartmentCode : null,
-                    business.CanManage ? profile?.DepartmentName : null,
-                    business.CanManage ? profile?.Roles ?? [] : [],
-                    business.CanManage && profile?.IsDepartmentHead == true,
-                    business.CanManage);
-            }).ToList()
+                DisplayName = identityProfile?.DisplayName ?? user.DisplayName,
+                AccountId = identityProfile?.AccountId ?? user.AccountId,
+                Email = identityProfile?.Email ?? user.Email,
+                Profiles = directoryState.AvailableBusinessUnits.Select(code =>
+                {
+                    var business = businessStates[code];
+                    business.Profiles.TryGetValue(user.UserId, out var profile);
+                    if (profile is not null && !IdentityMatches(identityKey, profile))
+                    {
+                        profile = null;
+                    }
+                    return new BusinessUnitAccessAdministrationProfile(
+                        code,
+                        user.Memberships.Contains(code, StringComparer.Ordinal),
+                        profile is not null,
+                        profile?.IsActive == true,
+                        profile?.DepartmentId,
+                        profile?.DepartmentCode,
+                        profile?.DepartmentName,
+                        profile?.Roles ?? [],
+                        profile?.IsDepartmentHead == true,
+                        business.CanManage);
+                }).ToList()
+            };
         }).ToList();
 
         return new BusinessUnitAccessAdministrationSnapshot(users, directoryState.AvailableBusinessUnits, units);
@@ -135,12 +152,13 @@ public sealed class BusinessUnitAccessAdministrationStore(
             throw Error("user_access_request_invalid", StatusCodes.Status400BadRequest);
         }
 
+        var actorIdentity = await ReadDirectoryIdentityAsync(actorUserId, cancellationToken);
+        if (actorIdentity?.IsOverallAdministrator != true)
+        {
+            throw Error("overall_administrator_required", StatusCodes.Status403Forbidden);
+        }
+
         var normalizedProfiles = NormalizeProfiles(request.Profiles);
-        var desiredMemberships = normalizedProfiles
-            .Where(profile => profile.IsActive)
-            .Select(profile => profile.BusinessUnitCode)
-            .OrderBy(code => code, StringComparer.Ordinal)
-            .ToArray();
         var directoryIdentity = await ReadDirectoryIdentityAsync(targetUserId, cancellationToken)
             ?? throw Error("directory_identity_not_found", StatusCodes.Status404NotFound);
         if (!string.Equals(directoryIdentity.AuthProvider, QmsAuthProviders.EntraId, StringComparison.Ordinal))
@@ -150,8 +168,12 @@ public sealed class BusinessUnitAccessAdministrationStore(
 
         var affectedUnits = directoryIdentity.Memberships
             .Concat(normalizedProfiles.Select(profile => profile.BusinessUnitCode))
+            .Concat(request.IsOverallAdministrator
+                ? connectionStringProvider.BusinessUnits.Businesses.Select(unit => unit.Code)
+                : [])
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(code => code, StringComparer.Ordinal)
+            .OrderBy(code => directoryIdentity.Memberships.Contains(code, StringComparer.Ordinal))
+            .ThenBy(code => code, StringComparer.Ordinal)
             .ToArray();
         var preparedProfiles = new Dictionary<string, PreparedProfile>(StringComparer.Ordinal);
         foreach (var businessUnitCode in affectedUnits)
@@ -162,11 +184,20 @@ public sealed class BusinessUnitAccessAdministrationStore(
             var target = connectionStringProvider.BusinessUnits.GetBusiness(businessUnitCode);
             preparedProfiles.Add(
                 businessUnitCode,
-                await PrepareProfileAsync(target, actorUserId, requested, cancellationToken));
+                await PrepareProfileAsync(target, requested, request.IsOverallAdministrator, cancellationToken));
         }
 
-        var requestPayload = ComputeRequestPayload(normalizedProfiles);
-        var requestHash = ComputeRequestHash(targetUserId, requestPayload);
+        var effectiveProfiles = preparedProfiles
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => pair.Value)
+            .ToArray();
+        var desiredMemberships = effectiveProfiles
+            .Where(profile => profile.IsActive)
+            .Select(profile => profile.BusinessUnitCode)
+            .OrderBy(code => code, StringComparer.Ordinal)
+            .ToArray();
+        var requestPayload = ComputeRequestPayload(effectiveProfiles);
+        var requestHash = ComputeRequestHash(targetUserId, requestPayload, request.IsOverallAdministrator);
         var begin = await BeginOperationAsync(
             request.OperationId,
             targetUserId,
@@ -175,6 +206,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
             request.ExpectedVersion,
             requestHash,
             requestPayload,
+            request.IsOverallAdministrator,
             cancellationToken);
         if (string.Equals(begin.Status, "Completed", StringComparison.Ordinal))
         {
@@ -189,14 +221,10 @@ public sealed class BusinessUnitAccessAdministrationStore(
             foreach (var businessUnitCode in affectedUnits)
             {
                 var target = connectionStringProvider.BusinessUnits.GetBusiness(businessUnitCode);
-                var requested = normalizedProfiles.SingleOrDefault(profile =>
-                    string.Equals(profile.BusinessUnitCode, businessUnitCode, StringComparison.Ordinal))
-                    ?? new NormalizedProfile(businessUnitCode, null, [], false, false);
                 await ApplyLocalProfileAsync(
                     target,
                     directoryIdentity,
                     preparedProfiles[businessUnitCode],
-                    requested,
                     actorUserId,
                     request.OperationId,
                     cancellationToken);
@@ -253,21 +281,34 @@ public sealed class BusinessUnitAccessAdministrationStore(
 
     private async Task<PreparedProfile> PrepareProfileAsync(
         BusinessUnitDatabaseTarget target,
-        Guid actorUserId,
         NormalizedProfile requested,
+        bool isOverallAdministrator,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateBusinessDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await ValidateBusinessContractAsync(connection, target, cancellationToken);
-        if (!await CanManageUsersAsync(connection, actorUserId, cancellationToken))
+
+        if (!requested.IsActive && !isOverallAdministrator)
         {
-            throw Error("business_unit_users_manage_required", StatusCodes.Status403Forbidden);
+            return new PreparedProfile(
+                target.Code,
+                requested.DepartmentId,
+                null,
+                requested.RoleCodes,
+                false,
+                false);
         }
 
-        if (!requested.IsActive)
+        var departmentId = requested.DepartmentId;
+        if (departmentId is null && isOverallAdministrator)
         {
-            return new PreparedProfile(null, requested.RoleCodes);
+            await using var defaultDepartment = connection.CreateCommand();
+            defaultDepartment.CommandText = "select id from departments where code = 'administration' and is_active = true;";
+            var defaultDepartmentId = await defaultDepartment.ExecuteScalarAsync(cancellationToken);
+            departmentId = defaultDepartmentId is Guid value
+                ? value
+                : throw Error("overall_administrator_department_missing", StatusCodes.Status503ServiceUnavailable);
         }
 
         string departmentCode;
@@ -279,7 +320,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
                 where department.id = @department_id
                   and department.is_active = true;
                 """;
-            departmentCommand.Parameters.AddWithValue("department_id", requested.DepartmentId!.Value);
+            departmentCommand.Parameters.AddWithValue("department_id", departmentId!.Value);
             await using var reader = await departmentCommand.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {
@@ -289,6 +330,10 @@ public sealed class BusinessUnitAccessAdministrationStore(
         }
 
         var roleCodes = requested.RoleCodes.ToList();
+        if (isOverallAdministrator && !roleCodes.Contains(QmsRoles.SystemAdministrator, StringComparer.Ordinal))
+        {
+            roleCodes.Add(QmsRoles.SystemAdministrator);
+        }
         var requiredDefault = DepartmentIdentityPolicy.GetDefaultRoleCode(departmentCode);
         if (requiredDefault is not null && !roleCodes.Contains(requiredDefault, StringComparer.Ordinal))
         {
@@ -305,14 +350,19 @@ public sealed class BusinessUnitAccessAdministrationStore(
             throw Error("role_not_found", StatusCodes.Status400BadRequest);
         }
 
-        return new PreparedProfile(departmentCode, roleCodes);
+        return new PreparedProfile(
+            target.Code,
+            departmentId,
+            departmentCode,
+            roleCodes,
+            true,
+            requested.IsDepartmentHead);
     }
 
     private async Task ApplyLocalProfileAsync(
         BusinessUnitDatabaseTarget target,
         DirectoryIdentity directoryIdentity,
         PreparedProfile prepared,
-        NormalizedProfile requested,
         Guid actorUserId,
         Guid operationId,
         CancellationToken cancellationToken)
@@ -324,7 +374,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
             operationId,
             parentAudit?.LoginCorrelationId,
             "UserAccess",
-            requested.IsActive ? "ApproveOrUpdate" : "Revoke",
+            prepared.IsActive ? "ApproveOrUpdate" : "Revoke",
             "UpdateIntegratedUserAccess"));
         await using var dataSource = CreateBusinessDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -346,7 +396,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
             throw Error("cross_database_identity_mismatch", StatusCodes.Status409Conflict);
         }
 
-        if (!requested.IsActive)
+        if (!prepared.IsActive)
         {
             if (existing is not null)
             {
@@ -391,7 +441,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
                     @user_id, @development_user_key, @display_name, @department_id, true,
                     @entra_object_id, @email, 'EntraId', @is_department_head);
                 """;
-            AddIdentityParameters(insert, directoryIdentity, requested);
+            AddIdentityParameters(insert, directoryIdentity, prepared);
             await insert.ExecuteNonQueryAsync(cancellationToken);
         }
         else
@@ -412,7 +462,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
                     pre_delete_is_active = null
                 where id = @user_id;
                 """;
-            AddIdentityParameters(update, directoryIdentity, requested);
+            AddIdentityParameters(update, directoryIdentity, prepared);
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -439,7 +489,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
         await transaction.CommitAsync(cancellationToken);
     }
 
-    private static void AddIdentityParameters(NpgsqlCommand command, DirectoryIdentity identity, NormalizedProfile requested)
+    private static void AddIdentityParameters(NpgsqlCommand command, DirectoryIdentity identity, PreparedProfile prepared)
     {
         command.Parameters.AddWithValue("user_id", identity.UserId);
         command.Parameters.AddWithValue("development_user_key", $"entra:{identity.ExternalSubject}");
@@ -449,8 +499,8 @@ public sealed class BusinessUnitAccessAdministrationStore(
         {
             Value = identity.Email is null ? DBNull.Value : identity.Email
         });
-        command.Parameters.AddWithValue("department_id", requested.DepartmentId!.Value);
-        command.Parameters.AddWithValue("is_department_head", requested.IsDepartmentHead);
+        command.Parameters.AddWithValue("department_id", prepared.DepartmentId!.Value);
+        command.Parameters.AddWithValue("is_department_head", prepared.IsDepartmentHead);
     }
 
     private static async Task DeactivateWebPushSubscriptionsAsync(
@@ -489,6 +539,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
         }
 
         var users = new List<BusinessUnitAccessAdministrationUser>();
+        var identityKeys = new Dictionary<Guid, DirectoryIdentityKey>();
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
@@ -503,13 +554,15 @@ public sealed class BusinessUnitAccessAdministrationStore(
                        exists (select 1 from directory_overall_administrators administrator
                            where administrator.user_id = identity_row.user_id and administrator.is_active = true),
                        operation.operation_id, operation.status, operation.failure_code,
-                       operation.requested_profiles::text
+                       operation.requested_profiles::text,
+                       operation.requested_is_overall_administrator,
+                       identity_row.external_subject
                 from directory_identities identity_row
                 left join directory_business_unit_memberships membership on membership.user_id = identity_row.user_id
                 left join directory_business_units business_unit on business_unit.code = membership.business_unit_code
                 left join lateral (
                     select operation_row.operation_id, operation_row.status, operation_row.failure_code,
-                           operation_row.requested_profiles
+                           operation_row.requested_profiles, operation_row.requested_is_overall_administrator
                     from directory_user_access_operations operation_row
                     where operation_row.target_user_id = identity_row.user_id
                       and operation_row.status in ('Preparing', 'RetryRequired')
@@ -518,19 +571,23 @@ public sealed class BusinessUnitAccessAdministrationStore(
                 group by identity_row.user_id, identity_row.auth_provider, identity_row.external_subject,
                          identity_row.display_name, identity_row.email, identity_row.access_version,
                          operation.operation_id, operation.status, operation.failure_code,
-                         operation.requested_profiles
+                         operation.requested_profiles, operation.requested_is_overall_administrator
                 order by 3, identity_row.email, identity_row.user_id;
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
+                var userId = reader.GetGuid(0);
+                identityKeys.Add(userId, new DirectoryIdentityKey(reader.GetString(1), reader.GetString(12)));
                 users.Add(new BusinessUnitAccessAdministrationUser(
-                    reader.GetGuid(0), reader.GetString(1), reader.GetString(2),
+                    userId, reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
                     reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetFieldValue<string[]>(5),
                     reader.GetBoolean(6), reader.GetInt64(4),
                     reader.IsDBNull(7) ? null : reader.GetGuid(7).ToString("D"),
                     reader.IsDBNull(8) ? null : reader.GetString(8),
                     reader.IsDBNull(9) ? null : reader.GetString(9),
+                    reader.IsDBNull(11) ? null : reader.GetBoolean(11),
                     reader.IsDBNull(10)
                         ? []
                         : JsonSerializer.Deserialize<IReadOnlyList<BusinessUnitUserAccessProfileRequest>>(
@@ -538,8 +595,17 @@ public sealed class BusinessUnitAccessAdministrationStore(
                     []));
             }
         }
-        return new DirectoryState(users, available);
+        return new DirectoryState(users, available, identityKeys);
     }
+
+    private static bool IdentityMatches(DirectoryIdentityKey identity, LocalProfile profile) =>
+        string.Equals(identity.AuthProvider, profile.AuthProvider, StringComparison.Ordinal)
+        && string.Equals(
+            identity.ExternalSubject,
+            string.Equals(identity.AuthProvider, QmsAuthProviders.EntraId, StringComparison.Ordinal)
+                ? profile.EntraObjectId
+                : profile.AccountId,
+            StringComparison.Ordinal);
 
     private async Task<DirectoryIdentity?> ReadDirectoryIdentityAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -552,7 +618,9 @@ public sealed class BusinessUnitAccessAdministrationStore(
                    coalesce(nullif(btrim(identity_row.display_name), ''), 'Microsoft 365 사용자'),
                    identity_row.email, identity_row.access_version,
                    coalesce(array_agg(membership.business_unit_code order by membership.business_unit_code)
-                       filter (where membership.is_active = true and business_unit.is_active = true), array[]::text[])
+                       filter (where membership.is_active = true and business_unit.is_active = true), array[]::text[]),
+                   exists (select 1 from directory_overall_administrators administrator
+                       where administrator.user_id = identity_row.user_id and administrator.is_active = true)
             from directory_identities identity_row
             left join directory_business_unit_memberships membership on membership.user_id = identity_row.user_id
             left join directory_business_units business_unit on business_unit.code = membership.business_unit_code
@@ -565,21 +633,19 @@ public sealed class BusinessUnitAccessAdministrationStore(
         return await reader.ReadAsync(cancellationToken)
             ? new DirectoryIdentity(
                 reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5), reader.GetFieldValue<string[]>(6))
+                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5), reader.GetFieldValue<string[]>(6),
+                reader.GetBoolean(7))
             : null;
     }
 
     private async Task<BusinessState> ReadBusinessStateAsync(
-        BusinessUnitDatabaseTarget target, Guid actorUserId,
+        BusinessUnitDatabaseTarget target,
         IReadOnlyList<BusinessUnitAccessAdministrationUser> directoryUsers,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateBusinessDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await ValidateBusinessContractAsync(connection, target, cancellationToken);
-        var canManage = await CanManageUsersAsync(connection, actorUserId, cancellationToken);
-        if (!canManage) return new BusinessState(false, [], [], new Dictionary<Guid, LocalProfile>());
-
         var departments = new List<BusinessUnitAccessAdministrationDepartment>();
         await using (var command = connection.CreateCommand())
         {
@@ -615,7 +681,8 @@ public sealed class BusinessUnitAccessAdministrationStore(
                        user_account.is_active, user_account.department_id, department.code, department.name,
                        user_account.is_department_head,
                        coalesce(array_agg(role.code order by role.code)
-                           filter (where role.code is not null), array[]::text[])
+                           filter (where role.code is not null), array[]::text[]),
+                       user_account.display_name, user_account.email, user_account.development_user_key
                 from qms_users user_account
                 left join departments department on department.id = user_account.department_id
                 left join user_roles user_role on user_role.user_id = user_account.id
@@ -623,7 +690,8 @@ public sealed class BusinessUnitAccessAdministrationStore(
                 where user_account.id = any(@user_ids)
                 group by user_account.id, user_account.auth_provider, user_account.entra_object_id,
                          user_account.is_active, user_account.department_id, department.code,
-                         department.name, user_account.is_department_head;
+                         department.name, user_account.is_department_head, user_account.display_name,
+                         user_account.email, user_account.development_user_key;
                 """;
             command.Parameters.AddWithValue("user_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid, userIds);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -632,26 +700,14 @@ public sealed class BusinessUnitAccessAdministrationStore(
                 profiles.Add(reader.GetGuid(0), new LocalProfile(
                     reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetBoolean(3),
                     reader.IsDBNull(4) ? null : reader.GetGuid(4), reader.IsDBNull(5) ? null : reader.GetString(5),
-                    reader.IsDBNull(6) ? null : reader.GetString(6), reader.GetFieldValue<string[]>(8), reader.GetBoolean(7)));
+                    reader.IsDBNull(6) ? null : reader.GetString(6), reader.GetFieldValue<string[]>(8), reader.GetBoolean(7),
+                    reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetString(10),
+                    reader.GetString(1) == QmsAuthProviders.EntraId
+                        ? (reader.IsDBNull(10) ? null : reader.GetString(10))
+                        : reader.GetString(11)));
             }
         }
         return new BusinessState(true, departments, roles, profiles);
-    }
-
-    private static async Task<bool> CanManageUsersAsync(NpgsqlConnection connection, Guid actorUserId, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            select exists (
-                select 1 from qms_users user_account
-                join user_roles user_role on user_role.user_id = user_account.id
-                join role_permissions role_permission on role_permission.role_id = user_role.role_id
-                join permissions permission on permission.id = role_permission.permission_id
-                where user_account.id = @actor_user_id and user_account.is_active = true
-                  and permission.code = 'users.manage');
-            """;
-        command.Parameters.AddWithValue("actor_user_id", actorUserId);
-        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
     private static async Task<ExistingLocalProfile?> ReadExistingLocalProfileAsync(
@@ -669,7 +725,8 @@ public sealed class BusinessUnitAccessAdministrationStore(
 
     private async Task<BeginResult> BeginOperationAsync(
         Guid operationId, Guid targetUserId, IReadOnlyList<string> memberships, Guid actorUserId,
-        long expectedVersion, string requestHash, string requestPayload, CancellationToken cancellationToken)
+        long expectedVersion, string requestHash, string requestPayload, bool isOverallAdministrator,
+        CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDirectoryDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -681,7 +738,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
                 select operation_status, current_version
                 from begin_directory_user_access_operation(
                     @operation_id, @target_user_id, @memberships, @actor_user_id, @expected_version,
-                    @request_hash, @requested_profiles);
+                    @request_hash, @requested_profiles, @is_overall_administrator);
                 """;
             command.Parameters.AddWithValue("operation_id", operationId);
             command.Parameters.AddWithValue("target_user_id", targetUserId);
@@ -690,6 +747,7 @@ public sealed class BusinessUnitAccessAdministrationStore(
             command.Parameters.AddWithValue("expected_version", expectedVersion);
             command.Parameters.AddWithValue("request_hash", requestHash);
             command.Parameters.AddWithValue("requested_profiles", NpgsqlDbType.Jsonb, requestPayload);
+            command.Parameters.AddWithValue("is_overall_administrator", isOverallAdministrator);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("Directory operation did not return a state.");
             return new BeginResult(reader.GetString(0), reader.GetInt64(1));
@@ -717,13 +775,20 @@ public sealed class BusinessUnitAccessAdministrationStore(
     {
         await using var dataSource = CreateDirectoryDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "select changed, current_version from publish_directory_user_access_operation(@operation_id, @actor_user_id);";
-        command.Parameters.AddWithValue("operation_id", operationId);
-        command.Parameters.AddWithValue("actor_user_id", actorUserId);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("Directory publish did not return a state.");
-        return new PublishResult(reader.GetBoolean(0), reader.GetInt64(1));
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "select changed, current_version from publish_directory_user_access_operation(@operation_id, @actor_user_id);";
+            command.Parameters.AddWithValue("operation_id", operationId);
+            command.Parameters.AddWithValue("actor_user_id", actorUserId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) throw new InvalidOperationException("Directory publish did not return a state.");
+            return new PublishResult(reader.GetBoolean(0), reader.GetInt64(1));
+        }
+        catch (PostgresException exception)
+        {
+            throw MapDirectoryException(exception, operationId);
+        }
     }
 
     private NpgsqlDataSource CreateDirectoryDataSource()
@@ -755,13 +820,23 @@ public sealed class BusinessUnitAccessAdministrationStore(
             throw new BusinessUnitContextUnavailableException("business_unit_database_contract_mismatch");
     }
 
-    private static string ComputeRequestPayload(IReadOnlyList<NormalizedProfile> profiles) =>
-        JsonSerializer.Serialize(profiles, HashJsonOptions);
+    private static string ComputeRequestPayload(IReadOnlyList<PreparedProfile> profiles) =>
+        JsonSerializer.Serialize(
+            profiles.Select(profile => new BusinessUnitUserAccessProfileRequest(
+                profile.BusinessUnitCode,
+                profile.DepartmentId,
+                profile.RoleCodes,
+                profile.IsActive,
+                profile.IsDepartmentHead)),
+            HashJsonOptions);
 
-    private static string ComputeRequestHash(Guid targetUserId, string requestPayload)
+    private static string ComputeRequestHash(
+        Guid targetUserId,
+        string requestPayload,
+        bool isOverallAdministrator)
     {
         return Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes($"{targetUserId:D}:{requestPayload}"))).ToLowerInvariant();
+            Encoding.UTF8.GetBytes($"{targetUserId:D}:{isOverallAdministrator}:{requestPayload}"))).ToLowerInvariant();
     }
 
     private static BusinessUnitAccessAdministrationException MapDirectoryException(PostgresException exception, Guid operationId) =>
@@ -771,7 +846,8 @@ public sealed class BusinessUnitAccessAdministrationStore(
             "directory_identity_not_found" => Error("directory_identity_not_found", StatusCodes.Status404NotFound, exception),
             "business_unit_unknown" or "user_access_request_invalid" or "user_access_idempotency_mismatch" =>
                 Error(exception.MessageText, StatusCodes.Status400BadRequest, exception, operationId),
-            "ordinary_user_multiple_memberships_forbidden" or "user_access_version_conflict" or "user_access_operation_in_progress" =>
+            "ordinary_user_multiple_memberships_forbidden" or "user_access_version_conflict" or "user_access_operation_in_progress"
+                or "last_overall_administrator" =>
                 Error(exception.MessageText, StatusCodes.Status409Conflict, exception, operationId),
             _ => Error("user_access_update_failed", StatusCodes.Status503ServiceUnavailable, exception, operationId)
         };
@@ -782,13 +858,16 @@ public sealed class BusinessUnitAccessAdministrationStore(
 
     private sealed record DirectoryState(
         IReadOnlyList<BusinessUnitAccessAdministrationUser> Users,
-        IReadOnlyList<string> AvailableBusinessUnits);
+        IReadOnlyList<string> AvailableBusinessUnits,
+        IReadOnlyDictionary<Guid, DirectoryIdentityKey> IdentityKeys);
+    private sealed record DirectoryIdentityKey(string AuthProvider, string ExternalSubject);
     private sealed record DirectoryIdentity(
         Guid UserId, string AuthProvider, string ExternalSubject, string DisplayName,
-        string? Email, long AccessVersion, IReadOnlyList<string> Memberships);
+        string? Email, long AccessVersion, IReadOnlyList<string> Memberships, bool IsOverallAdministrator);
     private sealed record LocalProfile(
         string AuthProvider, string? EntraObjectId, bool IsActive, Guid? DepartmentId,
-        string? DepartmentCode, string? DepartmentName, IReadOnlyList<string> Roles, bool IsDepartmentHead);
+        string? DepartmentCode, string? DepartmentName, IReadOnlyList<string> Roles, bool IsDepartmentHead,
+        string DisplayName, string? Email, string? AccountId);
     private sealed record ExistingLocalProfile(string AuthProvider, string? EntraObjectId);
     private sealed record BusinessState(
         bool CanManage, IReadOnlyList<BusinessUnitAccessAdministrationDepartment> Departments, IReadOnlyList<Role> Roles,
@@ -796,7 +875,9 @@ public sealed class BusinessUnitAccessAdministrationStore(
     private sealed record NormalizedProfile(
         string BusinessUnitCode, Guid? DepartmentId, IReadOnlyList<string> RoleCodes,
         bool IsActive, bool IsDepartmentHead);
-    private sealed record PreparedProfile(string? DepartmentCode, IReadOnlyList<string> RoleCodes);
+    private sealed record PreparedProfile(
+        string BusinessUnitCode, Guid? DepartmentId, string? DepartmentCode, IReadOnlyList<string> RoleCodes,
+        bool IsActive, bool IsDepartmentHead);
     private sealed record BeginResult(string Status, long CurrentVersion);
     private sealed record PublishResult(bool Changed, long CurrentVersion);
 }

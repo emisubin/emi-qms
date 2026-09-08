@@ -160,6 +160,7 @@ describe('business-unit API request context', () => {
       '50000000-0000-0000-0000-000000000001',
       '70000000-0000-0000-0000-000000000001',
       0,
+      false,
       [{
         businessUnitCode: 'CHEONGJU',
         departmentId: '10000000-0000-0000-0000-000000000001',

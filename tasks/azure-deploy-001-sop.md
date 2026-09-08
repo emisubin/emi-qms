@@ -140,10 +140,20 @@ hostname, email, tenant/client identifier, token, secret, connection string, 실
 3. 기존 3개 connection secret은 Cheongju에 유지하고 Directory·Osan 6개와 backfill private ID 2개를 Key Vault에 넣는다. Identity access what-if에서 예상 secret-scope assignment만 생성되고 Delete와 vault-scope read가 0인지 확인한다.
 4. OIDC identity에 role bootstrap·migration·membership backfill job 세 개의 exact job-scope 권한이 있는지 확인한다. 세 job은 `Manual`, Backend·Frontend는 `Single`, Backend max replica는 `1`이어야 한다.
 5. Latest main SHA의 수동 release를 bootstrap·backfill 선택, `database_prepare_only=true`로 실행한다. Bootstrap → migration → backfill이 모두 성공하기 전에는 app stage를 실행하지 않는다.
-6. Directory ledger `2/2 Exact`, Cheongju·Osan business ledger `87/87 Exact`, identity contract `0001`/`0086`, 세 DB 이름·역할·same-server와 no-fallback, bounded runtime role negative probe를 확인한다. 실제 업무 데이터는 count/aggregate로만 확인하고 fake record를 만들지 않는다.
+6. 최초 phase-1은 Directory ledger `3/3 Exact`, Cheongju·Osan business ledger `87/87 Exact`를 확인한다. Change 007 hotfix 뒤 Directory ledger는 `4/4 Exact`여야 한다. Identity contract `0001`/`0086`, 세 DB 이름·역할·same-server와 no-fallback, bounded runtime role negative probe를 확인한다. 실제 업무 데이터는 count/aggregate로만 확인하고 fake record를 만들지 않는다.
 7. 새 restore point로 별도 PITR server를 만들고 세 DB, ledger·identity·aggregate를 확인한다. 운영 server를 덮어쓰지 않는다. 실패하면 Osan serving을 계속 분리하고 Cheongju public health를 확인한다.
 8. Restore 성공 시각을 기록하고 `configureServingBusinessUnits=true`로 workload를 what-if/apply한다. 기존 image로 public `200/401/401`을 확인한 뒤 같은 exact main SHA의 `force_full_release=true` run으로 Backend, Frontend 순서로 교체한다.
 9. 새 digest의 Ready/Running, public `200/401/401`, direct origin 차단, Cheongju 회귀와 제한된 Osan create/list/detail 준비를 확인한다. Task 4·5, Pending/hold/cancel/deleted/Excel과 Osan provider/worker는 disabled여야 한다.
 10. 일반 사용자에게는 Cheongju 또는 Osan membership 한 곳만 부여한다. 총괄만 다중 membership을 가질 수 있다. 정정 경로가 승인되기 전에는 fake production project를 생성하지 않는다.
+
+### Change 007 총괄 hotfix
+
+1. 배포 전 기존 overall·Cheongju/Osan profile·membership을 식별자 없이 집계하고 ordinary dual membership `0`을 확인한다.
+2. Directory additive migration `0004_overall_administrator_access`를 적용한다. Identity contract는 Directory `0001`, business `0086`을 유지한다.
+3. Membership backfill job이 Cheongju와 Osan migration connection을 모두 참조하는지와 두 secret의 exact secret-scope 접근만 있는지 확인한다.
+4. Private 입력의 기존 Cheongju System Administrator만 Osan local profile·역할을 먼저 준비한 뒤 두 membership과 overall designation을 공개한다. 이름·계정 ID는 provider·external subject가 같은 identity만 Directory에 보정한다.
+5. Overall 수, 두 membership 총괄 수, Osan local System Administrator 수와 ordinary dual `0`을 확인한 뒤 Backend와 Frontend를 순서대로 전환한다.
+6. 사용자 관리 이름·계정 ID, 총괄 checkbox, 두 사업부 full read/input 권한과 selector를 확인한다. 마지막 총괄 해제와 일반 사용자 dual assignment는 계속 거부돼야 한다.
+7. 실패 시 현재 app digest로 rollback하고 `0004`는 down하지 않는다. Backfill은 멱등 재실행 또는 additive forward-fix한다.
 
 어느 단계든 실패하면 downstream을 중단한다. DB 준비 실패는 기존 app을 유지하고, app 실패는 직전 immutable image로 되돌리며 additive migration은 down하지 않는다.

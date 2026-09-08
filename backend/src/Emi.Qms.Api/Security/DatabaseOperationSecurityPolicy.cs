@@ -44,13 +44,7 @@ public static class DatabaseOperationSecurityPolicy
         if (businessUnits.Enabled)
         {
             var unitErrors = businessUnits.Errors.ToList();
-            var targets = mode == DatabaseOperationMode.MembershipBackfill
-                ? new[]
-                {
-                    businessUnits.Directory,
-                    businessUnits.Businesses.SingleOrDefault(target => target.Code == BusinessUnitCodes.Cheongju)
-                }.Where(target => target is not null).Cast<BusinessUnitDatabaseTarget>().ToList()
-                : businessUnits.AllTargets().ToList();
+            var targets = businessUnits.AllTargets().ToList();
             var purposes = mode switch
             {
                 DatabaseOperationMode.Migration => new[] { BusinessUnitConnectionPurpose.Migration },

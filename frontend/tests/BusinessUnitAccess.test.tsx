@@ -27,7 +27,10 @@ const defaultRuntimeMode = {
   reason: 'development'
 };
 
-function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' | 'OSAN'> = ['CHEONGJU']) {
+function membershipAdministrationResponse(
+  newUserMemberships: Array<'CHEONGJU' | 'OSAN'> = ['CHEONGJU'],
+  newUserIsOverallAdministrator = false
+) {
   const departmentId = '10000000-0000-0000-0000-000000000001';
   const unitProfile = (businessUnitCode: 'CHEONGJU' | 'OSAN', active: boolean, canManage = true) => ({
     businessUnitCode,
@@ -47,6 +50,7 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
         userId: adminUserId,
         authProvider: 'Dev',
         displayName: 'Synthetic Overall Admin',
+        accountId: 'dev-admin',
         email: null,
         memberships: ['CHEONGJU', 'OSAN'],
         isOverallAdministrator: true,
@@ -54,6 +58,7 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
         pendingOperationId: null,
         pendingOperationStatus: null,
         pendingFailureCode: null,
+        pendingIsOverallAdministrator: null,
         pendingProfiles: [],
         profiles: [unitProfile('CHEONGJU', true), unitProfile('OSAN', true)]
       },
@@ -61,13 +66,15 @@ function membershipAdministrationResponse(newUserMemberships: Array<'CHEONGJU' |
         userId: '50000000-0000-0000-0000-000000000002',
         authProvider: 'EntraId',
         displayName: 'Synthetic New User',
+        accountId: 'new-user@example.invalid',
         email: 'new-user@example.invalid',
         memberships: newUserMemberships,
-        isOverallAdministrator: false,
+        isOverallAdministrator: newUserIsOverallAdministrator,
         accessVersion: 0,
         pendingOperationId: null,
         pendingOperationStatus: null,
         pendingFailureCode: null,
+        pendingIsOverallAdministrator: null,
         pendingProfiles: [],
         profiles: [
           unitProfile('CHEONGJU', newUserMemberships.includes('CHEONGJU')),
@@ -437,13 +444,18 @@ describe('business-unit access shell', () => {
       isOverallAdministrator: true,
       errorCode: null
     }), calls);
+    let submittedAccess: {
+      isOverallAdministrator: boolean;
+      profiles: Array<{ businessUnitCode: string; roleCodes: string[]; isActive: boolean }>;
+    } | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith('/access') && init?.method === 'PUT') {
+        submittedAccess = JSON.parse(String(init.body));
         return json({
           changed: true,
           accessVersion: 1,
-          snapshot: membershipAdministrationResponse(['OSAN'])
+          snapshot: membershipAdministrationResponse(['CHEONGJU', 'OSAN'], true)
         });
       }
       return fallbackFetch(input, init);
@@ -460,13 +472,14 @@ describe('business-unit access shell', () => {
       && call.headers.get('X-Qms-Business-Unit') === 'OSAN')).toHaveLength(0);
     expect(screen.queryByText('사업부 소속 관리')).not.toBeInTheDocument();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
-      '', '활성 상태', '사업부', '부서', '역할', '부서장', ''
+      '', '활성 상태', '사업부', '부서', '역할', '부서장', '총괄 관리자', ''
     ]);
     expect(adminRow).not.toBeNull();
     expect(within(adminRow!).getByText('총괄')).toBeInTheDocument();
 
     const newUserRow = (await screen.findByText('Synthetic New User')).closest('tr');
     expect(newUserRow).not.toBeNull();
+    expect(within(newUserRow!).getByText('new-user@example.invalid')).toBeInTheDocument();
     const businessUnit = within(newUserRow!).getByRole('combobox', { name: 'Synthetic New User 사업부' });
     fireEvent.change(businessUnit, { target: { value: 'OSAN' } });
     const active = within(newUserRow!).getByRole('checkbox', { name: 'Synthetic New User 활성 상태' });
@@ -476,6 +489,8 @@ describe('business-unit access shell', () => {
       target: { value: '10000000-0000-0000-0000-000000000001' }
     });
     expect(within(newUserRow!).getByLabelText('Synthetic New User 역할')).toHaveTextContent('경영지원');
+    fireEvent.click(within(newUserRow!).getByRole('checkbox', { name: 'Synthetic New User 총괄 관리자' }));
+    expect(within(newUserRow!).getByLabelText('Synthetic New User 역할')).toHaveTextContent('경영지원, 시스템 관리자');
     const saveMembership = within(newUserRow!).getByRole('button', { name: '저장' });
     expect(saveMembership).toBeEnabled();
     fireEvent.click(saveMembership);
@@ -483,6 +498,17 @@ describe('business-unit access shell', () => {
     expect(fetchMock.mock.calls.filter(([input, init]) => (
       new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(1);
+    expect(submittedAccess).toMatchObject({
+      isOverallAdministrator: true,
+      profiles: expect.arrayContaining([
+        expect.objectContaining({ businessUnitCode: 'CHEONGJU', isActive: true }),
+        expect.objectContaining({
+          businessUnitCode: 'OSAN',
+          isActive: true,
+          roleCodes: expect.arrayContaining(['management-support', 'system-administrator'])
+        })
+      ])
+    });
   });
 
   it('auto-fills a department role while preserving special roles', async () => {

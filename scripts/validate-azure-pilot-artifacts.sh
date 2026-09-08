@@ -155,7 +155,7 @@ const checks = [
   [workloads, "keyVaultUrl:"],
   [workloads, "workloadProfileName: 'Consumption'"],
   [workloads, "name: 'database-role-bootstrap'"],
-  [workloads, "name: 'business-unit-membership-backfill'"],
+  [workloads, "name: 'business-unit-member-backfill'"],
   [workloads, "resource directoryDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01'"],
   [workloads, "resource osanDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01'"],
   [workloads, "name: 'BusinessUnits__Enabled'"],

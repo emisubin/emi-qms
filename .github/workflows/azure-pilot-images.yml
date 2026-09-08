@@ -329,7 +329,7 @@ jobs:
       FRONTEND_APP_NAME: ${{ vars.AZURE_FRONTEND_APP_NAME }}
       MIGRATION_JOB_NAME: ${{ vars.AZURE_MIGRATION_JOB_NAME }}
       DATABASE_BOOTSTRAP_JOB_NAME: database-role-bootstrap
-      MEMBERSHIP_BACKFILL_JOB_NAME: business-unit-membership-backfill
+      MEMBERSHIP_BACKFILL_JOB_NAME: business-unit-member-backfill
       DEPLOY_BACKEND: ${{ needs.scope.outputs.deploy_backend == 'true' && !inputs.database_prepare_only }}
       DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend == 'true' && !inputs.database_prepare_only }}
       RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}

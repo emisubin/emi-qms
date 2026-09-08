@@ -752,6 +752,11 @@ var membershipBackfillSecrets = enableBusinessUnits ? [
   }
   {
     identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-migration-connection-string'
+    name: 'osan-database-migration-connection-string'
+  }
+  {
+    identity: migrationIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}business-unit-backfill-user-ids'
     name: 'business-unit-backfill-user-ids'
   }
@@ -775,6 +780,10 @@ var membershipBackfillEnvironment = concat([
   {
     name: 'ConnectionStrings__QmsCheongjuMigration'
     secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanMigration'
+    secretRef: 'osan-database-migration-connection-string'
   }
   {
     name: 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited'
@@ -1010,7 +1019,7 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
 }
 
 resource membershipBackfillJob 'Microsoft.App/jobs@2024-03-01' = if (enableBusinessUnits) {
-  name: 'business-unit-membership-backfill'
+  name: 'business-unit-member-backfill'
   location: location
   identity: {
     type: 'UserAssigned'
@@ -1039,7 +1048,7 @@ resource membershipBackfillJob 'Microsoft.App/jobs@2024-03-01' = if (enableBusin
           ]
           env: membershipBackfillEnvironment
           image: backendImage
-          name: 'business-unit-membership-backfill'
+          name: 'business-unit-member-backfill'
           resources: {
             cpu: json('0.5')
             memory: '1Gi'

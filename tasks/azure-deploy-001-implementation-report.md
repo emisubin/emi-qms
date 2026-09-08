@@ -1093,3 +1093,13 @@ Open P0/P1/P2 code Finding은 `0`이다. 두 P3는 Product Roadmap의 명시적 
 | `AZURE-OSAN-SELECTOR-VALIDATION-01` | User gate | `OPEN` | Change 002 자동·desktop/mobile 시각 검증은 완료됐지만 사용자 검수 완료 기록은 없다. Draft PR과 운영 후 사용자 확인에서 대기 상태를 유지한다. |
 
 Application 문제는 직전 immutable Backend·Frontend image로 되돌린다. 기존 image는 계속 legacy Cheongju connection을 사용하므로 Directory·Osan additive DB/migration과 호환된다. Schema는 down하지 않으며 DB 이상은 Osan serving을 연결하지 않고 Cheongju health를 확인한 뒤 forward-fix한다.
+
+## 16. Change 032 오산 phase-1 공개 배포와 Change 007 hotfix
+
+오산 등록 전용 phase-1은 exact main `b405a9cb653aa56b1049a7e7595a2e232044b42d`, release run `34181334545`로 공개 배포했다. 기존 PostgreSQL server와 Cheongju DB를 그대로 유지하고 Directory·Osan DB를 추가했다. 14일 PITR, Cheongju logical restore와 별도 PITR server의 세 DB restore를 검증한 뒤 role bootstrap, Directory `0001..0003`, Cheongju·Osan `0001..0087`, 기존 사용자 Cheongju membership backfill, Backend와 Frontend 순서로 전환했다.
+
+초기 release의 Backend digest/revision은 `sha256:ad3cba144629f8ad23cc6b1fa915cffcffb1e6d7f76a5023ec0c6cc06b84d367` / `backend--0000038`, Frontend는 `sha256:204be70a6741447da9b09685412f79e0dc95a967e43bf0323e9bf56f9e11b808` / `frontend--0000027`이며 모두 Healthy·traffic 100%다. Public health·익명 차단·origin 차단, Cheongju aggregate 보존, 세 DB runtime/role no-fallback, Osan registration route와 provider/worker off를 확인했다.
+
+초기 privacy-safe projection은 Directory identity `23`, membership `23`, overall `3`, ordinary dual `0`; Cheongju active user `23`, project `3`, G2 aggregate `137`; Osan active user·project `0`이다. 실제 업무 record는 만들지 않았다.
+
+운영 검수에서 기존 계정 이름·계정 ID와 총괄의 양 사업부 membership/selector 누락을 찾았다. 승인된 `TASK-OSAN-ACCESS-001 Change 007`은 Directory `0004`, 안전한 profile 표시 병합, 총괄 지정/해제와 마지막 총괄 보호, 기존 총괄 Osan profile local-first backfill을 추가한다. 기존 phase-1 digest를 hotfix rollback point로 유지하며 PR #122 CI와 exact main merge 뒤 migration→backfill→Backend→Frontend 순서로 재배포한다.

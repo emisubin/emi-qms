@@ -43,7 +43,7 @@
 }
 
 .panel-section .table-scroll.business-unit-access-table-scroll .business-unit-access-table {
-  min-width: 920px;
+  min-width: 1000px;
   table-layout: auto;
 }
 
@@ -58,7 +58,8 @@
 }
 
 .panel-section .table-scroll.business-unit-access-table-scroll .business-unit-access-table thead th:nth-child(2),
-.panel-section .table-scroll.business-unit-access-table-scroll .business-unit-access-table thead th:nth-child(6) {
+.panel-section .table-scroll.business-unit-access-table-scroll .business-unit-access-table thead th:nth-child(6),
+.panel-section .table-scroll.business-unit-access-table-scroll .business-unit-access-table thead th:nth-child(7) {
   width: 76px;
   text-align: center;
 }
@@ -161,7 +162,7 @@
   }
 
   .panel-section .table-scroll.business-unit-access-table-scroll .business-unit-access-table {
-    min-width: 880px;
+    min-width: 960px;
     font-size: 0.72rem;
   }
 

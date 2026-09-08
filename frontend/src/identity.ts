@@ -47,6 +47,7 @@ export interface BusinessUnitAccessAdministrationUser {
   userId: string;
   authProvider: 'Dev' | 'EntraId';
   displayName: string;
+  accountId: string | null;
   email: string | null;
   memberships: BusinessUnitCode[];
   isOverallAdministrator: boolean;
@@ -54,6 +55,7 @@ export interface BusinessUnitAccessAdministrationUser {
   pendingOperationId: string | null;
   pendingOperationStatus: 'Preparing' | 'RetryRequired' | null;
   pendingFailureCode: string | null;
+  pendingIsOverallAdministrator: boolean | null;
   pendingProfiles: UpdateBusinessUnitUserAccessProfile[];
   profiles: BusinessUnitAccessAdministrationProfile[];
 }

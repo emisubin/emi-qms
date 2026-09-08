@@ -85,6 +85,7 @@
 - 첫 migration test 시도는 기존 localhost 개발 DB의 인증 상태가 fixture와 달라 제품 코드 도달 전 실패했다. Owned 임시 PostgreSQL fixture로 전환한 뒤 통과했고 임시 container를 정리했다. 제품 test failure는 없다.
 - 사용자 지시대로 local 전체 Backend/Frontend/Full-Stack suite는 실행하지 않았다. 전체 회귀는 exact PR head의 원격 CI 한 번으로 수행한다.
 - 최초 PR CI run `34195929283`에서 기존 component fixture가 새 `explicitRoles` provenance를 투영하지 않아 explicit System Administrator 보존 기대가 실패했다. Runtime 로직이 아니라 fixture 계약 누락으로 분류해 projection을 정렬했고, 실패한 단일 test `1/1`과 영향받은 `BusinessUnitAccess.test.tsx` `20/20`이 통과했다. 새 exact head의 원격 CI를 최종 회귀로 사용한다.
+- 두 번째 CI run `34196291730`은 fixture의 빈 `explicitRoles`가 TypeScript에서 `never[]`로 추론된 정적 오류를 찾았다. Fixture 값을 `string[]`으로 명시하고 frontend typecheck와 같은 targeted file만 재검증한다.
 
 ## 현재 상태와 다음 Gate
 

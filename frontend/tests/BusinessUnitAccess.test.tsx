@@ -41,7 +41,7 @@ function membershipAdministrationResponse(
     departmentCode: active ? 'management-support' : null,
     departmentName: active ? '경영지원' : null,
     roles: active ? ['management-support'] : [],
-    explicitRoles: [],
+    explicitRoles: [] as string[],
     isDepartmentHead: false,
     canManage,
     localProfileReady: active

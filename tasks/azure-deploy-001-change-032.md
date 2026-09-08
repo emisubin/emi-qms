@@ -154,3 +154,11 @@
 - Privacy-safe Log Analytics 확인 결과, one-off container override가 기존 manual job의 환경 변수 `31`개를 상속하지 않아 execution의 환경 변수가 `0`개가 됐다. 이 때문에 실제 job template에 존재하는 BusinessUnits 3-DB 설정 대신 사용하지 않는 legacy 단일 DB 연결 검증 경로가 선택됐다.
 - Inspection 시작 전 기존 job template에서 값 환경과 secret reference, CPU, memory를 읽고 필수 3-DB migration 연결·승인 identity 입력이 모두 있는지 검증한다. One-off execution에는 이 template을 복사하고 exact immutable image와 inspect argument만 바꾼다. 원문 secret·identity는 출력하거나 tracked file에 기록하지 않는다.
 - Template 환경 누락·형식 오류는 `MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURATION_INVALID`로 repair·handover 전에 중단한다. Release mock은 환경·resource 보존과 누락 fail-closed를 직접 검증한다. 영구 job update, DB write, public app handover는 이 보정에 포함되지 않는다.
+
+## 15. 현재 Directory 총괄 designation 기준 보정
+
+- PR #126 exact head `0fd3c1c622a7c73544a111df57bb06f49baec00f`의 CI `34219166432`가 통과했고, 승인된 squash merge의 exact main은 `a76d5014fe47c7cfcc8a2bf935c05d0d772cb6cf`다.
+- 세 번째 inspection run `34219334527`은 one-off execution에 환경 변수 `31`, secret reference `5`, CPU·memory와 exact inspect argument를 모두 보존했다. 다음 application gate에서 현재 active membership `2`개인 identity가 최초 bootstrap overall 목록에는 없다는 이유로 ordinary로 오분류되어 중단됐고, 운영 data·public revision mutation은 `0`이다.
+- 총괄은 통합 사용자 관리에서 추가·해제할 수 있으므로 최초 bootstrap secret은 빈 Directory의 최초 seed에만 사용한다. Directory에 active overall designation이 하나 이상 있으면 현재 Directory 상태를 권한 source of truth로 사용해 동적으로 추가된 총괄과 해제된 총괄을 그대로 반영한다.
+- Inspection marker는 effective overall, configured bootstrap overall, active Directory overall 수를 따로 기록한다. 식별자 원문은 기록하지 않는다. 격리 3-DB 단일 Fact는 bootstrap 목록이 비워진 뒤에도 현재 active overall의 두 membership과 권한이 유지되고 audit가 중복되지 않음을 검증했다.
+- 집중 검증은 Backend Release compile warning/error `0/0`, 3-DB Fact `1/1`, release mock, Bash syntax·ShellCheck와 Azure artifact static validation이 모두 PASS했다. Exact PR head의 required CI 통과 전 운영 inspection을 다시 실행하지 않는다.

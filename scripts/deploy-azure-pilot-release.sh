@@ -516,7 +516,7 @@ if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
       >"${task_tmp_dir}/command-output" \
       2>"${task_tmp_dir}/command-error"; then
       membership_backfill_inspection_summary="$(sed -n \
-        's/^.*\(businessUnitMembershipBackfillDryRun=PASS identityCount=[0-9][0-9]* overallAdministratorCount=[0-9][0-9]* activateMembershipCount=[0-9][0-9]* deactivateMembershipCount=[0-9][0-9]* normalizeDepartmentDefaultRoleCount=[0-9][0-9]* removeManagedRoleCount=[0-9][0-9]* resetDepartmentHeadCount=[0-9][0-9]* repairOverallProfileCount=[0-9][0-9]* designateOverallAdministratorCount=[0-9][0-9]* cheongjuSystemAdminPermissionGapCount=[0-9][0-9]* osanSystemAdminPermissionGapCount=[0-9][0-9]*\).*$/\1/p' \
+        's/^.*\(businessUnitMembershipBackfillDryRun=PASS identityCount=[0-9][0-9]* overallAdministratorCount=[0-9][0-9]* configuredOverallAdministratorCount=[0-9][0-9]* activeDirectoryOverallAdministratorCount=[0-9][0-9]* activateMembershipCount=[0-9][0-9]* deactivateMembershipCount=[0-9][0-9]* normalizeDepartmentDefaultRoleCount=[0-9][0-9]* removeManagedRoleCount=[0-9][0-9]* resetDepartmentHeadCount=[0-9][0-9]* repairOverallProfileCount=[0-9][0-9]* designateOverallAdministratorCount=[0-9][0-9]* cheongjuSystemAdminPermissionGapCount=[0-9][0-9]* osanSystemAdminPermissionGapCount=[0-9][0-9]*\).*$/\1/p' \
         "${task_tmp_dir}/command-output" | tail -n 1)"
     fi
     if [[ -n "${membership_backfill_inspection_summary}" ]]; then

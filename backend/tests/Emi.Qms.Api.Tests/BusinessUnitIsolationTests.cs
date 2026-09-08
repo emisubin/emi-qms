@@ -419,6 +419,9 @@ public sealed class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             "select count(*) from directory_membership_audit_events;",
             TestContext.Current.CancellationToken);
+        // The bootstrap list is only a seed; current Directory designation remains authoritative.
+        databases.Configuration[
+            "BusinessUnits:MembershipBackfill:OverallAdministratorUserIdsDelimited"] = string.Empty;
         await new BusinessUnitMembershipBackfillRunner(
                 provider,
                 databases.Configuration,

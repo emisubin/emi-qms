@@ -54,10 +54,12 @@ export interface BusinessUnitAccessAdministrationUser {
   accessVersion: number;
   pendingOperationId: string | null;
   pendingOperationStatus: 'Preparing' | 'RetryRequired' | null;
+  pendingOperationStale: boolean;
   pendingFailureCode: string | null;
   pendingIsOverallAdministrator: boolean | null;
   pendingProfiles: UpdateBusinessUnitUserAccessProfile[];
   profiles: BusinessUnitAccessAdministrationProfile[];
+  approvalPending: boolean;
 }
 
 export interface BusinessUnitAccessAdministrationProfile {
@@ -69,8 +71,10 @@ export interface BusinessUnitAccessAdministrationProfile {
   departmentCode: string | null;
   departmentName: string | null;
   roles: string[];
+  explicitRoles: string[];
   isDepartmentHead: boolean;
   canManage: boolean;
+  localProfileReady: boolean;
 }
 
 export interface BusinessUnitAccessAdministrationUnit {
@@ -86,6 +90,7 @@ export interface UpdateBusinessUnitUserAccessProfile {
   roleCodes: string[];
   isActive: boolean;
   isDepartmentHead: boolean;
+  isDepartmentHeadConfirmed?: boolean;
 }
 
 export interface BusinessUnitUserAccessUpdateResponse {

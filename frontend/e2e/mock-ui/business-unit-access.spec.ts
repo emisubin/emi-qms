@@ -329,8 +329,10 @@ function membershipSnapshot(userMemberships = ['CHEONGJU'], userIsOverallAdminis
     departmentCode: active ? 'quality' : null,
     departmentName: active ? '품질' : null,
     roles: active ? ['quality', ...(isOverallAdministrator ? ['system-administrator'] : [])] : [],
+    explicitRoles: [],
     isDepartmentHead: false,
-    canManage: true
+    canManage: true,
+    localProfileReady: active
   });
   return {
     users: [
@@ -343,8 +345,10 @@ function membershipSnapshot(userMemberships = ['CHEONGJU'], userIsOverallAdminis
         memberships: ['CHEONGJU', 'OSAN'],
         isOverallAdministrator: true,
         accessVersion: 1,
+        approvalPending: false,
         pendingOperationId: null,
         pendingOperationStatus: null,
+        pendingOperationStale: false,
         pendingFailureCode: null,
         pendingIsOverallAdministrator: null,
         pendingProfiles: [],
@@ -359,8 +363,10 @@ function membershipSnapshot(userMemberships = ['CHEONGJU'], userIsOverallAdminis
         memberships: userMemberships,
         isOverallAdministrator: userIsOverallAdministrator,
         accessVersion: 0,
+        approvalPending: userMemberships.length === 0,
         pendingOperationId: null,
         pendingOperationStatus: null,
+        pendingOperationStale: false,
         pendingFailureCode: null,
         pendingIsOverallAdministrator: null,
         pendingProfiles: [],

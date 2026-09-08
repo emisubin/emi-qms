@@ -481,4 +481,12 @@ Additive Directory migration `0004_overall_administrator_access`는 durable oper
 
 집중 검증은 Backend compile, Directory `0004` existing `1/1`, fresh 3-DB `1/1`, Frontend targeted `37/37`, typecheck, mock Chromium `1/1`, 실제 HTTP+3-DB Full-Stack `1/1`, Bicep/Portal JSON/Azure static PASS다. Fresh Fact가 찾은 provider collision은 identity binding을 강화해 보정했고 복수 총괄 지정·한 명 해제·마지막 총괄 차단까지 확인했다. Targeted Vitest argument 전달 실수로 전체 `299/299 PASS`가 1회 실행됐으며 정책 위반으로 기록하고 반복하지 않았다. 최종 전체 회귀는 게시된 exact head의 원격 CI 한 번만 사용한다.
 
-이 기록 시점 상태는 `LOCAL_IMPLEMENTED_AWAITING_COMMIT_PR_CI`다. 사용자는 Change 007의 commit·push·PR·필수 CI·main merge와 migration/backfill/app 재배포를 명시 승인했다. 실제 배포 완료 여부는 Azure Change 032 결과로 갱신한다.
+제품 commit `3d337c69bb225e324fc8a2339e18f68420d0c63d`, PR #122와 CI run `34186728030`이 통과했고 exact main `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`로 squash merge됐다. Azure release run `34188740914`에서 Directory `0004`, 기존 총괄 `3`명의 양 사업부 local-first backfill과 Backend·Frontend 전환이 성공했다. 운영 aggregate는 identity `23`, membership `26`, overall `3`, overall dual `3`, ordinary dual `0`이다. 새 로그인 세션에서 사용자 이름·계정 ID, 총괄 checkbox, 우측 상단 selector와 청주↔오산 전환을 확인했다. 일반 사용자 실제 계정 미노출과 첫 실제 Osan 프로젝트 저장은 사용자 검수로 남긴다.
+
+## Change 008 — 접근 readiness·부서 역할·총괄 permission 정합성
+
+운영 검수의 세 후속 결함을 같은 canonical Task의 BUGFIX로 재개했다. Root cause는 부서 기본 역할 provenance 부재, membership만 본 통합 승인 표시와 역할 수만 본 로그인·기존 집계의 서로 다른 판정, 후속 permission migration에서 System Administrator 누락이다.
+
+Business migration `0088`은 역할 source와 System Administrator 전체·future permission invariant를 추가한다. 통합 저장은 explicit 역할만 보존하고 부서 기본·overall 역할을 재계산하며 부서 이동 때 head를 명시 재선택 없이는 해제한다. 로그인·사용자 목록·홈은 active local profile·유효 부서·default role을 함께 보는 공통 readiness를 사용한다. 기존 membership backfill은 roleless Cheongju membership을 audit와 함께 차단하고 ready/Osan 이동/overall 상태를 보존한다.
+
+Backend compile, Frontend typecheck, migration existing/idempotency `1/1`, 격리 3-DB 통합 `1/1`, compact UI mock `3/3`이 통과했다. Local 전체 suite는 사용자 지시대로 실행하지 않았고 exact PR head의 원격 CI 한 번으로 검증한다. 구현 모델 requested `gpt-5.6-sol` xhigh, observed `NOT_REPORTED`다.

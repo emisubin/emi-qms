@@ -602,7 +602,11 @@ public sealed class DbIdentityStore(
                 reader.IsDBNull(3) ? null : reader.GetString(3),
                 authProvider,
                 isActive,
-                authProvider == QmsAuthProviders.EntraId && isActive && roles.Length == 0,
+                ApprovalReadinessPolicy.IsApprovalPending(
+                    authProvider,
+                    isActive,
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    roles),
                 reader.IsDBNull(6) ? null : reader.GetGuid(6),
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),

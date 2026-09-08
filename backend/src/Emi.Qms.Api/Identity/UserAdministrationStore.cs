@@ -183,14 +183,24 @@ public sealed class UserAdministrationStore(
             await using var insertRole = connection.CreateCommand();
             insertRole.Transaction = transaction;
             insertRole.CommandText = """
-                insert into user_roles (user_id, role_id)
-                select @user_id, roles.id
+                insert into user_roles (user_id, role_id, assignment_source)
+                select @user_id, roles.id, @assignment_source
                 from roles
                 where roles.code = @role_code
                 on conflict do nothing;
                 """;
             insertRole.Parameters.AddWithValue("user_id", userId);
             insertRole.Parameters.AddWithValue("role_code", roleCode);
+            insertRole.Parameters.AddWithValue(
+                "assignment_source",
+                string.Equals(
+                    roleCode,
+                    selectedDepartment is null
+                        ? null
+                        : DepartmentIdentityPolicy.GetDefaultRoleCode(selectedDepartment.Code),
+                    StringComparison.Ordinal)
+                    ? RoleAssignmentSources.DepartmentDefault
+                    : RoleAssignmentSources.Explicit);
             await insertRole.ExecuteNonQueryAsync(cancellationToken);
         }
 

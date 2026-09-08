@@ -48,7 +48,8 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("One or more approved backfill identities were not active Cheongju identities.");
         }
 
-        if (identities.Any(identity => overallAdministratorIds.Contains(identity.UserId) && !identity.IsSystemAdministrator))
+        if (identities.Any(identity => overallAdministratorIds.Contains(identity.UserId)
+                && (!identity.IsSystemAdministrator || !identity.IsReadyForCheongjuMembership)))
         {
             throw new InvalidOperationException("Every approved overall administrator must already be a Cheongju system administrator.");
         }
@@ -76,6 +77,8 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         }
         await using var transaction = await directoryConnection.BeginTransactionAsync(cancellationToken);
 
+        var deactivatedMembershipCount = 0;
+        var activatedMembershipCount = 0;
         foreach (var identity in identities)
         {
             await using (var identityCommand = directoryConnection.CreateCommand())
@@ -109,6 +112,69 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 }
             }
 
+            var currentMemberships = new HashSet<string>(StringComparer.Ordinal);
+            await using (var currentMembershipCommand = directoryConnection.CreateCommand())
+            {
+                currentMembershipCommand.Transaction = transaction;
+                currentMembershipCommand.CommandText = """
+                    select business_unit_code
+                    from directory_business_unit_memberships
+                    where user_id = @user_id and is_active = true
+                    order by business_unit_code
+                    for update;
+                    """;
+                currentMembershipCommand.Parameters.AddWithValue("user_id", identity.UserId);
+                await using var reader = await currentMembershipCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    currentMemberships.Add(reader.GetString(0));
+                }
+            }
+
+            if (!overallAdministratorIds.Contains(identity.UserId) && currentMemberships.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    "An ordinary approved identity already has multiple active business-unit memberships.");
+            }
+
+            var desiredMemberships = overallAdministratorIds.Contains(identity.UserId)
+                ? new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan }
+                : currentMemberships.Contains(BusinessUnitCodes.Osan)
+                    ? new[] { BusinessUnitCodes.Osan }
+                    : identity.IsReadyForCheongjuMembership
+                        ? new[] { BusinessUnitCodes.Cheongju }
+                        : [];
+
+            await using (var revokeCommand = directoryConnection.CreateCommand())
+            {
+                revokeCommand.Transaction = transaction;
+                revokeCommand.CommandText = """
+                    update directory_business_unit_memberships
+                    set is_active = false,
+                        updated_at_utc = now()
+                    where user_id = @user_id
+                      and is_active = true
+                      and not (business_unit_code = any(@business_unit_codes));
+                    """;
+                revokeCommand.Parameters.AddWithValue("user_id", identity.UserId);
+                revokeCommand.Parameters.AddWithValue(
+                    "business_unit_codes",
+                    NpgsqlDbType.Array | NpgsqlDbType.Text,
+                    desiredMemberships);
+                var revoked = await revokeCommand.ExecuteNonQueryAsync(cancellationToken);
+                if (revoked > 0)
+                {
+                    deactivatedMembershipCount += revoked;
+                    await AppendAuditAsync(
+                        directoryConnection,
+                        transaction,
+                        identity.UserId,
+                        null,
+                        "MembershipReadinessRevoked",
+                        cancellationToken);
+                }
+            }
+
             await using (var membershipCommand = directoryConnection.CreateCommand())
             {
                 membershipCommand.Transaction = transaction;
@@ -126,11 +192,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 membershipCommand.Parameters.AddWithValue(
                     "business_unit_codes",
                     NpgsqlDbType.Array | NpgsqlDbType.Text,
-                    overallAdministratorIds.Contains(identity.UserId)
-                        ? new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan }
-                        : new[] { BusinessUnitCodes.Cheongju });
-                if (await membershipCommand.ExecuteNonQueryAsync(cancellationToken) > 0)
+                    desiredMemberships);
+                var activated = await membershipCommand.ExecuteNonQueryAsync(cancellationToken);
+                if (activated > 0)
                 {
+                    activatedMembershipCount += activated;
                     await AppendAuditAsync(
                         directoryConnection,
                         transaction,
@@ -169,9 +235,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
 
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation(
-            "Approved Cheongju business-unit memberships were backfilled. IdentityCount={IdentityCount} OverallAdministratorCount={OverallAdministratorCount}.",
+            "Approved business-unit memberships were reconciled. IdentityCount={IdentityCount} OverallAdministratorCount={OverallAdministratorCount} ActivatedMembershipCount={ActivatedMembershipCount} DeactivatedMembershipCount={DeactivatedMembershipCount}.",
             identities.Count,
-            overallAdministratorIds.Count);
+            overallAdministratorIds.Count,
+            activatedMembershipCount,
+            deactivatedMembershipCount);
         return identities.Count;
     }
 
@@ -206,7 +274,29 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                    exists (
                        select 1 from user_roles user_role
                        join roles role on role.id = user_role.role_id
-                       where user_role.user_id = qms_users.id and role.code = 'system-administrator')
+                       where user_role.user_id = qms_users.id and role.code = 'system-administrator'),
+                   qms_users.department_id is not null
+                   and exists (
+                       select 1
+                       from departments department
+                       join roles default_role on default_role.code = case department.code
+                           when 'administration' then 'system-administrator'
+                           when 'sales' then 'sales'
+                           when 'design' then 'design'
+                           when 'production-planning' then 'production-planning'
+                           when 'procurement' then 'procurement'
+                           when 'materials' then 'materials'
+                           when 'manufacturing' then 'manufacturing'
+                           when 'quality' then 'quality'
+                           when 'logistics' then 'logistics'
+                           when 'readonly' then 'read-only'
+                           else null
+                       end
+                       join user_roles default_assignment
+                         on default_assignment.role_id = default_role.id
+                        and default_assignment.user_id = qms_users.id
+                       where department.id = qms_users.department_id
+                         and department.is_active = true)
             from qms_users
             where id = any(@approved_user_ids)
               and is_active = true
@@ -220,7 +310,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         {
             identities.Add(new BackfillIdentity(
                 reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5)));
+                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5), reader.GetBoolean(6)));
         }
         return identities;
     }
@@ -335,9 +425,14 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         {
             roleCommand.Transaction = transaction;
             roleCommand.CommandText = """
-                insert into user_roles (user_id, role_id)
-                select @user_id, role.id from roles role where role.code = 'system-administrator'
-                on conflict do nothing;
+                insert into user_roles (user_id, role_id, assignment_source)
+                select @user_id, role.id, 'overall-administrator'
+                from roles role where role.code = 'system-administrator'
+                on conflict (user_id, role_id) do update
+                set assignment_source = case
+                    when user_roles.assignment_source = 'explicit' then 'explicit'
+                    else excluded.assignment_source
+                end;
                 """;
             roleCommand.Parameters.AddWithValue("user_id", identity.UserId);
             await roleCommand.ExecuteNonQueryAsync(cancellationToken);
@@ -351,5 +446,6 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         string ExternalSubject,
         string DisplayName,
         string? Email,
-        bool IsSystemAdministrator);
+        bool IsSystemAdministrator,
+        bool IsReadyForCheongjuMembership);
 }

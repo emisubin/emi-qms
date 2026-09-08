@@ -2,17 +2,17 @@
 
 ## 1. 현재 판정
 
-- Latest integrated release: exact `main` `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` / Azure run `33589472932` 성공 / Backend·Frontend·public security `PASS`, migration `SKIPPED`
+- Latest integrated release: exact `main` `b41c932e2154a921cf8b0aab753fc6d0692b209f` / Azure run `34225420777` 성공 / Business `0088`, Backend·Frontend·public security `PASS`
 - 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 인증된 G2 2026-08-28 재고 수식 `2 + 34 - 0 - 30 = 6`과 표시 재고 `6` 일치
-- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Migration·Persistent UAT·실제 외부 알림 시험 발송은 제외
-- Latest deployment source: Change 030 제품 PR #119·PR CI `33587777592`·main CI `33589432228` 완료 / exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` / 운영 release run `33589472932` 성공
+- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Directory `0004`와 Business `0088`까지 적용했으며 Persistent UAT·실제 외부 알림 시험 발송은 제외
+- Latest deployment source: Change 008 최종 PR #127·CI `34221079465` 완료 / exact main `b41c932e2154a921cf8b0aab753fc6d0692b209f` / 운영 release `34225420777`, repair `34228436474`, zero-diff inspect `34229045510` 성공
 - Historical Change 026 deployment source: PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
-- GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
+- GitHub 웹 수동 image 게시 workflow: exact Change 008 main의 Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 직전 운영 migration 기준선 유지. Change 030은 migration diff가 없어 실행 생략
+- DB role bootstrap·migration: Directory ledger `0004`, Cheongju·Osan business ledger `0088`, identity contract `0001`/`0086`; final repair inspection change marker `0`, permission gap `0/0`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend latest revision ready·Running / exact Change 030 main image digest 적용 / ClamAV unchanged
+- Active workload: Backend `backend--0000040`, Frontend `frontend--0000029` latest revision ready·traffic `100%` / exact Change 008 main digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
@@ -157,3 +157,13 @@ hostname, email, tenant/client identifier, token, secret, connection string, 실
 7. 실패 시 현재 app digest로 rollback하고 `0004`는 down하지 않는다. Backfill은 멱등 재실행 또는 additive forward-fix한다.
 
 어느 단계든 실패하면 downstream을 중단한다. DB 준비 실패는 기존 app을 유지하고, app 실패는 직전 immutable image로 되돌리며 additive migration은 down하지 않는다.
+
+### Change 008 접근 정합성 repair
+
+1. Business `0088`을 두 business DB에 additive 적용하고 identity contract Directory `0001`/Business `0086`을 유지한다.
+2. Repair 전 rollback-only inspection에서 current Directory overall을 권위 집합으로 사용하고 membership·managed role·department head·permission gap 수를 확인한다.
+3. 예상 수만 DB-only backfill로 적용한다. Public Backend·Frontend handover는 이 단계에서 skip한다.
+4. 같은 exact main으로 다시 inspect해 모든 변경 marker와 양 business permission gap이 `0`인지 확인한다.
+5. 실제 실행 결과는 PR #127 head `7e95129ce0cbf5b389ead02b7d6558c67b268675`, CI `34221079465`, main `b41c932e2154a921cf8b0aab753fc6d0692b209f`, full release `34225420777`, DB-only repair `34228436474`, final inspect `34229045510`이다.
+6. Roleless membership `1`건을 회수하고, current overall `3`을 보존한 채 stale managed System Administrator `1`건을 제거했다. Final inspect는 전체 변경 marker `0`, overall `3/3/3`, permission gap `0/0`이다.
+7. 최종 Backend `backend--0000040`, Frontend `frontend--0000029`는 latest ready·traffic `100%`다. 실제 계정 UI smoke는 별도 사용자 확인으로 남긴다.

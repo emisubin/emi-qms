@@ -490,3 +490,11 @@ Additive Directory migration `0004_overall_administrator_access`는 durable oper
 Business migration `0088`은 역할 source와 System Administrator 전체·future permission invariant를 추가한다. 통합 저장은 explicit 역할만 보존하고 부서 기본·overall 역할을 재계산하며 부서 이동 때 head를 명시 재선택 없이는 해제한다. 로그인·사용자 목록·홈은 active local profile·유효 부서·default role을 함께 보는 공통 readiness를 사용한다. 기존 membership backfill은 roleless Cheongju membership을 audit와 함께 차단하고 ready/Osan 이동/overall 상태를 보존한다.
 
 Backend compile, Frontend typecheck, migration existing/idempotency `1/1`, 격리 3-DB 통합 `1/1`, compact UI mock `3/3`이 통과했다. Local 전체 suite는 사용자 지시대로 실행하지 않았고 exact PR head의 원격 CI 한 번으로 검증한다. 구현 모델 requested `gpt-5.6-sol` xhigh, observed `NOT_REPORTED`다.
+
+## 18. Change 008 게시·운영 보정 완료
+
+제품 PR #123과 safe inspection PR #124~#126을 거쳐 현재 Directory designation authority를 보존하는 PR #127 exact head `7e95129ce0cbf5b389ead02b7d6558c67b268675`의 CI `34221079465`가 통과했다. 승인된 squash merge의 exact main은 `b41c932e2154a921cf8b0aab753fc6d0692b209f`다.
+
+Release `34225420777`은 Business `0088`, roleless membership `1`건의 fail-closed 회수, Backend·Frontend와 public security를 완료했다. Post-deploy에서 사용자가 overall을 해제한 뒤 local managed System Administrator `1`건이 남았고, current Directory overall `3`을 권위 집합으로 유지한 DB-only repair `34228436474`에서 해당 역할만 제거했다. 최종 rollback-only inspect `34229045510`은 모든 변경 marker `0`, overall effective/configured/current `3/3/3`, 두 business permission gap `0/0`이다.
+
+최종 app은 Backend `backend--0000040`, Frontend `frontend--0000029`, 각 immutable digest와 latest traffic `100%`다. 자동 공개 security/API와 DB aggregate는 PASS했다. 실제 계정의 부서 이동, Osan 승인 직후 상태, 총괄 selector·양 사업부 전체 읽기/쓰기는 마지막 사용자 smoke로 남긴다. Observed model은 `NOT_REPORTED`다.

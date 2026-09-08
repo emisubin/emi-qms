@@ -266,3 +266,5 @@
 - [ ] Change 008 배포 뒤 일반 사용자 부서 변경에서 이전 관리 파생 역할과 부서장 flag가 즉시 제거되는지 확인한다.
 - [ ] Osan 승인 저장 직후 통합 사용자 행·로그인 상태가 모두 승인 완료로 일치하는지 확인한다.
 - [ ] 총괄이 두 사업부의 전체 조회·입력 동작과 selector를 실제 계정으로 확인한다.
+- [x] Business `0088`, roleless membership `1`건 회수와 stale managed System Administrator `1`건 제거 뒤 final inspect의 전체 change marker와 양 DB permission gap이 `0`이다.
+- [x] 최종 Backend `backend--0000040`와 Frontend `frontend--0000029`가 latest ready·traffic `100%`이고 공개 health/익명 차단 gate를 통과했다.

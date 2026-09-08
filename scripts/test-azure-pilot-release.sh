@@ -27,6 +27,9 @@ query=''
 image=''
 revision=''
 inspection='false'
+inspection_environment_count=0
+cpu=''
+memory=''
 for ((index = 1; index <= $#; index++)); do
   argument="${!index}"
   case "${argument}" in
@@ -48,6 +51,22 @@ for ((index = 1; index <= $#; index++)); do
       ;;
     --args=--inspect-business-unit-membership-backfill)
       inspection='true'
+      ;;
+    --cpu)
+      next=$((index + 1))
+      cpu="${!next}"
+      ;;
+    --memory)
+      next=$((index + 1))
+      memory="${!next}"
+      ;;
+    ASPNETCORE_ENVIRONMENT=Production|BusinessUnits__Enabled=true|\
+    ConnectionStrings__QmsDirectoryMigration=secretref:qms-directory-migration|\
+    ConnectionStrings__QmsCheongjuMigration=secretref:qms-cheongju-migration|\
+    ConnectionStrings__QmsOsanMigration=secretref:qms-osan-migration|\
+    BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited=secretref:approved-users|\
+    BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited=secretref:overall-administrators)
+      inspection_environment_count=$((inspection_environment_count + 1))
       ;;
   esac
 done
@@ -129,11 +148,35 @@ case "${command_group}" in
     esac
     ;;
   'containerapp job show')
-    if [[ "${query}" == 'properties.configuration.triggerType' ]]; then
-      printf 'Manual\n'
-    else
-      exit 2
-    fi
+    case "${query}" in
+      properties.configuration.triggerType)
+        printf 'Manual\n'
+        ;;
+      'properties.template.containers[0].env[?value != `null` && value != `""`].[name, value]')
+        if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-config-invalid' ]]; then
+          printf 'ASPNETCORE_ENVIRONMENT\tProduction\n'
+        else
+          printf 'ASPNETCORE_ENVIRONMENT\tProduction\n'
+          printf 'BusinessUnits__Enabled\ttrue\n'
+        fi
+        ;;
+      'properties.template.containers[0].env[?secretRef != `null` && secretRef != `""`].[name, secretRef]')
+        printf 'ConnectionStrings__QmsDirectoryMigration\tqms-directory-migration\n'
+        printf 'ConnectionStrings__QmsCheongjuMigration\tqms-cheongju-migration\n'
+        printf 'ConnectionStrings__QmsOsanMigration\tqms-osan-migration\n'
+        printf 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited\tapproved-users\n'
+        printf 'BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited\toverall-administrators\n'
+        ;;
+      'properties.template.containers[0].resources.cpu')
+        printf '0.5\n'
+        ;;
+      'properties.template.containers[0].resources.memory')
+        printf '1Gi\n'
+        ;;
+      *)
+        exit 2
+        ;;
+    esac
     ;;
   'containerapp job update')
     case "${name}" in
@@ -148,6 +191,10 @@ case "${command_group}" in
       "${DATABASE_BOOTSTRAP_JOB_NAME}") printf 'bootstrap-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
       "${MEMBERSHIP_BACKFILL_JOB_NAME}")
         if [[ "${inspection}" == 'true' ]]; then
+          if [[ "${inspection_environment_count}" -ne 7 \
+            || "${cpu}" != '0.5' || "${memory}" != '1Gi' ]]; then
+            exit 2
+          fi
           printf 'backfill-inspect-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
         else
           printf 'backfill-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
@@ -285,6 +332,7 @@ run_case() {
   set -e
 
   if [[ "${actual_exit}" -ne "${expected_exit}" ]]; then
+    sed -n '1,20p' "${temporary_directory}/stderr" >&2
     printf 'azurePilotReleaseTests=UNEXPECTED_EXIT_%s_EXPECTED_%s_ACTUAL_%s\n' \
       "${case_number}" "${expected_exit}" "${actual_exit}" >&2
     exit 1
@@ -329,6 +377,8 @@ run_case 'inspection-failed' 77 MEMBERSHIP_BACKFILL_INSPECTION_FAILED \
 run_case 'inspection-evidence-missing' 78 MEMBERSHIP_BACKFILL_INSPECTION_EVIDENCE_MISSING \
   'backfill-inspect-start,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs' \
   false false false false false true
+run_case 'inspection-config-invalid' 79 MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURATION_INVALID \
+  '' false false false false false true
 run_case 'backend-release-failed' 1 BACKEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,backend-rollback'
 run_case 'frontend-release-failed' 1 FRONTEND_RELEASE_FAILED \

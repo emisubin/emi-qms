@@ -117,6 +117,108 @@ azure_mutate() {
     2>"${task_tmp_dir}/command-error"
 }
 
+job_override_environment=()
+job_override_cpu=''
+job_override_memory=''
+job_override_configuration_error='not-loaded'
+
+load_job_execution_override() {
+  local job_name="$1"
+  local environment_values environment_secret_refs environment_name environment_value
+  local required_environment_name configured_environment_name found
+  local production_environment='false' business_units_enabled='false'
+
+  job_override_environment=()
+  job_override_cpu=''
+  job_override_memory=''
+  job_override_configuration_error='read-values'
+
+  # shellcheck disable=SC2016 # Backticks are JMESPath JSON literals.
+  environment_values="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].env[?value != `null` && value != `""`].[name, value]')" \
+    || return 1
+  job_override_configuration_error='read-secret-refs'
+  # shellcheck disable=SC2016 # Backticks are JMESPath JSON literals.
+  environment_secret_refs="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].env[?secretRef != `null` && secretRef != `""`].[name, secretRef]')" \
+    || return 1
+  job_override_configuration_error='read-cpu'
+  job_override_cpu="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].resources.cpu')" \
+    || return 1
+  job_override_configuration_error='read-memory'
+  job_override_memory="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].resources.memory')" \
+    || return 1
+
+  job_override_configuration_error='invalid-shape'
+
+  if [[ -z "${environment_values}" || -z "${environment_secret_refs}" \
+    || ! "${job_override_cpu}" =~ ^[0-9]+([.][0-9]+)?$ \
+    || ! "${job_override_memory}" =~ ^[0-9]+([.][0-9]+)?(Mi|Gi)$ ]]; then
+    return 1
+  fi
+
+  while IFS=$'\t' read -r environment_name environment_value; do
+    if [[ ! "${environment_name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
+      || -z "${environment_value}" ]]; then
+      return 1
+    fi
+    job_override_environment+=("${environment_name}=${environment_value}")
+  done <<<"${environment_values}"
+
+  job_override_configuration_error='invalid-secret-ref'
+  while IFS=$'\t' read -r environment_name environment_value; do
+    if [[ ! "${environment_name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
+      || ! "${environment_value}" =~ ^[a-z0-9-]+$ ]]; then
+      return 1
+    fi
+    job_override_environment+=("${environment_name}=secretref:${environment_value}")
+  done <<<"${environment_secret_refs}"
+
+  for configured_environment_name in "${job_override_environment[@]}"; do
+    [[ "${configured_environment_name}" == 'ASPNETCORE_ENVIRONMENT=Production' ]] \
+      && production_environment='true'
+    [[ "${configured_environment_name}" == 'BusinessUnits__Enabled=true' ]] \
+      && business_units_enabled='true'
+  done
+  if [[ "${production_environment}" != 'true' || "${business_units_enabled}" != 'true' ]]; then
+    job_override_configuration_error='invalid-required-environment-value'
+    return 1
+  fi
+
+  for required_environment_name in \
+    ASPNETCORE_ENVIRONMENT \
+    BusinessUnits__Enabled \
+    ConnectionStrings__QmsDirectoryMigration \
+    ConnectionStrings__QmsCheongjuMigration \
+    ConnectionStrings__QmsOsanMigration \
+    BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited \
+    BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited; do
+    found='false'
+    for configured_environment_name in "${job_override_environment[@]}"; do
+      if [[ "${configured_environment_name%%=*}" == "${required_environment_name}" ]]; then
+        found='true'
+        break
+      fi
+    done
+    if [[ "${found}" != 'true' ]]; then
+      job_override_configuration_error='missing-required-environment'
+      return 1
+    fi
+  done
+
+  job_override_configuration_error='none'
+}
+
 public_status() {
   local path="$1"
   "${http_client_bin}" \
@@ -378,11 +480,21 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
 fi
 
 if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  if ! load_job_execution_override "${MEMBERSHIP_BACKFILL_JOB_NAME}"; then
+    printf 'membershipBackfillInspectionConfiguration=%s\n' \
+      "${job_override_configuration_error}" >&2
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURATION_INVALID\n' >&2
+    exit 79
+  fi
+
   membership_backfill_inspection_execution="$(azure_read containerapp job start \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
     --container-name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
     --image "${BACKEND_RELEASE_IMAGE}" \
+    --cpu "${job_override_cpu}" \
+    --memory "${job_override_memory}" \
+    --env-vars "${job_override_environment[@]}" \
     --args=--inspect-business-unit-membership-backfill \
     --query name)" || membership_backfill_inspection_execution=''
   if [[ -z "${membership_backfill_inspection_execution}" \

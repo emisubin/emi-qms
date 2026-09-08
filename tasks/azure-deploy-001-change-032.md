@@ -73,6 +73,8 @@
 - `tasks/osan-project-001-implementation-report.md`
 - `docs/00-product-roadmap.md`
 - `.github/workflows/azure-pilot-images.yml`
+- `scripts/deploy-azure-pilot-release.sh`
+- `scripts/test-azure-pilot-release.sh`
 - `infrastructure/azure-pilot/workloads.bicep`
 - `infrastructure/azure-pilot/workloads.json`
 - `scripts/validate-azure-pilot-artifacts.sh`
@@ -138,3 +140,10 @@
 - Database prepare-only run `34207947257`는 Backend image `sha256:300a6632c650c0f8bec481db923a6305540978918d8673adb142e7dcf6f2f823`을 게시하고 migration을 완료했다. Backend/Frontend public revision과 repair backfill은 이 단계에서 SKIPPED되어 rollback point `39/28`을 유지한다.
 - 기존 release에는 repair dry-run mode가 없어 action-time gate의 숫자 증거를 만들 수 없었다. 사용자 승인 범위의 최소 보정으로 기존 manual backfill job을 one-off rollback-only inspection으로 실행하는 workflow 입력을 추가하며, 새 secret·role assignment·DB·영구 job 변경은 만들지 않는다.
 - Inspection 결과는 승인 identity, overall, membership activate/deactivate, default-role normalization, managed-role removal, department-head reset 수만 기록한다. Job 실패 또는 marker 누락은 repair apply와 app handover를 막는다.
+
+## 13. Inspection 실행 실패와 최소 보정
+
+- PR #124 exact head `4482938eca69cccd3c747a0cbbdb742e4d7885ec`의 CI `34212325496`이 전체 PASS했고, 승인된 squash merge의 exact main은 `f7fe9f5355deea3d19562969653339124ac1eb6e`다.
+- 첫 운영 inspection run `34215200743`은 one-off job execution 생성 전에 `MEMBERSHIP_BACKFILL_INSPECTION_FAILED`로 중단됐다. Public Backend/Frontend와 repair data는 변경되지 않아 기존 revision `39/28`을 유지한다.
+- Azure CLI에 전달하는 leading-dash container argument가 option으로 다시 해석되지 않도록 `--args=<value>` 형태로 고정한다. Release mock은 이 exact argument shape를 요구해 동일 회귀를 차단한다.
+- 보정 범위는 release script와 mock test뿐이다. 새 resource·secret·RBAC·영구 job 설정은 만들지 않으며, exact main CI 뒤 rollback-only inspection을 다시 실행한다.

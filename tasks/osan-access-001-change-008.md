@@ -86,10 +86,12 @@
 - 사용자 지시대로 local 전체 Backend/Frontend/Full-Stack suite는 실행하지 않았다. 전체 회귀는 exact PR head의 원격 CI 한 번으로 수행한다.
 - 최초 PR CI run `34195929283`에서 기존 component fixture가 새 `explicitRoles` provenance를 투영하지 않아 explicit System Administrator 보존 기대가 실패했다. Runtime 로직이 아니라 fixture 계약 누락으로 분류해 projection을 정렬했고, 실패한 단일 test `1/1`과 영향받은 `BusinessUnitAccess.test.tsx` `20/20`이 통과했다. 새 exact head의 원격 CI를 최종 회귀로 사용한다.
 - 두 번째 CI run `34196291730`은 fixture의 빈 `explicitRoles`가 TypeScript에서 `never[]`로 추론된 정적 오류를 찾았다. Fixture 값을 `string[]`으로 명시하고 frontend typecheck와 같은 targeted file만 재검증한다.
+- 세 번째 CI run `34196560187`은 일반 Full-stack 64건 중 61건 PASS, 3건 FAIL, Backend 585건 중 563건 PASS, 22건 FAIL이었다. 실패는 System Administrator를 감사 전용으로 가정한 기존 API/E2E 기대, 새 approval readiness에 필요한 부서가 빠진 identity fixture, migration 이후 달라진 permission 배정 수치가 Change 008 계약과 충돌한 테스트 계약 drift였다. Pending 생성 201과 프로젝트·생산계획·구매·패널 편집 권한을 permission catalog 계약으로 정렬하고, 승인된 identity fixture에는 유효 부서와 기본 역할을 함께 준비하며, 테스트 데이터 상태를 바꾸는 중복 hold 요청은 제거한다. 제품 runtime 로직 추가 변경은 없다.
+- 세 번째 CI에서 실패한 Backend 메서드만 theory를 포함해 격리 PostgreSQL에서 재실행했고 `39/39 PASS`했다. Full-stack 실패 3건도 같은 환경에서 각각 재실행해 `3/3 PASS`했으며, 접힌 `추가 기능` 안의 Excel controls는 실제 사용자 interaction 순서로 펼친 뒤 확인했다. Owned 임시 PostgreSQL은 종료·정리했다.
 
 ## 현재 상태와 다음 Gate
 
-- `LOCAL_IMPLEMENTED_TARGETED_VALIDATION_PASS_AWAITING_COMMIT_PR_CI`
+- `LOCAL_IMPLEMENTED_TARGETED_VALIDATION_PASS_AWAITING_FIXTURE_COMMIT_PR_CI`
 - 최신 `origin/main`은 구현 기준선 `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`과 일치한다.
 - Local commit 뒤 non-force push와 새 PR을 만들고 required CI가 전부 통과한 exact head만 승인된 squash merge·Azure migration/repair/app handover에 사용한다.
 - 운영 mutation 전 privacy-safe dry-run에서 active membership인데 local readiness가 없는 수, ordinary System Administrator·부서장 후보, overall과 permission 누락 수, 진행 중 operation 수를 확인한다. 예상 밖 identity·삭제·권한 확대가 있으면 해당 repair만 중단한다.

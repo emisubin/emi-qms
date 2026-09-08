@@ -440,6 +440,7 @@ public sealed class IdentityInfrastructureTests
         Assert.Equal(await context.ReadScalarAsync<int>("select count(*)::integer from permissions;"), developmentOperator.Permissions.Count);
         Assert.Contains(developmentOperator.Roles, role => role.Code == QmsRoles.SystemAdministrator);
         Assert.Contains(developmentOperator.Permissions, permission => permission.Code == QmsPermissions.ProductionPlanUpdate);
+        await MakeAdministrationProfileReadyAsync(context, developmentOperator.User.Id);
         var transformed = await context.Services.GetRequiredService<IClaimsTransformation>().TransformAsync(
             new ClaimsPrincipal(new ClaimsIdentity(
             [
@@ -466,9 +467,11 @@ public sealed class IdentityInfrastructureTests
             TestContext.Current.CancellationToken);
         Assert.NotNull(ordinaryAdministrator);
         var administration = context.Services.GetRequiredService<IUserAdministrationStore>();
+        var administrationDepartmentId = await context.ReadScalarAsync<Guid>(
+            "select id from departments where code='administration';");
         Assert.True((await administration.UpdateEntraUserAsync(
             ordinaryAdministrator.User.Id,
-            new UpdateUserAdministrationRequest(null, [QmsRoles.SystemAdministrator], true),
+            new UpdateUserAdministrationRequest(administrationDepartmentId, [QmsRoles.SystemAdministrator], true),
             developmentOperator.User.Id,
             TestContext.Current.CancellationToken)).Succeeded);
         ordinaryAdministrator = await store.GetProfileByUserIdAsync(
@@ -476,7 +479,7 @@ public sealed class IdentityInfrastructureTests
             TestContext.Current.CancellationToken);
         Assert.NotNull(ordinaryAdministrator);
         Assert.Single(ordinaryAdministrator.Roles);
-        Assert.True(ordinaryAdministrator.Permissions.Count < developmentOperator.Permissions.Count);
+        Assert.Equal(developmentOperator.Permissions.Count, ordinaryAdministrator.Permissions.Count);
     }
 
     [Fact]
@@ -740,6 +743,14 @@ public sealed class IdentityInfrastructureTests
             ["Authentication:BootstrapAdminEmails"] = " admin@example.com "
         });
         var transformation = context.Services.GetRequiredService<IClaimsTransformation>();
+        var store = context.Services.GetRequiredService<DbIdentityStore>();
+        var profile = await store.GetOrCreateEntraProfileAsync(
+            "mapped-object-id",
+            "Mapped Bootstrap Admin",
+            "Admin@Example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(profile);
+        await MakeAdministrationProfileReadyAsync(context, profile.User.Id);
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim("http://schemas.microsoft.com/identity/claims/objectidentifier", "mapped-object-id"),
@@ -775,6 +786,14 @@ public sealed class IdentityInfrastructureTests
             "dev-production",
             TestContext.Current.CancellationToken);
         Assert.NotNull(productionProfile);
+        var store = context.Services.GetRequiredService<DbIdentityStore>();
+        var administrator = await store.GetOrCreateEntraProfileAsync(
+            "switch-admin-oid",
+            "Switch Admin",
+            "admin@example.com",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(administrator);
+        await MakeAdministrationProfileReadyAsync(context, administrator.User.Id);
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [
@@ -823,10 +842,13 @@ public sealed class IdentityInfrastructureTests
             TestContext.Current.CancellationToken);
         Assert.NotNull(admin);
         Assert.NotNull(nonAdmin);
+        await MakeAdministrationProfileReadyAsync(context, admin.User.Id);
+        var salesDepartmentId = await context.ReadScalarAsync<Guid>(
+            "select id from departments where code='sales';");
 
         var update = await administration.UpdateEntraUserAsync(
             nonAdmin.User.Id,
-            new UpdateUserAdministrationRequest(null, [QmsRoles.Sales], true),
+            new UpdateUserAdministrationRequest(salesDepartmentId, [QmsRoles.Sales], true),
             admin.User.Id,
             TestContext.Current.CancellationToken);
         Assert.True(update.Succeeded, update.ErrorMessage);
@@ -1024,6 +1046,17 @@ public sealed class IdentityInfrastructureTests
         ], QmsAuthenticationSchemes.EntraBearer));
 
         return await transformation.TransformAsync(principal);
+    }
+
+    private static Task MakeAdministrationProfileReadyAsync(
+        IdentityTestContext context,
+        Guid userId)
+    {
+        return context.ExecuteSqlAsync($"""
+            update qms_users
+            set department_id = (select id from departments where code='administration')
+            where id = '{userId}';
+            """);
     }
 
     private static Task<UserAdministrationMutationResult> ExecuteDecreaseAsync(

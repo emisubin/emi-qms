@@ -4290,11 +4290,11 @@ public sealed class PostgreSqlMigrationTests
             join permissions permission on permission.id=assignment.permission_id
             where permission.code='sales.settle' and role.code='sales';
             """, TestContext.Current.CancellationToken));
-        Assert.Equal(0L, await ReadScalarAsync<long>(provider, """
+        Assert.Equal(1L, await ReadScalarAsync<long>(provider, """
             select count(*) from roles role
             join role_permissions assignment on assignment.role_id=role.id
             join permissions permission on permission.id=assignment.permission_id
-            where permission.code='sales.settle' and role.code<>'sales';
+            where permission.code='sales.settle' and role.code='system-administrator';
             """, TestContext.Current.CancellationToken));
     }
 
@@ -4340,7 +4340,7 @@ public sealed class PostgreSqlMigrationTests
             where permissions.code = 'Pending.Read';
             """,
             TestContext.Current.CancellationToken));
-        Assert.Equal(8L, await ReadScalarAsync<long>(
+        Assert.Equal(9L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """
             select count(*)
@@ -4350,7 +4350,7 @@ public sealed class PostgreSqlMigrationTests
             where permissions.code = 'Pending.Manage';
             """,
             TestContext.Current.CancellationToken));
-        Assert.Equal(0L, await ReadScalarAsync<long>(
+        Assert.Equal(1L, await ReadScalarAsync<long>(
             connectionStringProvider,
             """
             select count(*)
@@ -6063,7 +6063,7 @@ public sealed class PostgreSqlMigrationTests
                     roles.Add(reader.GetString(0));
                 }
 
-                Assert.Equal(["production-planning"], roles);
+                Assert.Equal(["production-planning", "system-administrator"], roles);
             }
         }
 

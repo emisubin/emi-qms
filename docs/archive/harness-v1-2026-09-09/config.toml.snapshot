@@ -1,0 +1,14 @@
+# Repository defaults. A chat's explicit model/effort selection can override them.
+# Role routing and approval boundaries: ../AGENTS.md and the workflow guide.
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
+
+model_verbosity = "medium"
+[features]
+multi_agent = true
+
+[agents]
+enabled = true
+default_subagent_model = "gpt-5.6-sol"
+default_subagent_reasoning_effort = "xhigh"
+max_concurrent_threads_per_session = 2

@@ -1,40 +1,25 @@
-# Backend AGENTS.md
+# Backend 작업 계약
 
-이 파일은 `backend/` 아래 작업에 적용되며 Root [AGENTS.md](../AGENTS.md)를 보완한다.
+[Root 지침](../AGENTS.md)을 적용하고 이 영역의 변경에 필요한 항목만 확인한다.
 
-## 구조와 의존 방향
+## 구현 경계
 
-- .NET solution은 `backend/Emi.Qms.sln`, API project는 `backend/src/Emi.Qms.Api`, tests는 `backend/tests/Emi.Qms.Api.Tests`를 기준으로 한다.
-- endpoint/composition root, domain service, store/provider와 contract의 책임을 분리하고 기존 namespace와 directory convention을 따른다.
-- 새로운 abstraction은 실제로 둘 이상의 소비자 또는 명확한 테스트 경계가 있을 때만 추가한다.
-- unrelated refactor, solution/namespace rename과 backend stack 전환을 Task 범위에 섞지 않는다.
+- .NET solution은 `backend/Emi.Qms.sln`, API는 `backend/src/Emi.Qms.Api`, 테스트는 `backend/tests/Emi.Qms.Api.Tests`에 있다. endpoint → service → store/provider 책임과 기존 convention을 따른다.
+- 업무 규칙·권한·validation의 최종 판단은 서버에서 한다. UI 숨김이나 클라이언트 역할 값으로 서버 허용 범위를 넓히지 않는다.
+- 사용자 오류는 안정적인 HTTP status/code와 행동 가능한 메시지로 반환한다. secret·SQL·stack trace·내부 진단을 API 응답에 노출하지 않는다.
+- 범위 밖 refactor나 사용처 없는 추상화를 추가하지 않는다.
 
-## API, 권한과 validation
+## 데이터와 권한
 
-- Backend가 업무 규칙, 권한과 mutation 허용 여부의 authoritative source다.
-- Frontend의 숨김·비활성화는 보조 수단이며 authorization policy와 서버 validation을 대체하지 않는다.
-- 입력 validation은 안정적인 HTTP status, error code와 사용자 행동이 가능한 한글 메시지로 반환한다.
-- raw SQL, stack trace, credential, connection string과 내부 식별자를 API 응답에 노출하지 않는다.
-- ReviewSafe에서는 startup mutation, mutation API, background worker와 actual provider 차단 정책을 유지한다.
+- Directory·청주·오산의 identity, membership, local profile/role 경계를 지킨다. 잘못된 사업부나 준비되지 않은 DB를 다른 사업부 DB로 fallback하지 않는다.
+- 승인 readiness와 실제 접근 허용을 일치시키고, 부서 자동 역할·명시 역할·총괄 역할의 출처를 보존한다. 권한 변경은 서버의 조회·입력 양쪽에서 검증한다.
+- main에 반영된 migration은 수정하지 않는다. 새 additive migration과 실제 catalog·ledger·schema compatibility를 함께 판단한다. 서로 다른 DB/identity의 version 숫자가 같아야 한다고 가정하지 않는다.
+- 한 업무 동작의 여러 write는 필요한 transaction 경계로 묶는다. 경쟁 가능한 check/write에는 lock·atomic update·constraint·idempotency 등 실제 보장과 반례 검증을 둔다.
+- 외부 provider와 DB 사이의 보장 수준·재전송·응답 불명확 상태를 구분한다. 분산 transaction을 근거 없이 exactly-once라고 설명하지 않는다.
 
-## DB, transaction과 동시성
+## 실행과 검증
 
-- 이미 main에 반영된 SQL migration은 수정하지 않는다. 신규 migration은 다음 번호의 additive migration으로 추가한다.
-- migration catalog, live ledger와 schema compatibility를 함께 검증하며 latest version 비교만으로 준비 상태를 판정하지 않는다.
-- 여러 write가 하나의 업무 동작이면 같은 connection/transaction 경계를 사용한다.
-- check-then-write 경쟁이 가능한 흐름은 row lock, atomic update, unique constraint, idempotency 또는 fencing을 사용하고 동시성 테스트를 추가한다.
-- 외부 provider transaction과 DB transaction을 exactly-once로 표현하지 않는다. 실제 보장 수준과 crash ambiguity를 문서화한다.
-- Persistent UAT에서는 Task가 명시적으로 승인하지 않은 write probe를 실행하지 않는다.
-
-## Configuration과 provider
-
-- 실제 secret은 configuration key 이름만 문서화하고 값은 approved secret/env 위치에서 주입한다.
-- malformed 안전 설정을 silent fallback으로 활성화하지 않는다.
-- mutation worker와 provider는 effective enable 상태가 DI registration과 runtime status에 일치해야 한다.
-- 테스트와 E2E에서는 fake/dry-run provider를 사용하고 실제 Teams/Mail/Channel 발송을 하지 않는다.
-
-## Backend 검증
-
-- 최소 build, 영향 test, 전체 regression과 migration 추가 검증 기준은 [Validation Matrix](../docs/development/validation-matrix.md)를 따른다.
-- 새 authorization, transaction, concurrency, worker 또는 provider 경계에는 성공·차단·경쟁·실패/취소 경로 테스트를 포함한다.
-- test fixture는 isolated DB와 synthetic data만 사용하고 Persistent UAT를 cleanup 대상으로 사용하지 않는다.
+- ReviewSafe의 startup/API/worker/provider mutation 차단과 malformed 안전 설정의 fail-closed를 유지한다. DI 등록·설정·실제 enable 상태가 일치해야 한다.
+- secret은 승인된 env/secret 저장소에서 주입하고 값 대신 설정 이름만 문서화한다.
+- [검증표](../docs/development/validation-matrix.md)에서 영향받는 성공·거부·실패·경쟁 경로를 선택한다. 실제 내부 권한/분기를 검증하고 외부 provider는 fake/dry-run으로 대체한다.
+- DB 검증은 isolated synthetic 환경에서 한다. Persistent UAT의 write probe나 운영 데이터 정정은 일반 테스트에 포함하지 않는다.

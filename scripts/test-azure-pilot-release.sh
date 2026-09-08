@@ -224,7 +224,7 @@ case "${command_group}" in
     if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-evidence-missing' ]]; then
       printf 'inspection log marker missing\n'
     else
-      printf 'businessUnitMembershipBackfillDryRun=PASS identityCount=23 overallAdministratorCount=3 activateMembershipCount=0 deactivateMembershipCount=1 normalizeDepartmentDefaultRoleCount=0 removeManagedRoleCount=0 resetDepartmentHeadCount=0 repairOverallProfileCount=0 designateOverallAdministratorCount=0 cheongjuSystemAdminPermissionGapCount=0 osanSystemAdminPermissionGapCount=0\n'
+      printf 'businessUnitMembershipBackfillDryRun=PASS identityCount=23 overallAdministratorCount=3 configuredOverallAdministratorCount=3 activeDirectoryOverallAdministratorCount=3 activateMembershipCount=0 deactivateMembershipCount=1 normalizeDepartmentDefaultRoleCount=0 removeManagedRoleCount=0 resetDepartmentHeadCount=0 repairOverallProfileCount=0 designateOverallAdministratorCount=0 cheongjuSystemAdminPermissionGapCount=0 osanSystemAdminPermissionGapCount=0\n'
     fi
     ;;
   'containerapp update --resource-group')

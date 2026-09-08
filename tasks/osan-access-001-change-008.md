@@ -105,3 +105,9 @@
 - Inspection은 기존 manual job의 저장된 image·command·secret·RBAC를 바꾸지 않고 one-off execution override만 사용한다. 일반 apply와 inspection 동시 선택, 증거 marker 누락, job 실패는 모두 public handover 전에 차단한다.
 - 기준선은 merge 후 exact main `d1e7d1fb20fa8976843b441ba7b5e46b54723aee`, continuation branch는 `fix/task-osan-access-001-repair-dry-run`이다. Root/Backend/Scripts 지침과 변경된 기준선을 다시 확인했으며 `instructionChainRead=true`, `taskType=BUGFIX`, `taskIdentityGate=PASS_REUSE`, `explicitRoadmapOverrideApproved=true`를 유지한다.
 - 집중 검증: Backend compile warning/error `0/0`, release mock PASS, 격리 3-DB dry-run 무변경 단일 Fact `1/1 PASS`. 새 exact head의 원격 CI를 병합 전 최종 전체 회귀로 사용한다.
+
+## 운영 inspection에서 확인된 총괄 source drift 보정
+
+- 최초 bootstrap overall 입력은 배포 당시 seed 목록이므로 이후 통합 사용자 관리에서 추가·해제된 총괄의 현재 상태를 나타내지 않는다. Repair runner가 이 목록을 계속 권한 기준으로 사용하면 현재 Directory에서 active overall이고 두 membership을 가진 사용자를 ordinary dual-membership으로 오분류한다.
+- Directory에 active overall designation이 있으면 이를 authoritative set으로 사용하고, bootstrap 목록은 active overall이 하나도 없는 최초 backfill에만 사용한다. 따라서 동적으로 추가된 복수 총괄을 보존하고, 해제된 총괄을 과거 목록 때문에 다시 승격하지 않는다. 일반 사용자의 다중 membership fail-closed gate는 그대로 유지한다.
+- Privacy-safe dry-run marker는 effective/configured/current Directory overall 수를 분리한다. Backend compile `0/0`, 현재 Directory designation을 보존하는 격리 3-DB Fact `1/1`, release mock·정적 검증이 통과했다. 운영 data mutation은 다음 exact-head inspection count gate까지 `0`이다.

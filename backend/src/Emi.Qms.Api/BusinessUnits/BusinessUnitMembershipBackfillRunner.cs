@@ -34,11 +34,17 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("No explicitly approved membership backfill identities were configured.");
         }
 
-        var overallAdministratorIds = ReadApprovedIds("OverallAdministratorUserIds");
-        if (overallAdministratorIds.Any(id => !approvedUserIds.Contains(id)))
+        var configuredOverallAdministratorIds = ReadApprovedIds("OverallAdministratorUserIds");
+        if (configuredOverallAdministratorIds.Any(id => !approvedUserIds.Contains(id)))
         {
             throw new InvalidOperationException("Overall administrator designations must be a subset of approved backfill identities.");
         }
+
+        var activeDirectoryOverallAdministratorIds =
+            await ReadActiveDirectoryOverallAdministratorIdsAsync(cancellationToken);
+        var overallAdministratorIds = activeDirectoryOverallAdministratorIds.Count > 0
+            ? activeDirectoryOverallAdministratorIds
+            : configuredOverallAdministratorIds;
 
         var cheongju = businessUnits.GetBusiness(BusinessUnitCodes.Cheongju);
         var identities = await ReadApprovedCheongjuIdentitiesAsync(
@@ -265,9 +271,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         if (dryRun)
         {
             logger.LogInformation(
-                "businessUnitMembershipBackfillDryRun=PASS identityCount={IdentityCount} overallAdministratorCount={OverallAdministratorCount} activateMembershipCount={ActivatedMembershipCount} deactivateMembershipCount={DeactivatedMembershipCount} normalizeDepartmentDefaultRoleCount={NormalizedDepartmentDefaultRoleCount} removeManagedRoleCount={RemovedManagedRoleCount} resetDepartmentHeadCount={ResetDepartmentHeadCount} repairOverallProfileCount={OverallProfileRepairCount} designateOverallAdministratorCount={OverallAdministratorDesignationCount} cheongjuSystemAdminPermissionGapCount={CheongjuSystemAdministratorPermissionGapCount} osanSystemAdminPermissionGapCount={OsanSystemAdministratorPermissionGapCount}",
+                "businessUnitMembershipBackfillDryRun=PASS identityCount={IdentityCount} overallAdministratorCount={OverallAdministratorCount} configuredOverallAdministratorCount={ConfiguredOverallAdministratorCount} activeDirectoryOverallAdministratorCount={ActiveDirectoryOverallAdministratorCount} activateMembershipCount={ActivatedMembershipCount} deactivateMembershipCount={DeactivatedMembershipCount} normalizeDepartmentDefaultRoleCount={NormalizedDepartmentDefaultRoleCount} removeManagedRoleCount={RemovedManagedRoleCount} resetDepartmentHeadCount={ResetDepartmentHeadCount} repairOverallProfileCount={OverallProfileRepairCount} designateOverallAdministratorCount={OverallAdministratorDesignationCount} cheongjuSystemAdminPermissionGapCount={CheongjuSystemAdministratorPermissionGapCount} osanSystemAdminPermissionGapCount={OsanSystemAdministratorPermissionGapCount}",
                 identities.Count,
                 overallAdministratorIds.Count,
+                configuredOverallAdministratorIds.Count,
+                activeDirectoryOverallAdministratorIds.Count,
                 activatedMembershipCount,
                 deactivatedMembershipCount,
                 ordinaryProfileRepairs.NormalizedDepartmentDefaultRoleCount,
@@ -289,6 +297,42 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             ordinaryProfileRepairs.RemovedManagedRoleCount,
             ordinaryProfileRepairs.ResetDepartmentHeadCount);
         return identities.Count;
+    }
+
+    private async Task<HashSet<Guid>> ReadActiveDirectoryOverallAdministratorIdsAsync(
+        CancellationToken cancellationToken)
+    {
+        var businessUnits = connectionStringProvider.BusinessUnits;
+        var directory = businessUnits.Directory
+            ?? throw new InvalidOperationException("Business-unit directory is not configured for backfill.");
+        var connectionString = connectionStringProvider.GetConnectionString(
+            directory,
+            BusinessUnitConnectionPurpose.Migration);
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, directory, cancellationToken)
+            || !(await directoryMigrationCatalog.InspectAsync(
+                connection,
+                cancellationToken)).MigrationLedgerReady)
+        {
+            throw new InvalidOperationException("Directory database is not ready for overall administrator reconciliation.");
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select administrator.user_id
+            from directory_overall_administrators administrator
+            join directory_identities identity_row on identity_row.user_id = administrator.user_id
+            where administrator.is_active = true
+              and identity_row.is_active = true;
+            """;
+        var ids = new HashSet<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            ids.Add(reader.GetGuid(0));
+        }
+        return ids;
     }
 
     private async Task<LocalProfileRepairSummary> ReconcileOrdinaryCheongjuProfilesAsync(

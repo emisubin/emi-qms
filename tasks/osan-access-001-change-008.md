@@ -111,3 +111,12 @@
 - 최초 bootstrap overall 입력은 배포 당시 seed 목록이므로 이후 통합 사용자 관리에서 추가·해제된 총괄의 현재 상태를 나타내지 않는다. Repair runner가 이 목록을 계속 권한 기준으로 사용하면 현재 Directory에서 active overall이고 두 membership을 가진 사용자를 ordinary dual-membership으로 오분류한다.
 - Directory에 active overall designation이 있으면 이를 authoritative set으로 사용하고, bootstrap 목록은 active overall이 하나도 없는 최초 backfill에만 사용한다. 따라서 동적으로 추가된 복수 총괄을 보존하고, 해제된 총괄을 과거 목록 때문에 다시 승격하지 않는다. 일반 사용자의 다중 membership fail-closed gate는 그대로 유지한다.
 - Privacy-safe dry-run marker는 effective/configured/current Directory overall 수를 분리한다. Backend compile `0/0`, 현재 Directory designation을 보존하는 격리 3-DB Fact `1/1`, release mock·정적 검증이 통과했다. 운영 data mutation은 다음 exact-head inspection count gate까지 `0`이다.
+
+## 최종 게시·운영 결과
+
+- 최종 source PR #127 exact head `7e95129ce0cbf5b389ead02b7d6558c67b268675`, required CI `34221079465` PASS, squash main `b41c932e2154a921cf8b0aab753fc6d0692b209f`다.
+- 운영 inspection `34223727202`는 Directory의 동적 overall `4`명을 권위 집합으로 보존하면서 roleless membership deactivate `1`, 다른 보정 `0`, 양 business permission gap `0`을 확인했다. Full release `34225420777`에서 Business `0088`, backfill, Backend, Frontend와 public security가 모두 통과했다.
+- Release 뒤 통합 사용자 관리에서 overall 해제가 발생해 current Directory overall이 `3`으로 바뀌었다. Post-deploy inspection `34226444177`이 해제된 사용자의 stale managed System Administrator `1`건을 찾았고, Directory designation 자체는 backfill이 변경하지 않았음을 코드와 aggregate로 확인했다.
+- DB-only repair `34228436474`가 current Directory overall `3`을 보존한 채 managed role `1`건을 제거했다. 최종 inspection `34229045510`은 전체 repair marker `0`, overall `3/3/3`, Cheongju·Osan permission gap `0/0`으로 종료됐다.
+- 최종 운영 Backend/Frontend는 `backend--0000040` / `frontend--0000029`, 각 immutable digest와 traffic `100%`를 유지한다. Directory ledger `0004`, 두 business ledger `0088`, identity contract Directory `0001`/Business `0086`이다.
+- 자동 공개 security/API gate는 PASS했다. 실제 계정으로 부서 이동 뒤 역할·부서장 회수, Osan 승인 직후 동일한 승인 상태, 총괄 selector와 양쪽 읽기·쓰기는 사용자 확인이 남아 있다. 제품·DB·배포 완료 상태와 사용자 직접 검수 완료 상태를 구분한다.

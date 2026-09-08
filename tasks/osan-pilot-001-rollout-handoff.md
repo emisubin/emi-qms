@@ -15,16 +15,16 @@
 - canonicalTaskId: `TASK-AZURE-DEPLOY-001`
 - sourceTask: `TASK-OSAN-PILOT-001`
 - taskType: `UAT_RUNTIME`
-- status: `CHANGE_003_004_USER_VALIDATED_AWAITING_PR_CI`
+- status: `PHASE_1_PUBLIC_RELEASE_COMPLETE_CHANGE_008_REPAIRED_USER_SMOKE_PENDING`
 - reuseExistingTask: true
 - productionDeploymentApproved: true
 - migrationExecutionApproved: true
 - gitPublicationApproved: true
-- mainMergeApproved: false
+- mainMergeApproved: true
 - selectorUserValidation: `COMPLETED`
 - integratedUserApprovalValidation: `COMPLETED`
 - automaticBusinessEntryValidation: `COMPLETED`
-- latestUserApprovalSource: `USER_EXPLICIT_2026-09-08_NEXT_TASK_APPROVED`
+- latestUserApprovalSource: `USER_EXPLICIT_2026-09-08_ALL_BUGFIX_REPAIR_MERGE_REDEPLOY_APPROVED`
 
 ## 목적과 기존 Task 재사용
 
@@ -66,3 +66,11 @@ PR #121은 exact main `b405a9cb653aa56b1049a7e7595a2e232044b42d`로 병합됐고
 운영 사용자 검수에서 기존 계정 표시와 총괄의 두 사업부 접근이 불완전한 결함을 확인했다. `TASK-OSAN-ACCESS-001 Change 007`은 이름·계정 ID의 identity-bound 병합, 한 저장의 총괄 지정, 복수·마지막 총괄 보호, 두 local System Administrator profile과 membership, 실제 selector를 보정한다. PR #122와 exact main `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`을 release run `34188740914`로 배포했고 Directory `0004`, 총괄 `3`명의 양 사업부 backfill, Backend·Frontend와 public smoke가 통과했다. 일반 사용자의 한 사업부 규칙, DB 분리와 Cheongju 데이터는 유지된다.
 
 후속 운영 검수의 부서 이동 권한 잔존·승인 readiness 불일치·System Administrator permission 누락은 Access Change 008로 보정한다. Business additive `0088` 뒤 readiness-aware backfill repair와 새 Backend·Frontend를 적용한다. Local 집중 migration/3-DB/UI는 통과했고 exact PR head CI 한 번과 운영 dry-run aggregate를 다음 Gate로 둔다. 기존 revision `39/28`, Cheongju 데이터/provider와 Osan worker off를 rollback·보존 기준으로 유지한다.
+
+## 2026-09-08 Change 008 공개 보정 완료
+
+최종 PR #127 head `7e95129ce0cbf5b389ead02b7d6558c67b268675`, CI `34221079465`, squash main `b41c932e2154a921cf8b0aab753fc6d0692b209f`를 기준으로 release `34225420777`을 완료했다. Directory `0001..0004`, Cheongju·Osan business `0001..0088`, identity contract `0001`/`0086`을 유지한다.
+
+운영 repair는 roleless membership `1`건을 비활성화하고, 사용자가 overall을 해제한 뒤 남은 managed System Administrator `1`건을 current Directory overall `3`을 보존한 채 제거했다. 최종 inspect `34229045510`은 전체 변경 marker `0`, overall `3/3/3`, 두 business permission gap `0/0`이다. Backend `backend--0000040`, Frontend `frontend--0000029`는 latest ready와 traffic `100%`다.
+
+일반 사용자 단일 사업부, DB 분리/no-fallback, Cheongju 데이터·provider와 Osan provider/worker off를 보존했다. 자동 public security는 통과했고 synthetic 운영 업무 record는 만들지 않았다. 실제 계정으로 부서 이동·Osan 승인·총괄 selector와 양 사업부 입력을 확인하는 사용자 smoke가 남아 있다.

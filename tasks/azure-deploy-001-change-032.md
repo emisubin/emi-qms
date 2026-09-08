@@ -24,7 +24,14 @@
 - implementationOwnerRequested: `GPT_5_6_SOL_XHIGH_ONLY`
 - implementationOwnerObserved: `NOT_REPORTED`
 - gpt6ReviewProhibitedByUser: `true`
-- status: `CHANGE_008_LOCAL_VALIDATED_AWAITING_PR_CI_REDEPLOY`
+- finalAccessPr: `#127`
+- finalAccessPrHead: `7e95129ce0cbf5b389ead02b7d6558c67b268675`
+- finalAccessCiRun: `34221079465`
+- finalMainSha: `b41c932e2154a921cf8b0aab753fc6d0692b209f`
+- finalReleaseRun: `34225420777`
+- finalRepairRun: `34228436474`
+- finalInspectionRun: `34229045510`
+- status: `PRODUCTION_RELEASE_COMPLETE_INTERACTIVE_USER_SMOKE_PENDING`
 
 사용자는 이미 병합된 오산 Task 1~3와 사용자 접근 Change 003~006을 Azure 운영에 공개 배포하라고 명시했다. 기존 Change 031의 부분 순서 override와 phase-1 범위를 유지하며 별도 rollout Task를 만들지 않는다. 전체 회귀는 exact merged source의 필수 CI에서 통과했으므로 로컬에서 반복하지 않는다.
 
@@ -162,3 +169,20 @@
 - 총괄은 통합 사용자 관리에서 추가·해제할 수 있으므로 최초 bootstrap secret은 빈 Directory의 최초 seed에만 사용한다. Directory에 active overall designation이 하나 이상 있으면 현재 Directory 상태를 권한 source of truth로 사용해 동적으로 추가된 총괄과 해제된 총괄을 그대로 반영한다.
 - Inspection marker는 effective overall, configured bootstrap overall, active Directory overall 수를 따로 기록한다. 식별자 원문은 기록하지 않는다. 격리 3-DB 단일 Fact는 bootstrap 목록이 비워진 뒤에도 현재 active overall의 두 membership과 권한이 유지되고 audit가 중복되지 않음을 검증했다.
 - 집중 검증은 Backend Release compile warning/error `0/0`, 3-DB Fact `1/1`, release mock, Bash syntax·ShellCheck와 Azure artifact static validation이 모두 PASS했다. Exact PR head의 required CI 통과 전 운영 inspection을 다시 실행하지 않는다.
+
+## 16. Change 008 최종 병합·공개 재배포
+
+- PR #127 exact head `7e95129ce0cbf5b389ead02b7d6558c67b268675`의 required CI `34221079465`에서 변경 분류, workflow validation, Backend와 CI Gate가 모두 통과했다. Frontend와 Full-Stack은 backend/script-only 변경 분류에 따라 skip됐다. 승인된 squash merge의 exact main은 `b41c932e2154a921cf8b0aab753fc6d0692b209f`다.
+- 운영 inspection `34223727202`는 현재 Directory overall `4`, configured bootstrap overall `3`, active Directory overall `4`를 권위 집합으로 읽었고, membership deactivate `1`, 다른 repair `0`, 두 business DB의 System Administrator permission gap `0`을 확인했다.
+- Full release `34225420777`는 Business `0088` exact migration, readiness-aware membership repair, Backend, Frontend와 public security를 순서대로 완료했다. Roleless active membership `1`건은 fail-closed deactivation했고 다른 관리 역할·부서장·permission 보정은 없었다.
+- 배포된 Backend는 `sha256:16f3196151423c6db98e1e469651a0949471c77044dca1558392a0044c8818d2` / `backend--0000040`, Frontend는 `sha256:a397373ec63c2d32d532e4058d043ea1e19ed587e6e9e2a2d28837d43e421ce4` / `frontend--0000029`이며 각각 latest ready와 traffic `100%`다.
+
+## 17. 운영 보정 종료·무변경 확인
+
+- 첫 post-deploy inspection `34226444177`은 사용자가 통합 사용자 관리에서 총괄을 해제한 뒤 Directory overall이 `3`으로 바뀌었지만 해당 사용자의 business System Administrator 역할 `1`건이 남아 있음을 확인했다. Backfill은 overall designation을 쓰지 않으므로 Directory의 현재 overall `3`을 source of truth로 보존했다.
+- 첫 DB-only 재시도 `34228051686`은 change-aware scope가 migration을 skip한 상태에서 backfill만 요청해 release scope validation에서 중단됐다. Job·DB·app mutation은 `0`이다.
+- 승인된 DB-only repair `34228436474`는 exact main에서 migration과 membership backfill을 통과했고 Backend·Frontend handover를 skip했다. 현재 overall `3`을 유지하면서 stale managed System Administrator role `1`건만 멱등 제거했다.
+- 최종 rollback-only inspection `34229045510`은 identity `23`, effective/configured/active Directory overall `3/3/3`, membership activate/deactivate `0/0`, default-role normalize `0`, managed-role removal `0`, department-head reset `0`, overall profile repair/designation `0/0`, Cheongju·Osan permission gap `0/0`을 확인했다. Inspection, public security와 전체 release 결과가 PASS이고 DB·app mutation은 없었다.
+- 최종 ledger는 Directory `0001..0004`, Cheongju·Osan business `0001..0088`이며 identity contract는 Directory `0001`, Business `0086`을 유지한다. 기존 Cheongju 업무·G2·provider, Osan worker/provider off, DB 분리와 no-fallback을 보존했다.
+- 공개 자동 검증은 health `200`, 익명 root/API `401/401`, latest-ready revision과 immutable digest를 확인했다. Post-deploy 인증 브라우저 연결은 local CUA timeout으로 직접 재관찰하지 못했다. 실제 총괄 selector와 양 사업부 조회·입력, 일반 사용자 selector 미노출, 부서 이동·Osan 승인 저장은 사용자 계정 smoke로 남긴다. Synthetic 운영 업무 record는 만들지 않았다.
+- Application rollback point는 직전 Backend `backend--0000039` / `sha256:35bf38c3c3997c1106885efd0b8c85ebd251cb148d24a48003c25205b2409175`, Frontend `frontend--0000028` / `sha256:ed83bf8d075b3cac04a740218e6652074534661a9216387aa8444bcd0d42794d`다. Additive Directory `0004`와 Business `0088`은 유지하고 문제 발생 시 image rollback 또는 forward-fix한다.

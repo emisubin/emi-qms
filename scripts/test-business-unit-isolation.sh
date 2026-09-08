@@ -45,9 +45,16 @@ resource_scope_initialized=1
 e2e_start_postgres
 bash "${repo_root}/scripts/e2e-db.sh" reset
 
+test_filter="${BUSINESS_UNIT_ISOLATION_TEST_FILTER:-FullyQualifiedName~BusinessUnitIsolationTests}"
+if [[ "${test_filter}" != 'FullyQualifiedName~BusinessUnitIsolationTests' \
+  && "${test_filter}" != FullyQualifiedName=Emi.Qms.Api.Tests.BusinessUnitIsolationTests.* ]]; then
+  printf 'businessUnitIsolationTests=INVALID_FILTER\n' >&2
+  exit 64
+fi
+
 echo "Business-unit isolation tests use one owned PostgreSQL Compose container with tmpfs storage."
 dotnet test "${repo_root}/backend/tests/Emi.Qms.Api.Tests/Emi.Qms.Api.Tests.csproj" \
   --configuration Release \
   --no-restore \
   --nologo \
-  --filter "FullyQualifiedName~BusinessUnitIsolationTests"
+  --filter "${test_filter}"

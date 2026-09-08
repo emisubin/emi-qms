@@ -12,7 +12,9 @@ public sealed class BusinessUnitMembershipBackfillRunner(
     MigrationLedgerInspector migrationLedgerInspector,
     BusinessUnitDirectoryMigrationCatalog directoryMigrationCatalog)
 {
-    public async Task<int> ApplyAsync(CancellationToken cancellationToken)
+    public async Task<int> ApplyAsync(
+        CancellationToken cancellationToken,
+        bool dryRun = false)
     {
         if (ReviewSafeMode.IsEnabled(configuration))
         {
@@ -60,12 +62,21 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 .Where(identity => !overallAdministratorIds.Contains(identity.UserId))
                 .Select(identity => identity.UserId)
                 .ToArray(),
-            cancellationToken);
+            cancellationToken,
+            dryRun);
 
         var osan = businessUnits.GetBusiness(BusinessUnitCodes.Osan);
+        var cheongjuSystemAdministratorPermissionGapCount =
+            await CountSystemAdministratorPermissionGapsAsync(cheongju, cancellationToken);
+        var osanSystemAdministratorPermissionGapCount =
+            await CountSystemAdministratorPermissionGapsAsync(osan, cancellationToken);
+        var overallProfileRepairCount = 0;
         foreach (var identity in identities.Where(identity => overallAdministratorIds.Contains(identity.UserId)))
         {
-            await EnsureOverallAdministratorProfileAsync(osan, identity, cancellationToken);
+            if (await EnsureOverallAdministratorProfileAsync(osan, identity, cancellationToken, dryRun))
+            {
+                overallProfileRepairCount++;
+            }
         }
 
         var directoryConnectionString = connectionStringProvider.GetConnectionString(
@@ -87,6 +98,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
 
         var deactivatedMembershipCount = 0;
         var activatedMembershipCount = 0;
+        var overallAdministratorDesignationCount = 0;
         foreach (var identity in identities)
         {
             await using (var identityCommand = directoryConnection.CreateCommand())
@@ -230,6 +242,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 administratorCommand.Parameters.AddWithValue("user_id", identity.UserId);
                 if (await administratorCommand.ExecuteNonQueryAsync(cancellationToken) > 0)
                 {
+                    overallAdministratorDesignationCount++;
                     await AppendAuditAsync(
                         directoryConnection,
                         transaction,
@@ -241,9 +254,33 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             }
         }
 
-        await transaction.CommitAsync(cancellationToken);
+        if (dryRun)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+        }
+        else
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        if (dryRun)
+        {
+            logger.LogInformation(
+                "businessUnitMembershipBackfillDryRun=PASS identityCount={IdentityCount} overallAdministratorCount={OverallAdministratorCount} activateMembershipCount={ActivatedMembershipCount} deactivateMembershipCount={DeactivatedMembershipCount} normalizeDepartmentDefaultRoleCount={NormalizedDepartmentDefaultRoleCount} removeManagedRoleCount={RemovedManagedRoleCount} resetDepartmentHeadCount={ResetDepartmentHeadCount} repairOverallProfileCount={OverallProfileRepairCount} designateOverallAdministratorCount={OverallAdministratorDesignationCount} cheongjuSystemAdminPermissionGapCount={CheongjuSystemAdministratorPermissionGapCount} osanSystemAdminPermissionGapCount={OsanSystemAdministratorPermissionGapCount}",
+                identities.Count,
+                overallAdministratorIds.Count,
+                activatedMembershipCount,
+                deactivatedMembershipCount,
+                ordinaryProfileRepairs.NormalizedDepartmentDefaultRoleCount,
+                ordinaryProfileRepairs.RemovedManagedRoleCount,
+                ordinaryProfileRepairs.ResetDepartmentHeadCount,
+                overallProfileRepairCount,
+                overallAdministratorDesignationCount,
+                cheongjuSystemAdministratorPermissionGapCount,
+                osanSystemAdministratorPermissionGapCount);
+        }
         logger.LogInformation(
-            "Approved business-unit memberships were reconciled. IdentityCount={IdentityCount} OverallAdministratorCount={OverallAdministratorCount} ActivatedMembershipCount={ActivatedMembershipCount} DeactivatedMembershipCount={DeactivatedMembershipCount} NormalizedDepartmentDefaultRoleCount={NormalizedDepartmentDefaultRoleCount} RemovedManagedRoleCount={RemovedManagedRoleCount} ResetDepartmentHeadCount={ResetDepartmentHeadCount}.",
+            "Approved business-unit memberships were {Mode}. IdentityCount={IdentityCount} OverallAdministratorCount={OverallAdministratorCount} ActivatedMembershipCount={ActivatedMembershipCount} DeactivatedMembershipCount={DeactivatedMembershipCount} NormalizedDepartmentDefaultRoleCount={NormalizedDepartmentDefaultRoleCount} RemovedManagedRoleCount={RemovedManagedRoleCount} ResetDepartmentHeadCount={ResetDepartmentHeadCount}.",
+            dryRun ? "inspected without durable mutation" : "reconciled",
             identities.Count,
             overallAdministratorIds.Count,
             activatedMembershipCount,
@@ -257,7 +294,8 @@ public sealed class BusinessUnitMembershipBackfillRunner(
     private async Task<LocalProfileRepairSummary> ReconcileOrdinaryCheongjuProfilesAsync(
         BusinessUnitDatabaseTarget target,
         IReadOnlyCollection<Guid> userIds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool dryRun)
     {
         if (userIds.Count == 0)
         {
@@ -375,7 +413,14 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             resetDepartmentHeadCount += await resetHead.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await transaction.CommitAsync(cancellationToken);
+        if (dryRun)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+        }
+        else
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
         return new LocalProfileRepairSummary(
             normalizedDepartmentDefaultRoleCount,
             removedManagedRoleCount,
@@ -497,10 +542,41 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private async Task EnsureOverallAdministratorProfileAsync(
+    private async Task<int> CountSystemAdministratorPermissionGapsAsync(
+        BusinessUnitDatabaseTarget target,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString(
+            target,
+            BusinessUnitConnectionPurpose.Migration);
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken)
+            || !(await migrationLedgerInspector.InspectAsync(connection, cancellationToken)).MigrationLedgerReady)
+        {
+            throw new InvalidOperationException("System Administrator permission target database is not ready.");
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select count(*)
+            from permissions permission
+            where not exists (
+                select 1
+                from roles role
+                join role_permissions role_permission
+                  on role_permission.role_id = role.id
+                 and role_permission.permission_id = permission.id
+                where role.code = 'system-administrator');
+            """;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private async Task<bool> EnsureOverallAdministratorProfileAsync(
         BusinessUnitDatabaseTarget target,
         BackfillIdentity identity,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool dryRun)
     {
         var connectionString = connectionStringProvider.GetConnectionString(
             target,
@@ -514,6 +590,21 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         }
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var readinessCommand = connection.CreateCommand();
+        readinessCommand.Transaction = transaction;
+        readinessCommand.CommandText = """
+            select exists (
+                select 1
+                from qms_users user_account
+                join user_roles user_role on user_role.user_id = user_account.id
+                join roles role on role.id = user_role.role_id
+                where user_account.id = @user_id
+                  and user_account.is_active = true
+                  and role.code = 'system-administrator');
+            """;
+        readinessCommand.Parameters.AddWithValue("user_id", identity.UserId);
+        var profileWasReady = Convert.ToBoolean(
+            await readinessCommand.ExecuteScalarAsync(cancellationToken));
         await using (var identityCommand = connection.CreateCommand())
         {
             identityCommand.Transaction = transaction;
@@ -576,7 +667,15 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             roleCommand.Parameters.AddWithValue("user_id", identity.UserId);
             await roleCommand.ExecuteNonQueryAsync(cancellationToken);
         }
-        await transaction.CommitAsync(cancellationToken);
+        if (dryRun)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+        }
+        else
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return !profileWasReady;
     }
 
     private sealed record BackfillIdentity(

@@ -275,12 +275,79 @@ public sealed class BusinessUnitIsolationTests
             on conflict (user_id, role_id) do update set assignment_source = 'explicit';
             """,
             TestContext.Current.CancellationToken);
-        var reconciled = await new BusinessUnitMembershipBackfillRunner(
-                provider,
-                databases.Configuration,
-                NullLogger<BusinessUnitMembershipBackfillRunner>.Instance,
-                inspector,
-                directoryCatalog)
+        var runner = new BusinessUnitMembershipBackfillRunner(
+            provider,
+            databases.Configuration,
+            NullLogger<BusinessUnitMembershipBackfillRunner>.Instance,
+            inspector,
+            directoryCatalog);
+        var directoryBeforeInspection = await databases.ReadScalarAsync<string>(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            select (select count(*) from directory_business_unit_memberships)::text || ':'
+                || (select count(*) from directory_membership_audit_events)::text;
+            """,
+            TestContext.Current.CancellationToken);
+        var cheongjuBeforeInspection = await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select (select count(*) from user_roles
+                    where user_id in ('{AdminUserId:D}', '{NoRoleUserId:D}', '{SalesUserId:D}'))::text || ':'
+                || (select count(*) from qms_users
+                    where id in ('{AdminUserId:D}', '{NoRoleUserId:D}', '{SalesUserId:D}')
+                      and is_department_head = true)::text;
+            """,
+            TestContext.Current.CancellationToken);
+        var osanBeforeInspection = await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select (select count(*) from qms_users where id = '{AdminUserId:D}')::text || ':'
+                || (select count(*) from user_roles where user_id = '{AdminUserId:D}')::text;
+            """,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            3,
+            await runner.ApplyAsync(
+                TestContext.Current.CancellationToken,
+                dryRun: true));
+        Assert.Equal(
+            directoryBeforeInspection,
+            await databases.ReadScalarAsync<string>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                """
+                select (select count(*) from directory_business_unit_memberships)::text || ':'
+                    || (select count(*) from directory_membership_audit_events)::text;
+                """,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            cheongjuBeforeInspection,
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Cheongju,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select (select count(*) from user_roles
+                        where user_id in ('{AdminUserId:D}', '{NoRoleUserId:D}', '{SalesUserId:D}'))::text || ':'
+                    || (select count(*) from qms_users
+                        where id in ('{AdminUserId:D}', '{NoRoleUserId:D}', '{SalesUserId:D}')
+                          and is_department_head = true)::text;
+                """,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            osanBeforeInspection,
+            await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select (select count(*) from qms_users where id = '{AdminUserId:D}')::text || ':'
+                    || (select count(*) from user_roles where user_id = '{AdminUserId:D}')::text;
+                """,
+                TestContext.Current.CancellationToken));
+
+        var reconciled = await runner
             .ApplyAsync(TestContext.Current.CancellationToken);
         Assert.Equal(3, reconciled);
         Assert.Equal(

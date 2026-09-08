@@ -17,6 +17,7 @@ required_environment=(
   RUN_MIGRATION
   RUN_DATABASE_BOOTSTRAP
   RUN_MEMBERSHIP_BACKFILL
+  INSPECT_MEMBERSHIP_BACKFILL
 )
 
 for variable_name in "${required_environment[@]}"; do
@@ -31,7 +32,8 @@ for release_flag in \
   "${DEPLOY_FRONTEND}" \
   "${RUN_MIGRATION}" \
   "${RUN_DATABASE_BOOTSTRAP}" \
-  "${RUN_MEMBERSHIP_BACKFILL}"; do
+  "${RUN_MEMBERSHIP_BACKFILL}" \
+  "${INSPECT_MEMBERSHIP_BACKFILL}"; do
   if [[ "${release_flag}" != 'true' && "${release_flag}" != 'false' ]]; then
     printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
     exit 65
@@ -44,11 +46,18 @@ if [[ ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' || "${RUN_MEMBERSHIP_BACKFILL}" ==
   exit 65
 fi
 
+if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' \
+  && "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
+  exit 65
+fi
+
 if [[ "${DEPLOY_BACKEND}" == 'false' \
   && "${DEPLOY_FRONTEND}" == 'false' \
   && "${RUN_MIGRATION}" == 'false' \
   && "${RUN_DATABASE_BOOTSTRAP}" == 'false' \
-  && "${RUN_MEMBERSHIP_BACKFILL}" == 'false' ]]; then
+  && "${RUN_MEMBERSHIP_BACKFILL}" == 'false' \
+  && "${INSPECT_MEMBERSHIP_BACKFILL}" == 'false' ]]; then
   printf 'azurePilotRelease=NO_CHANGES\n'
   exit 0
 fi
@@ -76,7 +85,8 @@ digest_pattern='sha256:[0-9a-f]{64}'
 if [[ ( "${DEPLOY_BACKEND}" == 'true' \
     || "${RUN_MIGRATION}" == 'true' \
     || "${RUN_DATABASE_BOOTSTRAP}" == 'true' \
-    || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ) \
+    || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' \
+    || "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ) \
   && ( "${BACKEND_RELEASE_IMAGE:-}" != "${ACR_LOGIN_SERVER}/pms-backend@"* \
     || ! "${BACKEND_RELEASE_IMAGE:-}" =~ @${digest_pattern}$ ) ]]; then
   printf 'azurePilotRelease=INVALID_RELEASE_IMAGE\n' >&2
@@ -270,7 +280,8 @@ if [[ "${backend_revision_mode}" != 'Single' \
   || "${frontend_revision_mode}" != 'Single' \
   || "${migration_trigger_type}" != 'Manual' \
   || ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' && "${database_bootstrap_trigger_type}" != 'Manual' ) \
-  || ( "${RUN_MEMBERSHIP_BACKFILL}" == 'true' && "${membership_backfill_trigger_type}" != 'Manual' ) ]]; then
+  || ( ( "${RUN_MEMBERSHIP_BACKFILL}" == 'true' || "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ) \
+    && "${membership_backfill_trigger_type}" != 'Manual' ) ]]; then
   printf 'azurePilotRelease=UNSAFE_RUNTIME_MODE\n' >&2
   exit 68
 fi
@@ -366,6 +377,50 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
   fi
 fi
 
+if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  membership_backfill_inspection_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --container-name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}" \
+    --args '--inspect-business-unit-membership-backfill' \
+    --query name)" || membership_backfill_inspection_execution=''
+  if [[ -z "${membership_backfill_inspection_execution}" \
+    || "${membership_backfill_inspection_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${MEMBERSHIP_BACKFILL_JOB_NAME}" "${membership_backfill_inspection_execution}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_INSPECTION_FAILED\n' >&2
+    exit 77
+  fi
+
+  membership_backfill_inspection_summary=''
+  for ((attempt = 1; attempt <= 6; attempt++)); do
+    if "${azure_cli_bin}" containerapp job logs show \
+      --resource-group "${AZURE_RESOURCE_GROUP}" \
+      --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+      --execution "${membership_backfill_inspection_execution}" \
+      --container "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+      --format text \
+      --tail 100 \
+      >"${task_tmp_dir}/command-output" \
+      2>"${task_tmp_dir}/command-error"; then
+      membership_backfill_inspection_summary="$(sed -n \
+        's/^.*\(businessUnitMembershipBackfillDryRun=PASS identityCount=[0-9][0-9]* overallAdministratorCount=[0-9][0-9]* activateMembershipCount=[0-9][0-9]* deactivateMembershipCount=[0-9][0-9]* normalizeDepartmentDefaultRoleCount=[0-9][0-9]* removeManagedRoleCount=[0-9][0-9]* resetDepartmentHeadCount=[0-9][0-9]* repairOverallProfileCount=[0-9][0-9]* designateOverallAdministratorCount=[0-9][0-9]* cheongjuSystemAdminPermissionGapCount=[0-9][0-9]* osanSystemAdminPermissionGapCount=[0-9][0-9]*\).*$/\1/p' \
+        "${task_tmp_dir}/command-output" | tail -n 1)"
+    fi
+    if [[ -n "${membership_backfill_inspection_summary}" ]]; then
+      break
+    fi
+    if [[ "${poll_interval_seconds}" -gt 0 ]]; then
+      sleep "${poll_interval_seconds}"
+    fi
+  done
+  if [[ -z "${membership_backfill_inspection_summary}" ]]; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_INSPECTION_EVIDENCE_MISSING\n' >&2
+    exit 78
+  fi
+  printf '%s\n' "${membership_backfill_inspection_summary}"
+fi
+
 if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
   if ! azure_mutate containerapp job update \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
@@ -431,6 +486,11 @@ if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
   printf 'azurePilotReleaseMembershipBackfill=PASS\n'
 else
   printf 'azurePilotReleaseMembershipBackfill=SKIPPED\n'
+fi
+if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  printf 'azurePilotReleaseMembershipBackfillInspection=PASS\n'
+else
+  printf 'azurePilotReleaseMembershipBackfillInspection=SKIPPED\n'
 fi
 if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
   printf 'azurePilotReleaseBackend=PASS\n'

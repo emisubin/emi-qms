@@ -26,6 +26,7 @@ name=''
 query=''
 image=''
 revision=''
+inspection='false'
 for ((index = 1; index <= $#; index++)); do
   argument="${!index}"
   case "${argument}" in
@@ -44,6 +45,9 @@ for ((index = 1; index <= $#; index++)); do
     --revision)
       next=$((index + 1))
       revision="${!next}"
+      ;;
+    --inspect-business-unit-membership-backfill)
+      inspection='true'
       ;;
   esac
 done
@@ -142,7 +146,13 @@ case "${command_group}" in
   'containerapp job start')
     case "${name}" in
       "${DATABASE_BOOTSTRAP_JOB_NAME}") printf 'bootstrap-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
-      "${MEMBERSHIP_BACKFILL_JOB_NAME}") printf 'backfill-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MEMBERSHIP_BACKFILL_JOB_NAME}")
+        if [[ "${inspection}" == 'true' ]]; then
+          printf 'backfill-inspect-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+        else
+          printf 'backfill-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+        fi
+        ;;
       "${MIGRATION_JOB_NAME}") printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
       *) exit 2 ;;
     esac
@@ -154,10 +164,20 @@ case "${command_group}" in
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'migration-failed' \
           && "${name}" == "${MIGRATION_JOB_NAME}" ) \
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'backfill-failed' \
+          && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-failed' \
           && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) ]]; then
       printf 'Failed\n'
     else
       printf 'Succeeded\n'
+    fi
+    ;;
+  'containerapp job logs')
+    printf 'backfill-inspect-logs\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+    if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-evidence-missing' ]]; then
+      printf 'inspection log marker missing\n'
+    else
+      printf 'businessUnitMembershipBackfillDryRun=PASS identityCount=23 overallAdministratorCount=3 activateMembershipCount=0 deactivateMembershipCount=1 normalizeDepartmentDefaultRoleCount=0 removeManagedRoleCount=0 resetDepartmentHeadCount=0 repairOverallProfileCount=0 designateOverallAdministratorCount=0 cheongjuSystemAdminPermissionGapCount=0 osanSystemAdminPermissionGapCount=0\n'
     fi
     ;;
   'containerapp update --resource-group')
@@ -218,6 +238,7 @@ run_case() {
   local run_migration="${7:-true}"
   local run_database_bootstrap="${8:-false}"
   local run_membership_backfill="${9:-false}"
+  local inspect_membership_backfill="${10:-false}"
   case_number=$((case_number + 1))
 
   printf '%s\n' 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' \
@@ -249,6 +270,7 @@ run_case() {
     RUN_MIGRATION="${run_migration}" \
     RUN_DATABASE_BOOTSTRAP="${run_database_bootstrap}" \
     RUN_MEMBERSHIP_BACKFILL="${run_membership_backfill}" \
+    INSPECT_MEMBERSHIP_BACKFILL="${inspect_membership_backfill}" \
     AZURE_RELEASE_AZ_BIN="${temporary_directory}/az" \
     AZURE_RELEASE_HTTP_BIN="${temporary_directory}/curl" \
     AZURE_RELEASE_ALLOW_TEST_OVERRIDES='true' \
@@ -300,6 +322,13 @@ run_case 'migration-failed' 74 MIGRATION_FAILED \
 run_case 'backfill-failed' 76 MEMBERSHIP_BACKFILL_FAILED \
   'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start' \
   true true true true true
+run_case 'success' 0 '' \
+  'backfill-inspect-start,backfill-inspect-logs' false false false false false true
+run_case 'inspection-failed' 77 MEMBERSHIP_BACKFILL_INSPECTION_FAILED \
+  'backfill-inspect-start' false false false false false true
+run_case 'inspection-evidence-missing' 78 MEMBERSHIP_BACKFILL_INSPECTION_EVIDENCE_MISSING \
+  'backfill-inspect-start,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs' \
+  false false false false false true
 run_case 'backend-release-failed' 1 BACKEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,backend-rollback'
 run_case 'frontend-release-failed' 1 FRONTEND_RELEASE_FAILED \
@@ -312,6 +341,7 @@ run_case 'success' 0 '' 'migration-update,migration-start,backend-update' true f
 run_case 'success' 0 '' 'migration-update,migration-start' false false true
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false true false
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false false true
+run_case 'success' 65 INVALID_RELEASE_SCOPE '' false false true false true true
 run_case 'success' 0 '' '' false false false
 
 printf 'azurePilotReleaseTests=PASS\n'

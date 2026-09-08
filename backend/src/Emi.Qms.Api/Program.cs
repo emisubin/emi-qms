@@ -253,9 +253,18 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
 var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
 var bootstrapDatabaseRolesOnly = args.Contains("--bootstrap-database-roles", StringComparer.Ordinal);
 var backfillBusinessUnitMembershipsOnly = args.Contains("--backfill-business-unit-memberships", StringComparer.Ordinal);
+var inspectBusinessUnitMembershipBackfillOnly = args.Contains(
+    "--inspect-business-unit-membership-backfill",
+    StringComparer.Ordinal);
 var splitDatabaseRolesEnabled = !string.IsNullOrWhiteSpace(app.Configuration["Database:MigrationRoleName"])
     || !string.IsNullOrWhiteSpace(app.Configuration["Database:RuntimeRoleName"]);
-if (new[] { migrateOnly, bootstrapDatabaseRolesOnly, backfillBusinessUnitMembershipsOnly }.Count(selected => selected) > 1)
+if (new[]
+    {
+        migrateOnly,
+        bootstrapDatabaseRolesOnly,
+        backfillBusinessUnitMembershipsOnly,
+        inspectBusinessUnitMembershipBackfillOnly
+    }.Count(selected => selected) > 1)
 {
     throw new InvalidOperationException("Only one database operation mode can be selected.");
 }
@@ -274,7 +283,7 @@ else if (bootstrapDatabaseRolesOnly)
         app.Configuration,
         DatabaseOperationMode.RoleBootstrap);
 }
-else if (backfillBusinessUnitMembershipsOnly)
+else if (backfillBusinessUnitMembershipsOnly || inspectBusinessUnitMembershipBackfillOnly)
 {
     DatabaseOperationSecurityPolicy.ThrowIfInvalid(
         app.Environment,
@@ -328,13 +337,16 @@ if (migrateOnly)
     return;
 }
 
-if (backfillBusinessUnitMembershipsOnly)
+if (backfillBusinessUnitMembershipsOnly || inspectBusinessUnitMembershipBackfillOnly)
 {
     var count = await app.Services
         .GetRequiredService<BusinessUnitMembershipBackfillRunner>()
-        .ApplyAsync(CancellationToken.None);
+        .ApplyAsync(
+            CancellationToken.None,
+            dryRun: inspectBusinessUnitMembershipBackfillOnly);
     app.Logger.LogInformation(
-        "Business-unit membership backfill completed with {IdentityCount} approved identities.",
+        "Business-unit membership backfill {Mode} completed with {IdentityCount} approved identities.",
+        inspectBusinessUnitMembershipBackfillOnly ? "inspection" : "apply",
         count);
     return;
 }

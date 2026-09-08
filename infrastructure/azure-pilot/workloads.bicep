@@ -752,6 +752,11 @@ var membershipBackfillSecrets = enableBusinessUnits ? [
   }
   {
     identity: migrationIdentity.id
+    keyVaultUrl: '${keyVaultSecretBase}osan-database-migration-connection-string'
+    name: 'osan-database-migration-connection-string'
+  }
+  {
+    identity: migrationIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}business-unit-backfill-user-ids'
     name: 'business-unit-backfill-user-ids'
   }
@@ -775,6 +780,10 @@ var membershipBackfillEnvironment = concat([
   {
     name: 'ConnectionStrings__QmsCheongjuMigration'
     secretRef: 'database-migration-connection-string'
+  }
+  {
+    name: 'ConnectionStrings__QmsOsanMigration'
+    secretRef: 'osan-database-migration-connection-string'
   }
   {
     name: 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited'

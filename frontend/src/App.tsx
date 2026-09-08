@@ -4868,6 +4868,7 @@ function BusinessUnitAccessAdministrationPage({
 }) {
   const [state, setState] = useState<LoadState<BusinessUnitAccessAdministrationResponse>>({ kind: 'loading' });
   const [drafts, setDrafts] = useState<Record<string, IntegratedUserAccessDraft[]>>({});
+  const [overallAdministratorDrafts, setOverallAdministratorDrafts] = useState<Record<string, boolean>>({});
   const [selectedUnits, setSelectedUnits] = useState<Record<string, BusinessUnitCode>>({});
   const [operationIds, setOperationIds] = useState<Record<string, string>>({});
   const [savingUserIds, setSavingUserIds] = useState<string[]>([]);
@@ -4879,6 +4880,7 @@ function BusinessUnitAccessAdministrationPage({
       .then((data) => {
         setState(data.users.length > 0 ? { kind: 'ready', data } : { kind: 'empty' });
         setDrafts(buildIntegratedUserAccessDrafts(data));
+        setOverallAdministratorDrafts(buildIntegratedOverallAdministratorDrafts(data));
         setSelectedUnits(buildIntegratedUserAccessSelections(data));
         setOperationIds(Object.fromEntries(data.users
           .filter((user) => user.pendingOperationId)
@@ -4937,10 +4939,49 @@ function BusinessUnitAccessAdministrationPage({
             isDepartmentHead: isActive ? draft.isDepartmentHead : false
           };
         }
-        if (isActive && !directoryUser.isOverallAdministrator) {
+        if (isActive && !(overallAdministratorDrafts[directoryUser.userId] ?? directoryUser.isOverallAdministrator)) {
           return { ...draft, isActive: false, isDepartmentHead: false };
         }
         return draft;
+      })
+    }));
+    setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
+  };
+
+  const changeOverallAdministrator = (
+    directoryUser: BusinessUnitAccessAdministrationUser,
+    isOverallAdministrator: boolean
+  ) => {
+    if (!mutationAllowed) {
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: mutationDisabledReason ?? '현재 사용자 접근 정보를 변경할 수 없습니다.'
+      }));
+      return;
+    }
+    const selectedCode = selectedUnits[directoryUser.userId]
+      ?? buildInitialIntegratedUserAccessSelection(directoryUser, state.kind === 'ready' ? state.data.availableBusinessUnits : []);
+    setOverallAdministratorDrafts((current) => ({ ...current, [directoryUser.userId]: isOverallAdministrator }));
+    setDrafts((current) => ({
+      ...current,
+      [directoryUser.userId]: (current[directoryUser.userId] ?? []).map((draft) => {
+        if (!isOverallAdministrator) {
+          return draft.businessUnitCode === selectedCode
+            ? { ...draft, isActive: true }
+            : { ...draft, isActive: false, isDepartmentHead: false };
+        }
+        const unit = state.kind === 'ready'
+          ? state.data.businessUnits.find((item) => item.code === draft.businessUnitCode)
+          : undefined;
+        const administration = unit?.departments.find((department) => department.code === 'administration');
+        const withDepartment = draft.departmentId || !administration
+          ? draft
+          : applyIntegratedDepartmentDefaultRole(draft, unit, administration.departmentId);
+        return {
+          ...withDepartment,
+          isActive: true,
+          roleCodes: [...new Set([...withDepartment.roleCodes, 'system-administrator'])].sort()
+        };
       })
     }));
     setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
@@ -4958,8 +4999,10 @@ function BusinessUnitAccessAdministrationPage({
       const current = directoryUser.profiles.find((profile) => profile.businessUnitCode === draft.businessUnitCode);
       return draft.isActive || current?.membershipActive || current?.localProfileExists;
     });
+    const isOverallAdministrator = overallAdministratorDrafts[directoryUser.userId]
+      ?? directoryUser.isOverallAdministrator;
     const activeProfiles = profiles.filter((profile) => profile.isActive);
-    if (!directoryUser.isOverallAdministrator && activeProfiles.length > 1) {
+    if (!isOverallAdministrator && activeProfiles.length > 1) {
       setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '일반 사용자는 한 사업부에만 소속될 수 있습니다.' }));
       return;
     }
@@ -4979,9 +5022,11 @@ function BusinessUnitAccessAdministrationPage({
         directoryUser.userId,
         operationId,
         directoryUser.accessVersion,
+        isOverallAdministrator,
         profiles);
       setState(result.snapshot.users.length > 0 ? { kind: 'ready', data: result.snapshot } : { kind: 'empty' });
       setDrafts(buildIntegratedUserAccessDrafts(result.snapshot));
+      setOverallAdministratorDrafts(buildIntegratedOverallAdministratorDrafts(result.snapshot));
       setSelectedUnits((current) => buildIntegratedUserAccessSelections(result.snapshot, current));
       setOperationIds((current) => {
         const next = { ...current };
@@ -5034,6 +5079,7 @@ function BusinessUnitAccessAdministrationPage({
                 <th>부서</th>
                 <th>역할</th>
                 <th>부서장</th>
+                <th>총괄 관리자</th>
                 <th aria-label="작업" />
               </tr>
             </thead>
@@ -5048,7 +5094,10 @@ function BusinessUnitAccessAdministrationPage({
                   const selectedUnit = state.data.businessUnits.find((unit) => unit.code === selectedCode);
                   const selectedDepartment = selectedUnit?.departments.find(
                     (department) => department.departmentId === selectedDraft?.departmentId);
-                  const changed = userDrafts.some((draft) => {
+                  const isOverallAdministrator = overallAdministratorDrafts[directoryUser.userId]
+                    ?? directoryUser.isOverallAdministrator;
+                  const changed = isOverallAdministrator !== directoryUser.isOverallAdministrator
+                    || userDrafts.some((draft) => {
                     const current = directoryUser.profiles.find((profile) => profile.businessUnitCode === draft.businessUnitCode);
                     return current?.membershipActive !== draft.isActive
                       || current?.isActive !== draft.isActive
@@ -5064,7 +5113,7 @@ function BusinessUnitAccessAdministrationPage({
                     const department = unit?.departments.find((item) => item.departmentId === draft.departmentId);
                     return !department?.defaultRoleCode || !draft.roleCodes.includes(department.defaultRoleCode);
                   });
-                  const hasForbiddenMultipleMemberships = !directoryUser.isOverallAdministrator
+                  const hasForbiddenMultipleMemberships = !isOverallAdministrator
                     && userDrafts.filter((draft) => draft.isActive).length > 1;
                   const saving = savingUserIds.includes(directoryUser.userId);
                   const controlsDisabled = !mutationAllowed || saving || directoryUser.authProvider === 'Dev'
@@ -5096,7 +5145,8 @@ function BusinessUnitAccessAdministrationPage({
                               : directoryUser.memberships.length === 0 ? '승인 대기' : '승인됨'}</span>
                           </span>
                           <small>{directoryUser.email
-                            ?? (directoryUser.authProvider === 'Dev' ? '개발 계정' : 'Microsoft 365 계정')}</small>
+                            ?? directoryUser.accountId
+                            ?? (directoryUser.authProvider === 'Dev' ? '개발 계정' : '계정 ID 확인 필요')}</small>
                         </th>
                         <td className="business-unit-checkbox-cell">
                           <input
@@ -5163,6 +5213,15 @@ function BusinessUnitAccessAdministrationPage({
                             }))}
                           />
                         </td>
+                        <td className="business-unit-checkbox-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`${directoryUser.displayName} 총괄 관리자`}
+                            checked={isOverallAdministrator}
+                            disabled={!mutationAllowed || saving || directoryUser.authProvider === 'Dev'}
+                            onChange={(event) => changeOverallAdministrator(directoryUser, event.target.checked)}
+                          />
+                        </td>
                         <td className="business-unit-access-action-cell">
                           <button
                             type="button"
@@ -5182,7 +5241,7 @@ function BusinessUnitAccessAdministrationPage({
                       </tr>
                       {rowIssue ? (
                         <tr className="business-unit-access-feedback-row">
-                          <td id={feedbackId} colSpan={7} role="status">{rowIssue}</td>
+                          <td id={feedbackId} colSpan={8} role="status">{rowIssue}</td>
                         </tr>
                       ) : null}
                     </Fragment>
@@ -5218,6 +5277,13 @@ function buildIntegratedUserAccessDrafts(snapshot: BusinessUnitAccessAdministrat
         isDepartmentHead: pendingProfile?.isDepartmentHead ?? profile?.isDepartmentHead === true
       } satisfies IntegratedUserAccessDraft;
     })
+  ]));
+}
+
+function buildIntegratedOverallAdministratorDrafts(snapshot: BusinessUnitAccessAdministrationResponse) {
+  return Object.fromEntries(snapshot.users.map((user) => [
+    user.userId,
+    user.pendingIsOverallAdministrator ?? user.isOverallAdministrator
   ]));
 }
 

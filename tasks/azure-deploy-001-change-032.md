@@ -94,3 +94,20 @@
 - DB/jobs 전용 deployment what-if는 처음 `Create 3 / Modify 2 / Delete 0`, public app mutation `0`이었다. Directory·Osan DB와 기존 bootstrap·migration job 반영은 성공했으나, 새 membership backfill job 이름 `business-unit-membership-backfill`이 Azure Container Apps job의 32자 제한을 1자 초과해 해당 리소스만 실패했다. 이 시점에 public image는 변경되지 않았다.
 - phase-1 배포 blocker를 해소하기 위해 job resource/container/workflow 참조를 29자인 `business-unit-member-backfill`로 통일했다. 배포 artifact 정적 검증은 PASS했다. 보정 후 what-if `Create 1 / Modify 2 / Delete 0`, public app mutation `0`으로 적용했고 사용자 DB `3`, manual job `3`, public image unchanged를 확인했다.
 - GitHub OIDC의 `Container Apps Jobs Contributor`는 세 작업의 exact resource scope에서 각각 1개임을 확인했다. 기존 migration assignment를 기준으로 부족한 `2`개만 추가했고 resource-group scope assignment는 `0`이다.
+
+## 8. 최초 phase-1 공개 배포 결과
+
+- Exact main `b405a9cb653aa56b1049a7e7595a2e232044b42d`, release run `34181334545`로 role bootstrap→Directory `0001..0003`/business `0001..0087` migration→Cheongju membership backfill→Backend→Frontend를 완료했다.
+- 배포 당시 Directory는 ledger `3`, identity `1`, identity row `23`, active membership `23`, overall `3`, ordinary dual membership `0`이었다. Cheongju는 ledger `87`, identity `1`, active user `23`, project `3`, 기존 G2 aggregate `137`을 유지했고 Osan은 ledger `87`, identity `1`, active user·project `0`이었다.
+- 별도 PITR server에서 세 DB ledger·identity·privacy-safe aggregate 일치를 확인한 뒤 owned restore server와 검증 job을 정리했다. Runtime role은 세 DB `3/3` allow와 cross-DB `6/6` deny를 통과했다.
+- Backend `sha256:ad3cba144629f8ad23cc6b1fa915cffcffb1e6d7f76a5023ec0c6cc06b84d367` / revision `backend--0000038`, Frontend `sha256:204be70a6741447da9b09685412f79e0dc95a967e43bf0323e9bf56f9e11b808` / revision `frontend--0000027`이 각각 Healthy·traffic 100%다.
+- 공개 `https://pms.emiinc.co.kr` health와 익명 인증 차단, direct origin 차단, 기존 Cheongju 관리자 로그인·데이터 aggregate, Osan registration-only route와 worker/provider off를 확인했다. Synthetic 운영 project는 만들지 않았다.
+
+## 9. Change 007 승인된 운영 결함 보정
+
+사용자는 공개 화면에서 이름·계정 ID 누락, 총괄 지정 입력 부재와 총괄의 Osan membership·selector 누락을 확인하고 수정부터 PR·main merge·Azure 재배포까지 승인했다. Canonical change는 `TASK-OSAN-ACCESS-001 Change 007`이다.
+
+- Directory `0004`를 additive 적용하고 기존 overall 세 명의 Osan local profile을 먼저 준비한 뒤 두 membership을 멱등 backfill한다. 예상 privacy-safe 결과는 overall 수 유지, Osan active profile/membership 증가, ordinary dual `0`이다.
+- 배포 정의는 기존 migration identity의 Osan migration secret-scope를 backfill job에서 참조한다. 새 DB·서버·vault-scope 권한과 기존 Cheongju 데이터 변경은 없다.
+- Hotfix 순서는 migration→backfill dry-run/result→Backend→Frontend→공개 UI/API/DB aggregate 검증이다. 현 운영 digest 두 개를 rollback point로 고정하고 schema는 down하지 않는다.
+- Local 집중 검증은 Backend compile, Directory `0004` fresh/existing, 통합 승인 3-DB, Frontend targeted/typecheck, mock/actual 3-DB smoke와 Azure artifact 검증이 통과했다. 최종 전체 회귀는 PR CI 한 번을 대기한다.

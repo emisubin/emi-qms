@@ -251,3 +251,15 @@
 - [ ] 20일간 비용, 장애, 응답시간, DB·첨부 증가량을 기록했다.
 - [ ] 정식 운영 사양과 HA/WAF/Blob 여부를 실측값으로 다시 결정했다.
 - [ ] 시범 데이터를 정식 운영에 유지할지 최종 확인했다.
+
+## Change 032 오산 phase-1와 Change 007
+
+- [x] Exact main `b405a9cb653aa56b1049a7e7595a2e232044b42d`의 release run `34181334545`에서 3-DB migration, backfill, Backend·Frontend 공개 전환을 완료했다.
+- [x] Cheongju logical restore와 별도 PITR server의 Directory/Cheongju/Osan ledger·identity·aggregate 일치를 확인하고 owned 임시 자원을 정리했다.
+- [x] 공개 health, 익명 root/API 차단, direct origin 차단과 Cheongju aggregate 보존을 확인했다.
+- [x] Osan project create/list/detail 준비와 phase-1 제외 worker/provider off를 확인했고 synthetic 운영 project는 만들지 않았다.
+- [ ] Change 007 exact main hotfix의 Directory `0004`, 기존 총괄 Osan local-first backfill, Backend·Frontend 전환을 완료한다.
+- [ ] 사용자 관리에서 기존 계정의 이름과 계정 ID가 표시되는지 확인한다.
+- [ ] 같은 행에서 부서 기본 역할·부서장·활성·총괄 여부를 한 번 저장하고 복수 총괄이 유지되는지 확인한다.
+- [ ] 총괄이 청주·오산을 selector로 전환하며 두 사업부에서 조회·입력 가능한지 확인한다.
+- [ ] 일반 사용자는 selector가 없고 한 사업부만 접근하며 마지막 총괄 해제는 거부되는지 확인한다.

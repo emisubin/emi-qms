@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const pendingUserId = '50000000-0000-0000-0000-000000000002';
 
-test('three databases keep tab context, integrated user-access mutation locks, and reset isolated', async ({ browser }) => {
+test('three databases designate multiple overall administrators, keep tab context, and reset isolated', async ({ browser }) => {
   const pendingContext = await browser.newContext();
   await pendingContext.addInitScript(() => {
     window.localStorage.setItem('emi-qms-development-user-key', 'dev-sales');
@@ -29,6 +29,7 @@ test('three databases keep tab context, integrated user-access mutation locks, a
   await cheongjuPage.waitForLoadState('networkidle');
   const pendingRow = cheongjuPage.getByRole('row').filter({ hasText: 'Synthetic Cheongju Approval' });
   await expect(pendingRow).toBeVisible();
+  await expect(pendingRow.getByText('review-cheongju@example.invalid')).toBeVisible();
 
   let markMutationStarted!: () => void;
   let releaseMutation!: () => void;
@@ -47,6 +48,8 @@ test('three databases keep tab context, integrated user-access mutation locks, a
   await pendingRow.getByRole('combobox', { name: 'Synthetic Cheongju Approval 부서' })
     .selectOption('10000000-0000-0000-0000-000000000005');
   await expect(pendingRow.getByLabel('Synthetic Cheongju Approval 역할')).toContainText('Quality User');
+  await pendingRow.getByRole('checkbox', { name: 'Synthetic Cheongju Approval 총괄 관리자' }).check();
+  await expect(pendingRow.getByLabel('Synthetic Cheongju Approval 역할')).toContainText('System Administrator');
   await expect(cheongjuMembership).toBeChecked();
   await expect(saveMembership).toBeEnabled();
   await saveMembership.click();
@@ -55,6 +58,10 @@ test('three databases keep tab context, integrated user-access mutation locks, a
   releaseMutation();
   await expect(cheongjuPage.getByRole('status').filter({ hasText: '사용자 접근 정보를 저장했습니다.' })).toBeVisible();
   await expect(cheongjuPage.locator('select[aria-label="사업부 선택"]:visible')).toBeEnabled();
+  await expect(pendingRow.getByText('총괄', { exact: true })).toBeVisible();
+  await pendingRow.getByRole('combobox', { name: 'Synthetic Cheongju Approval 사업부' }).selectOption('OSAN');
+  await expect(pendingRow.getByRole('checkbox', { name: 'Synthetic Cheongju Approval 활성 상태' })).toBeChecked();
+  await expect(pendingRow.getByLabel('Synthetic Cheongju Approval 역할')).toContainText('System Administrator');
 
   const osanContext = await browser.newContext();
   await osanContext.addInitScript(() => {

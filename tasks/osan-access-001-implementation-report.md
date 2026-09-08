@@ -468,3 +468,17 @@ Backend assertion을 현재 통합 승인 결과에 맞추고, mobile helper가 
 첫 보정 commit `b8c6a2dcf73341ed980e31a833c30f497c1490aa`의 자동 run `34140283892`에서 Backend 584/584, Frontend와 일반 Full-Stack 64/64는 PASS했다. Business-unit access 격리 spec은 Change 003의 승인 전 pending fixture에 단일 membership을 기대하고 Change 004가 제거한 선택 화면을 계속 조작해 FAIL했으며 Osan 격리는 skip됐다. Spec을 membership 0 대기, 총괄 Cheongju fallback, 통합 승인, tab별 selector 전환과 reset 뒤 자동 복구 계약으로 갱신한 뒤 해당 3-DB spec만 `1/1 PASS`했고 owned 자원을 정리했다. 후속 test-only push의 자동 CI를 최종 전체 검증으로 추적하며 수동 재실행은 만들지 않는다.
 
 격리 spec 보정 commit `b095ad97d96dcf792501d217b8db6cf6d25a4d33`의 자동 run `34142984018`은 Backend 584/584와 Frontend가 PASS했지만 일반 Full-Stack의 project-registration mobile helper가 초기 business 자동 확정과 경쟁해 drawer selector를 찾지 못하면서 63/64 PASS로 끝났다. Business-unit·Osan 격리는 skip됐다. Full-Stack·mock browser의 같은 패턴을 전수 대조해 확인한 mobile drawer helper 6개를 network 안정화, visible selector, same-value no-op와 remount 대기로 통일했다. Mock-ui에는 같은 drawer user-switch helper가 없었다. 대표 검증은 project-registration 1/1, IQC 1/1, 나머지 helper 4/4, targeted ESLint PASS이며 생성 자원과 screenshot 변경을 모두 정리했다. 후속 test-only push가 자동 생성하는 한 run만 다음 최종 후보로 추적한다.
+
+## 16. Change 007 운영 총괄 접근·사용자 식별 보정
+
+최초 오산 phase-1 운영 배포 뒤 사용자 관리 목록의 기존 계정 이름·계정 ID가 비어 있고, 총괄 세 명에게 Cheongju membership만 있어 사업부 selector와 Osan 전체 권한이 생기지 않는 결함을 운영에서 확인했다. 통합 저장 요청에도 총괄 지정 필드가 없어 같은 행에서 부서 역할과 총괄 여부를 함께 저장할 수 없었다.
+
+Change 007은 business profile의 이름·계정 ID를 Directory UUID뿐 아니라 provider·external subject까지 일치할 때만 목록에 병합한다. 통합 저장에는 총괄 checkbox가 추가됐고, 지정 시 두 business profile에 부서 기본 역할을 보존하면서 `system-administrator`를 추가한 뒤 두 membership과 designation을 한 번에 공개한다. 총괄 해제는 현재 선택 사업부 하나만 남기며, 복수 총괄은 허용하고 마지막 활성 총괄은 Directory transaction에서 보호한다. UI는 기존 compact table과 청주 관리자 동선을 유지한다.
+
+Additive Directory migration `0004_overall_administrator_access`는 durable operation에 요청·이전 총괄 상태를 더하고 designation·membership publish를 같은 transaction과 correlation ID로 감사한다. 이전 7-argument begin function은 현재 designation을 보존하는 wrapper로 남겨 이전 image와 additive rollback 호환성을 유지한다. Identity contract는 Directory `0001`, business `0086` 그대로다.
+
+기존 backfill은 Cheongju 이름·계정 ID를 Directory에 멱등 보정하고, private 승인 목록의 Cheongju System Administrator만 Osan `administration` profile과 `system-administrator`를 local-first로 만든 뒤 Cheongju·Osan membership과 overall designation을 공개한다. 일반 사용자는 Cheongju 한 곳만 유지하고, identity mismatch나 준비되지 않은 business DB는 fail closed한다.
+
+집중 검증은 Backend compile, Directory `0004` existing `1/1`, fresh 3-DB `1/1`, Frontend targeted `37/37`, typecheck, mock Chromium `1/1`, 실제 HTTP+3-DB Full-Stack `1/1`, Bicep/Portal JSON/Azure static PASS다. Fresh Fact가 찾은 provider collision은 identity binding을 강화해 보정했고 복수 총괄 지정·한 명 해제·마지막 총괄 차단까지 확인했다. Targeted Vitest argument 전달 실수로 전체 `299/299 PASS`가 1회 실행됐으며 정책 위반으로 기록하고 반복하지 않았다. 최종 전체 회귀는 게시된 exact head의 원격 CI 한 번만 사용한다.
+
+이 기록 시점 상태는 `LOCAL_IMPLEMENTED_AWAITING_COMMIT_PR_CI`다. 사용자는 Change 007의 commit·push·PR·필수 CI·main merge와 migration/backfill/app 재배포를 명시 승인했다. 실제 배포 완료 여부는 Azure Change 032 결과로 갱신한다.

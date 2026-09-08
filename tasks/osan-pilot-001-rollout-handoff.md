@@ -58,3 +58,9 @@ OSAN-REVIEW-003의 오입력 신고·담당자·변경 금지 안내를 [통합 
 Backend `582/582`, Frontend `297/297`, mock browser `13/13`, Full-Stack `66/66`과 Bicep·ARM·release mock·workflow 정적 검증을 통과했다. 일반 Full-Stack `64`건과 별도 3-DB business-unit/Osan 시나리오 `2`건을 CI에서도 같은 경계로 실행하도록 정렬했다. 실제 Azure mutation은 없으며 Draft PR·필수 CI 다음에 selector 사용자 검수와 exact `main` merge 승인 Gate가 남는다.
 
 위 수치는 PR #121 exact head `11c1185ea9c550022e3f70d106e06a1c6bc517b1`의 Change 031 역사적 결과다. Change 003·004의 새 증거로 재사용하지 않는다. Change 003·004 사용자 검수는 완료됐으며 다음 순서는 기록 commit → 최신 `origin/main` 정합성 확인 → 승인된 non-force push로 PR #121 갱신 → 최종 remote CI/회귀 1회 → exact `main` merge 승인 대기다. Exact `main` merge 전에는 Azure와 운영 DB를 변경하지 않는다.
+
+## 2026-09-08 phase-1 공개와 Change 007 hotfix
+
+PR #121은 exact main `b405a9cb653aa56b1049a7e7595a2e232044b42d`로 병합됐고 release run `34181334545`에서 Directory/Cheongju/Osan migration, 기존 Cheongju membership backfill과 Backend·Frontend 공개 전환이 완료됐다. Directory `0001..0003`, 두 business `0001..0087`, 14일 PITR·logical/PITR restore, 세 DB role/no-fallback과 공개 보안 검증이 통과했다. 오산 external provider/worker는 계속 off이며 synthetic 운영 project는 만들지 않았다.
+
+운영 사용자 검수에서 기존 계정 표시와 총괄의 두 사업부 접근이 불완전한 결함을 확인했다. `TASK-OSAN-ACCESS-001 Change 007`은 이름·계정 ID의 identity-bound 병합, 한 저장의 총괄 지정, 복수·마지막 총괄 보호, 두 local System Administrator profile과 membership, 실제 selector를 보정한다. 일반 사용자의 한 사업부 규칙, DB 분리와 Cheongju 데이터는 유지한다. Hotfix는 PR #122의 final CI와 exact main merge 뒤 Directory `0004`→overall backfill→Backend→Frontend 순서로 배포한다.

@@ -1042,6 +1042,7 @@ export async function updateBusinessUnitUserAccess(
   userId: string,
   operationId: string,
   expectedVersion: number,
+  isOverallAdministrator: boolean,
   profiles: UpdateBusinessUnitUserAccessProfile[]
 ): Promise<BusinessUnitUserAccessUpdateResponse> {
   return fetchJson<BusinessUnitUserAccessUpdateResponse>(
@@ -1049,7 +1050,7 @@ export async function updateBusinessUnitUserAccess(
     developmentUserKey,
     {
       method: 'PUT',
-      body: JSON.stringify({ operationId, expectedVersion, profiles })
+      body: JSON.stringify({ operationId, expectedVersion, isOverallAdministrator, profiles })
     }
   );
 }

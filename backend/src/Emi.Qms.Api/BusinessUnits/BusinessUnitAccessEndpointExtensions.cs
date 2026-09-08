@@ -109,6 +109,8 @@ public static class BusinessUnitAccessEndpointExtensions
         "role_not_found" => "선택한 사업부에 없는 역할이 포함되어 있습니다.",
         "business_unit_users_manage_required" => "해당 사업부의 사용자 관리 권한이 필요합니다.",
         "ordinary_user_multiple_memberships_forbidden" => "일반 사용자는 한 사업부에만 소속될 수 있습니다.",
+        "last_overall_administrator" => "마지막 총괄 관리자는 해제할 수 없습니다.",
+        "overall_administrator_department_missing" => "총괄 관리자를 위한 관리 부서를 준비할 수 없습니다.",
         "user_access_version_conflict" or "user_access_operation_in_progress" =>
             "다른 변경이 먼저 반영되었습니다. 목록을 새로 불러온 뒤 다시 저장해 주세요.",
         "user_access_idempotency_mismatch" => "같은 작업 번호로 다른 내용을 저장할 수 없습니다.",

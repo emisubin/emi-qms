@@ -1,6 +1,7 @@
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ReviewSafe;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace Emi.Qms.Api.BusinessUnits;
 
@@ -47,6 +48,17 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("One or more approved backfill identities were not active Cheongju identities.");
         }
 
+        if (identities.Any(identity => overallAdministratorIds.Contains(identity.UserId) && !identity.IsSystemAdministrator))
+        {
+            throw new InvalidOperationException("Every approved overall administrator must already be a Cheongju system administrator.");
+        }
+
+        var osan = businessUnits.GetBusiness(BusinessUnitCodes.Osan);
+        foreach (var identity in identities.Where(identity => overallAdministratorIds.Contains(identity.UserId)))
+        {
+            await EnsureOverallAdministratorProfileAsync(osan, identity, cancellationToken);
+        }
+
         var directoryConnectionString = connectionStringProvider.GetConnectionString(
             businessUnits.Directory,
             BusinessUnitConnectionPurpose.Migration);
@@ -71,11 +83,13 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 identityCommand.Transaction = transaction;
                 identityCommand.CommandText = """
                     insert into directory_identities (
-                        user_id, auth_provider, external_subject, is_active)
-                    values (@user_id, @auth_provider, @external_subject, true)
+                        user_id, auth_provider, external_subject, display_name, email, is_active)
+                    values (@user_id, @auth_provider, @external_subject, @display_name, @email, true)
                     on conflict (user_id) do update
                     set auth_provider = excluded.auth_provider,
                         external_subject = excluded.external_subject,
+                        display_name = excluded.display_name,
+                        email = excluded.email,
                         is_active = true,
                         updated_at_utc = now()
                     where directory_identities.auth_provider = excluded.auth_provider
@@ -84,6 +98,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 identityCommand.Parameters.AddWithValue("user_id", identity.UserId);
                 identityCommand.Parameters.AddWithValue("auth_provider", identity.AuthProvider);
                 identityCommand.Parameters.AddWithValue("external_subject", identity.ExternalSubject);
+                identityCommand.Parameters.AddWithValue("display_name", identity.DisplayName);
+                identityCommand.Parameters.Add(new NpgsqlParameter("email", NpgsqlDbType.Text)
+                {
+                    Value = identity.Email is null ? DBNull.Value : identity.Email
+                });
                 if (await identityCommand.ExecuteNonQueryAsync(cancellationToken) != 1)
                 {
                     throw new InvalidOperationException("Approved identity conflicts with the existing directory identity.");
@@ -96,22 +115,31 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 membershipCommand.CommandText = """
                     insert into directory_business_unit_memberships (
                         user_id, business_unit_code, is_active)
-                    values (@user_id, 'CHEONGJU', true)
+                    select @user_id, business_unit_code, true
+                    from unnest(@business_unit_codes) business_unit_code
                     on conflict (user_id, business_unit_code) do update
                     set is_active = true,
-                        updated_at_utc = now();
+                        updated_at_utc = now()
+                    where directory_business_unit_memberships.is_active = false;
                     """;
                 membershipCommand.Parameters.AddWithValue("user_id", identity.UserId);
-                await membershipCommand.ExecuteNonQueryAsync(cancellationToken);
+                membershipCommand.Parameters.AddWithValue(
+                    "business_unit_codes",
+                    NpgsqlDbType.Array | NpgsqlDbType.Text,
+                    overallAdministratorIds.Contains(identity.UserId)
+                        ? new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan }
+                        : new[] { BusinessUnitCodes.Cheongju });
+                if (await membershipCommand.ExecuteNonQueryAsync(cancellationToken) > 0)
+                {
+                    await AppendAuditAsync(
+                        directoryConnection,
+                        transaction,
+                        identity.UserId,
+                        null,
+                        "MembershipBackfilled",
+                        cancellationToken);
+                }
             }
-
-            await AppendAuditAsync(
-                directoryConnection,
-                transaction,
-                identity.UserId,
-                BusinessUnitCodes.Cheongju,
-                "MembershipBackfilled",
-                cancellationToken);
 
             if (overallAdministratorIds.Contains(identity.UserId))
             {
@@ -122,17 +150,20 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                     values (@user_id, true)
                     on conflict (user_id) do update
                     set is_active = true,
-                        updated_at_utc = now();
+                        updated_at_utc = now()
+                    where directory_overall_administrators.is_active = false;
                     """;
                 administratorCommand.Parameters.AddWithValue("user_id", identity.UserId);
-                await administratorCommand.ExecuteNonQueryAsync(cancellationToken);
-                await AppendAuditAsync(
-                    directoryConnection,
-                    transaction,
-                    identity.UserId,
-                    null,
-                    "OverallAdministratorDesignated",
-                    cancellationToken);
+                if (await administratorCommand.ExecuteNonQueryAsync(cancellationToken) > 0)
+                {
+                    await AppendAuditAsync(
+                        directoryConnection,
+                        transaction,
+                        identity.UserId,
+                        null,
+                        "OverallAdministratorDesignated",
+                        cancellationToken);
+                }
             }
         }
 
@@ -169,7 +200,13 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         command.CommandText = """
             select id,
                    auth_provider,
-                   case when auth_provider = 'EntraId' then entra_object_id else development_user_key end
+                   case when auth_provider = 'EntraId' then entra_object_id else development_user_key end,
+                   display_name,
+                   email,
+                   exists (
+                       select 1 from user_roles user_role
+                       join roles role on role.id = user_role.role_id
+                       where user_role.user_id = qms_users.id and role.code = 'system-administrator')
             from qms_users
             where id = any(@approved_user_ids)
               and is_active = true
@@ -181,7 +218,9 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            identities.Add(new BackfillIdentity(reader.GetGuid(0), reader.GetString(1), reader.GetString(2)));
+            identities.Add(new BackfillIdentity(
+                reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5)));
         }
         return identities;
     }
@@ -229,5 +268,88 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private sealed record BackfillIdentity(Guid UserId, string AuthProvider, string ExternalSubject);
+    private async Task EnsureOverallAdministratorProfileAsync(
+        BusinessUnitDatabaseTarget target,
+        BackfillIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = connectionStringProvider.GetConnectionString(
+            target,
+            BusinessUnitConnectionPurpose.Migration);
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken)
+            || !(await migrationLedgerInspector.InspectAsync(connection, cancellationToken)).MigrationLedgerReady)
+        {
+            throw new InvalidOperationException("Overall administrator target database is not ready for backfill.");
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var identityCommand = connection.CreateCommand())
+        {
+            identityCommand.Transaction = transaction;
+            identityCommand.CommandText = """
+                insert into qms_users (
+                    id, development_user_key, display_name, department_id, is_active,
+                    entra_object_id, email, auth_provider, is_department_head)
+                select @user_id, @development_user_key, @display_name, department.id, true,
+                       @entra_object_id, @email, @auth_provider, false
+                from departments department
+                where department.code = 'administration' and department.is_active = true
+                on conflict (id) do update
+                set display_name = excluded.display_name,
+                    email = excluded.email,
+                    is_active = true,
+                    deletion_requested_at_utc = null,
+                    scheduled_hard_delete_at_utc = null,
+                    purge_blocked_at_utc = null,
+                    purge_blocked_reason = null,
+                    pre_delete_is_active = null
+                where qms_users.auth_provider = excluded.auth_provider
+                  and coalesce(qms_users.entra_object_id, qms_users.development_user_key)
+                      = coalesce(excluded.entra_object_id, excluded.development_user_key);
+                """;
+            identityCommand.Parameters.AddWithValue("user_id", identity.UserId);
+            identityCommand.Parameters.AddWithValue(
+                "development_user_key",
+                identity.AuthProvider == QmsAuthProviders.EntraId
+                    ? $"entra:{identity.ExternalSubject}"
+                    : identity.ExternalSubject);
+            identityCommand.Parameters.AddWithValue("display_name", identity.DisplayName);
+            identityCommand.Parameters.Add(new NpgsqlParameter("entra_object_id", NpgsqlDbType.Text)
+            {
+                Value = identity.AuthProvider == QmsAuthProviders.EntraId ? identity.ExternalSubject : DBNull.Value
+            });
+            identityCommand.Parameters.Add(new NpgsqlParameter("email", NpgsqlDbType.Text)
+            {
+                Value = identity.Email is null ? DBNull.Value : identity.Email
+            });
+            identityCommand.Parameters.AddWithValue("auth_provider", identity.AuthProvider);
+            if (await identityCommand.ExecuteNonQueryAsync(cancellationToken) != 1)
+            {
+                throw new InvalidOperationException("Overall administrator identity conflicts with the target business database.");
+            }
+        }
+
+        await using (var roleCommand = connection.CreateCommand())
+        {
+            roleCommand.Transaction = transaction;
+            roleCommand.CommandText = """
+                insert into user_roles (user_id, role_id)
+                select @user_id, role.id from roles role where role.code = 'system-administrator'
+                on conflict do nothing;
+                """;
+            roleCommand.Parameters.AddWithValue("user_id", identity.UserId);
+            await roleCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private sealed record BackfillIdentity(
+        Guid UserId,
+        string AuthProvider,
+        string ExternalSubject,
+        string DisplayName,
+        string? Email,
+        bool IsSystemAdministrator);
 }

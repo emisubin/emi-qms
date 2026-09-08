@@ -225,7 +225,7 @@ public sealed class BusinessUnitIsolationTests
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration"],
+            ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration", "0004_overall_administrator_access"],
             await databases.ReadColumnAsync(
                 "DIRECTORY",
                 BusinessUnitConnectionPurpose.Migration,
@@ -247,6 +247,47 @@ public sealed class BusinessUnitIsolationTests
                 inspector,
                 directoryCatalog)
             .ApplyAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            2L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"select count(*) from directory_business_unit_memberships where user_id = '{AdminUserId:D}' and is_active = true;",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select count(*)
+                from qms_users user_account
+                join user_roles user_role on user_role.user_id = user_account.id
+                join roles role on role.id = user_role.role_id
+                where user_account.id = '{AdminUserId:D}'
+                  and user_account.is_active = true
+                  and role.code = 'system-administrator';
+                """,
+                TestContext.Current.CancellationToken));
+        var backfillAuditCount = await databases.ReadScalarAsync<long>(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from directory_membership_audit_events;",
+            TestContext.Current.CancellationToken);
+        await new BusinessUnitMembershipBackfillRunner(
+                provider,
+                databases.Configuration,
+                NullLogger<BusinessUnitMembershipBackfillRunner>.Instance,
+                inspector,
+                directoryCatalog)
+            .ApplyAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            backfillAuditCount,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from directory_membership_audit_events;",
+                TestContext.Current.CancellationToken));
         await PrepareDirectoryAndBusinessFixturesAsync(databases);
 
         using var factory = QmsWebApplicationFactory.Create(
@@ -270,7 +311,7 @@ public sealed class BusinessUnitIsolationTests
     }
 
     [Fact]
-    public async Task UnifiedUserAccess_ExistingDirectory0001And0002_Applies0003Only()
+    public async Task OverallAdministratorAccess_ExistingDirectory0001Through0003_Applies0004Only()
     {
         await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
         var environment = new TestEnvironment(databases.RepositoryRoot);
@@ -285,7 +326,7 @@ public sealed class BusinessUnitIsolationTests
         await ApplyDirectoryMigrationPrefixAsync(
             databases,
             directoryCatalog,
-            count: 2,
+            count: 3,
             TestContext.Current.CancellationToken);
         await new DatabaseMigrationRunner(
                 new DatabaseConnectionStringProvider(databases.Configuration),
@@ -296,7 +337,7 @@ public sealed class BusinessUnitIsolationTests
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration"],
+            ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration", "0004_overall_administrator_access"],
             await databases.ReadColumnAsync(
                 "DIRECTORY",
                 BusinessUnitConnectionPurpose.Migration,
@@ -308,6 +349,13 @@ public sealed class BusinessUnitIsolationTests
                 "DIRECTORY",
                 BusinessUnitConnectionPurpose.Migration,
                 "select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'directory_identities' and column_name = 'access_version';",
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            2L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'directory_user_access_operations' and column_name in ('requested_is_overall_administrator', 'overall_administrator_before');",
                 TestContext.Current.CancellationToken));
         Assert.Equal(
             BusinessUnitConfiguration.DirectorySchemaVersion,
@@ -881,7 +929,9 @@ public sealed class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             $"""
             insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
-            values ('{AdminUserId:D}', 'OSAN', true);
+            values ('{AdminUserId:D}', 'OSAN', true)
+            on conflict (user_id, business_unit_code) do update
+            set is_active = true, updated_at_utc = now();
 
             insert into directory_identities (user_id, auth_provider, external_subject, is_active)
             values
@@ -1000,6 +1050,9 @@ public sealed class BusinessUnitIsolationTests
             var body = await response.Content.ReadFromJsonAsync<MembershipSnapshotResponse>(
                 cancellationToken: TestContext.Current.CancellationToken);
             Assert.Contains(body!.Users, user => user.UserId == AdminUserId && user.IsOverallAdministrator);
+            Assert.Contains(body.Users, user => user.UserId == LocalProfileUserId
+                && user.DisplayName == "Cheongju Local Profile"
+                && user.AccountId == "local-profile@example.invalid");
             Assert.Contains(
                 body.Users,
                 user => user.UserId == CollisionUserId
@@ -1393,6 +1446,9 @@ public sealed class BusinessUnitIsolationTests
             var body = await response.Content.ReadFromJsonAsync<MembershipSnapshotResponse>(
                 cancellationToken: TestContext.Current.CancellationToken);
             Assert.Contains(body!.Users, user => user.UserId == AdminUserId && user.IsOverallAdministrator);
+            Assert.Contains(body.Users, user => user.UserId == LocalProfileUserId
+                && user.DisplayName == "Cheongju Local Profile"
+                && user.AccountId == "local-profile@example.invalid");
             Assert.Contains(body.Users, user => user.UserId == CollisionUserId
                 && user.DisplayName == "Microsoft 365 사용자 (정보 확인 필요)");
             Assert.DoesNotContain(
@@ -1496,16 +1552,18 @@ public sealed class BusinessUnitIsolationTests
         }
 
         var overallTargetId = Guid.NewGuid();
+        var secondOverallTargetId = Guid.NewGuid();
         await databases.ExecuteAsync(
             "DIRECTORY",
             BusinessUnitConnectionPurpose.Migration,
             $"""
             insert into directory_identities (
                 user_id, auth_provider, external_subject, display_name, email, is_active)
-            values ('{overallTargetId:D}', 'EntraId', 'overall-target-subject',
-                    'Synthetic Overall Target', 'overall@example.invalid', true);
-            insert into directory_overall_administrators (user_id, is_active)
-            values ('{overallTargetId:D}', true);
+            values
+                ('{overallTargetId:D}', 'EntraId', 'overall-target-subject',
+                 'Synthetic Overall Target', 'overall@example.invalid', true),
+                ('{secondOverallTargetId:D}', 'EntraId', 'second-overall-target-subject',
+                 'Synthetic Second Overall Target', 'second-overall@example.invalid', true);
             """,
             TestContext.Current.CancellationToken);
         var overallUpdate = await SendUserAccessUpdateAsync(
@@ -1514,8 +1572,135 @@ public sealed class BusinessUnitIsolationTests
             Guid.NewGuid(),
             0,
             [Profile(BusinessUnitCodes.Cheongju, "system-administrator"),
-             Profile(BusinessUnitCodes.Osan, "system-administrator")]);
-        Assert.Equal(2, overallUpdate.Snapshot.Users.Single(user => user.UserId == overallTargetId).Memberships.Count);
+             Profile(BusinessUnitCodes.Osan, "system-administrator")],
+            isOverallAdministrator: true);
+        var overallUser = overallUpdate.Snapshot.Users.Single(user => user.UserId == overallTargetId);
+        Assert.True(overallUser.IsOverallAdministrator);
+        Assert.Equal(2, overallUser.Memberships.Count);
+        Assert.Equal(
+            2L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from directory_overall_administrators where is_active = true;",
+                TestContext.Current.CancellationToken));
+        var secondOverallUpdate = await SendUserAccessUpdateAsync(
+            client,
+            secondOverallTargetId,
+            Guid.NewGuid(),
+            0,
+            [Profile(BusinessUnitCodes.Cheongju, "system-administrator"),
+             Profile(BusinessUnitCodes.Osan, "system-administrator")],
+            isOverallAdministrator: true);
+        Assert.True(secondOverallUpdate.Snapshot.Users.Single(
+            user => user.UserId == secondOverallTargetId).IsOverallAdministrator);
+        Assert.Equal(
+            3L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                "select count(*) from directory_overall_administrators where is_active = true;",
+                TestContext.Current.CancellationToken));
+        foreach (var businessUnit in new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
+        {
+            Assert.Equal(
+                1L,
+                await databases.ReadScalarAsync<long>(
+                    businessUnit,
+                    BusinessUnitConnectionPurpose.Migration,
+                    $"""
+                    select count(*) from qms_users user_account
+                    join user_roles user_role on user_role.user_id = user_account.id
+                    join roles role on role.id = user_role.role_id
+                    where user_account.id = '{overallTargetId:D}'
+                      and user_account.is_active = true
+                      and role.code = 'system-administrator';
+                    """,
+                    TestContext.Current.CancellationToken));
+            Assert.True(await databases.ReadScalarAsync<bool>(
+                businessUnit,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select not exists (
+                    select 1
+                    from unnest(array[
+                        'projects.read', 'projects.manage', 'projects.access.all', 'Project.Read.All',
+                        'production.plan', 'manufacturing.update', 'quality.inspect', 'quality.approve',
+                        'logistics.ship', 'users.manage']) required_permission(code)
+                    where not exists (
+                        select 1
+                        from user_roles user_role
+                        join role_permissions role_permission on role_permission.role_id = user_role.role_id
+                        join permissions permission on permission.id = role_permission.permission_id
+                        where user_role.user_id = '{overallTargetId:D}'
+                          and permission.code = required_permission.code));
+                """,
+                TestContext.Current.CancellationToken));
+        }
+
+        var removeOverallOperation = Guid.NewGuid();
+        var removeOverall = await SendUserAccessUpdateAsync(
+            client,
+            overallTargetId,
+            removeOverallOperation,
+            1,
+            [Profile(BusinessUnitCodes.Cheongju, "sales"), InactiveProfile(BusinessUnitCodes.Osan)]);
+        var removedOverallUser = removeOverall.Snapshot.Users.Single(user => user.UserId == overallTargetId);
+        Assert.False(removedOverallUser.IsOverallAdministrator);
+        Assert.Equal([BusinessUnitCodes.Cheongju], removedOverallUser.Memberships);
+        Assert.Equal(
+            1L,
+            await databases.ReadScalarAsync<long>(
+                "DIRECTORY",
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select count(*)
+                from directory_membership_audit_events
+                where correlation_id = '{removeOverallOperation:D}'
+                  and action = 'OverallAdministratorChanged';
+                """,
+                TestContext.Current.CancellationToken));
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            update directory_overall_administrators
+            set is_active = false
+            where user_id = '{secondOverallTargetId:D}';
+            update directory_business_unit_memberships
+            set is_active = false
+            where user_id = '{secondOverallTargetId:D}' and business_unit_code = 'OSAN';
+            """,
+            TestContext.Current.CancellationToken);
+
+        await using (var directoryRuntime = await databases.OpenAsync(
+                         "DIRECTORY",
+                         BusinessUnitConnectionPurpose.Runtime,
+                         TestContext.Current.CancellationToken))
+        {
+            var lastOverall = await Assert.ThrowsAsync<PostgresException>(async () =>
+            {
+                await using var command = directoryRuntime.CreateCommand();
+                command.CommandText = """
+                    select * from begin_directory_user_access_operation(
+                        @operation_id, @target_user_id, @memberships, @actor_user_id,
+                        @expected_version, @request_hash, @profiles, false);
+                    """;
+                command.Parameters.AddWithValue("operation_id", Guid.NewGuid());
+                command.Parameters.AddWithValue("target_user_id", AdminUserId);
+                command.Parameters.AddWithValue(
+                    "memberships",
+                    NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text,
+                    new[] { BusinessUnitCodes.Cheongju });
+                command.Parameters.AddWithValue("actor_user_id", AdminUserId);
+                command.Parameters.AddWithValue("expected_version", 0L);
+                command.Parameters.AddWithValue("request_hash", new string('a', 64));
+                command.Parameters.AddWithValue("profiles", NpgsqlTypes.NpgsqlDbType.Jsonb, "[]");
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            });
+            Assert.Equal("last_overall_administrator", lastOverall.MessageText);
+        }
 
         var revokeOperation = Guid.NewGuid();
         var revoke = await SendUserAccessUpdateAsync(
@@ -2002,13 +2187,14 @@ public sealed class BusinessUnitIsolationTests
         Guid userId,
         Guid operationId,
         long expectedVersion,
-        IReadOnlyCollection<UserAccessProfileRequest> profiles)
+        IReadOnlyCollection<UserAccessProfileRequest> profiles,
+        bool isOverallAdministrator = false)
     {
         var request = Request(
             HttpMethod.Put,
             $"/api/admin/user-access/users/{userId:D}/access",
             "dev-admin");
-        request.Content = JsonContent.Create(new { operationId, expectedVersion, profiles });
+        request.Content = JsonContent.Create(new { operationId, expectedVersion, isOverallAdministrator, profiles });
         return request;
     }
 
@@ -2017,9 +2203,11 @@ public sealed class BusinessUnitIsolationTests
         Guid userId,
         Guid operationId,
         long expectedVersion,
-        IReadOnlyCollection<UserAccessProfileRequest> profiles)
+        IReadOnlyCollection<UserAccessProfileRequest> profiles,
+        bool isOverallAdministrator = false)
     {
-        using var request = CreateUserAccessUpdateRequest(userId, operationId, expectedVersion, profiles);
+        using var request = CreateUserAccessUpdateRequest(
+            userId, operationId, expectedVersion, profiles, isOverallAdministrator);
         var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.True(
@@ -3573,6 +3761,7 @@ public sealed class BusinessUnitIsolationTests
         Guid UserId,
         string AuthProvider,
         string DisplayName,
+        string? AccountId,
         string? Email,
         IReadOnlyList<string> Memberships,
         bool IsOverallAdministrator,

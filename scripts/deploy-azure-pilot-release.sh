@@ -383,7 +383,7 @@ if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
     --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
     --container-name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
     --image "${BACKEND_RELEASE_IMAGE}" \
-    --args '--inspect-business-unit-membership-backfill' \
+    --args=--inspect-business-unit-membership-backfill \
     --query name)" || membership_backfill_inspection_execution=''
   if [[ -z "${membership_backfill_inspection_execution}" \
     || "${membership_backfill_inspection_execution}" =~ [[:space:]] ]] \

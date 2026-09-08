@@ -46,7 +46,7 @@ for ((index = 1; index <= $#; index++)); do
       next=$((index + 1))
       revision="${!next}"
       ;;
-    --inspect-business-unit-membership-backfill)
+    --args=--inspect-business-unit-membership-backfill)
       inspection='true'
       ;;
   esac

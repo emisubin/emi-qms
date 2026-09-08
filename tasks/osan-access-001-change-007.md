@@ -94,6 +94,7 @@ Frontend targeted 명령의 argument 전달을 잘못해 의도하지 않은 전
 
 ## Git·배포 상태
 
-- 이 문서 시점에는 제품 변경을 local commit으로 고정하기 전이다. Commit 뒤 PR #122에 non-force push하고 필수 CI가 전부 통과한 exact head만 `main`에 병합한다.
-- 현재 운영은 최초 오산 phase-1 release source `b405a9cb653aa56b1049a7e7595a2e232044b42d`다. Directory `0004`, 기존 총괄 보정과 새 app image는 Change007 merge SHA에서 migration→backfill→Backend→Frontend 순서로 적용한다.
-- Hotfix 실패 시 현재 Backend/Frontend immutable digest로 되돌리고 Directory `0004`는 additive로 남긴 채 forward-fix한다. 기존 Cheongju 데이터와 일반 사용자 권한은 변경하지 않는다.
+- 제품 commit `3d337c69bb225e324fc8a2339e18f68420d0c63d`를 PR #122로 게시했고 CI run `34186728030`의 필수 check가 모두 통과했다. 승인된 squash merge의 exact main은 `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`이다.
+- Azure release run `34188740914`에서 Directory `0004`→기존 총괄 backfill→Backend→Frontend→public security smoke가 모두 통과했다. 기존 총괄 `3`명은 두 active membership과 두 local System Administrator profile을 가지며 ordinary dual membership은 `0`이다.
+- 실제 로그인된 새 공개 세션에서 사용자 이름·계정 ID `23`행, 총괄 checkbox `3`개, 우측 상단 selector와 청주↔오산 전환, 양쪽 조회·입력 화면을 확인했다. 실제 업무 record와 사용자 권한은 변경하지 않았다.
+- Application rollback은 최초 phase-1 immutable digest로 가능하다. Directory `0004`는 additive로 남기고 forward-fix하며 기존 Cheongju 데이터와 일반 사용자 권한을 보존한다.

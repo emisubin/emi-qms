@@ -344,9 +344,7 @@ public static class IdentityEndpointExtensions
     }
 
     private static bool IsApprovalPending(UserAuthorizationProfile profile)
-        => profile.User.AuthProvider == QmsAuthProviders.EntraId
-            && profile.User.IsActive
-            && profile.Roles.Count == 0;
+        => ApprovalReadinessPolicy.IsApprovalPending(profile);
 
     private static AdminBulkActionResponse ToSingleBulkActionResponse(Guid id, AdminPurgeActionResult result)
     {
@@ -490,9 +488,7 @@ public sealed record CurrentUserResponse(
 
     private static bool IsApprovalPending(UserAuthorizationProfile profile)
     {
-        return profile.User.AuthProvider == QmsAuthProviders.EntraId
-            && profile.User.IsActive
-            && profile.Roles.Count == 0;
+        return ApprovalReadinessPolicy.IsApprovalPending(profile);
     }
 }
 

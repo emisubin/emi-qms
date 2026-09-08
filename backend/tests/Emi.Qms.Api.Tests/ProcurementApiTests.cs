@@ -1116,7 +1116,7 @@ public sealed class ProcurementApiTests
         foreach (var userKey in new[]
         {
             "dev-sales", "dev-design", "dev-production", "dev-manufacturing",
-            "dev-quality", "dev-logistics", "dev-viewer", "dev-admin"
+            "dev-quality", "dev-logistics", "dev-viewer"
         })
         {
             using var client = context.CreateClient(userKey);
@@ -1130,7 +1130,7 @@ public sealed class ProcurementApiTests
         foreach (var userKey in new[]
         {
             "dev-sales", "dev-design", "dev-materials", "dev-production",
-            "dev-manufacturing", "dev-quality", "dev-logistics", "dev-viewer", "dev-admin"
+            "dev-manufacturing", "dev-quality", "dev-logistics", "dev-viewer"
         })
         {
             using var client = context.CreateClient(userKey);
@@ -1166,7 +1166,7 @@ public sealed class ProcurementApiTests
             Assert.Equal(HttpStatusCode.BadRequest, receipt.StatusCode);
         }
 
-        foreach (var userKey in new[] { "dev-sales", "dev-design", "dev-manufacturing", "dev-quality", "dev-viewer", "dev-admin" })
+        foreach (var userKey in new[] { "dev-sales", "dev-design", "dev-manufacturing", "dev-quality", "dev-viewer" })
         {
             using var client = context.CreateClient(userKey);
             var denied = await client.PatchAsJsonAsync(
@@ -2566,7 +2566,14 @@ public sealed class ProcurementApiTests
             },
             TestContext.Current.CancellationToken);
 
-        foreach (var deniedClient in new[] { materialsClient, salesClient, adminClient })
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await adminClient.GetAsync($"/api/projects/{projectId}/procurement/import/template", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await adminClient.GetAsync("/api/procurement/import/template", TestContext.Current.CancellationToken)).StatusCode);
+
+        foreach (var deniedClient in new[] { materialsClient, salesClient })
         {
             var denied = await deniedClient.GetAsync($"/api/projects/{projectId}/procurement/import/template", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
@@ -2711,11 +2718,11 @@ public sealed class ProcurementApiTests
         Assert.DoesNotContain(settings.RootElement.EnumerateArray(), item => item.GetProperty("itemCode").GetString() == "RRP");
         Assert.DoesNotContain(settings.RootElement.EnumerateArray(), item => item.GetProperty("itemCode").GetString() == "TEST-TYPE");
 
-        var deniedAdmin = await adminClient.PatchAsJsonAsync(
+        var administratorUpdate = await adminClient.PatchAsJsonAsync(
             "/api/procurement/settings/required-items/UL67",
-            new { reason = "admin denied", rows = new[] { new { sequenceNumber = 1, itemName = "차단기", isRequired = true, isActive = true } } },
+            new { reason = "administrator update", rows = new[] { new { sequenceNumber = 1, itemName = "차단기", isRequired = true, isActive = true } } },
             TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.Forbidden, deniedAdmin.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, administratorUpdate.StatusCode);
 
         var deniedViewer = await viewerClient.PatchAsJsonAsync(
             "/api/procurement/settings/required-items/UL67",
@@ -2856,7 +2863,7 @@ public sealed class ProcurementApiTests
                 Assert.False(panel.GetProperty("selectable").GetBoolean()));
         }
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PostAsJsonAsync(
+        Assert.Equal(HttpStatusCode.BadRequest, (await adminClient.PostAsJsonAsync(
             "/api/materials/kitting/complete",
             new { operationId = Guid.NewGuid(), projectId, panelIds = new[] { Guid.NewGuid() } },
             TestContext.Current.CancellationToken)).StatusCode);

@@ -2262,7 +2262,8 @@ function QmsAppShellContent({
   const canManagePending = permissions.includes('Pending.Manage');
   const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
-  const canViewSalesProjectTab = user?.effectiveUser.department === 'sales';
+  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
+  const canViewSalesProjectTab = user?.effectiveUser.department === 'sales' || isSystemAdministrator;
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const canReadG2 = permissions.includes('G2.Read');
   const canUpdateG2Production = permissions.includes('G2.Production.Update');
@@ -2270,7 +2271,6 @@ function QmsAppShellContent({
   const canUpdateG2Attendance = permissions.includes('G2.Attendance.Update');
   const canManageG2Inventory = permissions.includes('G2.Inventory.Manage');
   const canManageG2Targets = permissions.includes('G2.Target.Manage');
-  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator
     || businessUnitAccess.isOverallAdministrator;
   const canBrowseOperationalPages = permissions.includes('projects.read');
@@ -4936,11 +4936,17 @@ function BusinessUnitAccessAdministrationPage({
           return {
             ...draft,
             isActive,
-            isDepartmentHead: isActive ? draft.isDepartmentHead : false
+            isDepartmentHead: isActive ? draft.isDepartmentHead : false,
+            isDepartmentHeadConfirmed: isActive ? draft.isDepartmentHeadConfirmed : false
           };
         }
         if (isActive && !(overallAdministratorDrafts[directoryUser.userId] ?? directoryUser.isOverallAdministrator)) {
-          return { ...draft, isActive: false, isDepartmentHead: false };
+          return {
+            ...draft,
+            isActive: false,
+            isDepartmentHead: false,
+            isDepartmentHeadConfirmed: false
+          };
         }
         return draft;
       })
@@ -4965,22 +4971,32 @@ function BusinessUnitAccessAdministrationPage({
     setDrafts((current) => ({
       ...current,
       [directoryUser.userId]: (current[directoryUser.userId] ?? []).map((draft) => {
-        if (!isOverallAdministrator) {
-          return draft.businessUnitCode === selectedCode
-            ? { ...draft, isActive: true }
-            : { ...draft, isActive: false, isDepartmentHead: false };
-        }
         const unit = state.kind === 'ready'
           ? state.data.businessUnits.find((item) => item.code === draft.businessUnitCode)
           : undefined;
+        if (!isOverallAdministrator) {
+          const reconciled = applyIntegratedDepartmentDefaultRole(
+            draft,
+            unit,
+            draft.departmentId,
+            false,
+            false);
+          return draft.businessUnitCode === selectedCode
+            ? { ...reconciled, isActive: true }
+            : { ...reconciled, isActive: false, isDepartmentHead: false, isDepartmentHeadConfirmed: false };
+        }
         const administration = unit?.departments.find((department) => department.code === 'administration');
         const withDepartment = draft.departmentId || !administration
           ? draft
           : applyIntegratedDepartmentDefaultRole(draft, unit, administration.departmentId);
         return {
-          ...withDepartment,
-          isActive: true,
-          roleCodes: [...new Set([...withDepartment.roleCodes, 'system-administrator'])].sort()
+          ...applyIntegratedDepartmentDefaultRole(
+            withDepartment,
+            unit,
+            withDepartment.departmentId,
+            true,
+            false),
+          isActive: true
         };
       })
     }));
@@ -5085,7 +5101,7 @@ function BusinessUnitAccessAdministrationPage({
             </thead>
             <tbody>
               {state.data.users
-                .filter((directoryUser) => filter !== 'approval-pending' || directoryUser.memberships.length === 0)
+                .filter((directoryUser) => filter !== 'approval-pending' || directoryUser.approvalPending)
                 .map((directoryUser) => {
                   const userDrafts = drafts[directoryUser.userId] ?? [];
                   const selectedCode = selectedUnits[directoryUser.userId]
@@ -5116,13 +5132,17 @@ function BusinessUnitAccessAdministrationPage({
                   const hasForbiddenMultipleMemberships = !isOverallAdministrator
                     && userDrafts.filter((draft) => draft.isActive).length > 1;
                   const saving = savingUserIds.includes(directoryUser.userId);
+                  const operationNeedsRetry = directoryUser.pendingOperationStatus === 'RetryRequired'
+                    || (directoryUser.pendingOperationStatus === 'Preparing' && directoryUser.pendingOperationStale);
                   const controlsDisabled = !mutationAllowed || saving || directoryUser.authProvider === 'Dev'
                     || selectedUnit?.canManage !== true;
                   const automaticRoleUnavailable = selectedDraft?.isActive === true
                     && Boolean(selectedDraft.departmentId)
                     && !selectedDepartment?.defaultRoleCode;
-                  const rowIssue = directoryUser.pendingOperationStatus === 'RetryRequired'
+                  const rowIssue = operationNeedsRetry
                     ? '저장 재시도 필요'
+                    : directoryUser.pendingOperationStatus === 'Preparing'
+                      ? '사용자 접근 정보를 저장하고 있습니다.'
                     : automaticRoleUnavailable
                       ? '이 부서는 기본 역할이 없어 저장할 수 없습니다.'
                       : hasForbiddenMultipleMemberships
@@ -5142,7 +5162,7 @@ function BusinessUnitAccessAdministrationPage({
                             <strong>{directoryUser.displayName}</strong>
                             <span>{directoryUser.isOverallAdministrator
                               ? '총괄'
-                              : directoryUser.memberships.length === 0 ? '승인 대기' : '승인됨'}</span>
+                              : directoryUser.approvalPending ? '승인 대기' : '승인됨'}</span>
                           </span>
                           <small>{directoryUser.email
                             ?? directoryUser.accountId
@@ -5163,10 +5183,14 @@ function BusinessUnitAccessAdministrationPage({
                             value={selectedCode}
                             disabled={!mutationAllowed || saving || directoryUser.authProvider === 'Dev'}
                             onChange={(event) => {
+                              const nextCode = event.target.value as BusinessUnitCode;
                               setSelectedUnits((current) => ({
                                 ...current,
-                                [directoryUser.userId]: event.target.value as BusinessUnitCode
+                                [directoryUser.userId]: nextCode
                               }));
+                              if (directoryUser.approvalPending && !isOverallAdministrator) {
+                                changeActive(directoryUser, nextCode, true);
+                              }
                               setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
                             }}
                           >
@@ -5209,7 +5233,8 @@ function BusinessUnitAccessAdministrationPage({
                             disabled={controlsDisabled || !selectedDraft?.isActive || !selectedDraft.departmentId}
                             onChange={(event) => changeDraft(directoryUser, selectedCode, (current) => ({
                               ...current,
-                              isDepartmentHead: event.target.checked
+                              isDepartmentHead: event.target.checked,
+                              isDepartmentHeadConfirmed: true
                             }))}
                           />
                         </td>
@@ -5225,17 +5250,18 @@ function BusinessUnitAccessAdministrationPage({
                         <td className="business-unit-access-action-cell">
                           <button
                             type="button"
-                            disabled={!mutationAllowed || (!changed && directoryUser.pendingOperationStatus !== 'RetryRequired')
+                            disabled={!mutationAllowed || (!changed && !operationNeedsRetry)
                               || saving || hasIncompleteActiveProfile || hasForbiddenMultipleMemberships
+                              || (directoryUser.pendingOperationStatus === 'Preparing' && !directoryUser.pendingOperationStale)
                               || directoryUser.authProvider === 'Dev'}
                             title={!mutationAllowed ? mutationDisabledReason ?? undefined : undefined}
                             onClick={() => void save(directoryUser)}
                           >
                             {saving
                               ? '저장 중…'
-                              : directoryUser.pendingOperationStatus === 'RetryRequired'
+                              : operationNeedsRetry
                                 ? '재시도'
-                                : directoryUser.memberships.length === 0 ? '승인' : '저장'}
+                                : directoryUser.approvalPending ? '승인' : '저장'}
                           </button>
                         </td>
                       </tr>
@@ -5259,8 +5285,10 @@ type IntegratedUserAccessDraft = {
   businessUnitCode: BusinessUnitCode;
   departmentId: string | null;
   roleCodes: string[];
+  explicitRoleCodes: string[];
   isActive: boolean;
   isDepartmentHead: boolean;
+  isDepartmentHeadConfirmed: boolean;
 };
 
 function buildIntegratedUserAccessDrafts(snapshot: BusinessUnitAccessAdministrationResponse) {
@@ -5273,8 +5301,10 @@ function buildIntegratedUserAccessDrafts(snapshot: BusinessUnitAccessAdministrat
         businessUnitCode,
         departmentId: pendingProfile?.departmentId ?? profile?.departmentId ?? null,
         roleCodes: [...(pendingProfile?.roleCodes ?? profile?.roles ?? [])],
+        explicitRoleCodes: [...(profile?.explicitRoles ?? [])],
         isActive: pendingProfile?.isActive ?? profile?.membershipActive === true,
-        isDepartmentHead: pendingProfile?.isDepartmentHead ?? profile?.isDepartmentHead === true
+        isDepartmentHead: pendingProfile?.isDepartmentHead ?? profile?.isDepartmentHead === true,
+        isDepartmentHeadConfirmed: pendingProfile?.isDepartmentHeadConfirmed ?? false
       } satisfies IntegratedUserAccessDraft;
     })
   ]));
@@ -5313,22 +5343,22 @@ function buildIntegratedUserAccessSelections(
 function applyIntegratedDepartmentDefaultRole(
   draft: IntegratedUserAccessDraft,
   unit: BusinessUnitAccessAdministrationResponse['businessUnits'][number] | undefined,
-  departmentId: string | null
+  departmentId: string | null,
+  includeOverallAdministratorRole = false,
+  resetDepartmentHead = true
 ) {
-  const protectedRoleCodes = new Set(['system-administrator']);
-  const departmentRoleCodes = new Set((unit?.departments ?? [])
-    .map((department) => department.defaultRoleCode)
-    .filter((roleCode): roleCode is string => Boolean(roleCode)));
-  const preservedRoleCodes = draft.roleCodes.filter((roleCode) => (
-    protectedRoleCodes.has(roleCode) || !departmentRoleCodes.has(roleCode)
-  ));
   const selectedDefaultRoleCode = unit?.departments.find(
     (department) => department.departmentId === departmentId)?.defaultRoleCode ?? null;
+  const managedRoleCodes = [
+    selectedDefaultRoleCode,
+    includeOverallAdministratorRole ? 'system-administrator' : null
+  ].filter((roleCode): roleCode is string => Boolean(roleCode));
   return {
     ...draft,
     departmentId,
-    roleCodes: [...preservedRoleCodes, ...(selectedDefaultRoleCode ? [selectedDefaultRoleCode] : [])].sort(),
-    isDepartmentHead: departmentId ? draft.isDepartmentHead : false
+    roleCodes: [...new Set([...draft.explicitRoleCodes, ...managedRoleCodes])].sort(),
+    isDepartmentHead: resetDepartmentHead ? false : draft.isDepartmentHead,
+    isDepartmentHeadConfirmed: resetDepartmentHead ? false : draft.isDepartmentHeadConfirmed
   };
 }
 
@@ -5599,8 +5629,8 @@ function LocalAdminUsersPage({
 
   const changeDepartment = (departmentId: string) => {
     setDraftDepartmentId(departmentId);
+    setDraftIsDepartmentHead(false);
     if (!departmentId) {
-      setDraftIsDepartmentHead(false);
       return;
     }
 

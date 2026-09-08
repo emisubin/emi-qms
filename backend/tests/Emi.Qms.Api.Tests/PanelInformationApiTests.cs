@@ -306,7 +306,7 @@ public sealed class PanelInformationApiTests
     [Theory]
     [InlineData("dev-sales", HttpStatusCode.OK)]
     [InlineData("dev-production", HttpStatusCode.OK)]
-    [InlineData("dev-admin", HttpStatusCode.Forbidden)]
+    [InlineData("dev-admin", HttpStatusCode.OK)]
     [InlineData("dev-manufacturing", HttpStatusCode.Forbidden)]
     [InlineData("dev-quality", HttpStatusCode.Forbidden)]
     [InlineData("dev-viewer", HttpStatusCode.Forbidden)]
@@ -565,7 +565,6 @@ public sealed class PanelInformationApiTests
     }
 
     [Theory]
-    [InlineData("dev-admin")]
     [InlineData("dev-manufacturing")]
     [InlineData("dev-viewer")]
     public async Task ExcelTemplateDownload_DeniesUsersWithoutPanelInfoUpdate(string developmentUserKey)

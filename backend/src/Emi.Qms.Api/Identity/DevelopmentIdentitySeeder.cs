@@ -451,6 +451,13 @@ public sealed class DevelopmentIdentitySeeder(
           and permissions.code = 'admin-history.read'
           and roles.code <> 'system-administrator';
 
+        insert into role_permissions (role_id, permission_id)
+        select roles.id, permissions.id
+        from roles
+        cross join permissions
+        where roles.code = 'system-administrator'
+        on conflict do nothing;
+
         insert into production_product_types (id, code, name)
         values ('60000000-0000-0000-0000-000000000001', 'TEST-TYPE', 'TEST-TYPE')
         on conflict (code) do update

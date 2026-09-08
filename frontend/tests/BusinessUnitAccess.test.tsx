@@ -41,8 +41,10 @@ function membershipAdministrationResponse(
     departmentCode: active ? 'management-support' : null,
     departmentName: active ? '경영지원' : null,
     roles: active ? ['management-support'] : [],
+    explicitRoles: [] as string[],
     isDepartmentHead: false,
-    canManage
+    canManage,
+    localProfileReady: active
   });
   return {
     users: [
@@ -55,8 +57,10 @@ function membershipAdministrationResponse(
         memberships: ['CHEONGJU', 'OSAN'],
         isOverallAdministrator: true,
         accessVersion: 1,
+        approvalPending: false,
         pendingOperationId: null,
         pendingOperationStatus: null,
+        pendingOperationStale: false,
         pendingFailureCode: null,
         pendingIsOverallAdministrator: null,
         pendingProfiles: [],
@@ -71,8 +75,10 @@ function membershipAdministrationResponse(
         memberships: newUserMemberships,
         isOverallAdministrator: newUserIsOverallAdministrator,
         accessVersion: 0,
+        approvalPending: newUserMemberships.length === 0,
         pendingOperationId: null,
         pendingOperationStatus: null,
+        pendingOperationStale: false,
         pendingFailureCode: null,
         pendingIsOverallAdministrator: null,
         pendingProfiles: [],
@@ -516,6 +522,7 @@ describe('business-unit access shell', () => {
     window.history.replaceState(null, '', '/admin/users');
     const snapshot = membershipAdministrationResponse(['CHEONGJU']);
     snapshot.users[1].profiles[0].roles = ['management-support', 'system-administrator'];
+    snapshot.users[1].profiles[0].explicitRoles = ['system-administrator'];
     const fallbackFetch = shellFetch(selectedUser({
       status: 'selected',
       selectedBusinessUnit: 'CHEONGJU',

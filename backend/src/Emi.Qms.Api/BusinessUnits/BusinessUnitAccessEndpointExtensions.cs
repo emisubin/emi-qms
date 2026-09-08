@@ -106,6 +106,7 @@ public static class BusinessUnitAccessEndpointExtensions
         "business_unit_unknown" => "선택할 수 없는 사업부가 포함되어 있습니다.",
         "active_profile_incomplete" => "활성 사업부에는 부서와 역할을 한 개 이상 지정해 주세요.",
         "department_not_found" => "선택한 사업부에 없는 부서입니다.",
+        "department_default_role_missing" => "선택한 부서의 기본 역할을 확인할 수 없습니다.",
         "role_not_found" => "선택한 사업부에 없는 역할이 포함되어 있습니다.",
         "business_unit_users_manage_required" => "해당 사업부의 사용자 관리 권한이 필요합니다.",
         "ordinary_user_multiple_memberships_forbidden" => "일반 사용자는 한 사업부에만 소속될 수 있습니다.",

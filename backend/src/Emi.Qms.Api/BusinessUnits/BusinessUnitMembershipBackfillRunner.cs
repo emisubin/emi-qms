@@ -48,10 +48,19 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("One or more approved backfill identities were not active Cheongju identities.");
         }
 
-        if (identities.Any(identity => overallAdministratorIds.Contains(identity.UserId) && !identity.IsSystemAdministrator))
+        if (identities.Any(identity => overallAdministratorIds.Contains(identity.UserId)
+                && (!identity.IsSystemAdministrator || !identity.IsReadyForCheongjuMembership)))
         {
             throw new InvalidOperationException("Every approved overall administrator must already be a Cheongju system administrator.");
         }
+
+        var ordinaryProfileRepairs = await ReconcileOrdinaryCheongjuProfilesAsync(
+            cheongju,
+            identities
+                .Where(identity => !overallAdministratorIds.Contains(identity.UserId))
+                .Select(identity => identity.UserId)
+                .ToArray(),
+            cancellationToken);
 
         var osan = businessUnits.GetBusiness(BusinessUnitCodes.Osan);
         foreach (var identity in identities.Where(identity => overallAdministratorIds.Contains(identity.UserId)))
@@ -76,6 +85,8 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         }
         await using var transaction = await directoryConnection.BeginTransactionAsync(cancellationToken);
 
+        var deactivatedMembershipCount = 0;
+        var activatedMembershipCount = 0;
         foreach (var identity in identities)
         {
             await using (var identityCommand = directoryConnection.CreateCommand())
@@ -109,6 +120,69 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 }
             }
 
+            var currentMemberships = new HashSet<string>(StringComparer.Ordinal);
+            await using (var currentMembershipCommand = directoryConnection.CreateCommand())
+            {
+                currentMembershipCommand.Transaction = transaction;
+                currentMembershipCommand.CommandText = """
+                    select business_unit_code
+                    from directory_business_unit_memberships
+                    where user_id = @user_id and is_active = true
+                    order by business_unit_code
+                    for update;
+                    """;
+                currentMembershipCommand.Parameters.AddWithValue("user_id", identity.UserId);
+                await using var reader = await currentMembershipCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    currentMemberships.Add(reader.GetString(0));
+                }
+            }
+
+            if (!overallAdministratorIds.Contains(identity.UserId) && currentMemberships.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    "An ordinary approved identity already has multiple active business-unit memberships.");
+            }
+
+            var desiredMemberships = overallAdministratorIds.Contains(identity.UserId)
+                ? new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan }
+                : currentMemberships.Contains(BusinessUnitCodes.Osan)
+                    ? new[] { BusinessUnitCodes.Osan }
+                    : identity.IsReadyForCheongjuMembership
+                        ? new[] { BusinessUnitCodes.Cheongju }
+                        : [];
+
+            await using (var revokeCommand = directoryConnection.CreateCommand())
+            {
+                revokeCommand.Transaction = transaction;
+                revokeCommand.CommandText = """
+                    update directory_business_unit_memberships
+                    set is_active = false,
+                        updated_at_utc = now()
+                    where user_id = @user_id
+                      and is_active = true
+                      and not (business_unit_code = any(@business_unit_codes));
+                    """;
+                revokeCommand.Parameters.AddWithValue("user_id", identity.UserId);
+                revokeCommand.Parameters.AddWithValue(
+                    "business_unit_codes",
+                    NpgsqlDbType.Array | NpgsqlDbType.Text,
+                    desiredMemberships);
+                var revoked = await revokeCommand.ExecuteNonQueryAsync(cancellationToken);
+                if (revoked > 0)
+                {
+                    deactivatedMembershipCount += revoked;
+                    await AppendAuditAsync(
+                        directoryConnection,
+                        transaction,
+                        identity.UserId,
+                        null,
+                        "AccessRevoked",
+                        cancellationToken);
+                }
+            }
+
             await using (var membershipCommand = directoryConnection.CreateCommand())
             {
                 membershipCommand.Transaction = transaction;
@@ -126,11 +200,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                 membershipCommand.Parameters.AddWithValue(
                     "business_unit_codes",
                     NpgsqlDbType.Array | NpgsqlDbType.Text,
-                    overallAdministratorIds.Contains(identity.UserId)
-                        ? new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan }
-                        : new[] { BusinessUnitCodes.Cheongju });
-                if (await membershipCommand.ExecuteNonQueryAsync(cancellationToken) > 0)
+                    desiredMemberships);
+                var activated = await membershipCommand.ExecuteNonQueryAsync(cancellationToken);
+                if (activated > 0)
                 {
+                    activatedMembershipCount += activated;
                     await AppendAuditAsync(
                         directoryConnection,
                         transaction,
@@ -169,10 +243,143 @@ public sealed class BusinessUnitMembershipBackfillRunner(
 
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation(
-            "Approved Cheongju business-unit memberships were backfilled. IdentityCount={IdentityCount} OverallAdministratorCount={OverallAdministratorCount}.",
+            "Approved business-unit memberships were reconciled. IdentityCount={IdentityCount} OverallAdministratorCount={OverallAdministratorCount} ActivatedMembershipCount={ActivatedMembershipCount} DeactivatedMembershipCount={DeactivatedMembershipCount} NormalizedDepartmentDefaultRoleCount={NormalizedDepartmentDefaultRoleCount} RemovedManagedRoleCount={RemovedManagedRoleCount} ResetDepartmentHeadCount={ResetDepartmentHeadCount}.",
             identities.Count,
-            overallAdministratorIds.Count);
+            overallAdministratorIds.Count,
+            activatedMembershipCount,
+            deactivatedMembershipCount,
+            ordinaryProfileRepairs.NormalizedDepartmentDefaultRoleCount,
+            ordinaryProfileRepairs.RemovedManagedRoleCount,
+            ordinaryProfileRepairs.ResetDepartmentHeadCount);
         return identities.Count;
+    }
+
+    private async Task<LocalProfileRepairSummary> ReconcileOrdinaryCheongjuProfilesAsync(
+        BusinessUnitDatabaseTarget target,
+        IReadOnlyCollection<Guid> userIds,
+        CancellationToken cancellationToken)
+    {
+        if (userIds.Count == 0)
+        {
+            return LocalProfileRepairSummary.Empty;
+        }
+
+        var connectionString = connectionStringProvider.GetConnectionString(
+            target,
+            BusinessUnitConnectionPurpose.Migration);
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken)
+            || !(await migrationLedgerInspector.InspectAsync(
+                connection,
+                cancellationToken)).MigrationLedgerReady)
+        {
+            throw new InvalidOperationException("Cheongju database is not ready for profile reconciliation.");
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        var removedManagedRoleCount = 0;
+        var normalizedDepartmentDefaultRoleCount = 0;
+        var resetDepartmentHeadCount = 0;
+        foreach (var userId in userIds.Order())
+        {
+            await using (var lockCommand = connection.CreateCommand())
+            {
+                lockCommand.Transaction = transaction;
+                lockCommand.CommandText = "select pg_advisory_xact_lock(hashtextextended(@user_id::text, 0));";
+                lockCommand.Parameters.AddWithValue("user_id", userId);
+                await lockCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using (var normalizeDefaultRole = connection.CreateCommand())
+            {
+                normalizeDefaultRole.Transaction = transaction;
+                normalizeDefaultRole.CommandText = """
+                    with profile as (
+                        select default_role.id as default_role_id
+                        from qms_users user_account
+                        join departments department on department.id = user_account.department_id
+                        join roles default_role on default_role.code = case department.code
+                            when 'administration' then 'system-administrator'
+                            when 'sales' then 'sales'
+                            when 'design' then 'design'
+                            when 'production-planning' then 'production-planning'
+                            when 'procurement' then 'procurement'
+                            when 'materials' then 'materials'
+                            when 'manufacturing' then 'manufacturing'
+                            when 'quality' then 'quality'
+                            when 'logistics' then 'logistics'
+                            when 'readonly' then 'read-only'
+                            else null
+                        end
+                        where user_account.id = @user_id
+                    )
+                    update user_roles user_role
+                    set assignment_source = 'department-default'
+                    from profile
+                    where user_role.user_id = @user_id
+                      and user_role.role_id = profile.default_role_id
+                      and user_role.assignment_source <> 'department-default';
+                    """;
+                normalizeDefaultRole.Parameters.AddWithValue("user_id", userId);
+                normalizedDepartmentDefaultRoleCount +=
+                    await normalizeDefaultRole.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using var deleteRoles = connection.CreateCommand();
+            deleteRoles.Transaction = transaction;
+            deleteRoles.CommandText = """
+                with profile as (
+                    select case department.code
+                        when 'administration' then 'system-administrator'
+                        when 'sales' then 'sales'
+                        when 'design' then 'design'
+                        when 'production-planning' then 'production-planning'
+                        when 'procurement' then 'procurement'
+                        when 'materials' then 'materials'
+                        when 'manufacturing' then 'manufacturing'
+                        when 'quality' then 'quality'
+                        when 'logistics' then 'logistics'
+                        when 'readonly' then 'read-only'
+                        else null
+                    end as default_role_code
+                    from qms_users user_account
+                    left join departments department on department.id = user_account.department_id
+                    where user_account.id = @user_id
+                )
+                delete from user_roles user_role
+                using roles role, profile
+                where user_role.user_id = @user_id
+                  and role.id = user_role.role_id
+                  and (
+                      user_role.assignment_source = 'department-default'
+                      or role.code = 'system-administrator')
+                  and role.code is distinct from profile.default_role_code;
+                """;
+            deleteRoles.Parameters.AddWithValue("user_id", userId);
+            var removed = await deleteRoles.ExecuteNonQueryAsync(cancellationToken);
+            if (removed == 0)
+            {
+                continue;
+            }
+
+            removedManagedRoleCount += removed;
+            await using var resetHead = connection.CreateCommand();
+            resetHead.Transaction = transaction;
+            resetHead.CommandText = """
+                update qms_users
+                set is_department_head = false
+                where id = @user_id and is_department_head = true;
+                """;
+            resetHead.Parameters.AddWithValue("user_id", userId);
+            resetDepartmentHeadCount += await resetHead.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return new LocalProfileRepairSummary(
+            normalizedDepartmentDefaultRoleCount,
+            removedManagedRoleCount,
+            resetDepartmentHeadCount);
     }
 
     private async Task<IReadOnlyList<BackfillIdentity>> ReadApprovedCheongjuIdentitiesAsync(
@@ -206,7 +413,29 @@ public sealed class BusinessUnitMembershipBackfillRunner(
                    exists (
                        select 1 from user_roles user_role
                        join roles role on role.id = user_role.role_id
-                       where user_role.user_id = qms_users.id and role.code = 'system-administrator')
+                       where user_role.user_id = qms_users.id and role.code = 'system-administrator'),
+                   qms_users.department_id is not null
+                   and exists (
+                       select 1
+                       from departments department
+                       join roles default_role on default_role.code = case department.code
+                           when 'administration' then 'system-administrator'
+                           when 'sales' then 'sales'
+                           when 'design' then 'design'
+                           when 'production-planning' then 'production-planning'
+                           when 'procurement' then 'procurement'
+                           when 'materials' then 'materials'
+                           when 'manufacturing' then 'manufacturing'
+                           when 'quality' then 'quality'
+                           when 'logistics' then 'logistics'
+                           when 'readonly' then 'read-only'
+                           else null
+                       end
+                       join user_roles default_assignment
+                         on default_assignment.role_id = default_role.id
+                        and default_assignment.user_id = qms_users.id
+                       where department.id = qms_users.department_id
+                         and department.is_active = true)
             from qms_users
             where id = any(@approved_user_ids)
               and is_active = true
@@ -220,7 +449,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         {
             identities.Add(new BackfillIdentity(
                 reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5)));
+                reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetBoolean(5), reader.GetBoolean(6)));
         }
         return identities;
     }
@@ -335,9 +564,14 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         {
             roleCommand.Transaction = transaction;
             roleCommand.CommandText = """
-                insert into user_roles (user_id, role_id)
-                select @user_id, role.id from roles role where role.code = 'system-administrator'
-                on conflict do nothing;
+                insert into user_roles (user_id, role_id, assignment_source)
+                select @user_id, role.id, 'overall-administrator'
+                from roles role where role.code = 'system-administrator'
+                on conflict (user_id, role_id) do update
+                set assignment_source = case
+                    when user_roles.assignment_source = 'explicit' then 'explicit'
+                    else excluded.assignment_source
+                end;
                 """;
             roleCommand.Parameters.AddWithValue("user_id", identity.UserId);
             await roleCommand.ExecuteNonQueryAsync(cancellationToken);
@@ -351,5 +585,17 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         string ExternalSubject,
         string DisplayName,
         string? Email,
-        bool IsSystemAdministrator);
+        bool IsSystemAdministrator,
+        bool IsReadyForCheongjuMembership);
+
+    private sealed record LocalProfileRepairSummary(
+        int NormalizedDepartmentDefaultRoleCount,
+        int RemovedManagedRoleCount,
+        int ResetDepartmentHeadCount)
+    {
+        public static LocalProfileRepairSummary Empty { get; } = new(
+            0,
+            0,
+            0);
+    }
 }

@@ -1103,3 +1103,7 @@ Application 문제는 직전 immutable Backend·Frontend image로 되돌린다. 
 초기 privacy-safe projection은 Directory identity `23`, membership `23`, overall `3`, ordinary dual `0`; Cheongju active user `23`, project `3`, G2 aggregate `137`; Osan active user·project `0`이다. 실제 업무 record는 만들지 않았다.
 
 운영 검수에서 기존 계정 이름·계정 ID와 총괄의 양 사업부 membership/selector 누락을 찾았다. 승인된 `TASK-OSAN-ACCESS-001 Change 007`은 Directory `0004`, 안전한 profile 표시 병합, 총괄 지정/해제와 마지막 총괄 보호, 기존 총괄 Osan profile local-first backfill을 추가한다. 기존 phase-1 digest를 hotfix rollback point로 유지하며 PR #122 CI와 exact main merge 뒤 migration→backfill→Backend→Frontend 순서로 재배포한다.
+
+PR #122 exact head `3d337c69bb225e324fc8a2339e18f68420d0c63d`의 CI run `34186728030`이 통과했고 exact main `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`로 squash merge됐다. Release run `34188740914`는 migration·backfill·Backend·Frontend·public security를 모두 통과했다. 새 Backend는 `sha256:35bf38c3c3997c1106885efd0b8c85ebd251cb148d24a48003c25205b2409175` / `backend--0000039`, Frontend는 `sha256:ed83bf8d075b3cac04a740218e6652074534661a9216387aa8444bcd0d42794d` / `frontend--0000028`이며 Healthy·traffic 100%다.
+
+Post-deploy aggregate는 Directory ledger `4`, identity `23`, membership `26`, overall `3`, overall dual `3`, ordinary dual `0`; Cheongju ledger `87`, active user `23`, System Administrator `3`, project `3`, G2 aggregate `137`; Osan ledger `87`, active user·System Administrator `3`, project `0`이다. 세 DB identity contract는 각각 exact `1`이다. Owned query job은 삭제했다. 실제 새 로그인 세션에서 이름·계정 ID, 총괄 checkbox, selector, 청주↔오산 전환과 Osan project 입력 form을 확인했고 업무 record는 만들지 않았다.

@@ -17,10 +17,14 @@
 - sourceMainSha: `b405a9cb653aa56b1049a7e7595a2e232044b42d`
 - sourcePrHead: `26289cdb4bc67b7612e0c6142107ddeeddbbc2e3`
 - sourceCiRun: `34166105345`
+- hotfixPr: `#122`
+- hotfixMainSha: `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`
+- hotfixCiRun: `34186728030`
+- hotfixReleaseRun: `34188740914`
 - implementationOwnerRequested: `GPT_5_6_SOL_XHIGH_ONLY`
 - implementationOwnerObserved: `NOT_REPORTED`
 - gpt6ReviewProhibitedByUser: `true`
-- status: `IN_PROGRESS`
+- status: `CHANGE_008_LOCAL_VALIDATED_AWAITING_PR_CI_REDEPLOY`
 
 사용자는 이미 병합된 오산 Task 1~3와 사용자 접근 Change 003~006을 Azure 운영에 공개 배포하라고 명시했다. 기존 Change 031의 부분 순서 override와 phase-1 범위를 유지하며 별도 rollout Task를 만들지 않는다. 전체 회귀는 exact merged source의 필수 CI에서 통과했으므로 로컬에서 반복하지 않는다.
 
@@ -111,3 +115,19 @@
 - 배포 정의는 기존 migration identity의 Osan migration secret-scope를 backfill job에서 참조한다. 새 DB·서버·vault-scope 권한과 기존 Cheongju 데이터 변경은 없다.
 - Hotfix 순서는 migration→backfill dry-run/result→Backend→Frontend→공개 UI/API/DB aggregate 검증이다. 현 운영 digest 두 개를 rollback point로 고정하고 schema는 down하지 않는다.
 - Local 집중 검증은 Backend compile, Directory `0004` fresh/existing, 통합 승인 3-DB, Frontend targeted/typecheck, mock/actual 3-DB smoke와 Azure artifact 검증이 통과했다. 최종 전체 회귀는 PR CI 한 번을 대기한다.
+
+## 10. Change 007 hotfix 공개 결과
+
+- PR #122 exact head `3d337c69bb225e324fc8a2339e18f68420d0c63d`의 CI run `34186728030`에서 Backend 전체, Frontend 전체, Full-Stack `66/66`과 required CI Gate가 통과했다. 승인된 squash merge의 exact main은 `08c5366ff6ccfe34d4945b974e25c8ef93ee1121`이다.
+- Release run `34188740914`는 Directory `0004` migration, 기존 총괄 local-first backfill, Backend, Frontend와 public security smoke를 순서대로 완료했다. Backend는 `sha256:35bf38c3c3997c1106885efd0b8c85ebd251cb148d24a48003c25205b2409175` / `backend--0000039`, Frontend는 `sha256:ed83bf8d075b3cac04a740218e6652074534661a9216387aa8444bcd0d42794d` / `frontend--0000028`이며 각각 Healthy·traffic 100%다.
+- Privacy-safe post-deploy projection은 Directory ledger `4`, identity contract `1`, active identity `23`, active membership `26`, overall `3`, overall dual membership `3`, ordinary dual `0`이다. Cheongju는 ledger `87`, identity contract `1`, active user `23`, System Administrator `3`, project `3`, G2 aggregate `137`로 불변이다. Osan은 ledger `87`, identity contract `1`, active user·System Administrator `3`, project `0`이다.
+- Owned read-only aggregate job은 성공 뒤 삭제했다. Public health `200`, 익명 root/API `401/401`, 이름·계정 ID가 채워진 사용자 `23`행, 총괄 `3`명, 같은 행의 총괄 checkbox, 우측 상단 selector와 청주↔오산 전환을 실제 로그인 세션에서 확인했다. Osan은 관리자 navigation 없이 project list와 입력 form이 열렸고 synthetic record는 저장하지 않았다.
+- 일반 사용자 실제 Microsoft 365 계정의 selector 미노출, 같은 행 저장의 실제 운영 mutation, 첫 실제 Osan project 저장은 사용자 검수로 남긴다. 마지막 총괄 차단·일반 사용자 단일 membership·원자성은 exact head CI와 post-deploy aggregate로 확인했다.
+- Application rollback point는 최초 phase-1 Backend/Frontend digest와 revision `backend--0000038` / `frontend--0000027`이다. Directory `0004`는 additive로 유지하며 down migration을 하지 않는다.
+
+## 11. Change 008 접근 정합성 후속 hotfix
+
+- 운영 검수에서 부서 이동 뒤 관리 파생 역할·부서장 잔존, Directory membership과 local readiness의 승인 상태 불일치, System Administrator의 후속 permission 누락을 확인했다. 사용자는 세 결함의 제품 보정, privacy-safe 운영 repair, PR·main merge와 Azure 재배포를 명시 승인했다.
+- Access Change 008은 Business additive `0088`, 역할 assignment source, 공통 readiness, stale operation retry와 readiness-aware 기존 backfill repair를 사용한다. Directory migration과 identity contract 상수는 바꾸지 않는다.
+- Local 집중 검증은 compile/typecheck, migration `1/1`, 격리 3-DB `1/1`, compact UI mock `3/3`이 통과했다. 전체 회귀는 PR exact head의 required CI 한 번만 수행한다.
+- 재배포 순서는 운영 dry-run aggregate → Business `0088` 양 DB → backfill repair → Backend → routing/security/권한 smoke → Frontend → 실제 로그인 UI smoke다. 예상 밖 identity 대상·삭제·권한 확대가 나오면 해당 단계만 중단하고 현재 revision `39/28`을 유지한다.

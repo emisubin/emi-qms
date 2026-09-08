@@ -371,12 +371,12 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
     [InlineData("dev-design", true)]
     [InlineData("dev-sales", true)]
     [InlineData("dev-production", true)]
-    [InlineData("dev-admin", false)]
+    [InlineData("dev-admin", true)]
     [InlineData("dev-manufacturing", false)]
     [InlineData("dev-quality", false)]
     [InlineData("dev-logistics", false)]
     [InlineData("dev-viewer", false)]
-    public async Task PanelInfoUpdatePolicy_AllowsDesignSalesAndProductionPlanningOnly(
+    public async Task PanelInfoUpdatePolicy_RequiresTheMappedPermission(
         string developmentUserKey,
         bool expectedAllowed)
     {

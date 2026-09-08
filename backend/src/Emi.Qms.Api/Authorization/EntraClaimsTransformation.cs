@@ -253,9 +253,7 @@ public sealed class EntraClaimsTransformation(
 
     private static bool IsApprovalPending(UserAuthorizationProfile profile)
     {
-        return profile.User.AuthProvider == QmsAuthProviders.EntraId
-            && profile.User.IsActive
-            && profile.Roles.Count == 0;
+        return ApprovalReadinessPolicy.IsApprovalPending(profile);
     }
 
     private static string? FindFirstValue(ClaimsPrincipal principal, params string[] claimTypes)

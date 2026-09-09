@@ -952,7 +952,6 @@ public sealed class ProductionPlanningApiTests
 
         Assert.Equal(HttpStatusCode.OK, (await salesClient.GetAsync($"/api/projects/{projectId}/production-planning", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await procurementClient.PatchAsJsonAsync($"/api/projects/{projectId}/production-planning", new { }, TestContext.Current.CancellationToken)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PatchAsJsonAsync($"/api/projects/{projectId}/production-planning", new { }, TestContext.Current.CancellationToken)).StatusCode);
 
         using var productTypes = await ReadJsonAsync(await productionClient.GetAsync("/api/production-planning/product-types", TestContext.Current.CancellationToken));
         var productType = productTypes.RootElement.EnumerateArray().First(item => item.GetProperty("code").GetString() == "UL67");
@@ -1333,7 +1332,7 @@ public sealed class ProductionPlanningApiTests
         var firstProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-1", "Plan Excel One");
         var secondProjectId = await CreateProjectAndReadIdAsync(context, salesClient, "PLAN-XLS-2", "Plan Excel Two");
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.GetAsync("/api/production-planning/import/template", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await adminClient.GetAsync("/api/production-planning/import/template", TestContext.Current.CancellationToken)).StatusCode);
         var templateResponse = await productionClient.GetAsync("/api/production-planning/import/template", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, templateResponse.StatusCode);
         await AssertTemplateWidthsAsync(templateResponse, wideColumn: 4);
@@ -1373,9 +1372,9 @@ public sealed class ProductionPlanningApiTests
             ["자재 도착", "예", "2026-07-01", "project template"]
         ]);
 
-        using var forbiddenForm = new MultipartFormDataContent();
-        forbiddenForm.Add(new ByteArrayContent(file), "file", "project-planning.xlsx");
-        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PostAsync($"/api/projects/{projectId}/production-planning/import/preview", forbiddenForm, TestContext.Current.CancellationToken)).StatusCode);
+        using var administratorPreviewForm = new MultipartFormDataContent();
+        administratorPreviewForm.Add(new ByteArrayContent(file), "file", "project-planning.xlsx");
+        Assert.Equal(HttpStatusCode.OK, (await adminClient.PostAsync($"/api/projects/{projectId}/production-planning/import/preview", administratorPreviewForm, TestContext.Current.CancellationToken)).StatusCode);
 
         using var preview = await PreviewProjectProductionPlanningExcelAsync(productionClient, projectId, file, "project-planning.xlsx");
         var root = preview.RootElement;
@@ -1432,7 +1431,7 @@ public sealed class ProductionPlanningApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, createExisting.StatusCode);
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.PatchAsJsonAsync($"/api/production-planning/settings/templates/{productTypeId}", new { steps = Array.Empty<object>() }, TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await adminClient.PatchAsJsonAsync($"/api/production-planning/settings/templates/{productTypeId}", new { steps = Array.Empty<object>() }, TestContext.Current.CancellationToken)).StatusCode);
 
         var duplicate = await productionClient.PatchAsJsonAsync(
             $"/api/production-planning/settings/templates/{productTypeId}",

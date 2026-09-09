@@ -1,18 +1,114 @@
-using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Audit;
+using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.ReviewSafe;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Emi.Qms.Api;
 
-public sealed class DatabaseConnectionStringProvider(IConfiguration configuration)
+public sealed class DatabaseConnectionStringProvider
 {
+    private readonly IConfiguration configuration;
+    private readonly IHttpContextAccessor? httpContextAccessor;
+
+    public DatabaseConnectionStringProvider(IConfiguration configuration)
+        : this(configuration, null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public DatabaseConnectionStringProvider(
+        IConfiguration configuration,
+        IHttpContextAccessor? httpContextAccessor)
+    {
+        this.configuration = configuration;
+        this.httpContextAccessor = httpContextAccessor;
+        BusinessUnits = BusinessUnitConfiguration.Read(configuration);
+    }
+
+    public BusinessUnitConfiguration BusinessUnits { get; }
+
     public string? GetConnectionString()
     {
-        var configured = configuration.GetConnectionString("QmsDatabase");
+        if (!BusinessUnits.Enabled)
+        {
+            return GetLegacyConnectionString();
+        }
 
+        var context = BusinessUnitRequestContextFeature.Get(httpContextAccessor?.HttpContext);
+        if (context?.IsSelected != true || context.Target is null)
+        {
+            throw new BusinessUnitContextUnavailableException(context?.Reason ?? "business_unit_context_missing");
+        }
+
+        return GetConnectionString(context.Target, BusinessUnitConnectionPurpose.Runtime);
+    }
+
+    public string GetConnectionString(
+        BusinessUnitDatabaseTarget target,
+        BusinessUnitConnectionPurpose purpose = BusinessUnitConnectionPurpose.Runtime)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (!BusinessUnits.Enabled
+            && target.IsLegacy
+            && purpose == BusinessUnitConnectionPurpose.Runtime)
+        {
+            return GetLegacyConnectionString()
+                ?? throw new InvalidOperationException("The requested database connection is not configured.");
+        }
+        if (BusinessUnits.Enabled)
+        {
+            BusinessUnits.ThrowIfInvalid();
+            var configuredTarget = target.Kind == BusinessUnitDatabaseKind.Directory
+                ? BusinessUnits.Directory
+                : BusinessUnits.Businesses.SingleOrDefault(candidate =>
+                    string.Equals(candidate.Code, target.Code, StringComparison.Ordinal));
+            if (configuredTarget is null || configuredTarget != target)
+            {
+                throw new BusinessUnitContextUnavailableException("business_unit_target_not_configured");
+            }
+        }
+
+        var connectionName = purpose switch
+        {
+            BusinessUnitConnectionPurpose.Runtime => target.RuntimeConnectionName,
+            BusinessUnitConnectionPurpose.Migration => target.MigrationConnectionName,
+            BusinessUnitConnectionPurpose.Administrator => target.AdministratorConnectionName,
+            _ => throw new ArgumentOutOfRangeException(nameof(purpose))
+        };
+        var configured = configuration.GetConnectionString(connectionName);
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            throw new InvalidOperationException("The requested database connection is not configured.");
+        }
+
+        return purpose == BusinessUnitConnectionPurpose.Runtime
+            ? ApplyRuntimeSafety(configured, target)
+            : configured;
+    }
+
+    public BusinessUnitDatabaseTarget? GetCurrentBusinessUnit()
+    {
+        if (!BusinessUnits.Enabled)
+        {
+            return BusinessUnits.Businesses.Single();
+        }
+
+        return BusinessUnitRequestContextFeature.Get(httpContextAccessor?.HttpContext)?.Target;
+    }
+
+    public bool ExternalNotificationsEnabled(BusinessUnitDatabaseTarget? explicitTarget = null)
+    {
+        var target = explicitTarget ?? GetCurrentBusinessUnit();
+        return target?.ExternalNotificationsEnabled == true;
+    }
+
+    private string? GetLegacyConnectionString()
+    {
+        var configured = configuration.GetConnectionString("QmsDatabase");
         if (!string.IsNullOrWhiteSpace(configured))
         {
-            return ApplyRuntimeSafety(configured);
+            return ApplyRuntimeSafety(configured, BusinessUnits.Businesses.Single());
         }
 
         var host = configuration["DATABASE_HOST"];
@@ -20,21 +116,16 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
         var database = configuration["DATABASE_NAME"];
         var username = configuration["DATABASE_USER"];
         var password = configuration["DATABASE_PASSWORD"];
-
         if (string.IsNullOrWhiteSpace(host)
             || string.IsNullOrWhiteSpace(port)
             || string.IsNullOrWhiteSpace(database)
             || string.IsNullOrWhiteSpace(username)
-            || string.IsNullOrWhiteSpace(password))
-        {
-            return null;
-        }
-
-        if (!int.TryParse(
-            port,
-            System.Globalization.NumberStyles.None,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out var portNumber))
+            || string.IsNullOrWhiteSpace(password)
+            || !int.TryParse(
+                port,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var portNumber))
         {
             return null;
         }
@@ -49,38 +140,33 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
             Pooling = true,
             Timeout = 3
         };
-
-        return ApplyRuntimeSafety(builder.ConnectionString);
+        return ApplyRuntimeSafety(builder.ConnectionString, BusinessUnits.Businesses.Single());
     }
 
-    private string ApplyRuntimeSafety(string connectionString)
+    private string ApplyRuntimeSafety(string connectionString, BusinessUnitDatabaseTarget target)
     {
         var reviewSafe = ReviewSafeMode.IsEnabled(configuration);
         var auditContext = AuditRequestContext.Current;
-        if (!reviewSafe && auditContext is null)
-        {
-            return connectionString;
-        }
-
         var builder = new NpgsqlConnectionStringBuilder(connectionString);
         var options = new List<string>();
-        if (!string.IsNullOrWhiteSpace(builder.Options))
+        if (!string.IsNullOrWhiteSpace(builder.Options)) options.Add(builder.Options.Trim());
+
+        if (BusinessUnits.Enabled)
         {
-            options.Add(builder.Options.Trim());
+            builder.ApplicationName = $"emi-pms-{target.Code.ToLowerInvariant()}";
+            options.Add($"-c qms.business_unit={target.Code}");
         }
 
         if (reviewSafe)
         {
-            builder.ApplicationName = ReviewSafeMode.ResolveDatabaseApplicationName(configuration);
+            builder.ApplicationName = BusinessUnits.Enabled
+                ? $"{ReviewSafeMode.ResolveDatabaseApplicationName(configuration)}-{target.Code.ToLowerInvariant()}"
+                : ReviewSafeMode.ResolveDatabaseApplicationName(configuration);
             options.Add("-c default_transaction_read_only=on");
         }
 
         if (auditContext is not null)
         {
-            // The audit GUCs below are request-specific. Pooling a connection string that
-            // contains a unique request id would create an unbounded number of Npgsql pools.
-            // Mutation connections are therefore short-lived; read-only traffic keeps using
-            // the stable configured pool.
             builder.Pooling = false;
             options.Add($"-c qms.audit_actor_id={auditContext.ActorUserId:D}");
             options.Add($"-c qms.audit_request_id={auditContext.RequestCorrelationId:D}");
@@ -98,7 +184,6 @@ public sealed class DatabaseConnectionStringProvider(IConfiguration configuratio
         }
 
         builder.Options = string.Join(' ', options);
-
         return builder.ConnectionString;
     }
 }

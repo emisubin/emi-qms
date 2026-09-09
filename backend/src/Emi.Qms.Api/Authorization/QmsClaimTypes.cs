@@ -3,6 +3,9 @@ namespace Emi.Qms.Api.Authorization;
 public static class QmsClaimTypes
 {
     public const string ApprovalPending = "qms.approval_pending";
+    public const string BusinessUnit = "qms.business_unit";
+    public const string BusinessUnitAccessStatus = "qms.business_unit_access_status";
+    public const string IsOverallAdministrator = "qms.is_overall_administrator";
     public const string ActualAuthProvider = "qms.actual_auth_provider";
     public const string ActualRole = "qms.actual_role";
     public const string ActualUserId = "qms.actual_user_id";

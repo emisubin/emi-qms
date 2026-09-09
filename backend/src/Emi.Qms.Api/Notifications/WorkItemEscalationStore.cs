@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Calendar;
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -46,9 +47,10 @@ public sealed class WorkItemEscalationStore(
     public async Task<IReadOnlyList<BusinessCalendarHoliday>> ReadHolidaysAsync(
         DateOnly from,
         DateOnly to,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             select holiday_date, name, holiday_type
             from system_holidays
@@ -76,9 +78,10 @@ public sealed class WorkItemEscalationStore(
 
     public async Task<IReadOnlyList<WorkItemEscalationCandidate>> ReadOpenCandidatesAsync(
         int maxBatchSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             select
                 wi.id,
@@ -157,9 +160,11 @@ public sealed class WorkItemEscalationStore(
         return rows;
     }
 
-    public async Task<int> ResolveClosedOrUndatedWorkItemsAsync(CancellationToken cancellationToken)
+    public async Task<int> ResolveClosedOrUndatedWorkItemsAsync(
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             update work_item_escalations wie
             set status = case when wi.status = 'Cancelled' then 'Cancelled' else 'Resolved' end,
@@ -181,9 +186,10 @@ public sealed class WorkItemEscalationStore(
     public async Task UpsertActiveEscalationAsync(
         WorkItemEscalationCandidate candidate,
         DateTimeOffset? nextCheckAtUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             insert into work_item_escalations (
                 work_item_id, project_id, workflow_stage_code, assigned_user_id, due_date,
@@ -221,15 +227,20 @@ public sealed class WorkItemEscalationStore(
         WorkItemEscalationCandidate candidate,
         string level,
         NotificationEscalationOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
     {
-        var recipients = await ResolveRecipientsAsync(candidate, level, cancellationToken);
+        if (!CanUseExternalNotifications(target))
+        {
+            return new EscalationCreateResult(0, 0);
+        }
+        var recipients = await ResolveRecipientsAsync(candidate, level, cancellationToken, target);
         if (recipients.Count == 0)
         {
             return new EscalationCreateResult(0, 0);
         }
 
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -364,7 +375,8 @@ public sealed class WorkItemEscalationStore(
     private async Task<IReadOnlyList<EscalationRecipient>> ResolveRecipientsAsync(
         WorkItemEscalationCandidate candidate,
         string level,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target)
     {
         if (level is WorkItemEscalationLevels.L0 or WorkItemEscalationLevels.L1)
         {
@@ -377,7 +389,7 @@ public sealed class WorkItemEscalationStore(
             ? L2ResponsibilityTypes(candidate.WorkflowStageCode)
             : L3ResponsibilityTypes();
 
-        return await ReadActiveAssigneesAsync(candidate.ProjectId, responsibilityTypes, cancellationToken);
+        return await ReadActiveAssigneesAsync(candidate.ProjectId, responsibilityTypes, cancellationToken, target);
     }
 
     private static string[] L2ResponsibilityTypes(string workflowStageCode)
@@ -400,9 +412,10 @@ public sealed class WorkItemEscalationStore(
     private async Task<IReadOnlyList<EscalationRecipient>> ReadActiveAssigneesAsync(
         Guid projectId,
         IReadOnlyList<string> responsibilityTypes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             select distinct on (u.id)
                 u.id,
@@ -829,9 +842,17 @@ public sealed class WorkItemEscalationStore(
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private bool CanUseExternalNotifications(BusinessUnitDatabaseTarget? target)
     {
-        var connectionString = connectionStringProvider.GetConnectionString();
+        return !connectionStringProvider.BusinessUnits.Enabled
+            || connectionStringProvider.ExternalNotificationsEnabled(target);
+    }
+
+    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    {
+        var connectionString = target is null
+            ? connectionStringProvider.GetConnectionString()
+            : connectionStringProvider.GetConnectionString(target, BusinessUnitConnectionPurpose.Runtime);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");

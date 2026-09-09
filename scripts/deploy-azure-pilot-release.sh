@@ -10,9 +10,14 @@ required_environment=(
   BACKEND_APP_NAME
   FRONTEND_APP_NAME
   MIGRATION_JOB_NAME
+  DATABASE_BOOTSTRAP_JOB_NAME
+  MEMBERSHIP_BACKFILL_JOB_NAME
   DEPLOY_BACKEND
   DEPLOY_FRONTEND
   RUN_MIGRATION
+  RUN_DATABASE_BOOTSTRAP
+  RUN_MEMBERSHIP_BACKFILL
+  INSPECT_MEMBERSHIP_BACKFILL
 )
 
 for variable_name in "${required_environment[@]}"; do
@@ -22,21 +27,37 @@ for variable_name in "${required_environment[@]}"; do
   fi
 done
 
-for release_flag in "${DEPLOY_BACKEND}" "${DEPLOY_FRONTEND}" "${RUN_MIGRATION}"; do
+for release_flag in \
+  "${DEPLOY_BACKEND}" \
+  "${DEPLOY_FRONTEND}" \
+  "${RUN_MIGRATION}" \
+  "${RUN_DATABASE_BOOTSTRAP}" \
+  "${RUN_MEMBERSHIP_BACKFILL}" \
+  "${INSPECT_MEMBERSHIP_BACKFILL}"; do
   if [[ "${release_flag}" != 'true' && "${release_flag}" != 'false' ]]; then
     printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
     exit 65
   fi
 done
 
-if [[ "${RUN_MIGRATION}" == 'true' && "${DEPLOY_BACKEND}" != 'true' ]]; then
+if [[ ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ) \
+  && "${RUN_MIGRATION}" != 'true' ]]; then
+  printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
+  exit 65
+fi
+
+if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' \
+  && "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
   printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
   exit 65
 fi
 
 if [[ "${DEPLOY_BACKEND}" == 'false' \
   && "${DEPLOY_FRONTEND}" == 'false' \
-  && "${RUN_MIGRATION}" == 'false' ]]; then
+  && "${RUN_MIGRATION}" == 'false' \
+  && "${RUN_DATABASE_BOOTSTRAP}" == 'false' \
+  && "${RUN_MEMBERSHIP_BACKFILL}" == 'false' \
+  && "${INSPECT_MEMBERSHIP_BACKFILL}" == 'false' ]]; then
   printf 'azurePilotRelease=NO_CHANGES\n'
   exit 0
 fi
@@ -61,7 +82,11 @@ if [[ ! "${poll_attempts}" =~ ^[1-9][0-9]{0,2}$ \
 fi
 
 digest_pattern='sha256:[0-9a-f]{64}'
-if [[ "${DEPLOY_BACKEND}" == 'true' \
+if [[ ( "${DEPLOY_BACKEND}" == 'true' \
+    || "${RUN_MIGRATION}" == 'true' \
+    || "${RUN_DATABASE_BOOTSTRAP}" == 'true' \
+    || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' \
+    || "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ) \
   && ( "${BACKEND_RELEASE_IMAGE:-}" != "${ACR_LOGIN_SERVER}/pms-backend@"* \
     || ! "${BACKEND_RELEASE_IMAGE:-}" =~ @${digest_pattern}$ ) ]]; then
   printf 'azurePilotRelease=INVALID_RELEASE_IMAGE\n' >&2
@@ -90,6 +115,108 @@ azure_mutate() {
   "${azure_cli_bin}" "$@" -o none \
     >"${task_tmp_dir}/command-output" \
     2>"${task_tmp_dir}/command-error"
+}
+
+job_override_environment=()
+job_override_cpu=''
+job_override_memory=''
+job_override_configuration_error='not-loaded'
+
+load_job_execution_override() {
+  local job_name="$1"
+  local environment_values environment_secret_refs environment_name environment_value
+  local required_environment_name configured_environment_name found
+  local production_environment='false' business_units_enabled='false'
+
+  job_override_environment=()
+  job_override_cpu=''
+  job_override_memory=''
+  job_override_configuration_error='read-values'
+
+  # shellcheck disable=SC2016 # Backticks are JMESPath JSON literals.
+  environment_values="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].env[?value != `null` && value != `""`].[name, value]')" \
+    || return 1
+  job_override_configuration_error='read-secret-refs'
+  # shellcheck disable=SC2016 # Backticks are JMESPath JSON literals.
+  environment_secret_refs="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].env[?secretRef != `null` && secretRef != `""`].[name, secretRef]')" \
+    || return 1
+  job_override_configuration_error='read-cpu'
+  job_override_cpu="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].resources.cpu')" \
+    || return 1
+  job_override_configuration_error='read-memory'
+  job_override_memory="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" \
+    --query 'properties.template.containers[0].resources.memory')" \
+    || return 1
+
+  job_override_configuration_error='invalid-shape'
+
+  if [[ -z "${environment_values}" || -z "${environment_secret_refs}" \
+    || ! "${job_override_cpu}" =~ ^[0-9]+([.][0-9]+)?$ \
+    || ! "${job_override_memory}" =~ ^[0-9]+([.][0-9]+)?(Mi|Gi)$ ]]; then
+    return 1
+  fi
+
+  while IFS=$'\t' read -r environment_name environment_value; do
+    if [[ ! "${environment_name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
+      || -z "${environment_value}" ]]; then
+      return 1
+    fi
+    job_override_environment+=("${environment_name}=${environment_value}")
+  done <<<"${environment_values}"
+
+  job_override_configuration_error='invalid-secret-ref'
+  while IFS=$'\t' read -r environment_name environment_value; do
+    if [[ ! "${environment_name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ \
+      || ! "${environment_value}" =~ ^[a-z0-9-]+$ ]]; then
+      return 1
+    fi
+    job_override_environment+=("${environment_name}=secretref:${environment_value}")
+  done <<<"${environment_secret_refs}"
+
+  for configured_environment_name in "${job_override_environment[@]}"; do
+    [[ "${configured_environment_name}" == 'ASPNETCORE_ENVIRONMENT=Production' ]] \
+      && production_environment='true'
+    [[ "${configured_environment_name}" == 'BusinessUnits__Enabled=true' ]] \
+      && business_units_enabled='true'
+  done
+  if [[ "${production_environment}" != 'true' || "${business_units_enabled}" != 'true' ]]; then
+    job_override_configuration_error='invalid-required-environment-value'
+    return 1
+  fi
+
+  for required_environment_name in \
+    ASPNETCORE_ENVIRONMENT \
+    BusinessUnits__Enabled \
+    ConnectionStrings__QmsDirectoryMigration \
+    ConnectionStrings__QmsCheongjuMigration \
+    ConnectionStrings__QmsOsanMigration \
+    BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited \
+    BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited; do
+    found='false'
+    for configured_environment_name in "${job_override_environment[@]}"; do
+      if [[ "${configured_environment_name%%=*}" == "${required_environment_name}" ]]; then
+        found='true'
+        break
+      fi
+    done
+    if [[ "${found}" != 'true' ]]; then
+      job_override_configuration_error='missing-required-environment'
+      return 1
+    fi
+  done
+
+  job_override_configuration_error='none'
 }
 
 public_status() {
@@ -154,14 +281,15 @@ wait_for_app() {
   return 1
 }
 
-wait_for_migration() {
-  local execution_name="$1"
+wait_for_job() {
+  local job_name="$1"
+  local execution_name="$2"
   local attempt execution_status
 
   for ((attempt = 1; attempt <= poll_attempts; attempt++)); do
     execution_status="$(azure_read containerapp job execution show \
       --resource-group "${AZURE_RESOURCE_GROUP}" \
-      --name "${MIGRATION_JOB_NAME}" \
+      --name "${job_name}" \
       --job-execution-name "${execution_name}" \
       --query properties.status)" || execution_status=''
 
@@ -241,10 +369,21 @@ migration_trigger_type="$(azure_read containerapp job show \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --name "${MIGRATION_JOB_NAME}" \
   --query properties.configuration.triggerType)" || migration_trigger_type=''
+database_bootstrap_trigger_type="$(azure_read containerapp job show \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
+  --query properties.configuration.triggerType)" || database_bootstrap_trigger_type=''
+membership_backfill_trigger_type="$(azure_read containerapp job show \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+  --query properties.configuration.triggerType)" || membership_backfill_trigger_type=''
 
 if [[ "${backend_revision_mode}" != 'Single' \
   || "${frontend_revision_mode}" != 'Single' \
-  || "${migration_trigger_type}" != 'Manual' ]]; then
+  || "${migration_trigger_type}" != 'Manual' \
+  || ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' && "${database_bootstrap_trigger_type}" != 'Manual' ) \
+  || ( ( "${RUN_MEMBERSHIP_BACKFILL}" == 'true' || "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ) \
+    && "${membership_backfill_trigger_type}" != 'Manual' ) ]]; then
   printf 'azurePilotRelease=UNSAFE_RUNTIME_MODE\n' >&2
   exit 68
 fi
@@ -300,6 +439,26 @@ if [[ "${baseline_live_status}" != '200' \
   exit 71
 fi
 
+if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
+  if ! azure_mutate containerapp job update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}"; then
+    printf 'azurePilotRelease=DATABASE_BOOTSTRAP_JOB_UPDATE_FAILED\n' >&2
+    exit 72
+  fi
+
+  database_bootstrap_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
+    --query name)" || database_bootstrap_execution=''
+  if [[ -z "${database_bootstrap_execution}" || "${database_bootstrap_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${DATABASE_BOOTSTRAP_JOB_NAME}" "${database_bootstrap_execution}"; then
+    printf 'azurePilotRelease=DATABASE_BOOTSTRAP_FAILED\n' >&2
+    exit 73
+  fi
+fi
+
 if [[ "${RUN_MIGRATION}" == 'true' ]]; then
   if ! azure_mutate containerapp job update \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
@@ -314,9 +473,83 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
     --name "${MIGRATION_JOB_NAME}" \
     --query name)" || migration_execution=''
   if [[ -z "${migration_execution}" || "${migration_execution}" =~ [[:space:]] ]] \
-    || ! wait_for_migration "${migration_execution}"; then
+    || ! wait_for_job "${MIGRATION_JOB_NAME}" "${migration_execution}"; then
     printf 'azurePilotRelease=MIGRATION_FAILED\n' >&2
-    exit 73
+    exit 74
+  fi
+fi
+
+if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  if ! load_job_execution_override "${MEMBERSHIP_BACKFILL_JOB_NAME}"; then
+    printf 'membershipBackfillInspectionConfiguration=%s\n' \
+      "${job_override_configuration_error}" >&2
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURATION_INVALID\n' >&2
+    exit 79
+  fi
+
+  membership_backfill_inspection_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --container-name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}" \
+    --cpu "${job_override_cpu}" \
+    --memory "${job_override_memory}" \
+    --env-vars "${job_override_environment[@]}" \
+    --args=--inspect-business-unit-membership-backfill \
+    --query name)" || membership_backfill_inspection_execution=''
+  if [[ -z "${membership_backfill_inspection_execution}" \
+    || "${membership_backfill_inspection_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${MEMBERSHIP_BACKFILL_JOB_NAME}" "${membership_backfill_inspection_execution}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_INSPECTION_FAILED\n' >&2
+    exit 77
+  fi
+
+  membership_backfill_inspection_summary=''
+  for ((attempt = 1; attempt <= 6; attempt++)); do
+    if "${azure_cli_bin}" containerapp job logs show \
+      --resource-group "${AZURE_RESOURCE_GROUP}" \
+      --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+      --execution "${membership_backfill_inspection_execution}" \
+      --container "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+      --format text \
+      --tail 100 \
+      >"${task_tmp_dir}/command-output" \
+      2>"${task_tmp_dir}/command-error"; then
+      membership_backfill_inspection_summary="$(sed -n \
+        's/^.*\(businessUnitMembershipBackfillDryRun=PASS identityCount=[0-9][0-9]* overallAdministratorCount=[0-9][0-9]* configuredOverallAdministratorCount=[0-9][0-9]* activeDirectoryOverallAdministratorCount=[0-9][0-9]* activateMembershipCount=[0-9][0-9]* deactivateMembershipCount=[0-9][0-9]* normalizeDepartmentDefaultRoleCount=[0-9][0-9]* removeManagedRoleCount=[0-9][0-9]* resetDepartmentHeadCount=[0-9][0-9]* repairOverallProfileCount=[0-9][0-9]* designateOverallAdministratorCount=[0-9][0-9]* cheongjuSystemAdminPermissionGapCount=[0-9][0-9]* osanSystemAdminPermissionGapCount=[0-9][0-9]*\).*$/\1/p' \
+        "${task_tmp_dir}/command-output" | tail -n 1)"
+    fi
+    if [[ -n "${membership_backfill_inspection_summary}" ]]; then
+      break
+    fi
+    if [[ "${poll_interval_seconds}" -gt 0 ]]; then
+      sleep "${poll_interval_seconds}"
+    fi
+  done
+  if [[ -z "${membership_backfill_inspection_summary}" ]]; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_INSPECTION_EVIDENCE_MISSING\n' >&2
+    exit 78
+  fi
+  printf '%s\n' "${membership_backfill_inspection_summary}"
+fi
+
+if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  if ! azure_mutate containerapp job update \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --image "${BACKEND_RELEASE_IMAGE}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_JOB_UPDATE_FAILED\n' >&2
+    exit 75
+  fi
+
+  membership_backfill_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --query name)" || membership_backfill_execution=''
+  if [[ -z "${membership_backfill_execution}" || "${membership_backfill_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${MEMBERSHIP_BACKFILL_JOB_NAME}" "${membership_backfill_execution}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_FAILED\n' >&2
+    exit 76
   fi
 fi
 
@@ -355,6 +588,21 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
   printf 'azurePilotReleaseMigration=PASS\n'
 else
   printf 'azurePilotReleaseMigration=SKIPPED\n'
+fi
+if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
+  printf 'azurePilotReleaseDatabaseBootstrap=PASS\n'
+else
+  printf 'azurePilotReleaseDatabaseBootstrap=SKIPPED\n'
+fi
+if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  printf 'azurePilotReleaseMembershipBackfill=PASS\n'
+else
+  printf 'azurePilotReleaseMembershipBackfill=SKIPPED\n'
+fi
+if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  printf 'azurePilotReleaseMembershipBackfillInspection=PASS\n'
+else
+  printf 'azurePilotReleaseMembershipBackfillInspection=SKIPPED\n'
 fi
 if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
   printf 'azurePilotReleaseBackend=PASS\n'

@@ -19,7 +19,7 @@ public static class HomeMetricsEndpointExtensions
             if (userId is null) return Results.Unauthorized();
             var profile = await identityStore.GetProfileByUserIdAsync(userId.Value, cancellationToken);
             if (profile is null || !profile.User.IsActive) return Results.Unauthorized();
-            var approvalPending = profile.User.AuthProvider == QmsAuthProviders.EntraId && profile.Roles.Count == 0;
+            var approvalPending = ApprovalReadinessPolicy.IsApprovalPending(profile);
             if (approvalPending)
             {
                 return Results.Ok(new HomeMetricsResponse(profile.Department?.Code, profile.Department?.Name, []));

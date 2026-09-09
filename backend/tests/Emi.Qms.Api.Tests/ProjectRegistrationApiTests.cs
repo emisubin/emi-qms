@@ -879,6 +879,10 @@ public sealed partial class ProjectRegistrationApiTests
             select '{approvedUserId}', id
             from roles
             where code = 'sales';
+
+            update qms_users
+            set department_id = (select id from departments where code = 'sales')
+            where id = '{approvedUserId}';
             """);
 
         using var response = await adminClient.GetAsync(
@@ -1436,7 +1440,7 @@ public sealed partial class ProjectRegistrationApiTests
         using var templateResponse = await salesClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, templateResponse.StatusCode);
         await AssertProjectTemplateWidthsAsync(templateResponse);
-        Assert.Equal(HttpStatusCode.Forbidden, (await adminClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await adminClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await manufacturingClient.GetAsync("/api/projects/import/template", TestContext.Current.CancellationToken)).StatusCode);
 
         var file = CreateProjectExcel([
@@ -1468,10 +1472,10 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Theory]
-    [InlineData("dev-design")]
-    [InlineData("dev-manufacturing")]
-    [InlineData("dev-admin")]
-    public async Task CreateProject_AllowsOnlySales(string developmentUserKey)
+    [InlineData("dev-admin", HttpStatusCode.Created)]
+    [InlineData("dev-design", HttpStatusCode.Forbidden)]
+    [InlineData("dev-manufacturing", HttpStatusCode.Forbidden)]
+    public async Task CreateProject_RequiresCreatePermission(string developmentUserKey, HttpStatusCode expectedStatus)
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var client = context.CreateClient(developmentUserKey);
@@ -1481,7 +1485,7 @@ public sealed partial class ProjectRegistrationApiTests
             NewProjectRequest($"NO-WRITE-{developmentUserKey}", $"No Write {developmentUserKey}"),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(expectedStatus, response.StatusCode);
     }
 
     [Theory]
@@ -2119,10 +2123,10 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Theory]
-    [InlineData("dev-admin")]
-    [InlineData("dev-manufacturing")]
-    [InlineData("dev-viewer")]
-    public async Task DeleteProject_AllowsOnlySales(string developmentUserKey)
+    [InlineData("dev-admin", HttpStatusCode.OK)]
+    [InlineData("dev-manufacturing", HttpStatusCode.Forbidden)]
+    [InlineData("dev-viewer", HttpStatusCode.Forbidden)]
+    public async Task DeleteProject_RequiresDeletePermission(string developmentUserKey, HttpStatusCode expectedStatus)
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var salesClient = context.CreateClient("dev-sales");
@@ -2136,7 +2140,7 @@ public sealed partial class ProjectRegistrationApiTests
             new { Reason = "권한 없음", ConfirmProjectTitle = $"Delete Forbidden {developmentUserKey}" },
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(expectedStatus, response.StatusCode);
     }
 
     [Fact]

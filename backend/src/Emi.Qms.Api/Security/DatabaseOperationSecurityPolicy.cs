@@ -1,13 +1,15 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
+using Emi.Qms.Api.BusinessUnits;
 
 namespace Emi.Qms.Api.Security;
 
 public enum DatabaseOperationMode
 {
     Migration,
-    RoleBootstrap
+    RoleBootstrap,
+    MembershipBackfill
 }
 
 public static class DatabaseOperationSecurityPolicy
@@ -38,6 +40,42 @@ public static class DatabaseOperationSecurityPolicy
         IConfiguration configuration,
         DatabaseOperationMode mode)
     {
+        var businessUnits = BusinessUnitConfiguration.Read(configuration);
+        if (businessUnits.Enabled)
+        {
+            var unitErrors = businessUnits.Errors.ToList();
+            var targets = businessUnits.AllTargets().ToList();
+            var purposes = mode switch
+            {
+                DatabaseOperationMode.Migration => new[] { BusinessUnitConnectionPurpose.Migration },
+                DatabaseOperationMode.MembershipBackfill => new[] { BusinessUnitConnectionPurpose.Migration },
+                DatabaseOperationMode.RoleBootstrap => new[]
+                {
+                    BusinessUnitConnectionPurpose.Runtime,
+                    BusinessUnitConnectionPurpose.Migration,
+                    BusinessUnitConnectionPurpose.Administrator
+                },
+                _ => throw new ArgumentOutOfRangeException(nameof(mode))
+            };
+            foreach (var purpose in purposes)
+            {
+                unitErrors.AddRange(businessUnits.ValidateOperationConnections(
+                    configuration,
+                    purpose,
+                    targets,
+                    requireSsl: true));
+                unitErrors.AddRange(businessUnits.ValidateSameServer(configuration, purpose, targets));
+            }
+            unitErrors.AddRange(
+                businessUnits.ValidateSameServerAcrossPurposes(configuration, purposes, targets));
+            unitErrors.AddRange(ValidateManagedCredentials(
+                configuration,
+                targets,
+                purposes,
+                mode == DatabaseOperationMode.RoleBootstrap));
+            return unitErrors.Distinct(StringComparer.Ordinal).ToList();
+        }
+
         var errors = new List<string>();
 
         if (mode == DatabaseOperationMode.Migration)
@@ -101,6 +139,77 @@ public static class DatabaseOperationSecurityPolicy
             || string.Equals(migrator.Password, runtime.Password, StringComparison.Ordinal))
         {
             errors.Add("Administrator, migration, and runtime database passwords must be distinct.");
+        }
+
+        return errors;
+    }
+
+    private static IReadOnlyList<string> ValidateManagedCredentials(
+        IConfiguration configuration,
+        IReadOnlyList<BusinessUnitDatabaseTarget> targets,
+        IReadOnlyList<BusinessUnitConnectionPurpose> purposes,
+        bool validateAdministratorSeparation)
+    {
+        var errors = new List<string>();
+        var credentials = new List<(BusinessUnitConnectionPurpose Purpose, string Username, string Password)>();
+        foreach (var target in targets)
+        {
+            foreach (var purpose in purposes)
+            {
+                var connectionName = purpose switch
+                {
+                    BusinessUnitConnectionPurpose.Runtime => target.RuntimeConnectionName,
+                    BusinessUnitConnectionPurpose.Migration => target.MigrationConnectionName,
+                    BusinessUnitConnectionPurpose.Administrator => target.AdministratorConnectionName,
+                    _ => throw new ArgumentOutOfRangeException(nameof(purpose))
+                };
+                var value = configuration.GetConnectionString(connectionName);
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var builder = new NpgsqlConnectionStringBuilder(value);
+                    if ((builder.Password?.Length ?? 0) < MinimumManagedPasswordLength)
+                    {
+                        errors.Add(
+                            $"{target.Code}:{purpose.ToString().ToLowerInvariant()}_password_too_short");
+                    }
+                    if (!string.IsNullOrWhiteSpace(builder.Username)
+                        && !string.IsNullOrWhiteSpace(builder.Password))
+                    {
+                        credentials.Add((purpose, builder.Username, builder.Password));
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // Connection syntax is reported by BusinessUnitConfiguration validation.
+                }
+            }
+        }
+
+        if (!validateAdministratorSeparation)
+        {
+            return errors;
+        }
+
+        var boundedRoleNames = targets
+            .SelectMany(target => new[] { target.RuntimeRoleName, target.MigrationRoleName })
+            .ToHashSet(StringComparer.Ordinal);
+        if (credentials.Any(credential =>
+                credential.Purpose == BusinessUnitConnectionPurpose.Administrator
+                && boundedRoleNames.Contains(credential.Username)))
+        {
+            errors.Add("database_administrator_role_not_distinct");
+        }
+
+        if (credentials
+            .GroupBy(credential => credential.Password, StringComparer.Ordinal)
+            .Any(group => group.Select(credential => credential.Username).Distinct(StringComparer.Ordinal).Count() > 1))
+        {
+            errors.Add("database_credentials_passwords_not_distinct");
         }
 
         return errors;

@@ -119,19 +119,19 @@ jobs:
     env:
       DATABASE_HOST: localhost
       DATABASE_PORT: 5432
-      DATABASE_NAME: emi_qms_dev
+      DATABASE_NAME: emi_qms_e2e_ci_backend
       DATABASE_USER: emi_qms
     services:
       postgres:
         image: postgres:18.4@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a
         env:
-          POSTGRES_DB: emi_qms_dev
+          POSTGRES_DB: emi_qms_e2e_ci_backend
           POSTGRES_USER: emi_qms
           POSTGRES_PASSWORD: ${{ env.CI_DATABASE_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U emi_qms -d emi_qms_dev"
+          --health-cmd "pg_isready -U emi_qms -d emi_qms_e2e_ci_backend"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
@@ -288,6 +288,10 @@ jobs:
         run: corepack pnpm --filter emi-qms-frontend exec playwright install --with-deps chromium
       - name: Full-stack Playwright E2E
         run: corepack pnpm --filter emi-qms-frontend run e2e:full-stack
+      - name: Business-unit access isolated Full-Stack E2E
+        run: scripts/e2e-business-unit-access-full-stack.sh
+      - name: Osan project registration isolated Full-Stack E2E
+        run: scripts/e2e-osan-project-registration-full-stack.sh
       - name: Upload full-stack Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

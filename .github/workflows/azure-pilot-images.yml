@@ -17,6 +17,31 @@ on:
         required: true
         default: false
         type: boolean
+      run_database_bootstrap:
+        description: Run the manual three-database role bootstrap before migration
+        required: true
+        default: false
+        type: boolean
+      run_membership_backfill:
+        description: Run the one-time approved Cheongju membership backfill after migration
+        required: true
+        default: false
+        type: boolean
+      inspect_membership_backfill:
+        description: Run the approved membership repair as a rollback-only inspection and report aggregate counts
+        required: true
+        default: false
+        type: boolean
+      database_prepare_only:
+        description: Stop after database jobs so restore rehearsal can run before public application replacement
+        required: true
+        default: false
+        type: boolean
+      force_full_release:
+        description: Rebuild the exact current main after a successful database-only preparation run
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +68,7 @@ jobs:
       SOURCE_SHA: ${{ inputs.source_sha }}
       CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
       CONFIRM_PRODUCTION_DEPLOY: ${{ inputs.confirm_production_deploy }}
+      FORCE_FULL_RELEASE: ${{ inputs.force_full_release }}
     steps:
       - name: Check out trusted main history
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -79,7 +105,8 @@ jobs:
             --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
 
           base_sha=invalid
-          if [[ "$previous_source_sha" =~ ^[0-9a-f]{40}$ ]] \
+          if [[ "$FORCE_FULL_RELEASE" != 'true' \
+            && "$previous_source_sha" =~ ^[0-9a-f]{40}$ ]] \
             && git cat-file -e "${previous_source_sha}^{commit}" 2>/dev/null \
             && git merge-base --is-ancestor "$previous_source_sha" "$SOURCE_SHA"; then
             base_sha="$previous_source_sha"
@@ -111,7 +138,14 @@ jobs:
   build-backend:
     name: Build and push Backend image
     needs: scope
-    if: ${{ needs.scope.outputs.deploy_backend == 'true' }}
+    if: >-
+      ${{
+        needs.scope.outputs.deploy_backend == 'true'
+        || needs.scope.outputs.run_migration == 'true'
+        || inputs.run_database_bootstrap
+        || inputs.run_membership_backfill
+        || inputs.inspect_membership_backfill
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: azure-pilot-image-publish
@@ -183,7 +217,7 @@ jobs:
   build-frontend:
     name: Build and push Frontend image
     needs: scope
-    if: ${{ needs.scope.outputs.deploy_frontend == 'true' }}
+    if: ${{ needs.scope.outputs.deploy_frontend == 'true' && !inputs.database_prepare_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: azure-pilot-image-publish
@@ -270,7 +304,10 @@ jobs:
         && needs.scope.result == 'success'
         && (needs.scope.outputs.deploy_backend == 'true'
           || needs.scope.outputs.deploy_frontend == 'true'
-          || needs.scope.outputs.run_migration == 'true')
+          || needs.scope.outputs.run_migration == 'true'
+          || inputs.run_database_bootstrap
+          || inputs.run_membership_backfill
+          || inputs.inspect_membership_backfill)
         && (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped')
         && (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
       }}
@@ -298,9 +335,14 @@ jobs:
       BACKEND_APP_NAME: ${{ vars.AZURE_BACKEND_APP_NAME }}
       FRONTEND_APP_NAME: ${{ vars.AZURE_FRONTEND_APP_NAME }}
       MIGRATION_JOB_NAME: ${{ vars.AZURE_MIGRATION_JOB_NAME }}
-      DEPLOY_BACKEND: ${{ needs.scope.outputs.deploy_backend }}
-      DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend }}
+      DATABASE_BOOTSTRAP_JOB_NAME: database-role-bootstrap
+      MEMBERSHIP_BACKFILL_JOB_NAME: business-unit-member-backfill
+      DEPLOY_BACKEND: ${{ needs.scope.outputs.deploy_backend == 'true' && !inputs.database_prepare_only }}
+      DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend == 'true' && !inputs.database_prepare_only }}
       RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}
+      RUN_DATABASE_BOOTSTRAP: ${{ inputs.run_database_bootstrap }}
+      RUN_MEMBERSHIP_BACKFILL: ${{ inputs.run_membership_backfill }}
+      INSPECT_MEMBERSHIP_BACKFILL: ${{ inputs.inspect_membership_backfill }}
       BACKEND_RELEASE_IMAGE: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/pms-backend@${{ needs.build-backend.outputs.digest }}
       FRONTEND_RELEASE_IMAGE: ${{ secrets.AZURE_ACR_LOGIN_SERVER }}/pms-frontend@${{ needs.build-frontend.outputs.digest }}
     steps:
@@ -345,14 +387,23 @@ jobs:
           backend_status=skipped
           frontend_status=skipped
           migration_status=skipped
+          database_bootstrap_status=skipped
+          membership_backfill_status=skipped
+          membership_backfill_inspection_status=skipped
           [[ "$DEPLOY_BACKEND" == 'true' ]] && backend_status=ready
           [[ "$DEPLOY_FRONTEND" == 'true' ]] && frontend_status=ready
           [[ "$RUN_MIGRATION" == 'true' ]] && migration_status=succeeded
+          [[ "$RUN_DATABASE_BOOTSTRAP" == 'true' ]] && database_bootstrap_status=succeeded
+          [[ "$RUN_MEMBERSHIP_BACKFILL" == 'true' ]] && membership_backfill_status=succeeded
+          [[ "$INSPECT_MEMBERSHIP_BACKFILL" == 'true' ]] && membership_backfill_inspection_status=succeeded
           {
             printf "## Azure pilot production release\n\n"
             printf -- "- Source commit: \`%s\`\n" "${SOURCE_SHA}"
             printf -- "- Mutable latest tag: \`not created\`\n"
             printf -- "- Migration: \`%s\`\n" "$migration_status"
+            printf -- "- Database role bootstrap: \`%s\`\n" "$database_bootstrap_status"
+            printf -- "- Membership backfill: \`%s\`\n" "$membership_backfill_status"
+            printf -- "- Membership backfill inspection: \`%s\`\n" "$membership_backfill_inspection_status"
             printf -- "- Backend revision: \`%s\`\n" "$backend_status"
             printf -- "- Frontend revision: \`%s\`\n" "$frontend_status"
             printf -- "- Public security smoke: \`passed\`\n"
@@ -367,6 +418,9 @@ jobs:
         needs.scope.outputs.deploy_backend == 'false'
         && needs.scope.outputs.deploy_frontend == 'false'
         && needs.scope.outputs.run_migration == 'false'
+        && !inputs.run_database_bootstrap
+        && !inputs.run_membership_backfill
+        && !inputs.inspect_membership_backfill
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

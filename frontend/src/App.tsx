@@ -43,12 +43,14 @@ import {
   bulkRestoreAdminCalendarHolidays,
   bulkRestoreAdminDepartments,
   bulkRestoreAdminUsers,
+  BusinessUnitRequestInvalidatedError,
   changePanelCount,
   changeProjectStatus,
   acknowledgeAdminNotificationDeliveries,
   createAdminDepartment,
   createAdminCalendarHoliday,
   createProject,
+  createOsanProject,
   defaultDevelopmentUserKey,
   deleteProject,
   deactivateAdminCalendarHoliday,
@@ -76,11 +78,13 @@ import {
   getOwnProfilePhoto,
   listProjectPanelQrs,
   getAdminUsers,
+  getBusinessUnitAccessUsers,
   getDeletedProject,
   getPanel,
   getPanelInformation,
   getPanelInformationHistory,
   getProject,
+  getOsanProject,
   getProjectDepartmentAssignees,
   getUl891SetStructure,
   getProjectWorkflow,
@@ -125,6 +129,7 @@ import {
   listDeletedProjects,
   listPanels,
   listProjects,
+  listOsanProjects,
   previewAdminCalendarHolidayExcel,
   previewPanelInformationExcel,
   previewProductionPlanningExcel,
@@ -156,9 +161,14 @@ import {
   setAccessTokenProvider,
   setAuditSessionHeaders,
   setRuntimeMutationAllowed,
+  getBusinessUnitRequestState,
+  resetBusinessUnitRequestContext,
+  selectBusinessUnit,
+  subscribeBusinessUnitRequestState,
   updateAdminCalendarHoliday,
   updateAdminDepartment,
   updateAdminUser,
+  updateBusinessUnitUserAccess,
   updateProjectProductionPlanSetDefault,
   updateProjectProductionPlanSetScope,
   updateProjectDepartmentAssignees,
@@ -171,7 +181,7 @@ import {
   updateProject
 } from './api';
 import type { MaterialCategory } from './formTemplates';
-import type { RuntimeMode } from './api';
+import type { BusinessUnitRequestState, RuntimeMode } from './api';
 import {
   acquireAccessToken,
   beginInteractiveLoginAudit,
@@ -219,7 +229,15 @@ import {
   DsSecondaryTools,
   DsStatePanel
 } from './design-system';
-import type { AdminUser, AdminUsersResponse, CurrentUser } from './identity';
+import type {
+  AdminUser,
+  AdminUsersResponse,
+  BusinessUnitAccess,
+  BusinessUnitAccessAdministrationResponse,
+  BusinessUnitAccessAdministrationUser,
+  BusinessUnitCode,
+  CurrentUser
+} from './identity';
 import { maxPanelsPerProject } from './projects';
 import type {
   AdminBulkActionResponse,
@@ -275,6 +293,8 @@ import type {
   NotificationItem,
   NotificationListResponse,
   NotificationSummary,
+  OsanProjectDetail,
+  OsanProjectListItem,
   ProjectAssignee,
   ProjectDetail,
   ProjectDashboardSummary,
@@ -349,6 +369,7 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
+  | { kind: 'osan-progress' }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
@@ -363,6 +384,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
     case 'teams-activity-detail':
     case 'teams-notification-detail': return 'TeamsActivity';
     case 'list':
+    case 'osan-progress':
     case 'create':
     case 'detail':
     case 'deleted-detail':
@@ -705,6 +727,10 @@ function initialViewFromLocation(): View {
     return { kind: 'list' };
   }
 
+  if (window.location.pathname === '/projects/create') {
+    return { kind: 'create' };
+  }
+
   if (window.location.pathname === '/my-work') {
     return { kind: 'my-work' };
   }
@@ -776,9 +802,17 @@ function initialViewFromLocation(): View {
     return { kind: 'admin-dashboard' };
   }
 
+  if (window.location.pathname === '/admin/business-unit-access') {
+    return { kind: 'admin-users' };
+  }
+
   if (window.location.pathname === '/admin/users') {
     const filter = new URLSearchParams(window.location.search).get('filter');
     return { kind: 'admin-users', filter: filter === 'approval-pending' ? filter : undefined };
+  }
+
+  if (window.location.pathname === '/progress') {
+    return { kind: 'osan-progress' };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1259,6 +1293,8 @@ function pathForView(view: View) {
       return `/teams/activity/notifications/${view.notificationId}`;
     case 'detail':
       return `/projects/${view.projectId}${view.section && view.section !== 'panels' ? `?section=${view.section}` : ''}`;
+    case 'create':
+      return '/projects/create';
     case 'sales-settlement':
       return `/projects/${view.projectId}/settlement`;
     case 'sales-kpi': {
@@ -1396,6 +1432,8 @@ function pathForView(view: View) {
         status: view.status ?? undefined,
         level: view.level ?? undefined
       })}`;
+    case 'osan-progress':
+      return '/progress';
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}${view.section && view.section !== 'summary' ? `?tab=${view.section}` : ''}`;
     case 'list':
@@ -1500,6 +1538,7 @@ function EntraAuthenticatedApp({
     setAuditSessionHeaders(null);
     instance.setActiveAccount(null);
     setAccessTokenProvider(null);
+    resetBusinessUnitRequestContext(true);
     void instance.logoutRedirect();
   };
 
@@ -1734,15 +1773,24 @@ type QmsAppShellProps = {
 
 function QmsAppShell(props: QmsAppShellProps) {
   const { setAutomaticGuideReady } = usePwaInstallExperience();
+  const [businessUnitRequestState, setBusinessUnitRequestState] = useState(
+    getBusinessUnitRequestState
+  );
 
   useEffect(() => {
     setAutomaticGuideReady(true);
     return () => setAutomaticGuideReady(false);
   }, [setAutomaticGuideReady]);
 
+  useEffect(() => subscribeBusinessUnitRequestState(setBusinessUnitRequestState), []);
+
   return (
     <AdaptiveLayoutProvider>
-      <QmsAppShellContent {...props} />
+      <QmsAppShellContent
+        key={`${businessUnitRequestState.generation}:${businessUnitRequestState.selectedBusinessUnit ?? 'legacy-business-unit'}`}
+        {...props}
+        businessUnitRequestState={businessUnitRequestState}
+      />
     </AdaptiveLayoutProvider>
   );
 }
@@ -1750,8 +1798,9 @@ function QmsAppShell(props: QmsAppShellProps) {
 function QmsAppShellContent({
   authMode,
   onLogout,
-  onReauthenticate
-}: QmsAppShellProps) {
+  onReauthenticate,
+  businessUnitRequestState
+}: QmsAppShellProps & { businessUnitRequestState: BusinessUnitRequestState }) {
   const layout = useAdaptiveLayout();
   const isDevMode = authMode === 'Dev';
   const [developmentUserKey, setDevelopmentUserKey] = useState(() => {
@@ -1786,22 +1835,31 @@ function QmsAppShellContent({
   const profilePhotoGeneration = useRef(0);
   const restoredAdminTestUser = useRef(false);
   const user = currentUser.kind === 'ready' ? currentUser.data : null;
+  const businessUnitAccess = resolveBusinessUnitAccess(user);
+  const selectedBusinessUnit = businessUnitAccess.selectedBusinessUnit;
+  const isOsan = selectedBusinessUnit === 'OSAN';
+  const hasSelectedBusinessUnit = businessUnitAccess.status === 'selected';
   const isAccessBlocked = isOperationalAccessBlocked(user);
-  const canLoadBusinessData = isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked);
+  const canLoadBusinessData = hasSelectedBusinessUnit
+    && !isOsan
+    && (isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked));
   const displayedShellBadges = canLoadBusinessData
     ? shellBadges
     : { requestedWorkCount: 0, unreadNotificationCount: 0 };
   const canUseAdminTestUserSwitch = !isDevMode && user?.canUseAdminTestUserSwitch === true;
-  const actualProfileUserId = user?.actualUser.userId ?? '';
-  const actualProfilePhotoVersion = user?.actualUser.profilePhotoVersion ?? '';
+  const actualProfileUserId = user?.actualUser?.userId ?? '';
+  const actualProfilePhotoVersion = user?.actualUser?.profilePhotoVersion ?? '';
   const profilePhotoKey = `${actualProfileUserId}:${actualProfilePhotoVersion}:${profilePhotoNonce}`;
   const profilePhotoUrl = profilePhotoState?.key === profilePhotoKey ? profilePhotoState.url : null;
-  const formTemplateScopeUserId = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
-  const formTemplateScopeBlocked = currentUser.kind !== 'ready' || currentUser.data.approvalPending;
-  const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser.userId : '';
+  const formTemplateScopeUserId = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
+  const formTemplateScopeBlocked = currentUser.kind !== 'ready'
+    || currentUser.data.approvalPending
+    || !hasSelectedBusinessUnit
+    || isOsan;
+  const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
 
   useEffect(() => {
-    if (currentUser.kind !== 'ready') return;
+    if (currentUser.kind !== 'ready' || !hasSelectedBusinessUnit || isOsan) return;
 
     let cancelled = false;
     void getSiteAccessBrowserClientId()
@@ -1816,7 +1874,7 @@ function QmsAppShellContent({
       .catch(() => undefined);
 
     return () => { cancelled = true; };
-  }, [currentUser.kind, developmentUserKey, siteAccessActorKey, view]);
+  }, [currentUser.kind, developmentUserKey, hasSelectedBusinessUnit, isOsan, siteAccessActorKey, view]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1881,15 +1939,7 @@ function QmsAppShellContent({
 
   const loadShell = useCallback(() => {
     setRuntimeMutationAllowed(false);
-    getRuntimeMode(developmentUserKey)
-      .then((data) => {
-        setRuntimeMutationAllowed(data.mutationAllowed);
-        setRuntimeMode({ kind: 'ready', data });
-      })
-      .catch((error: unknown) => {
-        setRuntimeMutationAllowed(false);
-        setRuntimeMode(toLoadError(error, '실행 모드를 확인할 수 없어 변경 작업을 차단했습니다.'));
-      });
+    setRuntimeMode({ kind: 'loading' });
 
     getReadyHealth()
       .then((data) => setHealth({ kind: 'ready', data }))
@@ -1898,6 +1948,21 @@ function QmsAppShellContent({
     getCurrentUser(developmentUserKey)
       .then((data) => {
         setCurrentUser({ kind: 'ready', data });
+        const resolvedAccess = resolveBusinessUnitAccess(data);
+        if (resolvedAccess.status === 'selected' || resolvedAccess.isOverallAdministrator) {
+          getRuntimeMode(developmentUserKey)
+            .then((runtimeData) => {
+              setRuntimeMutationAllowed(runtimeData.mutationAllowed);
+              setRuntimeMode({ kind: 'ready', data: runtimeData });
+            })
+            .catch((error: unknown) => {
+              if (error instanceof BusinessUnitRequestInvalidatedError) {
+                return;
+              }
+              setRuntimeMutationAllowed(false);
+              setRuntimeMode(toLoadError(error, '실행 모드를 확인할 수 없어 변경 작업을 차단했습니다.'));
+            });
+        }
         if (!isDevMode && !adminTestUserKey && !restoredAdminTestUser.current && data.canUseAdminTestUserSwitch) {
           restoredAdminTestUser.current = true;
           const stored = window.localStorage.getItem(adminTestUserStorageKey);
@@ -1906,8 +1971,28 @@ function QmsAppShellContent({
           }
         }
       })
-      .catch((error: unknown) => setCurrentUser(toAuthenticationLoadError(error, isDevMode)));
-  }, [adminTestUserKey, developmentUserKey, isDevMode]);
+      .catch((error: unknown) => {
+        if (error instanceof BusinessUnitRequestInvalidatedError) {
+          return;
+        }
+        if (error instanceof ApiError
+          && businessUnitRequestState.selectedBusinessUnit
+          && [
+            'business_unit_membership_denied',
+            'business_unit_alternate_selection_denied',
+            'business_unit_selector_invalid'
+          ].includes(error.errorCode ?? '')) {
+          resetBusinessUnitRequestContext();
+          return;
+        }
+        if (error instanceof ApiError
+          && error.status === 401
+          && businessUnitRequestState.selectedBusinessUnit) {
+          resetBusinessUnitRequestContext();
+        }
+        setCurrentUser(toAuthenticationLoadError(error, isDevMode));
+      });
+  }, [adminTestUserKey, businessUnitRequestState.selectedBusinessUnit, developmentUserKey, isDevMode]);
 
   const refreshShellBadges = useCallback(() => {
     Promise.all([
@@ -2015,6 +2100,32 @@ function QmsAppShellContent({
     };
   }, [setView, view.kind]);
 
+  const switchBusinessUnitContext = useCallback((businessUnit: BusinessUnitCode) => {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/');
+    }
+    selectBusinessUnit(businessUnit);
+  }, []);
+
+  useEffect(() => {
+    if (currentUser.kind !== 'ready' || !isOsan) {
+      return;
+    }
+    if (isAdminWorkspace(view)) {
+      const access = resolveBusinessUnitAccess(currentUser.data);
+      if (access.isOverallAdministrator && access.allowedBusinessUnits.includes('CHEONGJU')) {
+        selectBusinessUnit('CHEONGJU');
+        return;
+      }
+      replaceView({ kind: 'home' });
+      return;
+    }
+    if (isOsanViewAllowed(view)) {
+      return;
+    }
+    replaceView({ kind: 'home' });
+  }, [currentUser, isOsan, replaceView, view]);
+
   if (!isDevMode
     && (view.kind === 'teams-activity'
       || view.kind === 'teams-activity-detail'
@@ -2060,7 +2171,66 @@ function QmsAppShellContent({
     );
   }
 
-  if (!isDevMode && isAccessBlocked) {
+  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
+  const membershipMutationDisabledReason = businessUnitMembershipMutationDisabledReason(runtimeMode);
+  const switchDevelopmentUser = (nextUserKey: string) => {
+    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
+    setDevelopmentUserKey(nextUserKey);
+    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+    resetBusinessUnitRequestContext(true);
+  };
+  const switchAdminTestUser = (nextUserKey: string) => {
+    if (nextUserKey) {
+      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
+    } else {
+      window.localStorage.removeItem(adminTestUserStorageKey);
+    }
+    setAdminTestUserKeyState(nextUserKey);
+    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
+    resetBusinessUnitRequestContext(true);
+  };
+  const resetAdminTestUser = () => {
+    window.localStorage.removeItem(adminTestUserStorageKey);
+    setAdminTestUserKeyState('');
+    setView({ kind: 'home' });
+    resetBusinessUnitRequestContext(true);
+  };
+  const shellSwitchControls = (
+    <ShellSwitchControls
+      isDevMode={isDevMode}
+      canUseAdminTestUserSwitch={canUseAdminTestUserSwitch}
+      isTestUserSwitch={user?.isTestUserSwitch === true}
+      developmentUserKey={developmentUserKey}
+      adminTestUserKey={adminTestUserKey}
+      onDevelopmentUserChange={switchDevelopmentUser}
+      onAdminTestUserChange={switchAdminTestUser}
+      onResetAdminTestUser={resetAdminTestUser}
+    />
+  );
+
+  if (currentUser.kind === 'ready' && businessUnitAccess.status !== 'selected') {
+    return (
+      <main className="auth-gate">
+        <ApprovalPendingPage
+          user={currentUser.data}
+          onLogout={onLogout}
+          switchControls={shellSwitchControls}
+        />
+        {businessUnitAccess.isOverallAdministrator ? (
+          <BusinessUnitAccessAdministrationPage
+            developmentUserKey={developmentUserKey}
+            currentUserId={currentUser.data.userId}
+            selectedBusinessUnit={businessUnitAccess.selectedBusinessUnit}
+            mutationAllowed={mutationEnabled}
+            mutationDisabledReason={membershipMutationDisabledReason}
+            onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
+          />
+        ) : null}
+      </main>
+    );
+  }
+
+  if (!isDevMode && isAccessBlocked && !businessUnitAccess.isOverallAdministrator) {
     return (
       <AuthenticationRequiredPage
         user={user}
@@ -2070,7 +2240,6 @@ function QmsAppShellContent({
   }
 
   const permissions = user?.permissions ?? [];
-  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
   const canCreate = permissions.includes('Project.Create');
   const canUpdate = permissions.includes('Project.Update');
   const canHold = permissions.includes('Project.Hold');
@@ -2093,7 +2262,8 @@ function QmsAppShellContent({
   const canManagePending = permissions.includes('Pending.Manage');
   const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
-  const canViewSalesProjectTab = user?.effectiveUser.department === 'sales';
+  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
+  const canViewSalesProjectTab = user?.effectiveUser.department === 'sales' || isSystemAdministrator;
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const canReadG2 = permissions.includes('G2.Read');
   const canUpdateG2Production = permissions.includes('G2.Production.Update');
@@ -2101,29 +2271,10 @@ function QmsAppShellContent({
   const canUpdateG2Attendance = permissions.includes('G2.Attendance.Update');
   const canManageG2Inventory = permissions.includes('G2.Inventory.Manage');
   const canManageG2Targets = permissions.includes('G2.Target.Manage');
-  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
-  const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator;
+  const canUseAdminPages = canManageUsers || canReadAdminHistory || isSystemAdministrator
+    || businessUnitAccess.isOverallAdministrator;
   const canBrowseOperationalPages = permissions.includes('projects.read');
   const canReadPendingWorkspace = canReadPending || canBrowseOperationalPages;
-  const switchDevelopmentUser = (nextUserKey: string) => {
-    window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
-    setDevelopmentUserKey(nextUserKey);
-    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-  };
-  const switchAdminTestUser = (nextUserKey: string) => {
-    if (nextUserKey) {
-      window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
-    } else {
-      window.localStorage.removeItem(adminTestUserStorageKey);
-    }
-    setAdminTestUserKeyState(nextUserKey);
-    setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
-  };
-  const resetAdminTestUser = () => {
-    window.localStorage.removeItem(adminTestUserStorageKey);
-    setAdminTestUserKeyState('');
-    setView({ kind: 'home' });
-  };
   const departmentNavigationLabel = navigationLabelForDepartment(user?.effectiveUser.department);
   // Department parents route straight to their first workspace; the old
   // work-selection hub is no longer part of the navigation flow.
@@ -2147,7 +2298,7 @@ function QmsAppShellContent({
       { label: '영업', view: { kind: 'sales-kpi' } as View, active: view.kind === 'sales-kpi' || view.kind === 'sales-billing' }
     ] : [])
   ];
-  const navigationItems: NavigationItem[] = [
+  const cheongjuNavigationItems: NavigationItem[] = [
     { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount, group: '내 업무' },
     { label: 'Pending', view: { kind: 'pending' }, active: view.kind === 'pending' || view.kind === 'pending-detail', group: '내 업무' },
@@ -2176,23 +2327,17 @@ function QmsAppShellContent({
       { label: '관리자', view: { kind: 'admin-dashboard' } as View, active: isAdminWorkspace(view), group: '관리' as const }
     ] : [])
   ];
+  const navigationItems: NavigationItem[] = isOsan
+    ? [
+        { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
+        { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
+        { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
+      ]
+    : cheongjuNavigationItems;
 
   const activeNavigationLabel = view.kind === 'privacy-notice'
     ? '개인정보·이용 안내'
     : navigationItems.find((item) => item.active)?.label ?? '업무';
-  const shellSwitchControls = (
-    <ShellSwitchControls
-      isDevMode={isDevMode}
-      canUseAdminTestUserSwitch={canUseAdminTestUserSwitch}
-      isTestUserSwitch={user?.isTestUserSwitch === true}
-      developmentUserKey={developmentUserKey}
-      adminTestUserKey={adminTestUserKey}
-      onDevelopmentUserChange={switchDevelopmentUser}
-      onAdminTestUserChange={switchAdminTestUser}
-      onResetAdminTestUser={resetAdminTestUser}
-    />
-  );
-
   return (
     <main
       className="app-shell"
@@ -2203,7 +2348,7 @@ function QmsAppShellContent({
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
-        {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
+        {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan ? (
           <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
         ) : null}
         <header className="mobile-app-bar">
@@ -2222,6 +2367,14 @@ function QmsAppShellContent({
               <strong>{activeNavigationLabel}</strong>
             </span>
           </div>
+          {canSwitchBusinessUnit(businessUnitAccess) ? (
+            <BusinessUnitSelector
+              access={businessUnitAccess}
+              mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
+              onSelect={switchBusinessUnitContext}
+              compact
+            />
+          ) : null}
           <button
             ref={mobileStatusTriggerRef}
             type="button"
@@ -2267,7 +2420,7 @@ function QmsAppShellContent({
               <span>조회·검색·필터만 가능하며 변경 action은 차단됩니다.</span>
             </div>
           ) : null}
-          {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
+          {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan ? (
             <button
               type="button"
               className="mobile-status-action"
@@ -2288,6 +2441,13 @@ function QmsAppShellContent({
             <h1>EMI PMS</h1>
           </div>
           <div className="topbar-actions">
+            {canSwitchBusinessUnit(businessUnitAccess) ? (
+              <BusinessUnitSelector
+                access={businessUnitAccess}
+                mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
+                onSelect={switchBusinessUnitContext}
+              />
+            ) : null}
             {user ? (
               <DesktopAccountMenu
                 user={user}
@@ -2368,12 +2528,20 @@ function QmsAppShellContent({
         <StateMessage state={currentUser} />
       ) : null}
 
-      {currentUser.kind === 'ready' && currentUser.data.approvalPending ? (
-        <ApprovalPendingPage user={currentUser.data} onLogout={onLogout} />
+      {currentUser.kind === 'ready'
+        && currentUser.data.approvalPending
+        && view.kind !== 'admin-users' ? (
+        <ApprovalPendingPage
+          user={currentUser.data}
+          onOpenBusinessUnitAccess={businessUnitAccess.isOverallAdministrator
+            ? () => setView({ kind: 'admin-users' })
+            : undefined}
+          onLogout={onLogout}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        <HomePage
+        isOsan ? <OsanAreaPlaceholder area="home" /> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
@@ -2413,6 +2581,7 @@ function QmsAppShellContent({
         <QrScanLandingPage
           key={view.token}
           developmentUserKey={developmentUserKey}
+          runtimeReady={runtimeMode.kind === 'ready'}
           token={view.token}
           onOpenPath={(path) => {
             window.history.pushState(null, '', path);
@@ -2460,7 +2629,11 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'pending-types' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && view.kind === 'osan-progress' ? (
+        <OsanAreaPlaceholder area="progress" />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'pending-types' ? (
         <PendingTypeManagementPage developmentUserKey={developmentUserKey} canManage={canManagePendingTypes} />
       ) : null}
 
@@ -2479,7 +2652,12 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'list' ? (
-        <ProjectListPage
+        isOsan ? <OsanProjectListPage
+          developmentUserKey={developmentUserKey}
+          canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
+          onCreate={() => setView({ kind: 'create' })}
+          onOpen={(projectId) => setView({ kind: 'detail', projectId })}
+        /> : <ProjectListPage
           developmentUserKey={developmentUserKey}
           canCreate={canCreate}
             canReadDeleted={canReadDeleted}
@@ -2511,7 +2689,12 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'create' ? (
-        <ProjectCreatePage
+        isOsan ? <OsanProjectCreatePage
+          developmentUserKey={developmentUserKey}
+          canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
+          onCancel={() => setView({ kind: 'list' })}
+          onCreated={(projectId) => setView({ kind: 'detail', projectId })}
+        /> : <ProjectCreatePage
           developmentUserKey={developmentUserKey}
           onCancel={() => setView({ kind: 'list' })}
           onCreated={(projectId) => setView({ kind: 'detail', projectId })}
@@ -2519,7 +2702,11 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'detail' ? (
-        <>
+        isOsan ? <OsanProjectDetailPage
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          onBack={() => setView({ kind: 'list' })}
+        /> : <>
           {projectActionFeedback?.projectId === view.projectId ? (
             <section className="page-action-feedback route-action-feedback" aria-label="최근 저장 결과">
               <ActionFeedback
@@ -2819,7 +3006,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-dashboard' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-dashboard' ? (
         <AdminDashboardPage
           developmentUserKey={developmentUserKey}
           canManageUsers={canManageUsers}
@@ -2828,15 +3015,28 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-users' ? (
+      {currentUser.kind === 'ready'
+        && (!currentUser.data.approvalPending || businessUnitAccess.isOverallAdministrator)
+        && !isOsan
+        && view.kind === 'admin-users' ? (
         <AdminUsersPage
           developmentUserKey={developmentUserKey}
           filter={view.filter}
-          onOpenNotificationSettings={(userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
+          restrictedToLocalProfile={isOsan}
+          overallAccess={businessUnitAccess.isOverallAdministrator}
+          currentUserId={currentUser.data.userId}
+          selectedBusinessUnit={selectedBusinessUnit}
+          mutationAllowed={mutationEnabled}
+          mutationDisabledReason={membershipMutationDisabledReason}
+          onCurrentSelectionRemoved={() => resetBusinessUnitRequestContext(true)}
+          onOpenNotificationSettings={isOsan
+            ? undefined
+            : (userId) => setView({ kind: 'admin-user-notification-preferences', userId })}
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-user-notification-preferences' ? (
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-user-notification-preferences' ? (
         <NotificationPreferencesPage
           developmentUserKey={developmentUserKey}
           targetUserId={view.userId}
@@ -2844,27 +3044,27 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-departments' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-departments' ? (
         <AdminDepartmentsPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-calendar-holidays' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-calendar-holidays' ? (
         <AdminCalendarHolidaysPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-permission-matrix' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-permission-matrix' ? (
         <AdminPermissionMatrixPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-master-change-logs' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-master-change-logs' ? (
         <AdminMasterChangeLogsPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-history' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-work-history' ? (
         <AdminWorkHistoryPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-send-notification' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-send-notification' ? (
         <AdminManualNotificationPage
           developmentUserKey={developmentUserKey}
           onOpenDeliveries={() => setView({ kind: 'admin-notification-deliveries', deliveryType: 'ManualTest' })}
@@ -2878,7 +3078,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-deliveries' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-notification-deliveries' ? (
         <AdminNotificationDeliveriesPage
           developmentUserKey={developmentUserKey}
           statusFilter={view.status ?? null}
@@ -2889,7 +3089,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-delivery-detail' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-notification-delivery-detail' ? (
         <AdminNotificationDeliveryDetailPage
           developmentUserKey={developmentUserKey}
           deliveryId={view.deliveryId}
@@ -2897,15 +3097,15 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-notification-preference-audit' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-notification-preference-audit' ? (
         <NotificationPreferenceAuditPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-audit-events' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-audit-events' ? (
         <AuditPage developmentUserKey={developmentUserKey} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'admin-work-item-escalations' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'admin-work-item-escalations' ? (
         <AdminWorkItemEscalationsPage
           developmentUserKey={developmentUserKey}
           statusFilter={view.status ?? null}
@@ -3846,19 +4046,1380 @@ function AuthenticationRequiredPage({ user, message, onLogout }: { user?: Curren
   );
 }
 
-function ApprovalPendingPage({ user, onLogout }: { user: CurrentUser; onLogout?: () => void }) {
+function resolveBusinessUnitAccess(user: CurrentUser | null): BusinessUnitAccess {
+  if (user?.businessUnitAccess) {
+    return user.businessUnitAccess;
+  }
+
+  return {
+    status: user ? 'selected' : 'no_membership',
+    selectedBusinessUnit: user ? 'CHEONGJU' : null,
+    allowedBusinessUnits: user ? ['CHEONGJU'] : [],
+    isOverallAdministrator: false,
+    errorCode: null
+  };
+}
+
+function businessUnitLabel(code: BusinessUnitCode) {
+  return code === 'OSAN' ? '오산' : '청주';
+}
+
+function canSwitchBusinessUnit(access: BusinessUnitAccess) {
+  return access.isOverallAdministrator && access.allowedBusinessUnits.length > 1;
+}
+
+function BusinessUnitSelector({
+  access,
+  mutationInFlight,
+  onSelect,
+  compact = false
+}: {
+  access: BusinessUnitAccess;
+  mutationInFlight: boolean;
+  onSelect: (businessUnit: BusinessUnitCode) => void;
+  compact?: boolean;
+}) {
+  return (
+    <label className={`business-unit-selector${compact ? ' business-unit-selector--compact' : ''}`}>
+      <span>사업부</span>
+      <select
+        aria-label="사업부 선택"
+        value={access.selectedBusinessUnit ?? ''}
+        disabled={mutationInFlight}
+        title={mutationInFlight ? '저장 작업이 끝난 뒤 사업부를 변경할 수 있습니다.' : undefined}
+        onChange={(event) => onSelect(event.target.value as BusinessUnitCode)}
+      >
+        {access.allowedBusinessUnits.map((businessUnit) => (
+          <option key={businessUnit} value={businessUnit}>{businessUnitLabel(businessUnit)}</option>
+        ))}
+      </select>
+      {mutationInFlight ? <small role="status">저장 중에는 변경할 수 없습니다.</small> : null}
+    </label>
+  );
+}
+
+type ProjectListPageKpi = {
+  title: string;
+  value: number;
+  helperText: string;
+  variant?: 'positive' | 'warning';
+};
+
+type ProjectListPageTabItem = {
+  value: string;
+  label: string;
+};
+
+type ProjectListPageFilterProps = {
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+  disabled?: boolean;
+  desktopSearchPlaceholder: string;
+  mobileSearchPlaceholder: string;
+  onSearchChange: (value: string) => void;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onDesktopSubmit?: () => void;
+  onReset: () => void;
+};
+
+function ProjectListPageComposition({
+  desktopTitle,
+  mobileTitle,
+  desktopDescription,
+  mobileDescription,
+  renderActions,
+  filters,
+  kpis,
+  tabs,
+  activeTab,
+  onTabChange,
+  tabsDisabled = false,
+  tools,
+  children
+}: {
+  desktopTitle: string;
+  mobileTitle: string;
+  desktopDescription?: string;
+  mobileDescription?: string;
+  renderActions?: (isMobile: boolean) => ReactNode;
+  filters: ProjectListPageFilterProps;
+  kpis?: ProjectListPageKpi[];
+  tabs: ProjectListPageTabItem[];
+  activeTab: string;
+  onTabChange: (value: string) => void;
+  tabsDisabled?: boolean;
+  tools?: ReactNode;
+  children: ReactNode;
+}) {
+  const isMobile = useIsMobileViewport();
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [draftSearch, setDraftSearch] = useState('');
+  const [draftDateFrom, setDraftDateFrom] = useState('');
+  const [draftDateTo, setDraftDateTo] = useState('');
+  const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <section
+      className={isMobile ? 'page-surface project-list-page mobile-first-page mobile-project-list-page' : 'page-surface project-list-page'}
+      data-presentation-contract="project-list-page-v1"
+      data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
+    >
+      <DsPageHeader
+        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
+        eyebrow={isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}
+        title={isMobile ? mobileTitle : desktopTitle}
+        description={isMobile ? mobileDescription : desktopDescription}
+        actions={renderActions?.(isMobile)}
+      />
+
+      {isMobile ? (
+        <>
+          <button
+            ref={mobileFilterTriggerRef}
+            type="button"
+            className="mobile-filter-trigger"
+            aria-expanded={mobileFiltersOpen}
+            disabled={filters.disabled}
+            onClick={() => {
+              setDraftSearch(filters.search);
+              setDraftDateFrom(filters.dateFrom);
+              setDraftDateTo(filters.dateTo);
+              setMobileFiltersOpen(true);
+            }}
+          >
+            <span><strong>검색·필터</strong><small>{[filters.search, filters.dateFrom, filters.dateTo].filter(Boolean).length > 0 ? `${[filters.search, filters.dateFrom, filters.dateTo].filter(Boolean).length}개 조건 적용 중` : '전체 프로젝트 표시 중'}</small></span>
+            <span aria-hidden="true">⌕</span>
+          </button>
+          <MobileSheet
+            open={mobileFiltersOpen}
+            title="프로젝트 검색·필터"
+            eyebrow="PROJECT FILTER"
+            description="조건을 고른 뒤 적용하면 목록이 갱신됩니다. 취소하면 기존 조건을 유지합니다."
+            onClose={() => setMobileFiltersOpen(false)}
+            triggerRef={mobileFilterTriggerRef}
+            fullScreen
+            footer={(
+              <>
+                <button type="button" disabled={filters.disabled} onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
+                <button type="button" disabled={filters.disabled} onClick={() => setMobileFiltersOpen(false)}>취소</button>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={filters.disabled}
+                  onClick={() => {
+                    filters.onSearchChange(draftSearch);
+                    filters.onDateFromChange(draftDateFrom);
+                    filters.onDateToChange(draftDateTo);
+                    setMobileFiltersOpen(false);
+                  }}
+                >
+                  조건 적용
+                </button>
+              </>
+            )}
+          >
+            <div className="mobile-filter-form">
+              <label><span>검색어</span><input data-autofocus value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder={filters.mobileSearchPlaceholder} /></label>
+              <label><span>납기 시작일</span><input type="date" value={draftDateFrom} onChange={(event) => setDraftDateFrom(event.target.value)} /></label>
+              <label><span>납기 종료일</span><input type="date" value={draftDateTo} onChange={(event) => setDraftDateTo(event.target.value)} /></label>
+            </div>
+          </MobileSheet>
+        </>
+      ) : (
+        <form
+          className="toolbar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            filters.onDesktopSubmit?.();
+          }}
+        >
+          <input
+            value={filters.search}
+            disabled={filters.disabled}
+            onChange={(event) => filters.onSearchChange(event.target.value)}
+            placeholder={filters.desktopSearchPlaceholder}
+          />
+          <label className="date-filter-field">
+            <span>시작일</span>
+            <input type="date" value={filters.dateFrom} disabled={filters.disabled} onChange={(event) => filters.onDateFromChange(event.target.value)} />
+          </label>
+          <label className="date-filter-field">
+            <span>종료일</span>
+            <input type="date" value={filters.dateTo} disabled={filters.disabled} onChange={(event) => filters.onDateToChange(event.target.value)} />
+          </label>
+          <button type="button" disabled={filters.disabled} onClick={filters.onReset}>필터 초기화</button>
+          <button type="submit" disabled={filters.disabled}>검색</button>
+        </form>
+      )}
+
+      {kpis ? <ProjectListKpiGrid items={kpis} /> : null}
+
+      <div className="tab-row" role="tablist" aria-label="프로젝트 상태">
+        {tabs.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === item.value}
+            className={activeTab === item.value ? 'tab-button active' : 'tab-button'}
+            disabled={tabsDisabled}
+            onClick={() => onTabChange(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tools}
+      {children}
+    </section>
+  );
+}
+
+function OsanProjectListPage({
+  developmentUserKey,
+  canCreate,
+  onCreate,
+  onOpen
+}: {
+  developmentUserKey: string;
+  canCreate: boolean;
+  onCreate: () => void;
+  onOpen: (projectId: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [tab, setTab] = useState<'All' | 'Active' | 'Completed'>('All');
+  const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    const controller = new AbortController();
+    setState({ kind: 'loading' });
+    listOsanProjects(developmentUserKey, { signal: controller.signal })
+      .then((response) => setState(response.items.length > 0
+        ? { kind: 'ready', data: response.items }
+        : { kind: 'empty' }))
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) {
+          setState(toLoadError(error, '오산 프로젝트 목록을 불러올 수 없습니다.'));
+        }
+      });
+    return () => controller.abort();
+  }, [developmentUserKey]);
+
+  useEffect(() => load(), [load]);
+
+  const projects = state.kind === 'ready' ? state.data : [];
+  const normalizedSearch = search.trim().toLocaleLowerCase('ko-KR');
+  const filteredProjects = projects.filter((project) => {
+    const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
+      .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
+    const matchesDateFrom = !dateFrom || project.deliveryDate >= dateFrom;
+    const matchesDateTo = !dateTo || project.deliveryDate <= dateTo;
+    const matchesStatus = tab === 'All' || project.status === tab;
+    return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
+  });
+  const resetFilters = () => {
+    setSearch('');
+    setDateFrom('');
+    setDateTo('');
+    setTab('All');
+  };
+
+  return (
+    <ProjectListPageComposition
+      desktopTitle="프로젝트 목록"
+      mobileTitle="현장 프로젝트"
+      mobileDescription="납기를 먼저 보고 필요한 프로젝트를 선택하세요."
+      renderActions={(isMobile) => canCreate ? (
+        <div className={isMobile ? 'mobile-page-actions' : 'button-row page-export-actions'}>
+          <button type="button" className="primary-button" onClick={onCreate}>{isMobile ? '+ 프로젝트' : '신규 프로젝트'}</button>
+        </div>
+      ) : undefined}
+      filters={{
+        search,
+        dateFrom,
+        dateTo,
+        desktopSearchPlaceholder: '거래처, 제품명, 프로젝트 코드, 프로젝트 Title 검색',
+        mobileSearchPlaceholder: '거래처, 제품명, 코드, Title',
+        onSearchChange: setSearch,
+        onDateFromChange: setDateFrom,
+        onDateToChange: setDateTo,
+        onReset: resetFilters
+      }}
+      kpis={[
+        { title: '전체 프로젝트', value: projects.length, helperText: '등록 프로젝트' },
+        { title: '시작 전', value: projects.filter((project) => project.status === 'Active').length, helperText: '진행 시작 전' },
+        { title: '완료', value: projects.filter((project) => project.status === 'Completed').length, helperText: '전체 단계 완료', variant: 'positive' }
+      ]}
+      tabs={[
+        { value: 'All', label: '전체' },
+        { value: 'Active', label: '시작 전' },
+        { value: 'Completed', label: '완료' }
+      ]}
+      activeTab={tab}
+      onTabChange={(value) => setTab(value as 'All' | 'Active' | 'Completed')}
+    >
+      {state.kind === 'loading' ? (
+        <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
+      ) : null}
+      {state.kind === 'empty' ? (
+        <DsStatePanel
+          kind="empty"
+          title="등록된 프로젝트가 없습니다."
+          description={canCreate ? '첫 프로젝트를 등록해 주세요.' : '등록 권한이 있는 담당자에게 문의해 주세요.'}
+          action={canCreate ? <button type="button" className="primary-button" onClick={onCreate}>신규 프로젝트</button> : undefined}
+        />
+      ) : null}
+      {state.kind === 'forbidden' ? (
+        <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} />
+      ) : null}
+      {state.kind === 'error' ? (
+        <DsStatePanel
+          kind="error"
+          title="프로젝트를 불러오지 못했습니다."
+          description={state.message}
+          action={<button type="button" onClick={load}>다시 시도</button>}
+        />
+      ) : null}
+      {state.kind === 'ready' && filteredProjects.length === 0 ? (
+        <DsEmptyState
+          title="조건에 맞는 프로젝트가 없습니다."
+          description="검색 조건을 초기화해 전체 프로젝트를 확인하세요."
+          primaryAction={{ label: '검색 조건 초기화', onClick: resetFilters }}
+        />
+      ) : null}
+      {state.kind === 'ready' && filteredProjects.length > 0 ? (
+        <ProjectListPresentation
+          ariaLabel="오산 프로젝트 목록"
+          testIdPrefix="osan-project-list"
+          columns={[
+            { label: '프로젝트명', align: 'left' },
+            { label: '거래처', align: 'left' },
+            { label: 'Code', align: 'center' },
+            { label: '제품명', align: 'left' },
+            { label: '수량', align: 'center' },
+            { label: '납기일', align: 'center' },
+            { label: '상태', align: 'center' },
+            { label: '진행률', align: 'center' }
+          ]}
+          rows={filteredProjects.map((project) => ({
+            key: project.projectId,
+            title: project.title,
+            openAriaLabel: `${project.title} 상세 열기`,
+            onOpen: () => onOpen(project.projectId),
+            desktopCells: [
+              { value: <strong>{project.title}</strong>, align: 'left' },
+              { value: project.customerName, align: 'left' },
+              { value: project.projectCode, align: 'center', className: 'project-code-value' },
+              { value: project.productName, align: 'left' },
+              { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
+              { value: formatDate(project.deliveryDate), align: 'center' },
+              { value: formatOsanProjectStatus(project.status), align: 'center' },
+              { value: '0%', align: 'center' }
+            ],
+            mobileFields: [
+              { label: '거래처', value: project.customerName },
+              { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
+              { label: '제품명', value: project.productName },
+              { label: '수량', value: `${project.quantity.toLocaleString()}개` },
+              { label: '납기일', value: formatDate(project.deliveryDate) },
+              { label: '상태', value: formatOsanProjectStatus(project.status) },
+              { label: '진행률', value: '0%' }
+            ]
+          }))}
+        />
+      ) : null}
+    </ProjectListPageComposition>
+  );
+}
+
+function formatOsanProjectStatus(status: string) {
+  if (status === 'Completed') return '완료';
+  if (status === 'Active') return '시작 전';
+  return status;
+}
+
+type OsanProjectDraft = {
+  title: string;
+  projectCode: string;
+  customerName: string;
+  poNumber: string;
+  workOrderNumber: string;
+  deliveryDate: string;
+  productName: string;
+  quantity: string;
+};
+
+const emptyOsanProjectDraft: OsanProjectDraft = {
+  title: '',
+  projectCode: '',
+  customerName: '',
+  poNumber: '',
+  workOrderNumber: '',
+  deliveryDate: '',
+  productName: '',
+  quantity: ''
+};
+
+const osanProjectVisibleFields = new Set<keyof OsanProjectDraft>([
+  'title',
+  'projectCode',
+  'customerName',
+  'poNumber',
+  'workOrderNumber',
+  'deliveryDate',
+  'productName',
+  'quantity'
+]);
+
+const osanProjectFieldLimits: Partial<Record<keyof OsanProjectDraft, number>> = {
+  title: 200,
+  projectCode: 80,
+  customerName: 200,
+  poNumber: 100,
+  workOrderNumber: 100,
+  productName: 100
+};
+
+function OsanProjectCreatePage({
+  developmentUserKey,
+  canCreate,
+  onCancel,
+  onCreated
+}: {
+  developmentUserKey: string;
+  canCreate: boolean;
+  onCancel: () => void;
+  onCreated: (projectId: string) => void;
+}) {
+  const [draft, setDraft] = useState<OsanProjectDraft>(emptyOsanProjectDraft);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const operationIdRef = useRef(globalThis.crypto.randomUUID());
+
+  if (!canCreate) {
+    return (
+      <section className="panel-section osan-project-page">
+        <DsPageHeader className="page-header" eyebrow="OSAN" title="프로젝트 등록" />
+        <DsStatePanel
+          kind="forbidden"
+          title="프로젝트를 등록할 수 없습니다."
+          description="등록 권한 또는 저장 가능 상태를 확인해 주세요."
+          action={<button type="button" onClick={onCancel}>목록으로</button>}
+        />
+      </section>
+    );
+  }
+
+  const setField = (field: keyof OsanProjectDraft, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setMessage('');
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving) return;
+
+    const nextErrors: Record<string, string> = {};
+    for (const field of ['title', 'projectCode', 'customerName', 'deliveryDate', 'productName'] as const) {
+      if (!draft[field].trim()) {
+        nextErrors[field] = '필수 입력값입니다.';
+      }
+    }
+    for (const [field, maxLength] of Object.entries(osanProjectFieldLimits) as Array<[keyof OsanProjectDraft, number]>) {
+      if (draft[field].trim().length > maxLength) {
+        nextErrors[field] = `${maxLength}자 이하로 입력해 주세요.`;
+      }
+    }
+    const quantity = Number(draft.quantity);
+    if (!draft.quantity.trim() || !Number.isInteger(quantity) || quantity < 1 || quantity > 500) {
+      nextErrors.quantity = '수량은 1 이상 500 이하의 정수로 입력해 주세요.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      setMessage('입력값을 확인해 주세요.');
+      return;
+    }
+
+    setSaving(true);
+    setErrors({});
+    setMessage('');
+    try {
+      const response = await createOsanProject(developmentUserKey, {
+        title: draft.title.trim(),
+        projectCode: draft.projectCode.trim(),
+        customerName: draft.customerName.trim(),
+        poNumber: draft.poNumber.trim() || null,
+        workOrderNumber: draft.workOrderNumber.trim() || null,
+        deliveryDate: draft.deliveryDate,
+        productName: draft.productName.trim(),
+        quantity,
+        operationId: operationIdRef.current
+      });
+      onCreated(response.project.projectId);
+    } catch (error: unknown) {
+      let hasFieldErrors = false;
+      if (error instanceof ApiError && error.errors) {
+        const mappedErrors = mapValidationErrorsToFieldErrors(error.errors);
+        const visibleFieldErrors = Object.fromEntries(Object.entries(mappedErrors).filter(([field]) => (
+          osanProjectVisibleFields.has(field as keyof OsanProjectDraft)
+        )));
+        hasFieldErrors = Object.keys(visibleFieldErrors).length > 0;
+        setErrors(visibleFieldErrors);
+      }
+      if (error instanceof ApiError && error.errorCode === 'osan_project_operation_conflict') {
+        operationIdRef.current = globalThis.crypto.randomUUID();
+      }
+      setMessage(hasFieldErrors ? '' : friendlyErrorMessage(error, '프로젝트를 등록할 수 없습니다.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fieldError = (field: keyof OsanProjectDraft) => errors[field];
+  return (
+    <section className="panel-section osan-project-page">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="OSAN"
+        title="프로젝트 등록"
+        description="프로젝트 기본 정보와 진행 대상을 한 번에 준비합니다."
+      />
+      <DsInputFlow title="오산 프로젝트 정보" description="아래 8개 항목을 순서대로 입력해 주세요.">
+        <form className="osan-project-form" onSubmit={submit} noValidate>
+          <OsanProjectField number={1} label="프로젝트 Title" required error={fieldError('title')}>
+            <input aria-label="프로젝트 Title" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
+          </OsanProjectField>
+          <OsanProjectField number={2} label="프로젝트 코드" required error={fieldError('projectCode')}>
+            <input aria-label="프로젝트 코드" value={draft.projectCode} maxLength={80} onChange={(event) => setField('projectCode', event.target.value)} aria-invalid={Boolean(fieldError('projectCode'))} />
+          </OsanProjectField>
+          <OsanProjectField number={3} label="거래처" required error={fieldError('customerName')}>
+            <input aria-label="거래처" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
+          </OsanProjectField>
+          <OsanProjectField number={4} label="PO No" error={fieldError('poNumber')}>
+            <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
+          </OsanProjectField>
+          <OsanProjectField number={5} label="W/O No" error={fieldError('workOrderNumber')}>
+            <input aria-label="W/O No" value={draft.workOrderNumber} maxLength={100} onChange={(event) => setField('workOrderNumber', event.target.value)} aria-invalid={Boolean(fieldError('workOrderNumber'))} />
+          </OsanProjectField>
+          <OsanProjectField number={6} label="납기일" required error={fieldError('deliveryDate')}>
+            <input aria-label="납기일" type="date" value={draft.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} aria-invalid={Boolean(fieldError('deliveryDate'))} />
+          </OsanProjectField>
+          <OsanProjectField number={7} label="제품명" required error={fieldError('productName')}>
+            <input aria-label="제품명" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
+          </OsanProjectField>
+          <OsanProjectField number={8} label="수량" required error={fieldError('quantity')}>
+            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
+          </OsanProjectField>
+
+          {message ? <p className="error-text osan-project-form__message" role="alert">{message}</p> : null}
+          <div className="osan-project-form__actions">
+            <button type="button" onClick={onCancel} disabled={saving}>취소</button>
+            <button type="submit" className="primary-button" disabled={saving}>
+              {saving ? '등록 중…' : '프로젝트 등록'}
+            </button>
+          </div>
+        </form>
+      </DsInputFlow>
+    </section>
+  );
+}
+
+function OsanProjectField({
+  number,
+  label,
+  required = false,
+  error,
+  children
+}: {
+  number: number;
+  label: string;
+  required?: boolean;
+  error?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="osan-project-field">
+      <span className="osan-project-field__number" aria-hidden="true">{number}</span>
+      <span className="osan-project-field__label">{label}{required ? <b aria-label="필수"> *</b> : null}</span>
+      {children}
+      {error ? <span className="error-text osan-project-field__error">{error}</span> : null}
+    </label>
+  );
+}
+
+function OsanProjectDetailPage({
+  developmentUserKey,
+  projectId,
+  onBack
+}: {
+  developmentUserKey: string;
+  projectId: string;
+  onBack: () => void;
+}) {
+  const isMobile = useIsMobileViewport();
+  const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
+
+  const load = useCallback(() => {
+    const controller = new AbortController();
+    setState({ kind: 'loading' });
+    getOsanProject(developmentUserKey, projectId, { signal: controller.signal })
+      .then((project) => setState({ kind: 'ready', data: project }))
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) {
+          setState(toLoadError(error, '오산 프로젝트를 불러올 수 없습니다.'));
+        }
+      });
+    return () => controller.abort();
+  }, [developmentUserKey, projectId]);
+
+  useEffect(() => load(), [load]);
+
+  return (
+    <section className={isMobile ? 'page-surface mobile-first-page mobile-project-detail-page' : 'page-surface'}>
+      {state.kind === 'ready' && !isMobile ? (
+        <DsBreadcrumbs items={[{ label: '프로젝트', onClick: onBack }]} current={state.data.title} />
+      ) : null}
+      {state.kind === 'ready' ? (
+        <div className={isMobile ? 'mobile-detail-hero' : 'page-header'}>
+          <div>
+            {isMobile ? <button type="button" className="mobile-back-button" onClick={onBack}>← 프로젝트</button> : null}
+            <p className={isMobile ? 'eyebrow project-code-value' : 'eyebrow'}>
+              {isMobile ? state.data.projectCode : '프로젝트 상세'}
+            </p>
+            <h2>{state.data.title}</h2>
+            {isMobile ? (
+              <div className="mobile-detail-hero-meta">
+                <StatusBadge label={formatOsanProjectStatus(state.data.status)} tone={state.data.status === 'Completed' ? 'success' : 'neutral'} />
+                <span>{state.data.quantity.toLocaleString()}개 대상</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <DsPageHeader
+          className="page-header"
+          eyebrow="OSAN"
+          title="프로젝트 상세"
+          actions={<button type="button" onClick={onBack}>목록으로</button>}
+        />
+      )}
+      {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
+      {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
+      {state.kind === 'not-found' ? <DsStatePanel kind="not-found" title="프로젝트를 찾을 수 없습니다." description={state.message} /> : null}
+      {state.kind === 'error' ? (
+        <DsStatePanel
+          kind="error"
+          title="프로젝트를 불러오지 못했습니다."
+          description={state.message}
+          action={<button type="button" onClick={load}>다시 시도</button>}
+        />
+      ) : null}
+      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} /> : null}
+    </section>
+  );
+}
+
+function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
+  const values = [
+    { label: '프로젝트 Title', value: project.title },
+    { label: '프로젝트 코드', value: project.projectCode, valueClassName: 'project-code-value' },
+    { label: '거래처', value: project.customerName },
+    { label: 'PO No', value: project.poNumber ?? '없음' },
+    { label: 'W/O No', value: project.workOrderNumber ?? '없음' },
+    { label: '납기일', value: project.deliveryDate },
+    { label: '제품명', value: project.productName },
+    { label: '수량', value: `${project.quantity.toLocaleString()}개` }
+  ];
+  const targetRows = project.targets.map((target) => {
+    const completedSteps = target.steps.filter((step) => step.status === 'Completed').length;
+    const inProgress = target.steps.some((step) => step.status === 'InProgress') || completedSteps > 0;
+    const completed = target.steps.length > 0 && completedSteps === target.steps.length;
+    return {
+      target,
+      completedSteps,
+      statusLabel: completed ? '완료' : inProgress ? '진행 중' : '시작 전',
+      tone: completed ? 'success' as const : inProgress ? 'info' as const : 'neutral' as const,
+      currentStage: completed
+        ? '완료'
+        : target.steps.find((step) => step.status === 'InProgress')?.stepName
+          ?? target.steps.find((step) => step.status !== 'Completed')?.stepName
+          ?? '시작 전'
+    };
+  });
+  const totalStepCount = targetRows.reduce((sum, row) => sum + row.target.steps.length, 0);
+  const completedStepCount = targetRows.reduce((sum, row) => sum + row.completedSteps, 0);
+  const completedTargetCount = targetRows.filter((row) => row.completedSteps > 0 && row.completedSteps === row.target.steps.length).length;
+  const statusItem = {
+    label: '상태',
+    value: <StatusBadge label={formatOsanProjectStatus(project.status)} tone={project.status === 'Completed' ? 'success' : 'neutral'} />
+  };
+  const progressItem = { label: '진행률', value: `${calculateProgressPercent(completedStepCount, totalStepCount)}%` };
+
+  return (
+    <>
+      <ProjectSummaryPresentation
+        primaryItems={[statusItem, values[2], values[6], values[5], values[7], progressItem]}
+        moreItems={[values[0], values[1], values[3], values[4]]}
+        mobileItems={[statusItem, ...values, progressItem]}
+        mobileAriaLabel="프로젝트 입력 정보"
+      />
+
+      <div className="section-switcher project-department-tabs" role="tablist" aria-label="프로젝트 상세 섹션">
+        <button
+          type="button"
+          role="tab"
+          id="osan-progress-tab"
+          aria-controls="osan-progress-panel"
+          aria-selected="true"
+          className="secondary-button active"
+        >
+          진행 관리
+        </button>
+      </div>
+
+      <div
+        id="osan-progress-panel"
+        className="project-detail-tab-content"
+        role="tabpanel"
+        aria-labelledby="osan-progress-tab"
+        data-section="progress"
+      >
+        <ProjectDepartmentStatusBoard
+          department="manufacturing"
+          title="진행 관리"
+          titleId="osan-target-heading"
+          description="대상별 현재 단계와 일곱 단계 진행 상태를 확인합니다."
+          metrics={[
+            { label: '진행 대상', value: `${project.targets.length.toLocaleString()}개`, showIndicator: true },
+            { label: '시작 전', value: `${targetRows.filter((row) => row.statusLabel === '시작 전').length}/${project.targets.length}`, showIndicator: true },
+            {
+              label: '완료',
+              value: `${completedTargetCount}/${project.targets.length}`,
+              tone: completedTargetCount === project.targets.length && project.targets.length > 0 ? 'success' : undefined,
+              showIndicator: true
+            },
+            { label: '진행률', value: `${calculateProgressPercent(completedStepCount, totalStepCount)}%`, tone: 'info', showIndicator: true }
+          ]}
+          rows={targetRows.map(({ target, completedSteps, statusLabel, tone, currentStage }) => ({
+            key: target.targetId,
+            order: target.sequenceNumber,
+            code: target.sequenceNumber,
+            desktopTitle: target.displayName,
+            mobileTitle: target.displayName,
+            subtitle: `${target.sequenceNumber}번 대상`,
+            status: statusLabel,
+            tone,
+            detail: `${completedSteps}/${target.steps.length}단계 완료`,
+            stage: currentStage,
+            completed: completedSteps,
+            total: target.steps.length,
+            progressLabel: target.displayName
+          }))}
+          tableAriaLabel="진행 관리 대상 현황"
+          subjectColumnLabel="진행 대상"
+          stageColumnLabel="현재 단계"
+        />
+      </div>
+    </>
+  );
+}
+
+function OsanAreaPlaceholder({ area }: { area: 'home' | 'progress' }) {
+  const content = area === 'home'
+    ? ['오산 사업부 홈', '프로젝트와 진행 관리 메뉴에서 오산 사업부의 준비된 업무 범위를 확인할 수 있습니다.']
+    : ['오산 진행 관리', '오산에서는 G2, Pending, 보류와 취소를 사용하지 않습니다. 승인된 7단계 진행 화면은 후속 진행 Task에서 열립니다.'];
+
+  return (
+    <section className="panel-section osan-area-placeholder">
+      <DsPageHeader className="page-header" eyebrow="OSAN" title={content[0]} />
+      <DsEmptyState title="준비 중인 업무입니다." description={content[1]} />
+    </section>
+  );
+}
+
+function BusinessUnitAccessAdministrationPage({
+  developmentUserKey,
+  filter,
+  currentUserId,
+  selectedBusinessUnit,
+  mutationAllowed,
+  mutationDisabledReason,
+  onCurrentSelectionRemoved
+}: {
+  developmentUserKey: string;
+  filter?: 'approval-pending';
+  currentUserId: string;
+  selectedBusinessUnit: BusinessUnitCode | null;
+  mutationAllowed: boolean;
+  mutationDisabledReason: string | null;
+  onCurrentSelectionRemoved: () => void;
+}) {
+  const [state, setState] = useState<LoadState<BusinessUnitAccessAdministrationResponse>>({ kind: 'loading' });
+  const [drafts, setDrafts] = useState<Record<string, IntegratedUserAccessDraft[]>>({});
+  const [overallAdministratorDrafts, setOverallAdministratorDrafts] = useState<Record<string, boolean>>({});
+  const [selectedUnits, setSelectedUnits] = useState<Record<string, BusinessUnitCode>>({});
+  const [operationIds, setOperationIds] = useState<Record<string, string>>({});
+  const [savingUserIds, setSavingUserIds] = useState<string[]>([]);
+  const [feedbackByUserId, setFeedbackByUserId] = useState<Record<string, string>>({});
+
+  const load = useCallback(() => {
+    setState({ kind: 'loading' });
+    getBusinessUnitAccessUsers(developmentUserKey)
+      .then((data) => {
+        setState(data.users.length > 0 ? { kind: 'ready', data } : { kind: 'empty' });
+        setDrafts(buildIntegratedUserAccessDrafts(data));
+        setOverallAdministratorDrafts(buildIntegratedOverallAdministratorDrafts(data));
+        setSelectedUnits(buildIntegratedUserAccessSelections(data));
+        setOperationIds(Object.fromEntries(data.users
+          .filter((user) => user.pendingOperationId)
+          .map((user) => [user.userId, user.pendingOperationId as string])));
+      })
+      .catch((error: unknown) => setState(toLoadError(error, '사용자 접근 목록을 불러올 수 없습니다.')));
+  }, [developmentUserKey]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const changeDraft = (
+    directoryUser: BusinessUnitAccessAdministrationUser,
+    businessUnit: BusinessUnitCode,
+    change: (draft: IntegratedUserAccessDraft) => IntegratedUserAccessDraft
+  ) => {
+    if (!mutationAllowed) {
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: mutationDisabledReason ?? '현재 사용자 접근 정보를 변경할 수 없습니다.'
+      }));
+      return;
+    }
+    setDrafts((current) => {
+      const userDrafts = current[directoryUser.userId] ?? [];
+      return {
+        ...current,
+        [directoryUser.userId]: userDrafts.map((draft) => (
+          draft.businessUnitCode === businessUnit ? change(draft) : draft
+        ))
+      };
+    });
+    setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
+  };
+
+  const changeActive = (
+    directoryUser: BusinessUnitAccessAdministrationUser,
+    businessUnit: BusinessUnitCode,
+    isActive: boolean
+  ) => {
+    if (!mutationAllowed) {
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: mutationDisabledReason ?? '현재 사용자 접근 정보를 변경할 수 없습니다.'
+      }));
+      return;
+    }
+    setDrafts((current) => ({
+      ...current,
+      [directoryUser.userId]: (current[directoryUser.userId] ?? []).map((draft) => {
+        if (draft.businessUnitCode === businessUnit) {
+          return {
+            ...draft,
+            isActive,
+            isDepartmentHead: isActive ? draft.isDepartmentHead : false,
+            isDepartmentHeadConfirmed: isActive ? draft.isDepartmentHeadConfirmed : false
+          };
+        }
+        if (isActive && !(overallAdministratorDrafts[directoryUser.userId] ?? directoryUser.isOverallAdministrator)) {
+          return {
+            ...draft,
+            isActive: false,
+            isDepartmentHead: false,
+            isDepartmentHeadConfirmed: false
+          };
+        }
+        return draft;
+      })
+    }));
+    setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
+  };
+
+  const changeOverallAdministrator = (
+    directoryUser: BusinessUnitAccessAdministrationUser,
+    isOverallAdministrator: boolean
+  ) => {
+    if (!mutationAllowed) {
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: mutationDisabledReason ?? '현재 사용자 접근 정보를 변경할 수 없습니다.'
+      }));
+      return;
+    }
+    const selectedCode = selectedUnits[directoryUser.userId]
+      ?? buildInitialIntegratedUserAccessSelection(directoryUser, state.kind === 'ready' ? state.data.availableBusinessUnits : []);
+    setOverallAdministratorDrafts((current) => ({ ...current, [directoryUser.userId]: isOverallAdministrator }));
+    setDrafts((current) => ({
+      ...current,
+      [directoryUser.userId]: (current[directoryUser.userId] ?? []).map((draft) => {
+        const unit = state.kind === 'ready'
+          ? state.data.businessUnits.find((item) => item.code === draft.businessUnitCode)
+          : undefined;
+        if (!isOverallAdministrator) {
+          const reconciled = applyIntegratedDepartmentDefaultRole(
+            draft,
+            unit,
+            draft.departmentId,
+            false,
+            false);
+          return draft.businessUnitCode === selectedCode
+            ? { ...reconciled, isActive: true }
+            : { ...reconciled, isActive: false, isDepartmentHead: false, isDepartmentHeadConfirmed: false };
+        }
+        const administration = unit?.departments.find((department) => department.code === 'administration');
+        const withDepartment = draft.departmentId || !administration
+          ? draft
+          : applyIntegratedDepartmentDefaultRole(draft, unit, administration.departmentId);
+        return {
+          ...applyIntegratedDepartmentDefaultRole(
+            withDepartment,
+            unit,
+            withDepartment.departmentId,
+            true,
+            false),
+          isActive: true
+        };
+      })
+    }));
+    setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
+  };
+
+  const save = async (directoryUser: BusinessUnitAccessAdministrationUser) => {
+    if (!mutationAllowed) {
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: mutationDisabledReason ?? '현재 사업부 소속을 변경할 수 없습니다.'
+      }));
+      return;
+    }
+    const profiles = (drafts[directoryUser.userId] ?? []).filter((draft) => {
+      const current = directoryUser.profiles.find((profile) => profile.businessUnitCode === draft.businessUnitCode);
+      return draft.isActive || current?.membershipActive || current?.localProfileExists;
+    });
+    const isOverallAdministrator = overallAdministratorDrafts[directoryUser.userId]
+      ?? directoryUser.isOverallAdministrator;
+    const activeProfiles = profiles.filter((profile) => profile.isActive);
+    if (!isOverallAdministrator && activeProfiles.length > 1) {
+      setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '일반 사용자는 한 사업부에만 소속될 수 있습니다.' }));
+      return;
+    }
+    if (activeProfiles.some((profile) => !profile.departmentId || profile.roleCodes.length === 0)) {
+      setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '활성 사업부마다 기본 역할이 있는 부서를 지정해 주세요.' }));
+      return;
+    }
+    const operationId = directoryUser.pendingOperationId
+      ?? operationIds[directoryUser.userId]
+      ?? window.crypto.randomUUID();
+    setOperationIds((current) => ({ ...current, [directoryUser.userId]: operationId }));
+    setSavingUserIds((current) => [...current.filter((id) => id !== directoryUser.userId), directoryUser.userId]);
+    setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
+    try {
+      const result = await updateBusinessUnitUserAccess(
+        developmentUserKey,
+        directoryUser.userId,
+        operationId,
+        directoryUser.accessVersion,
+        isOverallAdministrator,
+        profiles);
+      setState(result.snapshot.users.length > 0 ? { kind: 'ready', data: result.snapshot } : { kind: 'empty' });
+      setDrafts(buildIntegratedUserAccessDrafts(result.snapshot));
+      setOverallAdministratorDrafts(buildIntegratedOverallAdministratorDrafts(result.snapshot));
+      setSelectedUnits((current) => buildIntegratedUserAccessSelections(result.snapshot, current));
+      setOperationIds((current) => {
+        const next = { ...current };
+        delete next[directoryUser.userId];
+        return next;
+      });
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: result.changed
+          ? '사용자 접근 정보를 저장했습니다.'
+          : '같은 저장 작업이 이미 완료되어 현재 상태를 확인했습니다.'
+      }));
+      if (directoryUser.userId === currentUserId
+        && selectedBusinessUnit
+        && !profiles.some((profile) => profile.businessUnitCode === selectedBusinessUnit && profile.isActive)) {
+        onCurrentSelectionRemoved();
+      }
+    } catch (error) {
+      setFeedbackByUserId((current) => ({
+        ...current,
+        [directoryUser.userId]: error instanceof Error ? error.message : '사용자 접근 정보를 저장할 수 없습니다.'
+      }));
+    } finally {
+      setSavingUserIds((current) => current.filter((id) => id !== directoryUser.userId));
+    }
+  };
+
+  return (
+    <section className="panel-section business-unit-access-admin">
+      <DsPageHeader
+        className="page-header"
+        eyebrow="관리자"
+        title="사용자 관리"
+        actions={<button type="button" onClick={load}>새로고침</button>}
+      />
+      {mutationDisabledReason ? (
+        <p className="account-review-safe-note" role="status">{mutationDisabledReason}</p>
+      ) : null}
+      {state.kind === 'loading' ? <p role="status">사용자 접근 정보를 불러오는 중입니다.</p> : null}
+      {state.kind === 'empty' ? <DsEmptyState title="관리할 계정이 없습니다." description="활성 디렉터리 계정이 등록되면 여기에 표시됩니다." /> : null}
+      {state.kind === 'forbidden' || state.kind === 'not-found' || state.kind === 'error' ? <StateMessage state={state} /> : null}
+      {state.kind === 'ready' ? (
+        <div className="table-scroll business-unit-access-table-scroll">
+          <table className="business-unit-access-table">
+            <thead>
+              <tr>
+                <th aria-label="사용자" />
+                <th>활성 상태</th>
+                <th>사업부</th>
+                <th>부서</th>
+                <th>역할</th>
+                <th>부서장</th>
+                <th>총괄 관리자</th>
+                <th aria-label="작업" />
+              </tr>
+            </thead>
+            <tbody>
+              {state.data.users
+                .filter((directoryUser) => filter !== 'approval-pending' || directoryUser.approvalPending)
+                .map((directoryUser) => {
+                  const userDrafts = drafts[directoryUser.userId] ?? [];
+                  const selectedCode = selectedUnits[directoryUser.userId]
+                    ?? buildInitialIntegratedUserAccessSelection(directoryUser, state.data.availableBusinessUnits);
+                  const selectedDraft = userDrafts.find((draft) => draft.businessUnitCode === selectedCode);
+                  const selectedUnit = state.data.businessUnits.find((unit) => unit.code === selectedCode);
+                  const selectedDepartment = selectedUnit?.departments.find(
+                    (department) => department.departmentId === selectedDraft?.departmentId);
+                  const isOverallAdministrator = overallAdministratorDrafts[directoryUser.userId]
+                    ?? directoryUser.isOverallAdministrator;
+                  const changed = isOverallAdministrator !== directoryUser.isOverallAdministrator
+                    || userDrafts.some((draft) => {
+                    const current = directoryUser.profiles.find((profile) => profile.businessUnitCode === draft.businessUnitCode);
+                    return current?.membershipActive !== draft.isActive
+                      || current?.isActive !== draft.isActive
+                      || current?.departmentId !== draft.departmentId
+                      || current?.isDepartmentHead !== draft.isDepartmentHead
+                      || JSON.stringify([...(current?.roles ?? [])].sort()) !== JSON.stringify([...draft.roleCodes].sort());
+                  });
+                  const hasIncompleteActiveProfile = userDrafts.some((draft) => {
+                    if (!draft.isActive || !draft.departmentId) {
+                      return draft.isActive;
+                    }
+                    const unit = state.data.businessUnits.find((item) => item.code === draft.businessUnitCode);
+                    const department = unit?.departments.find((item) => item.departmentId === draft.departmentId);
+                    return !department?.defaultRoleCode || !draft.roleCodes.includes(department.defaultRoleCode);
+                  });
+                  const hasForbiddenMultipleMemberships = !isOverallAdministrator
+                    && userDrafts.filter((draft) => draft.isActive).length > 1;
+                  const saving = savingUserIds.includes(directoryUser.userId);
+                  const operationNeedsRetry = directoryUser.pendingOperationStatus === 'RetryRequired'
+                    || (directoryUser.pendingOperationStatus === 'Preparing' && directoryUser.pendingOperationStale);
+                  const controlsDisabled = !mutationAllowed || saving || directoryUser.authProvider === 'Dev'
+                    || selectedUnit?.canManage !== true;
+                  const automaticRoleUnavailable = selectedDraft?.isActive === true
+                    && Boolean(selectedDraft.departmentId)
+                    && !selectedDepartment?.defaultRoleCode;
+                  const rowIssue = operationNeedsRetry
+                    ? '저장 재시도 필요'
+                    : directoryUser.pendingOperationStatus === 'Preparing'
+                      ? '사용자 접근 정보를 저장하고 있습니다.'
+                    : automaticRoleUnavailable
+                      ? '이 부서는 기본 역할이 없어 저장할 수 없습니다.'
+                      : hasForbiddenMultipleMemberships
+                        ? '일반 사용자는 한 사업부만 선택할 수 있습니다.'
+                        : hasIncompleteActiveProfile
+                          ? '활성 사용자는 기본 역할이 있는 부서를 선택해야 합니다.'
+                          : feedbackByUserId[directoryUser.userId] ?? '';
+                  const roleLabels = (selectedDraft?.roleCodes ?? []).map((roleCode) => (
+                    selectedUnit?.roles.find((role) => role.code === roleCode)?.name ?? roleCode
+                  ));
+                  const feedbackId = `user-access-feedback-${directoryUser.userId}`;
+                  return (
+                    <Fragment key={directoryUser.userId}>
+                      <tr className="business-unit-access-row" aria-describedby={rowIssue ? feedbackId : undefined}>
+                        <th scope="row" className="business-unit-user-cell">
+                          <span className="business-unit-user-primary">
+                            <strong>{directoryUser.displayName}</strong>
+                            <span>{directoryUser.isOverallAdministrator
+                              ? '총괄'
+                              : directoryUser.approvalPending ? '승인 대기' : '승인됨'}</span>
+                          </span>
+                          <small>{directoryUser.email
+                            ?? directoryUser.accountId
+                            ?? (directoryUser.authProvider === 'Dev' ? '개발 계정' : '계정 ID 확인 필요')}</small>
+                        </th>
+                        <td className="business-unit-checkbox-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`${directoryUser.displayName} 활성 상태`}
+                            checked={selectedDraft?.isActive === true}
+                            disabled={controlsDisabled || !selectedDraft}
+                            onChange={(event) => changeActive(directoryUser, selectedCode, event.target.checked)}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            aria-label={`${directoryUser.displayName} 사업부`}
+                            value={selectedCode}
+                            disabled={!mutationAllowed || saving || directoryUser.authProvider === 'Dev'}
+                            onChange={(event) => {
+                              const nextCode = event.target.value as BusinessUnitCode;
+                              setSelectedUnits((current) => ({
+                                ...current,
+                                [directoryUser.userId]: nextCode
+                              }));
+                              if (directoryUser.approvalPending && !isOverallAdministrator) {
+                                changeActive(directoryUser, nextCode, true);
+                              }
+                              setFeedbackByUserId((current) => ({ ...current, [directoryUser.userId]: '' }));
+                            }}
+                          >
+                            {state.data.businessUnits.map((unit) => (
+                              <option key={unit.code} value={unit.code} disabled={!unit.canManage}>
+                                {businessUnitLabel(unit.code)}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            aria-label={`${directoryUser.displayName} 부서`}
+                            value={selectedDraft?.departmentId ?? ''}
+                            disabled={controlsDisabled || !selectedDraft?.isActive}
+                            onChange={(event) => changeDraft(directoryUser, selectedCode, (current) => (
+                              applyIntegratedDepartmentDefaultRole(current, selectedUnit, event.target.value || null)
+                            ))}
+                          >
+                            <option value="">부서 선택</option>
+                            {(selectedUnit?.departments ?? []).map((department) => (
+                              <option key={department.departmentId} value={department.departmentId}>{department.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <span
+                            className={`business-unit-role-readonly${automaticRoleUnavailable ? ' warning-text' : ''}`}
+                            aria-label={`${directoryUser.displayName} 역할`}
+                            title={roleLabels.join(', ')}
+                          >
+                            {roleLabels.length > 0 ? roleLabels.join(', ') : '자동 지정'}
+                          </span>
+                        </td>
+                        <td className="business-unit-checkbox-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`${directoryUser.displayName} 부서장`}
+                            checked={selectedDraft?.isDepartmentHead === true}
+                            disabled={controlsDisabled || !selectedDraft?.isActive || !selectedDraft.departmentId}
+                            onChange={(event) => changeDraft(directoryUser, selectedCode, (current) => ({
+                              ...current,
+                              isDepartmentHead: event.target.checked,
+                              isDepartmentHeadConfirmed: true
+                            }))}
+                          />
+                        </td>
+                        <td className="business-unit-checkbox-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`${directoryUser.displayName} 총괄 관리자`}
+                            checked={isOverallAdministrator}
+                            disabled={!mutationAllowed || saving || directoryUser.authProvider === 'Dev'}
+                            onChange={(event) => changeOverallAdministrator(directoryUser, event.target.checked)}
+                          />
+                        </td>
+                        <td className="business-unit-access-action-cell">
+                          <button
+                            type="button"
+                            disabled={!mutationAllowed || (!changed && !operationNeedsRetry)
+                              || saving || hasIncompleteActiveProfile || hasForbiddenMultipleMemberships
+                              || (directoryUser.pendingOperationStatus === 'Preparing' && !directoryUser.pendingOperationStale)
+                              || directoryUser.authProvider === 'Dev'}
+                            title={!mutationAllowed ? mutationDisabledReason ?? undefined : undefined}
+                            onClick={() => void save(directoryUser)}
+                          >
+                            {saving
+                              ? '저장 중…'
+                              : operationNeedsRetry
+                                ? '재시도'
+                                : directoryUser.approvalPending ? '승인' : '저장'}
+                          </button>
+                        </td>
+                      </tr>
+                      {rowIssue ? (
+                        <tr className="business-unit-access-feedback-row">
+                          <td id={feedbackId} colSpan={8} role="status">{rowIssue}</td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+type IntegratedUserAccessDraft = {
+  businessUnitCode: BusinessUnitCode;
+  departmentId: string | null;
+  roleCodes: string[];
+  explicitRoleCodes: string[];
+  isActive: boolean;
+  isDepartmentHead: boolean;
+  isDepartmentHeadConfirmed: boolean;
+};
+
+function buildIntegratedUserAccessDrafts(snapshot: BusinessUnitAccessAdministrationResponse) {
+  return Object.fromEntries(snapshot.users.map((user) => [
+    user.userId,
+    snapshot.availableBusinessUnits.map((businessUnitCode) => {
+      const profile = user.profiles.find((item) => item.businessUnitCode === businessUnitCode);
+      const pendingProfile = user.pendingProfiles.find((item) => item.businessUnitCode === businessUnitCode);
+      return {
+        businessUnitCode,
+        departmentId: pendingProfile?.departmentId ?? profile?.departmentId ?? null,
+        roleCodes: [...(pendingProfile?.roleCodes ?? profile?.roles ?? [])],
+        explicitRoleCodes: [...(profile?.explicitRoles ?? [])],
+        isActive: pendingProfile?.isActive ?? profile?.membershipActive === true,
+        isDepartmentHead: pendingProfile?.isDepartmentHead ?? profile?.isDepartmentHead === true,
+        isDepartmentHeadConfirmed: pendingProfile?.isDepartmentHeadConfirmed ?? false
+      } satisfies IntegratedUserAccessDraft;
+    })
+  ]));
+}
+
+function buildIntegratedOverallAdministratorDrafts(snapshot: BusinessUnitAccessAdministrationResponse) {
+  return Object.fromEntries(snapshot.users.map((user) => [
+    user.userId,
+    user.pendingIsOverallAdministrator ?? user.isOverallAdministrator
+  ]));
+}
+
+function buildInitialIntegratedUserAccessSelection(
+  user: BusinessUnitAccessAdministrationUser,
+  availableBusinessUnits: BusinessUnitCode[]
+) {
+  return user.pendingProfiles.find((profile) => profile.isActive)?.businessUnitCode
+    ?? user.memberships[0]
+    ?? availableBusinessUnits[0]
+    ?? 'CHEONGJU';
+}
+
+function buildIntegratedUserAccessSelections(
+  snapshot: BusinessUnitAccessAdministrationResponse,
+  previous: Record<string, BusinessUnitCode> = {}
+) {
+  return Object.fromEntries(snapshot.users.map((user) => {
+    const previousSelection = previous[user.userId];
+    const selection = previousSelection && snapshot.availableBusinessUnits.includes(previousSelection)
+      ? previousSelection
+      : buildInitialIntegratedUserAccessSelection(user, snapshot.availableBusinessUnits);
+    return [user.userId, selection];
+  }));
+}
+
+function applyIntegratedDepartmentDefaultRole(
+  draft: IntegratedUserAccessDraft,
+  unit: BusinessUnitAccessAdministrationResponse['businessUnits'][number] | undefined,
+  departmentId: string | null,
+  includeOverallAdministratorRole = false,
+  resetDepartmentHead = true
+) {
+  const selectedDefaultRoleCode = unit?.departments.find(
+    (department) => department.departmentId === departmentId)?.defaultRoleCode ?? null;
+  const managedRoleCodes = [
+    selectedDefaultRoleCode,
+    includeOverallAdministratorRole ? 'system-administrator' : null
+  ].filter((roleCode): roleCode is string => Boolean(roleCode));
+  return {
+    ...draft,
+    departmentId,
+    roleCodes: [...new Set([...draft.explicitRoleCodes, ...managedRoleCodes])].sort(),
+    isDepartmentHead: resetDepartmentHead ? false : draft.isDepartmentHead,
+    isDepartmentHeadConfirmed: resetDepartmentHead ? false : draft.isDepartmentHeadConfirmed
+  };
+}
+
+function businessUnitMembershipMutationDisabledReason(runtimeMode: LoadState<RuntimeMode>): string | null {
+  if (runtimeMode.kind === 'loading') {
+    return '실행 모드를 확인하는 동안에는 사업부 소속을 변경할 수 없습니다.';
+  }
+  if (runtimeMode.kind !== 'ready') {
+    return '실행 모드를 확인할 수 없어 사업부 소속 변경을 차단했습니다.';
+  }
+  if (runtimeMode.data.mutationAllowed) {
+    return null;
+  }
+  return runtimeMode.data.reviewSafe
+    ? '검수 전용 읽기 모드에서는 사업부 소속을 변경할 수 없습니다.'
+    : '현재 실행 모드에서는 사업부 소속을 변경할 수 없습니다.';
+}
+
+function isOsanViewAllowed(view: View) {
+  if (view.kind === 'home'
+    || view.kind === 'privacy-notice'
+    || view.kind === 'list'
+    || view.kind === 'create'
+    || view.kind === 'detail'
+    || view.kind === 'osan-progress') {
+    return true;
+  }
+  return false;
+}
+
+function ApprovalPendingPage({
+  user,
+  onOpenBusinessUnitAccess,
+  onLogout,
+  switchControls
+}: {
+  user: CurrentUser;
+  onOpenBusinessUnitAccess?: () => void;
+  onLogout?: () => void;
+  switchControls?: ReactNode;
+}) {
   return (
     <section className="panel-section">
       <DsPageHeader
         className="page-header"
         eyebrow="승인 대기"
         title="사용자 승인이 필요합니다."
-        actions={onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+        actions={(
+          <>
+            {onOpenBusinessUnitAccess ? (
+              <button type="button" onClick={onOpenBusinessUnitAccess}>사용자 관리</button>
+            ) : null}
+            {onLogout ? <button type="button" onClick={onLogout}>로그아웃</button> : null}
+          </>
+        )}
       />
       <p className="muted-text">
         {user.displayName}{user.email ? ` (${user.email})` : ''} 계정은 아직 역할이 부여되지 않았습니다.
         System Administrator가 역할을 1개 이상 부여하면 업무 화면을 사용할 수 있습니다.
       </p>
+      {switchControls}
     </section>
   );
 }
@@ -3975,14 +5536,45 @@ function summarizeBulkAction(result: AdminBulkActionResponse, fallback: string) 
   return `${prefix}${suffix}`;
 }
 
-function AdminUsersPage({
+function AdminUsersPage(props: {
+  developmentUserKey: string;
+  filter?: 'approval-pending';
+  restrictedToLocalProfile?: boolean;
+  overallAccess?: boolean;
+  currentUserId: string;
+  selectedBusinessUnit: BusinessUnitCode | null;
+  mutationAllowed: boolean;
+  mutationDisabledReason: string | null;
+  onCurrentSelectionRemoved: () => void;
+  onOpenNotificationSettings?: (userId: string) => void;
+}) {
+  if (props.overallAccess) {
+    return (
+      <BusinessUnitAccessAdministrationPage
+        developmentUserKey={props.developmentUserKey}
+        filter={props.filter}
+        currentUserId={props.currentUserId}
+        selectedBusinessUnit={props.selectedBusinessUnit}
+        mutationAllowed={props.mutationAllowed}
+        mutationDisabledReason={props.mutationDisabledReason}
+        onCurrentSelectionRemoved={props.onCurrentSelectionRemoved}
+      />
+    );
+  }
+
+  return <LocalAdminUsersPage {...props} />;
+}
+
+function LocalAdminUsersPage({
   developmentUserKey,
   filter,
+  restrictedToLocalProfile = false,
   onOpenNotificationSettings
 }: {
   developmentUserKey: string;
   filter?: 'approval-pending';
-  onOpenNotificationSettings: (userId: string) => void;
+  restrictedToLocalProfile?: boolean;
+  onOpenNotificationSettings?: (userId: string) => void;
 }) {
   const [state, setState] = useState<LoadState<AdminUsersResponse>>({ kind: 'loading' });
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -4037,8 +5629,8 @@ function AdminUsersPage({
 
   const changeDepartment = (departmentId: string) => {
     setDraftDepartmentId(departmentId);
+    setDraftIsDepartmentHead(false);
     if (!departmentId) {
-      setDraftIsDepartmentHead(false);
       return;
     }
 
@@ -4185,12 +5777,16 @@ function AdminUsersPage({
     <section className={`panel-section admin-mobile-page${showAllMobileFields ? ' admin-mobile-page--all-fields' : ''}`}>
       <DsPageHeader
         className="page-header"
-        eyebrow="System Administrator"
-        title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
+        eyebrow={restrictedToLocalProfile ? '사업부 관리자' : 'System Administrator'}
+        title={restrictedToLocalProfile
+          ? '현재 사업부 사용자 관리'
+          : filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
       <p className="muted-text">
-        {filter === 'approval-pending'
+        {restrictedToLocalProfile
+          ? '현재 사업부에 등록된 사용자의 부서, 부서장 여부, 역할과 활성 상태를 관리합니다.'
+          : filter === 'approval-pending'
           ? '역할이 아직 부여되지 않은 활성 Microsoft 사용자만 표시합니다. 부서와 역할을 지정하면 승인 대기 목록에서 제외됩니다.'
           : '부서를 선택하면 기본 역할이 자동 지정됩니다. 부서장 체크 시 양식관리 대상 부서에는 승인 권한도 함께 부여되며, 한 부서에 여러 명을 지정할 수 있습니다. Dev 사용자는 읽기 전용입니다.'}
       </p>
@@ -4206,7 +5802,7 @@ function AdminUsersPage({
         </button>
       ) : null}
       <ActionFeedback message={message} tone={message.includes('없습니다') || message.includes('수 없습니다') ? 'error' : message ? 'success' : 'neutral'} />
-      {state.kind === 'ready' && visibleUsers.length > 0 ? (
+      {!restrictedToLocalProfile && state.kind === 'ready' && visibleUsers.length > 0 ? (
         <SelectedExportTray
           developmentUserKey={developmentUserKey}
           screen="admin-users"
@@ -4219,7 +5815,7 @@ function AdminUsersPage({
           onClear={() => setSelectedUserIds([])}
         />
       ) : null}
-      {state.kind === 'ready' && visibleUsers.length > 0 ? (
+      {!restrictedToLocalProfile && state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="bulk-action-bar">
           <span>선택 {selectedUserIds.length}건</span>
           <button type="button" onClick={() => void bulkDeleteUsers()} disabled={selectedUserIds.length === 0}>선택 삭제</button>
@@ -4238,15 +5834,17 @@ function AdminUsersPage({
           <table>
             <thead>
               <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    aria-label="사용자 전체 선택"
-                    checked={allUsersSelected}
-                    disabled={selectableUserIds.length === 0}
-                    onChange={(event) => setSelectedUserIds(event.target.checked ? selectableUserIds : [])}
-                  />
-                </th>
+                {!restrictedToLocalProfile ? (
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="사용자 전체 선택"
+                      checked={allUsersSelected}
+                      disabled={selectableUserIds.length === 0}
+                      onChange={(event) => setSelectedUserIds(event.target.checked ? selectableUserIds : [])}
+                    />
+                  </th>
+                ) : null}
                 <th>사용자</th>
                 <th>구분</th>
                 <th>상태</th>
@@ -4261,19 +5859,21 @@ function AdminUsersPage({
                 const editing = editingUserId === user.userId;
                 return (
                   <tr key={user.userId}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label={`${user.displayName} 선택`}
-                        checked={selectedUserIds.includes(user.userId)}
-                        disabled={user.isReadOnly}
-                        onChange={(event) => setSelectedUserIds((current) => (
-                          event.target.checked
-                            ? [...current, user.userId]
-                            : current.filter((id) => id !== user.userId)
-                        ))}
-                      />
-                    </td>
+                    {!restrictedToLocalProfile ? (
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`${user.displayName} 선택`}
+                          checked={selectedUserIds.includes(user.userId)}
+                          disabled={user.isReadOnly}
+                          onChange={(event) => setSelectedUserIds((current) => (
+                            event.target.checked
+                              ? [...current, user.userId]
+                              : current.filter((id) => id !== user.userId)
+                          ))}
+                        />
+                      </td>
+                    ) : null}
                     <td>
                       <strong>{user.displayName}</strong>
                       <div className="muted-text">{user.email ?? user.developmentUserKey}</div>
@@ -4289,6 +5889,10 @@ function AdminUsersPage({
                           />
                           활성
                         </label>
+                      ) : restrictedToLocalProfile ? (
+                        <span className={`status-badge${user.approvalPending ? ' warning' : ''}`}>
+                          {user.approvalPending ? '승인 대기' : user.isActive ? '활성' : '비활성'}
+                        </span>
                       ) : (
                         <DeletionStatusDisplay
                           isActive={user.isActive}
@@ -4350,7 +5954,7 @@ function AdminUsersPage({
                       )}
                     </td>
                     <td>
-                      {user.isActive ? (
+                      {!restrictedToLocalProfile && user.isActive && onOpenNotificationSettings ? (
                         <button
                           type="button"
                           className="compact-link-button"
@@ -4360,7 +5964,7 @@ function AdminUsersPage({
                         </button>
                       ) : null}
                       {user.isReadOnly ? (
-                        <span className="muted-text">개발 사용자는 삭제할 수 없습니다.</span>
+                        <span className="muted-text">읽기 전용</span>
                       ) : editing ? (
                         <div className="button-row">
                           <button type="button" onClick={() => void save(user)}>저장</button>
@@ -4369,8 +5973,10 @@ function AdminUsersPage({
                       ) : (
                         <div className="button-row">
                           <button type="button" onClick={() => startEdit(user)}>수정</button>
-                          {isDeletionPending(user) ? <button type="button" onClick={() => void restoreUser(user)}>복구</button> : null}
-                          <button type="button" className="danger-button" onClick={() => void deleteUser(user)}>{isDeletionPending(user) ? '즉시 삭제' : '삭제'}</button>
+                          {!restrictedToLocalProfile && isDeletionPending(user) ? <button type="button" onClick={() => void restoreUser(user)}>복구</button> : null}
+                          {!restrictedToLocalProfile ? (
+                            <button type="button" className="danger-button" onClick={() => void deleteUser(user)}>{isDeletionPending(user) ? '즉시 삭제' : '삭제'}</button>
+                          ) : null}
                         </div>
                       )}
                     </td>
@@ -8566,16 +10172,10 @@ function ProjectListPage({
   const [purgeAllConfirmText, setPurgeAllConfirmText] = useState('');
   const [isPurgingAll, setIsPurgingAll] = useState(false);
   const [isDownloadingProjectTemplate, setIsDownloadingProjectTemplate] = useState(false);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [draftSearch, setDraftSearch] = useState('');
-  const [draftDateFrom, setDraftDateFrom] = useState('');
-  const [draftDateTo, setDraftDateTo] = useState('');
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [isSelectedExportBusy, setIsSelectedExportBusy] = useState(false);
-  const mobileFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const requestIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const isMobile = useIsMobileViewport();
 
   const load = useCallback(() => {
     const requestId = requestIdRef.current + 1;
@@ -8710,13 +10310,12 @@ function ProjectListPage({
   }
 
   return (
-    <section className={isMobile ? 'page-surface project-list-page mobile-first-page mobile-project-list-page' : 'page-surface project-list-page'}>
-      <DsPageHeader
-        className={isMobile ? 'page-header mobile-page-header' : 'page-header'}
-        eyebrow={isMobile ? 'FIELD PROJECTS' : '프로젝트 관리'}
-        title={isMobile ? '현장 프로젝트' : '프로젝트 목록'}
-        description={isMobile ? '병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요.' : undefined}
-        actions={<div className={isMobile ? 'mobile-page-actions page-export-actions' : 'button-row page-export-actions'}>
+    <ProjectListPageComposition
+      desktopTitle="프로젝트 목록"
+      mobileTitle="현장 프로젝트"
+      mobileDescription="병목과 납기를 먼저 보고 필요한 프로젝트를 선택하세요."
+      renderActions={(isMobile) => (
+        <div className={isMobile ? 'mobile-page-actions' : 'button-row page-export-actions'}>
           {canCreate ? (
             isMobile ? (
               <>
@@ -8741,123 +10340,63 @@ function ProjectListPage({
               </>
             )
           ) : null}
-        </div>}
-      />
-
-      {isMobile ? (
-        <>
-          <button
-            ref={mobileFilterTriggerRef}
-            type="button"
-            className="mobile-filter-trigger"
-            aria-expanded={mobileFiltersOpen}
-            disabled={isSelectedExportBusy}
-            onClick={() => {
-              setDraftSearch(search);
-              setDraftDateFrom(dateFrom);
-              setDraftDateTo(dateTo);
-              setMobileFiltersOpen(true);
-            }}
-          >
-            <span><strong>검색·필터</strong><small>{[search, dateFrom, dateTo].filter(Boolean).length > 0 ? `${[search, dateFrom, dateTo].filter(Boolean).length}개 조건 적용 중` : '전체 프로젝트 표시 중'}</small></span>
-            <span aria-hidden="true">⌕</span>
-          </button>
-          <MobileSheet
-            open={mobileFiltersOpen}
-            title="프로젝트 검색·필터"
-            eyebrow="PROJECT FILTER"
-            description="조건을 고른 뒤 적용하면 목록이 갱신됩니다. 취소하면 기존 조건을 유지합니다."
-            onClose={() => setMobileFiltersOpen(false)}
-            triggerRef={mobileFilterTriggerRef}
-            fullScreen
-            footer={(
-              <>
-                <button type="button" disabled={isSelectedExportBusy} onClick={() => { setDraftSearch(''); setDraftDateFrom(''); setDraftDateTo(''); }}>초기화</button>
-                <button type="button" disabled={isSelectedExportBusy} onClick={() => setMobileFiltersOpen(false)}>취소</button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={isSelectedExportBusy}
-                  onClick={() => {
-                    setSearch(draftSearch);
-                    setDateFrom(draftDateFrom);
-                    setDateTo(draftDateTo);
-                    setMobileFiltersOpen(false);
-                  }}
-                >
-                  조건 적용
-                </button>
-              </>
-            )}
-          >
-            <div className="mobile-filter-form">
-              <label><span>검색어</span><input data-autofocus value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="고객사, Item, Code, Title" /></label>
-              <label><span>납기 시작일</span><input type="date" value={draftDateFrom} onChange={(event) => setDraftDateFrom(event.target.value)} /></label>
-              <label><span>납기 종료일</span><input type="date" value={draftDateTo} onChange={(event) => setDraftDateTo(event.target.value)} /></label>
-            </div>
-          </MobileSheet>
-        </>
-      ) : (
-        <form
-          className="toolbar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            load();
-          }}
-        >
-          <input
-            value={search}
-            disabled={isSelectedExportBusy}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="고객사, Item, PJT Code, PJT Title 검색"
-          />
-          <label className="date-filter-field">
-            <span>시작일</span>
-            <input type="date" value={dateFrom} disabled={isSelectedExportBusy} onChange={(event) => setDateFrom(event.target.value)} />
-          </label>
-          <label className="date-filter-field">
-            <span>종료일</span>
-            <input type="date" value={dateTo} disabled={isSelectedExportBusy} onChange={(event) => setDateTo(event.target.value)} />
-          </label>
-          <button type="button" disabled={isSelectedExportBusy} onClick={() => { setSelectedProjectIds(new Set()); setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
-          <button type="submit" disabled={isSelectedExportBusy}>검색</button>
-        </form>
+        </div>
       )}
-
-      {summaryState.kind === 'ready' ? <ProjectKpiGrid summary={summaryState.data} /> : null}
+      filters={{
+        search,
+        dateFrom,
+        dateTo,
+        disabled: isSelectedExportBusy,
+        desktopSearchPlaceholder: '고객사, Item, PJT Code, PJT Title 검색',
+        mobileSearchPlaceholder: '고객사, Item, Code, Title',
+        onSearchChange: setSearch,
+        onDateFromChange: setDateFrom,
+        onDateToChange: setDateTo,
+        onDesktopSubmit: load,
+        onReset: () => { setSelectedProjectIds(new Set()); setDateFrom(''); setDateTo(''); }
+      }}
+      kpis={summaryState.kind === 'ready' ? projectKpiItems(summaryState.data) : undefined}
+      tabs={projectTabs(canReadDeleted)}
+      activeTab={tab}
+      onTabChange={(value) => setTab(value as ProjectListTab)}
+      tabsDisabled={isSelectedExportBusy}
+      tools={(
+        <>
+          {tab === 'Deleted' && canPurgeDeletedProjects ? (
+            <section className="danger-zone" aria-label="삭제 보관함 비우기">
+              <div>
+                <strong>삭제 보관함 비우기</strong>
+                <p className="muted-text">삭제 보관함의 모든 프로젝트와 관련 데이터를 완전히 삭제합니다. 되돌릴 수 없습니다.</p>
+              </div>
+              <label className="form-field compact-field">
+                <span>확인 문구: 삭제 보관함 비우기</span>
+                <input value={purgeAllConfirmText} onChange={(event) => setPurgeAllConfirmText(event.target.value)} />
+              </label>
+              <button type="button" className="danger-button" disabled={isPurgingAll || purgeAllConfirmText !== '삭제 보관함 비우기'} onClick={purgeAllDeleted}>
+                {isPurgingAll ? '삭제 중' : '삭제 보관함 비우기'}
+              </button>
+            </section>
+          ) : null}
+          {state.kind === 'ready' && tab !== 'Deleted' ? (
+            <SelectedExportTray
+              developmentUserKey={developmentUserKey}
+              screen="projects"
+              ariaLabel="선택 프로젝트 내보내기"
+              label="선택 Excel 내보내기"
+              visibleIds={state.data.map((project) => project.projectId)}
+              selectedIds={selectedProjectIds}
+              allSelected={state.data.length > 0 && state.data.every((project) => selectedProjectIds.has(project.projectId))}
+              busy={isSelectedExportBusy}
+              filters={{ search, status: tab === 'All' ? undefined : tab, deliveryDateFrom: dateFrom, deliveryDateTo: dateTo }}
+              onBusyChange={setIsSelectedExportBusy}
+              onToggleAll={setAllVisibleProjectsSelected}
+              onClear={() => setSelectedProjectIds(new Set())}
+            />
+          ) : null}
+        </>
+      )}
+    >
       {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && summaryState.kind !== 'empty' ? <StateMessage state={summaryState} /> : null}
-
-      <div className="tab-row" role="tablist" aria-label="프로젝트 상태">
-        {projectTabs(canReadDeleted).map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.value}
-            className={tab === item.value ? 'tab-button active' : 'tab-button'}
-            disabled={isSelectedExportBusy}
-            onClick={() => setTab(item.value)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'Deleted' && canPurgeDeletedProjects ? (
-        <section className="danger-zone" aria-label="삭제 보관함 비우기">
-          <div>
-            <strong>삭제 보관함 비우기</strong>
-            <p className="muted-text">삭제 보관함의 모든 프로젝트와 관련 데이터를 완전히 삭제합니다. 되돌릴 수 없습니다.</p>
-          </div>
-          <label className="form-field compact-field">
-            <span>확인 문구: 삭제 보관함 비우기</span>
-            <input value={purgeAllConfirmText} onChange={(event) => setPurgeAllConfirmText(event.target.value)} />
-          </label>
-          <button type="button" className="danger-button" disabled={isPurgingAll || purgeAllConfirmText !== '삭제 보관함 비우기'} onClick={purgeAllDeleted}>
-            {isPurgingAll ? '삭제 중' : '삭제 보관함 비우기'}
-          </button>
-        </section>
-      ) : null}
 
       {state.kind === 'loading' ? <p className="muted-text">프로젝트 정보를 불러오는 중입니다.</p> : null}
       {state.kind === 'empty' ? (
@@ -8870,23 +10409,6 @@ function ProjectListPage({
         />
       ) : null}
       {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
-
-      {state.kind === 'ready' && tab !== 'Deleted' ? (
-        <SelectedExportTray
-          developmentUserKey={developmentUserKey}
-          screen="projects"
-          ariaLabel="선택 프로젝트 내보내기"
-          label="선택 Excel 내보내기"
-          visibleIds={state.data.map((project) => project.projectId)}
-          selectedIds={selectedProjectIds}
-          allSelected={state.data.length > 0 && state.data.every((project) => selectedProjectIds.has(project.projectId))}
-          busy={isSelectedExportBusy}
-          filters={{ search, status: tab === 'All' ? undefined : tab, deliveryDateFrom: dateFrom, deliveryDateTo: dateTo }}
-          onBusyChange={setIsSelectedExportBusy}
-          onToggleAll={setAllVisibleProjectsSelected}
-          onClear={() => setSelectedProjectIds(new Set())}
-        />
-      ) : null}
 
       {state.kind === 'ready' ? (
         <ProjectListView
@@ -8916,7 +10438,131 @@ function ProjectListPage({
           }}
         />
       ) : null}
-    </section>
+    </ProjectListPageComposition>
+  );
+}
+
+type ProjectListPresentationAlignment = 'left' | 'center';
+
+type ProjectListPresentationColumn = {
+  label: string;
+  align: ProjectListPresentationAlignment;
+};
+
+type ProjectListPresentationCell = {
+  value: ReactNode;
+  align: ProjectListPresentationAlignment;
+  className?: string;
+};
+
+type ProjectListPresentationField = {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+};
+
+type ProjectListPresentationRow = {
+  key: string;
+  title: ReactNode;
+  openAriaLabel?: string;
+  openDisabled?: boolean;
+  onOpen: () => void;
+  desktopLeading?: ReactNode;
+  desktopCells: ProjectListPresentationCell[];
+  desktopAfter?: ReactNode;
+  mobileTitleLeading?: ReactNode;
+  mobileFields: ProjectListPresentationField[];
+  mobileAfter?: ReactNode;
+};
+
+function ProjectListPresentation({
+  ariaLabel,
+  testIdPrefix,
+  columns,
+  rows,
+  selectable = false,
+  desktopLeadingHeader
+}: {
+  ariaLabel: string;
+  testIdPrefix: string;
+  columns: ProjectListPresentationColumn[];
+  rows: ProjectListPresentationRow[];
+  selectable?: boolean;
+  desktopLeadingHeader?: ReactNode;
+}) {
+  const isMobile = useIsMobileViewport();
+
+  return (
+    <div
+      className="project-list"
+      data-presentation-contract="project-list-v1"
+      data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
+      data-presentation-column-count={columns.length}
+    >
+      {isMobile ? (
+        <div className="project-list-cards project-list-mobile" data-testid={`${testIdPrefix}-mobile`}>
+          {rows.map((row) => (
+            <article key={row.key} className="project-list-card" data-testid={`${testIdPrefix}-card`} data-presentation-row="project">
+              <div className="subsection-header">
+                <div className="project-card-title-row">
+                  {row.mobileTitleLeading}
+                  <h3>{row.title}</h3>
+                </div>
+                <button type="button" disabled={row.openDisabled} onClick={row.onOpen}>상세 보기</button>
+              </div>
+              <dl className="mobile-detail-list">
+                {row.mobileFields.map((field) => (
+                  <div key={field.label}><dt>{field.label}</dt><dd className={field.valueClassName}>{field.value}</dd></div>
+                ))}
+              </dl>
+              {row.mobileAfter}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div
+          className={selectable ? 'project-list-table project-list-desktop selectable' : 'project-list-table project-list-desktop'}
+          role="table"
+          aria-label={ariaLabel}
+          data-testid={`${testIdPrefix}-desktop`}
+        >
+          <div className="project-list-head" role="row">
+            {desktopLeadingHeader}
+            {columns.map((column) => (
+              <span key={column.label} role="columnheader" className={`align-${column.align}`}>{column.label}</span>
+            ))}
+          </div>
+          {rows.map((row) => (
+            <Fragment key={row.key}>
+              <div
+                className="project-list-row"
+                role="row"
+                tabIndex={0}
+                aria-label={row.openAriaLabel}
+                data-presentation-row="project"
+                onClick={(event) => {
+                  if (!isInteractiveProjectRowTarget(event.target)) {
+                    row.onOpen();
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (!isInteractiveProjectRowTarget(event.target) && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    row.onOpen();
+                  }
+                }}
+              >
+                {row.desktopLeading}
+                {row.desktopCells.map((cell, index) => (
+                  <span key={index} role="cell" className={[`align-${cell.align}`, cell.className].filter(Boolean).join(' ')}>{cell.value}</span>
+                ))}
+              </div>
+              {row.desktopAfter}
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -8945,14 +10591,95 @@ function ProjectListView({
   selectionDisabled: boolean;
   onProjectSelectionChange: (projectId: string, selected: boolean) => void;
 }) {
-  const isMobile = useIsMobileViewport();
-
   return (
-    <div className="project-list">
-      {isMobile
-        ? <ProjectListMobile projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />
-        : <ProjectListDesktop projects={projects} canReadSalesAmount={canReadSalesAmount} canPurgeDeletedProjects={canPurgeDeletedProjects} developmentUserKey={developmentUserKey} onPurged={onPurged} onOpen={onOpen} onOpenPending={onOpenPending} selectionEnabled={selectionEnabled} selectedProjectIds={selectedProjectIds} selectionDisabled={selectionDisabled} onProjectSelectionChange={onProjectSelectionChange} />}
-    </div>
+    <ProjectListPresentation
+      ariaLabel="프로젝트 목록"
+      testIdPrefix="project-list"
+      selectable={selectionEnabled}
+      desktopLeadingHeader={selectionEnabled ? <span className="project-selection-cell align-center" aria-hidden="true" /> : undefined}
+      columns={[
+        { label: '프로젝트명', align: 'left' },
+        { label: '고객사', align: 'left' },
+        { label: 'Code', align: 'center' },
+        { label: 'Item', align: 'left' },
+        { label: '면수', align: 'center' },
+        { label: '납기일', align: 'center' },
+        { label: '상태', align: 'center' },
+        { label: '진행률', align: 'center' }
+      ]}
+      rows={projects.map((project) => {
+        const selection = selectionEnabled ? (
+          <ProjectSelectionCheckbox
+            checked={selectedProjectIds.has(project.projectId)}
+            disabled={selectionDisabled}
+            label={`${project.projectCode} ${project.projectTitle} 선택`}
+            onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
+          />
+        ) : undefined;
+        const deletedAt = 'deletedAtUtc' in project ? project.deletedAtUtc : null;
+        const salesAmount = canReadSalesAmount && project.salesAmount !== undefined
+          ? <SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} />
+          : null;
+        const deletedActions = canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
+          <div className="deleted-project-actions">
+            <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
+            <DeletedProjectPurgeControl projectId={project.projectId} developmentUserKey={developmentUserKey} onPurged={onPurged} />
+          </div>
+        ) : null;
+
+        return {
+          key: project.projectId,
+          title: project.projectTitle,
+          openDisabled: selectionDisabled,
+          onOpen: () => onOpen(project.projectId),
+          desktopLeading: selectionEnabled ? <span className="project-selection-cell align-center">{selection}</span> : undefined,
+          desktopCells: [
+            {
+              align: 'left' as const,
+              value: (
+                <>
+                  <strong>{project.projectTitle}</strong>
+                  {deletedAt ? <small>삭제일시 {formatDateTime(deletedAt)}</small> : null}
+                  {salesAmount ? <small>{salesAmount}</small> : null}
+                  <ProjectBottleneckBadge project={project} onOpenPending={onOpenPending} />
+                </>
+              )
+            },
+            { value: project.customerName, align: 'left' as const },
+            { value: project.projectCode, align: 'center' as const, className: 'project-code-value' },
+            { value: project.item, align: 'left' as const },
+            { value: `${project.activePanelCount}면`, align: 'center' as const },
+            { value: formatDate(project.deliveryDate), align: 'center' as const },
+            { value: formatProjectWorkStatus(project.projectWorkStatus), align: 'center' as const },
+            { value: formatProjectProgress(project.projectProgressPercent), align: 'center' as const }
+          ],
+          desktopAfter: deletedActions,
+          mobileTitleLeading: selection,
+          mobileFields: [
+            { label: '고객사', value: project.customerName },
+            { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
+            { label: 'Item', value: project.item },
+            { label: '면수', value: `${project.activePanelCount}면` },
+            { label: '납기일', value: formatDate(project.deliveryDate) },
+            { label: '상태', value: formatProjectWorkStatus(project.projectWorkStatus) },
+            { label: '진행률', value: formatProjectProgress(project.projectProgressPercent) },
+            { label: '대표 병목', value: project.bottleneck?.label ?? '-' },
+            ...(project.bottleneck?.openPendingCount !== undefined ? [{
+              label: 'Pending',
+              value: `open ${project.bottleneck.openPendingCount}건 · 재검사 ${project.bottleneck.reinspectionPendingCount ?? 0}건 · 긴급 ${project.bottleneck.urgentPendingCount ?? 0}건`
+            }] : []),
+            ...(deletedAt ? [{ label: '삭제일시', value: formatDateTime(deletedAt) }] : []),
+            ...(salesAmount ? [{ label: '판매금액', value: salesAmount }] : [])
+          ],
+          mobileAfter: (
+            <>
+              {project.bottleneck?.openPendingCount ? <button type="button" className="bottleneck-pending-link" onClick={() => onOpenPending(project.projectId)}>open Pending 확인</button> : null}
+              {deletedActions}
+            </>
+          )
+        };
+      })}
+    />
   );
 }
 
@@ -9254,15 +10981,21 @@ function ProjectExcelPreviewMobile({ rows }: { rows: ProjectExcelPreviewResponse
   );
 }
 
-function ProjectKpiGrid({ summary }: { summary: ProjectDashboardSummary }) {
+function projectKpiItems(summary: ProjectDashboardSummary): ProjectListPageKpi[] {
+  return [
+    { title: '전체 프로젝트', value: summary.totalProjectCount, helperText: '완료·삭제 제외' },
+    { title: '진행', value: summary.activeProjectCount, helperText: '진행 프로젝트', variant: 'positive' },
+    { title: '보류', value: summary.onHoldProjectCount, helperText: '보류 프로젝트', variant: 'warning' },
+    { title: '취소 프로젝트', value: summary.cancelledProjectCount, helperText: '취소 프로젝트' },
+    { title: '제조 완료 프로젝트', value: summary.manufacturingCompletedProjectCount, helperText: '모든 패널 제조 완료' },
+    { title: '검사 완료 프로젝트', value: summary.inspectionCompletedProjectCount, helperText: '모든 패널 검사 완료' }
+  ];
+}
+
+function ProjectListKpiGrid({ items }: { items: ProjectListPageKpi[] }) {
   return (
     <div className="dashboard-kpi-grid project-kpi-grid" aria-label="프로젝트 요약">
-      <DashboardKpiCard title="전체 프로젝트" value={summary.totalProjectCount} helperText="완료·삭제 제외" />
-      <DashboardKpiCard title="진행" value={summary.activeProjectCount} helperText="진행 프로젝트" variant="positive" />
-      <DashboardKpiCard title="보류" value={summary.onHoldProjectCount} helperText="보류 프로젝트" variant="warning" />
-      <DashboardKpiCard title="취소 프로젝트" value={summary.cancelledProjectCount} helperText="취소 프로젝트" />
-      <DashboardKpiCard title="제조 완료 프로젝트" value={summary.manufacturingCompletedProjectCount} helperText="모든 패널 제조 완료" />
-      <DashboardKpiCard title="검사 완료 프로젝트" value={summary.inspectionCompletedProjectCount} helperText="모든 패널 검사 완료" />
+      {items.map((item) => <DashboardKpiCard key={item.title} {...item} />)}
     </div>
   );
 }
@@ -9341,173 +11074,6 @@ function ProjectSelectionCheckbox({
 
 function isInteractiveProjectRowTarget(target: EventTarget | null) {
   return target instanceof Element && target.closest('input, button, a, select, textarea, summary, [role="button"]') !== null;
-}
-
-function ProjectListDesktop({
-  projects,
-  canReadSalesAmount,
-  canPurgeDeletedProjects,
-  developmentUserKey,
-  onPurged,
-  onOpen,
-  onOpenPending,
-  selectionEnabled,
-  selectedProjectIds,
-  selectionDisabled,
-  onProjectSelectionChange
-}: {
-  projects: Array<ProjectListItem | DeletedProjectListItem>;
-  canReadSalesAmount: boolean;
-  canPurgeDeletedProjects: boolean;
-  developmentUserKey: string;
-  onPurged: () => void;
-  onOpen: (projectId: string) => void;
-  onOpenPending: (projectId: string) => void;
-  selectionEnabled: boolean;
-  selectedProjectIds: ReadonlySet<string>;
-  selectionDisabled: boolean;
-  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
-}) {
-  return (
-    <div className={selectionEnabled ? 'project-list-table project-list-desktop selectable' : 'project-list-table project-list-desktop'} role="table" aria-label="프로젝트 목록" data-testid="project-list-desktop">
-      <div className="project-list-head" role="row">
-        {selectionEnabled ? (
-          <span className="project-selection-cell align-center" aria-hidden="true" />
-        ) : null}
-        <span className="align-left">프로젝트명</span>
-        <span className="align-left">고객사</span>
-        <span className="align-center">Code</span>
-        <span className="align-left">Item</span>
-        <span className="align-center">면수</span>
-        <span className="align-center">납기일</span>
-        <span className="align-center">상태</span>
-        <span className="align-center">진행률</span>
-      </div>
-      {projects.map((project) => (
-        <Fragment key={project.projectId}>
-          <div
-            className="project-list-row"
-            role="row"
-            tabIndex={0}
-            onClick={(event) => {
-              if (!isInteractiveProjectRowTarget(event.target)) {
-                onOpen(project.projectId);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (!isInteractiveProjectRowTarget(event.target) && (event.key === 'Enter' || event.key === ' ')) {
-                event.preventDefault();
-                onOpen(project.projectId);
-              }
-            }}
-          >
-            {selectionEnabled ? (
-              <span className="project-selection-cell align-center">
-                <ProjectSelectionCheckbox
-                  checked={selectedProjectIds.has(project.projectId)}
-                  disabled={selectionDisabled}
-                  label={`${project.projectCode} ${project.projectTitle} 선택`}
-                  onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
-                />
-              </span>
-            ) : null}
-            <span className="align-left">
-              <strong>{project.projectTitle}</strong>
-              {'deletedAtUtc' in project ? <small>삭제일시 {formatDateTime(project.deletedAtUtc)}</small> : null}
-              {canReadSalesAmount && project.salesAmount !== undefined ? (
-                <small><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></small>
-              ) : null}
-              <ProjectBottleneckBadge project={project} onOpenPending={onOpenPending} />
-            </span>
-            <span className="align-left">{project.customerName}</span>
-            <span className="align-center">{project.projectCode}</span>
-            <span className="align-left">{project.item}</span>
-            <span className="align-center">{project.activePanelCount}면</span>
-            <span className="align-center">{formatDate(project.deliveryDate)}</span>
-            <span className="align-center">{formatProjectWorkStatus(project.projectWorkStatus)}</span>
-            <span className="align-center">{formatProjectProgress(project.projectProgressPercent)}</span>
-          </div>
-          {canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
-            <div className="deleted-project-actions">
-              <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
-              <DeletedProjectPurgeControl projectId={project.projectId} developmentUserKey={developmentUserKey} onPurged={onPurged} />
-            </div>
-          ) : null}
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-function ProjectListMobile({
-  projects,
-  canReadSalesAmount,
-  canPurgeDeletedProjects,
-  developmentUserKey,
-  onPurged,
-  onOpen,
-  onOpenPending,
-  selectionEnabled,
-  selectedProjectIds,
-  selectionDisabled,
-  onProjectSelectionChange
-}: {
-  projects: Array<ProjectListItem | DeletedProjectListItem>;
-  canReadSalesAmount: boolean;
-  canPurgeDeletedProjects: boolean;
-  developmentUserKey: string;
-  onPurged: () => void;
-  onOpen: (projectId: string) => void;
-  onOpenPending: (projectId: string) => void;
-  selectionEnabled: boolean;
-  selectedProjectIds: ReadonlySet<string>;
-  selectionDisabled: boolean;
-  onProjectSelectionChange: (projectId: string, selected: boolean) => void;
-}) {
-  return (
-    <div className="project-list-cards project-list-mobile" data-testid="project-list-mobile">
-      {projects.map((project) => (
-        <article key={project.projectId} className="project-list-card" data-testid="project-list-card">
-          <div className="subsection-header">
-            <div className="project-card-title-row">
-              {selectionEnabled ? (
-                <ProjectSelectionCheckbox
-                  checked={selectedProjectIds.has(project.projectId)}
-                  disabled={selectionDisabled}
-                  label={`${project.projectCode} ${project.projectTitle} 선택`}
-                  onChange={(selected) => onProjectSelectionChange(project.projectId, selected)}
-                />
-              ) : null}
-              <h3>{project.projectTitle}</h3>
-            </div>
-            <button type="button" disabled={selectionDisabled} onClick={() => onOpen(project.projectId)}>상세 보기</button>
-          </div>
-          <dl className="mobile-detail-list">
-            <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
-            <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
-            <div><dt>Item</dt><dd>{project.item}</dd></div>
-            <div><dt>면수</dt><dd>{project.activePanelCount}면</dd></div>
-            <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
-            <div><dt>상태</dt><dd>{formatProjectWorkStatus(project.projectWorkStatus)}</dd></div>
-            <div><dt>진행률</dt><dd>{formatProjectProgress(project.projectProgressPercent)}</dd></div>
-            <div><dt>대표 병목</dt><dd>{project.bottleneck?.label ?? '-'}</dd></div>
-            {project.bottleneck?.openPendingCount !== undefined ? <div><dt>Pending</dt><dd>open {project.bottleneck.openPendingCount}건 · 재검사 {project.bottleneck.reinspectionPendingCount ?? 0}건 · 긴급 {project.bottleneck.urgentPendingCount ?? 0}건</dd></div> : null}
-            {'deletedAtUtc' in project ? <div><dt>삭제일시</dt><dd>{formatDateTime(project.deletedAtUtc)}</dd></div> : null}
-            {canReadSalesAmount && project.salesAmount !== undefined ? (
-              <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
-            ) : null}
-          </dl>
-          {project.bottleneck?.openPendingCount ? <button type="button" className="bottleneck-pending-link" onClick={() => onOpenPending(project.projectId)}>open Pending 확인</button> : null}
-          {canPurgeDeletedProjects && 'deletedAtUtc' in project ? (
-            <div className="deleted-project-actions">
-              <DeletedProjectRestoreControl projectId={project.projectId} developmentUserKey={developmentUserKey} onRestored={onPurged} />
-              <DeletedProjectPurgeControl projectId={project.projectId} developmentUserKey={developmentUserKey} onPurged={onPurged} />
-            </div>
-          ) : null}
-        </article>
-      ))}
-    </div>
-  );
 }
 
 function DeletedProjectRestoreControl({
@@ -10937,6 +12503,174 @@ function ProjectDepartmentDataSection({
 
 type ProjectPanelDepartmentSectionKey = Extract<ProjectDetailSection, 'manufacturing' | 'quality' | 'logistics'>;
 
+type ProjectDepartmentStatusMetricPresentation = {
+  label: string;
+  value: ReactNode;
+  tone?: StatusTone;
+  showIndicator?: boolean;
+};
+
+type ProjectDepartmentStatusRowPresentation = {
+  key: string;
+  order: ReactNode;
+  code: ReactNode;
+  desktopTitle: ReactNode;
+  mobileTitle: ReactNode;
+  subtitle: ReactNode;
+  status: string;
+  tone: StatusTone;
+  detail: ReactNode;
+  stage: ReactNode;
+  completed: number;
+  total: number;
+  progressLabel: string;
+  onOpen?: () => void;
+};
+
+function ProjectDepartmentStatusBoard({
+  department,
+  title,
+  titleId,
+  description,
+  action,
+  beforeMetrics,
+  metrics,
+  beforeRows,
+  emptyText,
+  rows,
+  tableAriaLabel,
+  subjectColumnLabel,
+  stageColumnLabel
+}: {
+  department: string;
+  title: string;
+  titleId?: string;
+  description: string;
+  action?: ReactNode;
+  beforeMetrics?: ReactNode;
+  metrics?: ProjectDepartmentStatusMetricPresentation[];
+  beforeRows?: ReactNode;
+  emptyText?: ReactNode;
+  rows: ProjectDepartmentStatusRowPresentation[];
+  tableAriaLabel: string;
+  subjectColumnLabel: string;
+  stageColumnLabel: string;
+}) {
+  const isMobile = useIsMobileViewport();
+  const renderDesktopRowContent = (row: ProjectDepartmentStatusRowPresentation) => (
+    <>
+      <span role="cell">{row.order}</span>
+      <span role="cell"><strong>{row.desktopTitle}</strong><small>{row.subtitle}</small></span>
+      <span role="cell" className="project-panel-key-info"><StatusBadge label={row.status} tone={row.tone} /><small>{row.detail}</small></span>
+      <span role="cell" className="project-panel-current-stage">{row.stage}</span>
+      <span role="cell"><ProjectProgressMeter completed={row.completed} total={row.total} tone={row.tone} label={row.progressLabel} /></span>
+    </>
+  );
+  const renderMobileRowContent = (row: ProjectDepartmentStatusRowPresentation) => (
+    <>
+      <span className="project-panel-status-card-title"><b>{row.code}</b><strong>{row.mobileTitle}</strong><StatusBadge label={row.status} tone={row.tone} /></span>
+      <span><small>핵심정보</small><b>{row.detail}</b></span>
+      <span className="project-panel-status-card-stage"><small>{stageColumnLabel}</small><b>{row.stage}</b></span>
+      <span className="project-panel-status-card-progress"><small>진행률</small><ProjectProgressMeter completed={row.completed} total={row.total} tone={row.tone} label={row.progressLabel} /></span>
+      {row.onOpen ? <i aria-hidden="true">상세 →</i> : null}
+    </>
+  );
+
+  return (
+    <section
+      className="subsection project-department-section project-panel-department-section"
+      data-department={department}
+      data-presentation-contract="project-status-board-v1"
+      data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
+      aria-labelledby={titleId}
+    >
+      <div className="subsection-header">
+        <div>
+          <p className="eyebrow">PANEL STATUS</p>
+          <h3 id={titleId}>{title}</h3>
+          <p>{description}</p>
+        </div>
+        {action}
+      </div>
+
+      {beforeMetrics}
+      {metrics ? (
+        <div className="project-department-metrics" aria-label={`${title} 프로젝트 지표`}>
+          {metrics.map((metric) => (
+            <article key={metric.label}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              {metric.showIndicator ? <i data-tone={metric.tone} /> : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {beforeRows}
+      {rows.length === 0 ? emptyText : null}
+      {rows.length > 0 && !isMobile ? (
+        <div className="project-panel-status-table" role="table" aria-label={tableAriaLabel}>
+          <div className="project-panel-status-head" role="row">
+            <span role="columnheader">No</span>
+            <span role="columnheader">{subjectColumnLabel}</span>
+            <span role="columnheader">핵심정보</span>
+            <span role="columnheader">{stageColumnLabel}</span>
+            <span role="columnheader">진행률</span>
+          </div>
+          {rows.map((row) => row.onOpen ? (
+            <button
+              type="button"
+              role="row"
+              className="project-panel-status-row"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="true"
+              onClick={row.onOpen}
+            >
+              {renderDesktopRowContent(row)}
+            </button>
+          ) : (
+            <div
+              role="row"
+              className="project-panel-status-row"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="false"
+            >
+              {renderDesktopRowContent(row)}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {rows.length > 0 && isMobile ? (
+        <div className="project-panel-status-cards" aria-label={tableAriaLabel}>
+          {rows.map((row) => row.onOpen ? (
+            <button
+              type="button"
+              className="project-panel-status-card"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="true"
+              onClick={row.onOpen}
+            >
+              {renderMobileRowContent(row)}
+            </button>
+          ) : (
+            <article
+              className="project-panel-status-card"
+              key={row.key}
+              data-presentation-row="status"
+              data-interactive="false"
+            >
+              {renderMobileRowContent(row)}
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ProjectPanelDepartmentSection({
   section,
   panelState,
@@ -10950,7 +12684,6 @@ function ProjectPanelDepartmentSection({
   onOpenPanel: (panelId: string) => void;
   onOpenWorkspace: () => void;
 }) {
-  const isMobile = useIsMobileViewport();
   const labels = {
     manufacturing: { title: '제조', description: '패널별 제조 착수·중단·완료 상태를 한눈에 확인합니다.' },
     quality: { title: '품질', description: '패널별 LQC 적용 여부와 LQC·OQC·전진검수·FAT의 현재 상태를 확인합니다.' },
@@ -10973,64 +12706,52 @@ function ProjectPanelDepartmentSection({
   }));
 
   return (
-    <section className="subsection project-department-section project-panel-department-section" data-department={section}>
-      <div className="subsection-header">
-        <div>
-          <p className="eyebrow">PANEL STATUS</p>
-          <h3>{label.title}</h3>
-          <p>{label.description}</p>
-        </div>
+    <ProjectDepartmentStatusBoard
+      department={section}
+      title={label.title}
+      description={label.description}
+      action={(
         <div className="project-department-action">
           {departmentData && !departmentData.canMutate ? <small>조회 전용 · 담당자만 수정할 수 있습니다.</small> : null}
           <button type="button" className={departmentData?.canMutate ? 'primary-button' : 'secondary-button'} onClick={onOpenWorkspace}>
             {departmentData?.canMutate ? `${label.title} 전체 업무 수정` : `${label.title} 전체 업무 조회`}
           </button>
         </div>
-      </div>
-
-      {departmentState.kind === 'loading' ? <p className="muted-text">이 프로젝트의 {label.title} 상태를 불러오는 중입니다.</p> : null}
-      {departmentState.kind !== 'ready' && departmentState.kind !== 'loading' && departmentState.kind !== 'empty' ? <StateMessage state={departmentState} /> : null}
-      {departmentData ? (
-        <div className="project-department-metrics" aria-label={`${label.title} 프로젝트 지표`}>
-          {departmentData.metrics.map((metric) => (
-            <article key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong>{metric.tone ? <i data-tone={metric.tone} /> : null}</article>
-          ))}
-        </div>
-      ) : null}
-
-      {panelState.kind === 'loading' ? <p className="muted-text">패널 목록을 불러오는 중입니다.</p> : null}
-      {panelState.kind !== 'ready' && panelState.kind !== 'loading' ? <StateMessage state={panelState} /> : null}
-      {panelState.kind === 'ready' && rows.length === 0 ? <p className="empty-text">활성 패널이 없습니다.</p> : null}
-      {panelState.kind === 'ready' && rows.length > 0 && !isMobile ? (
-        <div className="project-panel-status-table" role="table" aria-label={`${label.title} 패널 현황`}>
-          <div className="project-panel-status-head" role="row">
-            <span>No</span><span>패널명</span><span>핵심정보</span><span>{label.title} 단계</span><span>진행률</span>
-          </div>
-          {rows.map(({ panel, progress }, index) => (
-            <button type="button" role="row" className="project-panel-status-row" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
-              <span>{index + 1}</span>
-              <span><strong>{panel.panelName ?? panel.displayCode}</strong><small>{panel.displayCode}</small></span>
-              <span className="project-panel-key-info"><StatusBadge label={progress.status} tone={progress.tone} /><small>{progress.detail}</small></span>
-              <span className="project-panel-current-stage">{progress.stage}</span>
-              <ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} />
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {panelState.kind === 'ready' && rows.length > 0 && isMobile ? (
-        <div className="project-panel-status-cards" aria-label={`${label.title} 패널 현황`}>
-          {rows.map(({ panel, progress }) => (
-            <button type="button" className="project-panel-status-card" key={panel.panelId} onClick={() => onOpenPanel(panel.panelId)}>
-              <span className="project-panel-status-card-title"><b>{panel.displayCode}</b><strong>{panel.panelName ?? '패널명 미입력'}</strong><StatusBadge label={progress.status} tone={progress.tone} /></span>
-              <span><small>핵심정보</small><b>{progress.detail}</b></span>
-              <span className="project-panel-status-card-stage"><small>{label.title} 단계</small><b>{progress.stage}</b></span>
-              <span className="project-panel-status-card-progress"><small>진행률</small><ProjectProgressMeter completed={progress.completedUnits} total={progress.totalUnits} tone={progress.tone} label={`${panel.displayCode} ${label.title}`} /></span>
-              <i aria-hidden="true">상세 →</i>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
+      )}
+      beforeMetrics={(
+        <>
+          {departmentState.kind === 'loading' ? <p className="muted-text">이 프로젝트의 {label.title} 상태를 불러오는 중입니다.</p> : null}
+          {departmentState.kind !== 'ready' && departmentState.kind !== 'loading' && departmentState.kind !== 'empty' ? <StateMessage state={departmentState} /> : null}
+        </>
+      )}
+      metrics={departmentData?.metrics.map((metric) => ({ ...metric, showIndicator: Boolean(metric.tone) }))}
+      beforeRows={(
+        <>
+          {panelState.kind === 'loading' ? <p className="muted-text">패널 목록을 불러오는 중입니다.</p> : null}
+          {panelState.kind !== 'ready' && panelState.kind !== 'loading' ? <StateMessage state={panelState} /> : null}
+        </>
+      )}
+      emptyText={panelState.kind === 'ready' ? <p className="empty-text">활성 패널이 없습니다.</p> : undefined}
+      rows={panelState.kind === 'ready' ? rows.map(({ panel, progress }, index) => ({
+        key: panel.panelId,
+        order: index + 1,
+        code: panel.displayCode,
+        desktopTitle: panel.panelName ?? panel.displayCode,
+        mobileTitle: panel.panelName ?? '패널명 미입력',
+        subtitle: panel.displayCode,
+        status: progress.status,
+        tone: progress.tone,
+        detail: progress.detail,
+        stage: progress.stage,
+        completed: progress.completedUnits,
+        total: progress.totalUnits,
+        progressLabel: `${panel.displayCode} ${label.title}`,
+        onOpen: () => onOpenPanel(panel.panelId)
+      })) : []}
+      tableAriaLabel={`${label.title} 패널 현황`}
+      subjectColumnLabel="패널명"
+      stageColumnLabel={`${label.title} 단계`}
+    />
   );
 }
 
@@ -17947,6 +19668,60 @@ function ProjectBottleneckOverview({
   );
 }
 
+type ProjectSummaryPresentationItem = {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+};
+
+function ProjectSummaryItems({ items }: { items: ProjectSummaryPresentationItem[] }) {
+  return items.map((item) => (
+    <div key={item.label}><dt>{item.label}</dt><dd className={item.valueClassName}>{item.value}</dd></div>
+  ));
+}
+
+function ProjectSummaryPresentation({
+  primaryItems,
+  moreItems,
+  mobileItems = [...primaryItems, ...moreItems],
+  mobileAriaLabel
+}: {
+  primaryItems: ProjectSummaryPresentationItem[];
+  moreItems: ProjectSummaryPresentationItem[];
+  mobileItems?: ProjectSummaryPresentationItem[];
+  mobileAriaLabel?: string;
+}) {
+  const isMobile = useIsMobileViewport();
+
+  if (isMobile) {
+    return (
+      <dl
+        className="detail-grid"
+        aria-label={mobileAriaLabel}
+        data-presentation-contract="project-summary-v1"
+        data-presentation-layout="mobile"
+      >
+        <ProjectSummaryItems items={mobileItems} />
+      </dl>
+    );
+  }
+
+  return (
+    <section
+      className="project-summary-compact"
+      aria-label="프로젝트 기본정보"
+      data-presentation-contract="project-summary-v1"
+      data-presentation-layout="desktop"
+    >
+      <dl className="detail-grid project-summary-primary"><ProjectSummaryItems items={primaryItems} /></dl>
+      <details>
+        <summary>기본정보 전체 보기</summary>
+        <dl className="detail-grid project-summary-more"><ProjectSummaryItems items={moreItems} /></dl>
+      </details>
+    </section>
+  );
+}
+
 function ProjectSummary({
   project,
   canReadSalesAmount,
@@ -17956,53 +19731,28 @@ function ProjectSummary({
   canReadSalesAmount: boolean;
   progressPercent?: number | null;
 }) {
-  const isMobile = useIsMobileViewport();
-  const primaryItems = (
-    <>
-      <div><dt>상태</dt><dd><ProjectStatusBadge status={project.status} /></dd></div>
-      <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
-      <div><dt>Item</dt><dd>{project.item}</dd></div>
-      <div><dt>납기일</dt><dd>{formatDate(project.deliveryDate)}</dd></div>
-      <div><dt>면수</dt><dd>{project.activePanelCount}</dd></div>
-      <div><dt>진행률</dt><dd>{formatProjectProgress(progressPercent)}</dd></div>
-    </>
-  );
-
-  if (!isMobile) {
-    return (
-      <section className="project-summary-compact" aria-label="프로젝트 기본정보">
-        <dl className="detail-grid project-summary-primary">{primaryItems}</dl>
-        <details>
-          <summary>기본정보 전체 보기</summary>
-          <dl className="detail-grid project-summary-more">
-            <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
-            <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
-            <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
-            <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
-            <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
-            <div><dt>FAT 필요 여부</dt><dd>{project.fatRequired ? '예' : '아니오'}</dd></div>
-            {canReadSalesAmount && project.salesAmount !== undefined ? (
-              <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
-            ) : null}
-          </dl>
-        </details>
-      </section>
-    );
-  }
-
   return (
-    <dl className="detail-grid">
-      {primaryItems}
-      <div><dt>PJT Code</dt><dd>{project.projectCode}</dd></div>
-      <div><dt>LSE TASK NO</dt><dd>{project.lseTaskNumber ?? '-'}</dd></div>
-      <div><dt>영업담당자</dt><dd>{project.salesOwnerName}</dd></div>
-      <div><dt>포장방식</dt><dd>{formatPackagingMethod(project.packagingMethod)}</dd></div>
-      <div><dt>납품장소</dt><dd>{project.deliveryLocation ?? '-'}</dd></div>
-      <div><dt>FAT 필요 여부</dt><dd>{project.fatRequired ? '예' : '아니오'}</dd></div>
-      {canReadSalesAmount && project.salesAmount !== undefined ? (
-        <div><dt>판매금액</dt><dd><SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /></dd></div>
-      ) : null}
-    </dl>
+    <ProjectSummaryPresentation
+      primaryItems={[
+        { label: '상태', value: <ProjectStatusBadge status={project.status} /> },
+        { label: '고객사', value: project.customerName },
+        { label: 'Item', value: project.item },
+        { label: '납기일', value: formatDate(project.deliveryDate) },
+        { label: '면수', value: project.activePanelCount },
+        { label: '진행률', value: formatProjectProgress(progressPercent) }
+      ]}
+      moreItems={[
+        { label: 'PJT Code', value: project.projectCode, valueClassName: 'project-code-value' },
+        { label: 'LSE TASK NO', value: project.lseTaskNumber ?? '-' },
+        { label: '영업담당자', value: project.salesOwnerName },
+        { label: '포장방식', value: formatPackagingMethod(project.packagingMethod) },
+        { label: '납품장소', value: project.deliveryLocation ?? '-' },
+        { label: 'FAT 필요 여부', value: project.fatRequired ? '예' : '아니오' },
+        ...(canReadSalesAmount && project.salesAmount !== undefined
+          ? [{ label: '판매금액', value: <SalesAmountField amount={project.salesAmount} currencyCode={project.currencyCode} /> }]
+          : [])
+      ]}
+    />
   );
 }
 
@@ -19026,7 +20776,8 @@ function sanitizeUserMessage(message: string, fallback: string) {
 }
 
 function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError';
+  return error instanceof BusinessUnitRequestInvalidatedError
+    || (error instanceof DOMException && error.name === 'AbortError');
 }
 
 function mapValidationErrorsToFieldErrors(errors: Record<string, string[]>) {

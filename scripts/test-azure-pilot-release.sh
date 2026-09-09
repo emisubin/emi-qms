@@ -26,6 +26,10 @@ name=''
 query=''
 image=''
 revision=''
+inspection='false'
+inspection_environment_count=0
+cpu=''
+memory=''
 for ((index = 1; index <= $#; index++)); do
   argument="${!index}"
   case "${argument}" in
@@ -44,6 +48,25 @@ for ((index = 1; index <= $#; index++)); do
     --revision)
       next=$((index + 1))
       revision="${!next}"
+      ;;
+    --args=--inspect-business-unit-membership-backfill)
+      inspection='true'
+      ;;
+    --cpu)
+      next=$((index + 1))
+      cpu="${!next}"
+      ;;
+    --memory)
+      next=$((index + 1))
+      memory="${!next}"
+      ;;
+    ASPNETCORE_ENVIRONMENT=Production|BusinessUnits__Enabled=true|\
+    ConnectionStrings__QmsDirectoryMigration=secretref:qms-directory-migration|\
+    ConnectionStrings__QmsCheongjuMigration=secretref:qms-cheongju-migration|\
+    ConnectionStrings__QmsOsanMigration=secretref:qms-osan-migration|\
+    BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited=secretref:approved-users|\
+    BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited=secretref:overall-administrators)
+      inspection_environment_count=$((inspection_environment_count + 1))
       ;;
   esac
 done
@@ -125,24 +148,83 @@ case "${command_group}" in
     esac
     ;;
   'containerapp job show')
-    if [[ "${query}" == 'properties.configuration.triggerType' ]]; then
-      printf 'Manual\n'
-    else
-      exit 2
-    fi
+    case "${query}" in
+      properties.configuration.triggerType)
+        printf 'Manual\n'
+        ;;
+      'properties.template.containers[0].env[?value != `null` && value != `""`].[name, value]')
+        if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-config-invalid' ]]; then
+          printf 'ASPNETCORE_ENVIRONMENT\tProduction\n'
+        else
+          printf 'ASPNETCORE_ENVIRONMENT\tProduction\n'
+          printf 'BusinessUnits__Enabled\ttrue\n'
+        fi
+        ;;
+      'properties.template.containers[0].env[?secretRef != `null` && secretRef != `""`].[name, secretRef]')
+        printf 'ConnectionStrings__QmsDirectoryMigration\tqms-directory-migration\n'
+        printf 'ConnectionStrings__QmsCheongjuMigration\tqms-cheongju-migration\n'
+        printf 'ConnectionStrings__QmsOsanMigration\tqms-osan-migration\n'
+        printf 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited\tapproved-users\n'
+        printf 'BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited\toverall-administrators\n'
+        ;;
+      'properties.template.containers[0].resources.cpu')
+        printf '0.5\n'
+        ;;
+      'properties.template.containers[0].resources.memory')
+        printf '1Gi\n'
+        ;;
+      *)
+        exit 2
+        ;;
+    esac
     ;;
   'containerapp job update')
-    printf 'migration-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+    case "${name}" in
+      "${DATABASE_BOOTSTRAP_JOB_NAME}") printf 'bootstrap-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MEMBERSHIP_BACKFILL_JOB_NAME}") printf 'backfill-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MIGRATION_JOB_NAME}") printf 'migration-update\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      *) exit 2 ;;
+    esac
     ;;
   'containerapp job start')
-    printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+    case "${name}" in
+      "${DATABASE_BOOTSTRAP_JOB_NAME}") printf 'bootstrap-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MEMBERSHIP_BACKFILL_JOB_NAME}")
+        if [[ "${inspection}" == 'true' ]]; then
+          if [[ "${inspection_environment_count}" -ne 7 \
+            || "${cpu}" != '0.5' || "${memory}" != '1Gi' ]]; then
+            exit 2
+          fi
+          printf 'backfill-inspect-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+        else
+          printf 'backfill-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+        fi
+        ;;
+      "${MIGRATION_JOB_NAME}") printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      *) exit 2 ;;
+    esac
     printf 'synthetic-execution\n'
     ;;
   'containerapp job execution')
-    if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'migration-failed' ]]; then
+    if [[ ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'bootstrap-failed' \
+          && "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'migration-failed' \
+          && "${name}" == "${MIGRATION_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'backfill-failed' \
+          && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-failed' \
+          && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) ]]; then
       printf 'Failed\n'
     else
       printf 'Succeeded\n'
+    fi
+    ;;
+  'containerapp job logs')
+    printf 'backfill-inspect-logs\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
+    if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-evidence-missing' ]]; then
+      printf 'inspection log marker missing\n'
+    else
+      printf 'businessUnitMembershipBackfillDryRun=PASS identityCount=23 overallAdministratorCount=3 configuredOverallAdministratorCount=3 activeDirectoryOverallAdministratorCount=3 activateMembershipCount=0 deactivateMembershipCount=1 normalizeDepartmentDefaultRoleCount=0 removeManagedRoleCount=0 resetDepartmentHeadCount=0 repairOverallProfileCount=0 designateOverallAdministratorCount=0 cheongjuSystemAdminPermissionGapCount=0 osanSystemAdminPermissionGapCount=0\n'
     fi
     ;;
   'containerapp update --resource-group')
@@ -201,6 +283,9 @@ run_case() {
   local deploy_backend="${5:-true}"
   local deploy_frontend="${6:-true}"
   local run_migration="${7:-true}"
+  local run_database_bootstrap="${8:-false}"
+  local run_membership_backfill="${9:-false}"
+  local inspect_membership_backfill="${10:-false}"
   case_number=$((case_number + 1))
 
   printf '%s\n' 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' \
@@ -223,11 +308,16 @@ run_case() {
     BACKEND_APP_NAME='pms-synthetic-backend' \
     FRONTEND_APP_NAME='pms-synthetic-frontend' \
     MIGRATION_JOB_NAME='pms-synthetic-migration' \
+    DATABASE_BOOTSTRAP_JOB_NAME='pms-synthetic-bootstrap' \
+    MEMBERSHIP_BACKFILL_JOB_NAME='pms-synthetic-backfill' \
     BACKEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" \
     FRONTEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-frontend@sha256:${frontend_digest}" \
     DEPLOY_BACKEND="${deploy_backend}" \
     DEPLOY_FRONTEND="${deploy_frontend}" \
     RUN_MIGRATION="${run_migration}" \
+    RUN_DATABASE_BOOTSTRAP="${run_database_bootstrap}" \
+    RUN_MEMBERSHIP_BACKFILL="${run_membership_backfill}" \
+    INSPECT_MEMBERSHIP_BACKFILL="${inspect_membership_backfill}" \
     AZURE_RELEASE_AZ_BIN="${temporary_directory}/az" \
     AZURE_RELEASE_HTTP_BIN="${temporary_directory}/curl" \
     AZURE_RELEASE_ALLOW_TEST_OVERRIDES='true' \
@@ -242,6 +332,7 @@ run_case() {
   set -e
 
   if [[ "${actual_exit}" -ne "${expected_exit}" ]]; then
+    sed -n '1,20p' "${temporary_directory}/stderr" >&2
     printf 'azurePilotReleaseTests=UNEXPECTED_EXIT_%s_EXPECTED_%s_ACTUAL_%s\n' \
       "${case_number}" "${expected_exit}" "${actual_exit}" >&2
     exit 1
@@ -261,13 +352,33 @@ run_case 'success' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
 run_case 'success-running-at-max-scale' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
+run_case 'success' 0 '' \
+  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start,backend-update,frontend-update' \
+  true true true true true
+run_case 'success' 0 '' \
+  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start' \
+  false false true true true
 run_case 'baseline-stopped' 70 BASELINE_NOT_READY ''
 run_case 'baseline-scale-to-zero' 70 BASELINE_NOT_READY ''
 run_case 'baseline-degraded' 70 BASELINE_NOT_READY ''
 run_case 'baseline-unknown' 70 BASELINE_NOT_READY ''
 run_case 'unsafe-rollback' 69 UNSAFE_ROLLBACK_BASELINE ''
-run_case 'migration-failed' 73 MIGRATION_FAILED \
+run_case 'bootstrap-failed' 73 DATABASE_BOOTSTRAP_FAILED \
+  'bootstrap-update,bootstrap-start' true true true true true
+run_case 'migration-failed' 74 MIGRATION_FAILED \
   'migration-update,migration-start'
+run_case 'backfill-failed' 76 MEMBERSHIP_BACKFILL_FAILED \
+  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start' \
+  true true true true true
+run_case 'success' 0 '' \
+  'backfill-inspect-start,backfill-inspect-logs' false false false false false true
+run_case 'inspection-failed' 77 MEMBERSHIP_BACKFILL_INSPECTION_FAILED \
+  'backfill-inspect-start' false false false false false true
+run_case 'inspection-evidence-missing' 78 MEMBERSHIP_BACKFILL_INSPECTION_EVIDENCE_MISSING \
+  'backfill-inspect-start,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs,backfill-inspect-logs' \
+  false false false false false true
+run_case 'inspection-config-invalid' 79 MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURATION_INVALID \
+  '' false false false false false true
 run_case 'backend-release-failed' 1 BACKEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,backend-rollback'
 run_case 'frontend-release-failed' 1 FRONTEND_RELEASE_FAILED \
@@ -277,6 +388,10 @@ run_case 'public-security-failed' 1 PUBLIC_SECURITY_SMOKE_FAILED \
 run_case 'success' 0 '' 'backend-update' true false false
 run_case 'success' 0 '' 'frontend-update' false true false
 run_case 'success' 0 '' 'migration-update,migration-start,backend-update' true false true
+run_case 'success' 0 '' 'migration-update,migration-start' false false true
+run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false true false
+run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false false true
+run_case 'success' 65 INVALID_RELEASE_SCOPE '' false false true false true true
 run_case 'success' 0 '' '' false false false
 
 printf 'azurePilotReleaseTests=PASS\n'

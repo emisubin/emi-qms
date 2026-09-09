@@ -94,31 +94,7 @@ public static class SeedIdentityData
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
             [QmsRoles.SystemAdministrator] =
-            [
-                QmsPermissions.ProjectRead,
-                QmsPermissions.ProjectManage,
-                QmsPermissions.ProjectAccessAll,
-                QmsPermissions.ProjectReadAll,
-                QmsPermissions.ProjectSalesAmountRead,
-                QmsPermissions.ProductionPlan,
-                QmsPermissions.ManufacturingUpdate,
-                QmsPermissions.ManufacturingWorkTimeRead,
-                QmsPermissions.QualityInspect,
-                QmsPermissions.QualityApprove,
-                QmsPermissions.LogisticsShip,
-                QmsPermissions.UsersManage,
-                QmsPermissions.ProjectDeletedRead,
-                QmsPermissions.AuditReadAll,
-                QmsPermissions.AdminHistoryRead,
-                QmsPermissions.PendingRead,
-                QmsPermissions.PendingTypeManage,
-                QmsPermissions.G2Read,
-                QmsPermissions.G2ProductionUpdate,
-                QmsPermissions.G2DeliveryUpdate,
-                QmsPermissions.G2AttendanceUpdate,
-                QmsPermissions.G2InventoryManage,
-                QmsPermissions.G2TargetManage
-            ],
+                Permissions.Select(permission => permission.Code).ToArray(),
             [QmsRoles.Sales] =
             [
                 QmsPermissions.ProjectRead,

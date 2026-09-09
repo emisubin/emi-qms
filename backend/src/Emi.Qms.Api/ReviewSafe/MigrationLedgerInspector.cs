@@ -9,6 +9,7 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
     public const string CompatibleStatus = "CompatibleWithApprovedLegacy";
     public const string MismatchStatus = "Mismatch";
     public const string UnavailableStatus = "Unavailable";
+    internal const string WebPushMigrationVersion = "0074_web_push_subscriptions";
 
     private static readonly HashSet<string> BaseNotificationChannels = new(StringComparer.Ordinal)
     {
@@ -155,7 +156,7 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
         return versions;
     }
 
-    private static async Task<bool> ProbeTeamsActivitySchemaAsync(
+    internal static async Task<bool> ProbeTeamsActivitySchemaAsync(
         NpgsqlConnection connection,
         bool expectsWebPush,
         CancellationToken cancellationToken)

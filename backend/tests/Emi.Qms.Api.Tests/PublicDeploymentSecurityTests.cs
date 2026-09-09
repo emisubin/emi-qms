@@ -309,14 +309,21 @@ public sealed class PublicDeploymentSecurityTests
         Assert.DoesNotContain("runtimeIdentity", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("scope: keyVault\n", identityAccess, StringComparison.Ordinal);
         Assert.Equal(
-            14,
+            26,
             Regex.Matches(identityAccess, @"scope: \w+Secret\r?$", RegexOptions.Multiline).Count);
 
         Assert.Contains("database-runtime-connection-string", workloads, StringComparison.Ordinal);
         Assert.Contains("database-migration-connection-string", workloads, StringComparison.Ordinal);
         Assert.Contains("database-admin-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("directory-database-runtime-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("directory-database-migration-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("directory-database-admin-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("osan-database-runtime-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("osan-database-migration-connection-string", workloads, StringComparison.Ordinal);
+        Assert.Contains("osan-database-admin-connection-string", workloads, StringComparison.Ordinal);
         Assert.Contains("--bootstrap-database-roles", workloads, StringComparison.Ordinal);
         Assert.Contains("--migrate-only", workloads, StringComparison.Ordinal);
+        Assert.Contains("--backfill-business-unit-memberships", workloads, StringComparison.Ordinal);
         Assert.Contains("value: 'pms_migrator'", workloads, StringComparison.Ordinal);
         Assert.Contains("value: 'pms_app'", workloads, StringComparison.Ordinal);
         Assert.Contains(

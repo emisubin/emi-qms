@@ -17,6 +17,7 @@ vi.mock('@microsoft/teams-js', () => ({
 
 import { App } from '../src/App';
 import { HomePage } from '../src/HomePage';
+import { resetBusinessUnitRequestContext } from '../src/api';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const projectId = '71000000-0000-0000-0000-000000000010';
@@ -48,6 +49,8 @@ describe('App', () => {
     teamsJsMock.initialize.mockResolvedValue(undefined);
     teamsJsMock.getContext.mockImplementation(async () => teamsJsMock.context ?? {});
     window.localStorage.clear();
+    window.sessionStorage.clear();
+    resetBusinessUnitRequestContext(true);
     window.history.pushState(null, '', '/projects');
     Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     vi.stubGlobal('fetch', vi.fn(mockFetch));
@@ -55,9 +58,9 @@ describe('App', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
   });
 
-  it('uses Home for / and /home while keeping the project list at /projects', async () => {
+  it('uses Home for / and keeps the company and privacy navigation available', async () => {
     window.history.pushState(null, '', '/');
-    const { unmount } = render(<App />);
+    render(<App />);
 
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
     expect(screen.getByAltText('EMI PMS - Project Management System')).toBeInTheDocument();
@@ -77,6 +80,11 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: '공지사항' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '알림' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Pending' })).toBeInTheDocument();
+  });
+
+  it('keeps the project list at /projects while shared navigation returns Home to /', async () => {
+    window.history.pushState(null, '', '/');
+    render(<App />);
 
     const navigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     expect(within(navigation).getByRole('button', { name: '홈' })).toHaveClass('active');
@@ -91,9 +99,12 @@ describe('App', () => {
     fireEvent.click(within(navigation).getByRole('button', { name: '홈' }));
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
+  });
 
-    const desktopNavigation = screen.getByRole('navigation', { name: '공통 메뉴' });
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '프로젝트' }));
+  it('uses Home for browser history and a direct /home load', async () => {
+    window.history.pushState(null, '', '/projects');
+    const { unmount } = render(<App />);
+
     expect(await screen.findByRole('heading', { name: '프로젝트 목록' })).toBeInTheDocument();
     act(() => {
       window.history.pushState(null, '', '/home');
@@ -265,28 +276,23 @@ describe('App', () => {
     window.history.pushState(null, '', '/');
     render(<App />);
 
-    const userSelector = await screen.findByLabelText('개발 사용자');
-    const navigation = screen.getByRole('navigation', { name: '공통 메뉴' });
-    expect(within(navigation).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: '공통 메뉴' })).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument();
 
-    fireEvent.change(userSelector, { target: { value: 'dev-quality' } });
-    await waitFor(() => expect(userSelector).toHaveValue('dev-quality'));
-    expect(await within(navigation).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
+    await switchToDevelopmentUser('dev-quality');
+    expect(await within(screen.getByRole('navigation', { name: '공통 메뉴' })).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
 
-    fireEvent.change(userSelector, { target: { value: 'dev-manufacturing' } });
-    await waitFor(() => expect(userSelector).toHaveValue('dev-manufacturing'));
-    await waitFor(() => expect(within(navigation).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument());
+    await switchToDevelopmentUser('dev-manufacturing');
+    await waitFor(() => expect(within(screen.getByRole('navigation', { name: '공통 메뉴' })).queryByRole('button', { name: '양식 관리' })).not.toBeInTheDocument());
 
-    fireEvent.change(userSelector, { target: { value: 'dev-production' } });
-    await waitFor(() => expect(userSelector).toHaveValue('dev-production'));
-    expect(await within(navigation).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
+    await switchToDevelopmentUser('dev-production');
+    expect(await within(screen.getByRole('navigation', { name: '공통 메뉴' })).findByRole('button', { name: '양식 관리' })).toBeInTheDocument();
   });
 
   it('opens the customer-supplied overdue material queue from the Materials Home metric', async () => {
     window.history.pushState(null, '', '/');
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-materials' } });
+    await switchToDevelopmentUser('dev-materials');
     const metric = await screen.findByRole('button', { name: /사급 제공 지연/ });
     expect(metric).toHaveTextContent('1');
     fireEvent.click(metric);
@@ -540,6 +546,10 @@ describe('App', () => {
     expect(commonNavigation).toHaveTextContent('구매');
     expect(screen.getAllByRole('button', { name: '프로젝트' }).some((button) => button.getAttribute('aria-current') === 'page')).toBe(true);
     const projectSummary = await screen.findByLabelText('프로젝트 요약');
+    const sharedPage = projectSummary.closest('[data-presentation-contract="project-list-page-v1"]');
+    expect(sharedPage).not.toBeNull();
+    expect(sharedPage).toHaveAttribute('data-presentation-layout', 'desktop');
+    expect(sharedPage).toHaveClass('page-surface', 'project-list-page');
     expect(projectSummary).toHaveTextContent('전체 프로젝트');
     expect(projectSummary).not.toHaveTextContent('QR 가능 패널');
     expect(projectSummary).toHaveTextContent('제조 완료 프로젝트');
@@ -548,8 +558,16 @@ describe('App', () => {
     const tabs = await screen.findAllByRole('tab');
     expect(tabs.slice(0, 5).map((tab) => tab.textContent)).toEqual(['전체', '진행', '보류', '완료', '취소']);
     expect(screen.getByRole('tab', { name: '전체' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: '신규 프로젝트' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '프로젝트 Excel 양식' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '프로젝트 Excel 업로드' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '선택 Excel 내보내기' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '삭제 보관함' })).toBeInTheDocument();
 
     const table = await screen.findByRole('table', { name: '프로젝트 목록' });
+    const sharedList = table.closest('[data-presentation-contract="project-list-v1"]');
+    expect(sharedList).toHaveAttribute('data-presentation-layout', 'desktop');
+    expect(sharedList).toHaveAttribute('data-presentation-column-count', '8');
     const header = table.querySelector('.project-list-head');
     expect(header).not.toBeNull();
     expect(header).toHaveTextContent('프로젝트명고객사CodeItem면수납기일상태진행률');
@@ -1180,7 +1198,7 @@ describe('App', () => {
   it('hides business action buttons from System Administrator while showing sales amount', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
 
     await waitFor(() => expect(screen.queryByRole('button', { name: '신규 프로젝트' })).not.toBeInTheDocument());
     expect(screen.getAllByText('KRW 1,250,000.5').length).toBeGreaterThan(0);
@@ -1189,7 +1207,7 @@ describe('App', () => {
   it('shows calendar holiday admin page for System Administrator', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
     fireEvent.click(await screen.findByRole('button', { name: '공휴일' }));
@@ -1209,7 +1227,7 @@ describe('App', () => {
   it('shows admin dashboard and system management pages for System Administrator', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     const commonNavigation = (await screen.findAllByRole('navigation', { name: '공통 메뉴' }))[0];
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
 
@@ -1350,7 +1368,7 @@ describe('App', () => {
   it('shows Processing lease state and disables admin actions', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     window.history.pushState(null, '', '/admin/system/notification-deliveries?status=Processing');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
@@ -1368,7 +1386,7 @@ describe('App', () => {
   it('shows masked delivery attempt audit in admin detail', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     window.history.pushState(null, '', '/admin/system/notification-deliveries/79000000-0000-0000-0000-000000000101');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
@@ -1831,8 +1849,7 @@ describe('App', () => {
     });
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -1849,8 +1866,7 @@ describe('App', () => {
   it('shows panel template download only to panel information editors', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     expect(await screen.findByRole('button', { name: '패널명·사이즈 수정' })).toBeInTheDocument();
@@ -1879,8 +1895,7 @@ describe('App', () => {
 
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
 
@@ -1980,8 +1995,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -2012,8 +2026,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -2047,8 +2060,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -2130,8 +2142,7 @@ describe('App', () => {
     }));
 
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-design' } });
-    await screen.findByRole('button', { name: '신규 프로젝트' });
+    await switchToDevelopmentUser('dev-design');
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
     fireEvent.click(await screen.findByRole('tab', { name: '설계' }));
     fireEvent.click(await screen.findByRole('button', { name: '패널명·사이즈 수정' }));
@@ -3072,6 +3083,13 @@ describe('App', () => {
     render(<App />);
     fireEvent.click(await screen.findByText('TASK-003A Demo'));
 
+    const sharedSummary = await waitFor(() => {
+      const summary = document.querySelector('[data-presentation-contract="project-summary-v1"]');
+      expect(summary).not.toBeNull();
+      return summary as HTMLElement;
+    });
+    expect(sharedSummary).toHaveAttribute('data-presentation-layout', 'desktop');
+
     const projectTabs = await screen.findByRole('tablist', { name: '프로젝트 상세 섹션' });
     expect(within(projectTabs).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       '전체 흐름', '생산관리', '설계', '구매', '제조', '품질', '물류', '영업'
@@ -3088,9 +3106,18 @@ describe('App', () => {
 
     fireEvent.click(within(projectTabs).getByRole('tab', { name: '제조' }));
     const manufacturingTable = await screen.findByRole('table', { name: '제조 패널 현황' });
-    expect(within(manufacturingTable).getAllByRole('row')[0]).toHaveTextContent('No패널명핵심정보제조 단계진행률');
-    expect(within(manufacturingTable).getAllByRole('row').slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
-    expect(within(manufacturingTable).getAllByRole('row')[4]).toHaveTextContent('P52');
+    const sharedStatusBoard = manufacturingTable.closest('[data-presentation-contract="project-status-board-v1"]');
+    expect(sharedStatusBoard).toHaveAttribute('data-department', 'manufacturing');
+    expect(sharedStatusBoard).toHaveAttribute('data-presentation-layout', 'desktop');
+    const manufacturingRows = within(manufacturingTable).getAllByRole('row');
+    expect(manufacturingRows[0]).toHaveTextContent('No패널명핵심정보제조 단계진행률');
+    expect(manufacturingRows.slice(1).map((row) => row.querySelector('span')?.textContent)).toEqual(['1', '2', '3', '4']);
+    expect(manufacturingRows[1].tagName).toBe('BUTTON');
+    expect(manufacturingRows[1]).toHaveAttribute('data-interactive', 'true');
+    const unnamedPanelCell = within(manufacturingRows[1]).getAllByRole('cell')[1];
+    expect(unnamedPanelCell.querySelector('strong')).toHaveTextContent('P01');
+    expect(unnamedPanelCell.querySelector('small')).toHaveTextContent('P01');
+    expect(manufacturingRows[4]).toHaveTextContent('P52');
     expect(manufacturingTable).toHaveTextContent('P01');
     expect(manufacturingTable).toHaveTextContent('완료 · 단계 1/1');
     expect(manufacturingTable).toHaveTextContent('제조 완료');
@@ -3347,6 +3374,15 @@ function fillCreateForm(projectCode: string, projectTitle: string) {
   fireEvent.change(screen.getByLabelText('영업담당자*'), { target: { value: salesOwnerId } });
   fireEvent.change(screen.getByLabelText('포장방식*'), { target: { value: 'WoodenCrate' } });
   fireEvent.change(screen.getByLabelText('판매금액'), { target: { value: '1250000.5' } });
+}
+
+async function switchToDevelopmentUser(userKey: string) {
+  fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: userKey } });
+  await waitFor(() => {
+    const accountTrigger = document.querySelector('.account-identity-trigger');
+    expect(accountTrigger).not.toBeNull();
+    expect(accountTrigger).toHaveTextContent(userKey);
+  });
 }
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

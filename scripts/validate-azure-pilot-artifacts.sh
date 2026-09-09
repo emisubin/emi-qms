@@ -122,6 +122,14 @@ const checks = [
   [identityAccess, 'scope: databaseRuntimeSecret'],
   [identityAccess, 'scope: databaseMigrationSecret'],
   [identityAccess, 'scope: databaseAdminSecret'],
+  [identityAccess, 'scope: directoryDatabaseRuntimeSecret'],
+  [identityAccess, 'scope: directoryDatabaseMigrationSecret'],
+  [identityAccess, 'scope: directoryDatabaseAdminSecret'],
+  [identityAccess, 'scope: osanDatabaseRuntimeSecret'],
+  [identityAccess, 'scope: osanDatabaseMigrationSecret'],
+  [identityAccess, 'scope: osanDatabaseAdminSecret'],
+  [identityAccess, 'scope: businessUnitBackfillUserIdsSecret'],
+  [identityAccess, 'scope: businessUnitOverallAdministratorUserIdsSecret'],
   [identityAccess, 'scope: originVerificationSecret'],
   [identityAccess, 'scope: developmentOperatorsSecret'],
   [workloads, "name: 'Authentication__DevelopmentOperatorEmails'"],
@@ -147,6 +155,14 @@ const checks = [
   [workloads, "keyVaultUrl:"],
   [workloads, "workloadProfileName: 'Consumption'"],
   [workloads, "name: 'database-role-bootstrap'"],
+  [workloads, "name: 'business-unit-member-backfill'"],
+  [workloads, "resource directoryDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01'"],
+  [workloads, "resource osanDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01'"],
+  [workloads, "name: 'BusinessUnits__Enabled'"],
+  [workloads, "name: 'ConnectionStrings__QmsDirectoryRuntime'"],
+  [workloads, "name: 'ConnectionStrings__QmsCheongjuRuntime'"],
+  [workloads, "name: 'ConnectionStrings__QmsOsanRuntime'"],
+  [workloads, "name: 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited'"],
   [workloads, "name: 'web-push-vapid-public-key'"],
   [workloads, "name: 'web-push-vapid-private-key'"],
   [workloads, "name: 'Notifications__WebPush__Enabled'\n    value: enabled"],
@@ -155,6 +171,7 @@ const checks = [
   [workloads, "name: 'Notifications__WebPush__PrivateKey'\n    secretRef: 'web-push-vapid-private-key'"],
   [workloads, "'--bootstrap-database-roles'"],
   [workloads, "'--migrate-only'"],
+  [workloads, "'--backfill-business-unit-memberships'"],
   [edge, "linkToDefaultDomain: 'Disabled'"],
   [edge, "certificateType: 'ManagedCertificate'"],
   [nginx, 'map_hash_bucket_size 128;'],
@@ -182,6 +199,12 @@ const expectedAnonymousFrontendPaths = [
 const excludedPathsSource = workloads.match(/excludedPaths:\s*\[([\s\S]*?)\]/mu)?.[1] ?? '';
 const sourceExcludedPaths = [...excludedPathsSource.matchAll(/'([^']+)'/gu)].map((match) => match[1]);
 const workloadsTemplate = JSON.parse(read(join(azure, 'workloads.json')));
+const businessUnitDatabaseResources = workloadsTemplate.resources.filter(
+  (resource) => resource.type === 'Microsoft.DBforPostgreSQL/flexibleServers/databases'
+);
+if (businessUnitDatabaseResources.length !== 2) {
+  process.exit(1);
+}
 const frontendAuthResource = workloadsTemplate.resources.find(
   (resource) => resource.type === 'Microsoft.App/containerApps/authConfigs'
 );
@@ -213,7 +236,7 @@ if (identityAccess.includes("scope: keyVault\n")
 }
 
 const secretScopes = identityAccess.match(/scope: \w+Secret$/gmu) ?? [];
-if (secretScopes.length !== 14) {
+if (secretScopes.length !== 26) {
   process.exit(1);
 }
 
@@ -247,6 +270,12 @@ const workflowChecks = [
   'source_sha:',
   'confirm_image_push:',
   'confirm_production_deploy:',
+  'run_database_bootstrap:',
+  'run_membership_backfill:',
+  'inspect_membership_backfill:',
+  'database_prepare_only:',
+  'force_full_release:',
+  'FORCE_FULL_RELEASE:',
   'environment: azure-pilot-image-publish',
   'id-token: write',
   'scripts/validate-azure-image-publish-inputs.sh',
@@ -256,11 +285,16 @@ const workflowChecks = [
   'BACKEND_APP_NAME:',
   'FRONTEND_APP_NAME:',
   'MIGRATION_JOB_NAME:',
+  'DATABASE_BOOTSTRAP_JOB_NAME:',
+  'MEMBERSHIP_BACKFILL_JOB_NAME:',
   'BACKEND_RELEASE_IMAGE:',
   'FRONTEND_RELEASE_IMAGE:',
   'DEPLOY_BACKEND:',
   'DEPLOY_FRONTEND:',
   'RUN_MIGRATION:',
+  'RUN_DATABASE_BOOTSTRAP:',
+  'RUN_MEMBERSHIP_BACKFILL:',
+  'INSPECT_MEMBERSHIP_BACKFILL:',
   'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474',
   'docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c',
   'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a',
@@ -288,6 +322,12 @@ const releaseChecks = [
   'DEPLOY_BACKEND',
   'DEPLOY_FRONTEND',
   'RUN_MIGRATION',
+  'RUN_DATABASE_BOOTSTRAP',
+  'RUN_MEMBERSHIP_BACKFILL',
+  'DATABASE_BOOTSTRAP_JOB_NAME',
+  'MEMBERSHIP_BACKFILL_JOB_NAME',
+  'azurePilotReleaseDatabaseBootstrap=PASS',
+  'azurePilotReleaseMembershipBackfill=PASS',
   "backend_changed='true'",
   "frontend_changed='true'",
   'rollback_apps',
@@ -297,7 +337,9 @@ const releaseChecks = [
   'azurePilotReleasePublicSecurity=PASS'
 ];
 if (releaseChecks.some(expected => !releaseScript.includes(expected))
-  || releaseScript.indexOf('containerapp job start') > releaseScript.indexOf("backend_changed='true'")
+  || releaseScript.indexOf('DATABASE_BOOTSTRAP_JOB_UPDATE_FAILED') > releaseScript.indexOf('MIGRATION_JOB_UPDATE_FAILED')
+  || releaseScript.indexOf('MIGRATION_JOB_UPDATE_FAILED') > releaseScript.indexOf('MEMBERSHIP_BACKFILL_JOB_UPDATE_FAILED')
+  || releaseScript.indexOf('MEMBERSHIP_BACKFILL_JOB_UPDATE_FAILED') > releaseScript.indexOf("backend_changed='true'")
   || releaseScript.indexOf("backend_changed='true'") > releaseScript.indexOf("frontend_changed='true'")
   || /client-secret|AZURE_CLIENT_SECRET|Authorization:/u.test(releaseScript)) {
   process.exit(1);

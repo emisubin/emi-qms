@@ -22,6 +22,11 @@ public static class DepartmentIdentityPolicy
         return DefaultRoleCodes.GetValueOrDefault(departmentCode);
     }
 
+    public static bool IsDefaultRoleCode(string roleCode)
+    {
+        return DefaultRoleCodes.Values.Contains(roleCode, StringComparer.Ordinal);
+    }
+
     public static string? GetFormTemplateDomain(string departmentCode)
     {
         return departmentCode switch

@@ -15,7 +15,7 @@ public sealed class DbIdentityStore(
     {
         return GetProfileAsync(
             "u.development_user_key = @lookup and u.auth_provider = 'Dev'",
-            ("lookup", developmentUserKey),
+            [("lookup", developmentUserKey)],
             cancellationToken);
     }
 
@@ -25,7 +25,7 @@ public sealed class DbIdentityStore(
     {
         return GetProfileAsync(
             "u.id = @lookup",
-            ("lookup", userId),
+            [("lookup", userId)],
             cancellationToken);
     }
 
@@ -35,7 +35,34 @@ public sealed class DbIdentityStore(
     {
         return GetProfileAsync(
             "u.entra_object_id = @lookup and u.auth_provider = 'EntraId'",
-            ("lookup", entraObjectId.Trim()),
+            [("lookup", entraObjectId.Trim())],
+            cancellationToken);
+    }
+
+    public Task<UserAuthorizationProfile?> GetDirectoryBoundEntraProfileAsync(
+        Guid directoryUserId,
+        string entraObjectId,
+        CancellationToken cancellationToken)
+    {
+        if (directoryUserId == Guid.Empty || string.IsNullOrWhiteSpace(entraObjectId))
+        {
+            return Task.FromResult<UserAuthorizationProfile?>(null);
+        }
+
+        var normalizedObjectId = entraObjectId.Trim();
+        return GetProfileAsync(
+            """
+            u.id = @directory_user_id
+            and u.entra_object_id = @entra_object_id
+            and u.development_user_key = @development_user_key
+            and u.auth_provider = 'EntraId'
+            and u.is_active = true
+            """,
+            [
+                ("directory_user_id", directoryUserId),
+                ("entra_object_id", normalizedObjectId),
+                ("development_user_key", $"entra:{normalizedObjectId}")
+            ],
             cancellationToken);
     }
 
@@ -118,6 +145,148 @@ public sealed class DbIdentityStore(
         return await GetProfileByUserIdAsync(userId, cancellationToken);
     }
 
+    public async Task<UserAuthorizationProfile?> GetOrCreateDirectoryBoundEntraProfileAsync(
+        Guid directoryUserId,
+        string entraObjectId,
+        string displayName,
+        string? email,
+        CancellationToken cancellationToken)
+    {
+        if (directoryUserId == Guid.Empty || string.IsNullOrWhiteSpace(entraObjectId))
+        {
+            return null;
+        }
+
+        var normalizedObjectId = entraObjectId.Trim();
+        var normalizedDisplayName = string.IsNullOrWhiteSpace(displayName)
+            ? "Microsoft 365 사용자"
+            : displayName.Trim();
+        var normalizedEmail = NormalizeEmail(email);
+        var developmentUserKey = $"entra:{normalizedObjectId}";
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await using (var lockCommand = connection.CreateCommand())
+            {
+                lockCommand.Transaction = transaction;
+                lockCommand.CommandText = """
+                    select pg_advisory_xact_lock(hashtextextended(@entra_object_id, 0));
+                    """;
+                lockCommand.Parameters.AddWithValue("entra_object_id", normalizedObjectId);
+                await lockCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            var candidates = new List<(
+                Guid UserId,
+                string DevelopmentUserKey,
+                string? EntraObjectId,
+                string AuthProvider,
+                bool IsActive)>();
+            await using (var collisionCommand = connection.CreateCommand())
+            {
+                collisionCommand.Transaction = transaction;
+                collisionCommand.CommandText = """
+                    select id, development_user_key, entra_object_id, auth_provider, is_active
+                    from qms_users
+                    where id = @directory_user_id
+                       or entra_object_id = @entra_object_id
+                       or development_user_key = @development_user_key
+                    for update;
+                    """;
+                collisionCommand.Parameters.AddWithValue("directory_user_id", directoryUserId);
+                collisionCommand.Parameters.AddWithValue("entra_object_id", normalizedObjectId);
+                collisionCommand.Parameters.AddWithValue("development_user_key", developmentUserKey);
+                await using var reader = await collisionCommand.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    candidates.Add((
+                        reader.GetGuid(0),
+                        reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.GetString(3),
+                        reader.GetBoolean(4)));
+                }
+            }
+
+            if (candidates.Count > 0)
+            {
+                if (candidates.Count != 1
+                    || candidates[0].UserId != directoryUserId
+                    || !string.Equals(
+                        candidates[0].DevelopmentUserKey,
+                        developmentUserKey,
+                        StringComparison.Ordinal)
+                    || !string.Equals(
+                        candidates[0].EntraObjectId,
+                        normalizedObjectId,
+                        StringComparison.Ordinal)
+                    || !string.Equals(
+                        candidates[0].AuthProvider,
+                        QmsAuthProviders.EntraId,
+                        StringComparison.Ordinal)
+                    || !candidates[0].IsActive)
+                {
+                    return null;
+                }
+
+                await using var update = connection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText = """
+                    update qms_users
+                    set display_name = @display_name,
+                        email = @email
+                    where id = @directory_user_id;
+                    """;
+                update.Parameters.AddWithValue("display_name", normalizedDisplayName);
+                AddNullableTextParameter(update, "email", normalizedEmail);
+                update.Parameters.AddWithValue("directory_user_id", directoryUserId);
+                await update.ExecuteNonQueryAsync(cancellationToken);
+            }
+            else
+            {
+                await using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    insert into qms_users (
+                        id,
+                        development_user_key,
+                        display_name,
+                        department_id,
+                        is_active,
+                        entra_object_id,
+                        email,
+                        auth_provider)
+                    values (
+                        @directory_user_id,
+                        @development_user_key,
+                        @display_name,
+                        null,
+                        true,
+                        @entra_object_id,
+                        @email,
+                        'EntraId');
+                    """;
+                insert.Parameters.AddWithValue("directory_user_id", directoryUserId);
+                insert.Parameters.AddWithValue("development_user_key", developmentUserKey);
+                insert.Parameters.AddWithValue("display_name", normalizedDisplayName);
+                insert.Parameters.AddWithValue("entra_object_id", normalizedObjectId);
+                AddNullableTextParameter(insert, "email", normalizedEmail);
+                await insert.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return null;
+        }
+
+        return await GetProfileByUserIdAsync(directoryUserId, cancellationToken);
+    }
+
     public async Task<QmsProject?> GetProjectByKeyAsync(string projectKey, CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
@@ -173,13 +342,13 @@ public sealed class DbIdentityStore(
 
     private async Task<UserAuthorizationProfile?> GetProfileAsync(
         string predicate,
-        (string Name, object Value) parameter,
+        IReadOnlyList<(string Name, object Value)> parameters,
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
-        var user = await ReadUserAsync(connection, predicate, parameter, cancellationToken);
+        var user = await ReadUserAsync(connection, predicate, parameters, cancellationToken);
         if (user is null)
         {
             return null;
@@ -203,7 +372,7 @@ public sealed class DbIdentityStore(
     private static async Task<QmsUser?> ReadUserAsync(
         NpgsqlConnection connection,
         string predicate,
-        (string Name, object Value) parameter,
+        IReadOnlyList<(string Name, object Value)> parameters,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -220,7 +389,10 @@ public sealed class DbIdentityStore(
             where {predicate}
             limit 1;
             """;
-        command.Parameters.AddWithValue(parameter.Name, parameter.Value);
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter.Name, parameter.Value);
+        }
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
@@ -430,7 +602,11 @@ public sealed class DbIdentityStore(
                 reader.IsDBNull(3) ? null : reader.GetString(3),
                 authProvider,
                 isActive,
-                authProvider == QmsAuthProviders.EntraId && isActive && roles.Length == 0,
+                ApprovalReadinessPolicy.IsApprovalPending(
+                    authProvider,
+                    isActive,
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    roles),
                 reader.IsDBNull(6) ? null : reader.GetGuid(6),
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),

@@ -176,6 +176,18 @@
 
 ## Azure 생성 전
 
+### Change 031 오산 1단계
+
+- [x] selector Change 002 자동·desktop/mobile 시각 검증이 완료됐고 사용자 검수는 아직 대기 상태임을 구분했다.
+- [x] 일반 phase-1 사용자에게 membership을 정확히 한 곳만 부여하는 운영 규칙을 기록했다.
+- [ ] 실제 다중 소속 총괄에게만 사업부 selector가 보이고 단일 Cheongju·단일 Osan 사용자에게 selector와 빈 label이 보이지 않는지 확인한다.
+- [ ] 소속 없음과 local profile pending 계정이 업무 데이터 없이 각각 올바른 gate에 머무는지 확인한다.
+- [ ] 제한된 Osan 계정에서 프로젝트 create/list/detail만 가능하고 진행 변경·자동 완료·dashboard·Pending/hold/cancel/deleted/Excel이 보이지 않는지 확인한다.
+- [ ] Cheongju 로그인·기존 프로젝트·G2와 실제 provider 설정이 이전과 동일하게 동작하는지 확인한다.
+- [ ] 첫 실제 프로젝트는 권한 있는 사용자가 업무 값으로 입력하며, 이번 배포 검증에서 synthetic production record를 만들지 않았음을 확인한다.
+
+현재 상태: `Change 031 로컬 자동 검증 완료(Backend 582/582, Frontend 297/297, mock 13/13, Full-Stack 66/66, 배포 정적 검증 PASS) / Draft PR·필수 CI 준비 / 사용자 selector·actual account·첫 실제 입력 검수 대기`.
+
 - [x] 20일 예상 비용과 남은 credit을 확인했다. (사용자 확인, 2026-08-02)
 - [x] Budget 알림 3단계를 사용자가 직접 설정했다. (사용자 확인, 2026-08-02)
 - [x] 실제 hostname·identifier·email·secret이 Change 010 Git diff에 없음을 확인했다.
@@ -239,3 +251,20 @@
 - [ ] 20일간 비용, 장애, 응답시간, DB·첨부 증가량을 기록했다.
 - [ ] 정식 운영 사양과 HA/WAF/Blob 여부를 실측값으로 다시 결정했다.
 - [ ] 시범 데이터를 정식 운영에 유지할지 최종 확인했다.
+
+## Change 032 오산 phase-1와 Change 007
+
+- [x] Exact main `b405a9cb653aa56b1049a7e7595a2e232044b42d`의 release run `34181334545`에서 3-DB migration, backfill, Backend·Frontend 공개 전환을 완료했다.
+- [x] Cheongju logical restore와 별도 PITR server의 Directory/Cheongju/Osan ledger·identity·aggregate 일치를 확인하고 owned 임시 자원을 정리했다.
+- [x] 공개 health, 익명 root/API 차단, direct origin 차단과 Cheongju aggregate 보존을 확인했다.
+- [x] Osan project create/list/detail 준비와 phase-1 제외 worker/provider off를 확인했고 synthetic 운영 project는 만들지 않았다.
+- [x] Change 007 exact main hotfix의 Directory `0004`, 기존 총괄 Osan local-first backfill, Backend·Frontend 전환을 완료한다.
+- [x] 사용자 관리에서 기존 계정의 이름과 계정 ID가 표시되는지 확인한다.
+- [ ] 같은 행에서 부서 기본 역할·부서장·활성·총괄 여부를 한 번 저장하고 복수 총괄이 유지되는지 확인한다.
+- [x] 총괄이 청주·오산을 selector로 전환하며 두 사업부에서 조회·입력 가능한지 확인한다.
+- [ ] 일반 사용자는 selector가 없고 한 사업부만 접근하며 마지막 총괄 해제는 거부되는지 확인한다.
+- [ ] Change 008 배포 뒤 일반 사용자 부서 변경에서 이전 관리 파생 역할과 부서장 flag가 즉시 제거되는지 확인한다.
+- [ ] Osan 승인 저장 직후 통합 사용자 행·로그인 상태가 모두 승인 완료로 일치하는지 확인한다.
+- [ ] 총괄이 두 사업부의 전체 조회·입력 동작과 selector를 실제 계정으로 확인한다.
+- [x] Business `0088`, roleless membership `1`건 회수와 stale managed System Administrator `1`건 제거 뒤 final inspect의 전체 change marker와 양 DB permission gap이 `0`이다.
+- [x] 최종 Backend `backend--0000040`와 Frontend `frontend--0000029`가 latest ready·traffic `100%`이고 공개 health/익명 차단 gate를 통과했다.

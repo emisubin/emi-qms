@@ -82,17 +82,17 @@ test('TASK-007A Pending: create, assign, act, reinspect, close, and audit', asyn
   });
   expect(viewerMutation.status()).toBe(403);
 
-  const adminMutation = await request.post(`${apiBaseUrl}/api/pending`, {
+  const administratorMutation = await request.post(`${apiBaseUrl}/api/pending`, {
     headers: { 'X-Dev-User': 'dev-admin' },
     data: {
       projectId,
       issueType: 'Other',
-      title: '관리자 우회 차단 확인',
-      description: '관리자는 감사 조회만 가능하고 업무 생성은 거부되어야 합니다.',
+      title: '시스템 관리자 Pending 생성 확인',
+      description: '시스템 관리자의 전체 permission catalog 쓰기 권한으로 Pending을 생성합니다.',
       priority: 'Normal'
     }
   });
-  expect(adminMutation.status()).toBe(403);
+  expect(administratorMutation.status()).toBe(201);
 });
 
 test('TASK-007A Pending: 390px workspace has no page overflow', async ({ page }) => {
@@ -107,10 +107,18 @@ test('TASK-007A Pending: 390px workspace has no page overflow', async ({ page })
 });
 
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
+  await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  await drawer.getByLabel('개발 사용자').selectOption(userKey);
-  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  const selector = drawer.getByLabel('개발 사용자');
+  await expect(drawer).toBeVisible();
+  await expect(selector).toBeVisible();
+  if (await selector.inputValue() === userKey) {
+    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  } else {
+    await selector.selectOption(userKey);
+  }
+  await expect(drawer).toBeHidden();
 }
 
 async function createProjectForMobile(page: Page) {

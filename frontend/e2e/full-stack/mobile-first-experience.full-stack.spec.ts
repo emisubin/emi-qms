@@ -134,13 +134,19 @@ test.describe('TASK-MOBILE-002 coarse pointer desktop', () => {
 });
 
 async function selectDevelopmentUserFromMobileStatus(page: Page, userKey: string) {
+  await page.waitForLoadState('networkidle');
   const trigger = page.getByRole('button', { name: '메뉴 열기' });
   await trigger.click();
   const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  await drawer.getByLabel('개발 사용자').selectOption(userKey);
-  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  const selector = drawer.getByLabel('개발 사용자');
+  await expect(drawer).toBeVisible();
+  await expect(selector).toBeVisible();
+  if (await selector.inputValue() === userKey) {
+    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  } else {
+    await selector.selectOption(userKey);
+  }
   await expect(drawer).toBeHidden();
-  await expect(trigger).toBeFocused();
 }
 
 async function assertMobileShell(page: Page, activeLabel: string) {

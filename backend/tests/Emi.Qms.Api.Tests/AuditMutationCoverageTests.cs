@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Audit;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -42,5 +43,50 @@ public sealed class AuditMutationCoverageTests
             AuditMutationRegistry.ResolveConflictReason("POST /api/pending/"));
         Assert.Throws<InvalidOperationException>(() =>
             AuditMutationRegistry.ResolveConflictReason("POST /api/not-a-real-route"));
+    }
+
+    [Fact]
+    public void DirectoryMembershipMutation_IsKnownAndExcludedFromLocalBusinessAudit()
+    {
+        using var factory = new QmsWebApplicationFactory();
+        var endpoint = factory.Services
+            .GetRequiredService<EndpointDataSource>()
+            .Endpoints
+            .OfType<RouteEndpoint>()
+            .Single(candidate => string.Equals(
+                candidate.RoutePattern.RawText,
+                "/api/admin/business-unit-access/users/{userId:guid}/memberships",
+                StringComparison.Ordinal));
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Put;
+        context.SetEndpoint(endpoint);
+
+        Assert.True(AuditMutationRegistry.TryResolve(context, out var definition));
+        Assert.False(definition.Included);
+    }
+
+    [Fact]
+    public void OsanProjectCreate_IsKnownAndIncludedInProjectAudit()
+    {
+        using var factory = new QmsWebApplicationFactory();
+        var endpoint = factory.Services
+            .GetRequiredService<EndpointDataSource>()
+            .Endpoints
+            .OfType<RouteEndpoint>()
+            .Single(candidate => string.Equals(
+                candidate.RoutePattern.RawText,
+                "/api/osan/projects/",
+                StringComparison.Ordinal)
+                && candidate.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                    HttpMethods.Post,
+                    StringComparer.OrdinalIgnoreCase) == true);
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Post;
+        context.SetEndpoint(endpoint);
+
+        Assert.True(AuditMutationRegistry.TryResolve(context, out var definition));
+        Assert.True(definition.Included);
+        Assert.Equal("Projects", definition.Domain);
+        Assert.Equal("CreateOsanProject", definition.Action);
     }
 }

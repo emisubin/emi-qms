@@ -2,17 +2,17 @@
 
 ## 1. 현재 판정
 
-- Latest integrated release: exact `main` `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` / Azure run `33589472932` 성공 / Backend·Frontend·public security `PASS`, migration `SKIPPED`
+- Latest integrated release: exact `main` `b41c932e2154a921cf8b0aab753fc6d0692b209f` / Azure run `34225420777` 성공 / Business `0088`, Backend·Frontend·public security `PASS`
 - 공개 확인: health `200`, 익명 root·`/api/me` `401/401`, 인증된 G2 2026-08-28 재고 수식 `2 + 34 - 0 - 30 = 6`과 표시 재고 `6` 일치
-- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Migration·Persistent UAT·실제 외부 알림 시험 발송은 제외
-- Latest deployment source: Change 030 제품 PR #119·PR CI `33587777592`·main CI `33589432228` 완료 / exact main `7a2c7f172a4a0e4b0e69a29c72ac205af1299c74` / 운영 release run `33589472932` 성공
+- 이번 release 보존: 기존 Entra 인증, Front Door 차단, Web Push·Teams·메일 활성 설정, Key Vault 참조, 업무·G2 원본 데이터. Directory `0004`와 Business `0088`까지 적용했으며 Persistent UAT·실제 외부 알림 시험 발송은 제외
+- Latest deployment source: Change 008 최종 PR #127·CI `34221079465` 완료 / exact main `b41c932e2154a921cf8b0aab753fc6d0692b209f` / 운영 release `34225420777`, repair `34228436474`, zero-diff inspect `34229045510` 성공
 - Historical Change 026 deployment source: PR #108 원격 `main` 병합·CI 완료 / merge SHA `51aba7e97a2d1fee0f9ee4b82a3f89d514171acf` / 운영 release run `32197298425` 성공
 - Portal ARM JSON 4개: 실제 Foundation·identity-access·inactive/active workload 배포에 사용
-- GitHub 웹 수동 image 게시 workflow: Change 013이 포함된 최종 main Backend·Frontend immutable image 게시 완료
+- GitHub 웹 수동 image 게시 workflow: exact Change 008 main의 Backend·Frontend immutable image 게시 완료
 - Azure resource: Foundation·secret-scope RBAC·workload·DB 생성 완료
-- DB role bootstrap·migration: 직전 운영 migration 기준선 유지. Change 030은 migration diff가 없어 실행 생략
+- DB role bootstrap·migration: Directory ledger `0004`, Cheongju·Osan business ledger `0088`, identity contract `0001`/`0086`; final repair inspection change marker `0`, permission gap `0/0`
 - PITR restore rehearsal: 60분 목표 이내 성공 / 임시 restore resource 정리 완료
-- Active workload: Backend·Frontend latest revision ready·Running / exact Change 030 main image digest 적용 / ClamAV unchanged
+- Active workload: Backend `backend--0000040`, Frontend `frontend--0000029` latest revision ready·traffic `100%` / exact Change 008 main digest 적용 / ClamAV unchanged
 - Teams·PWA: 제공 EMI 원본 기반 PWA와 Web Push 운영 반영 완료 / 실제 iPhone·Android PWA 수신·알림 상세 이동 확인 / 직원 설치·알림 허용은 자율 / 공개 Teams `1.0.4` 관리자 승인·사용자 설치 보고 완료 / synthetic actual Activity Graph `204`·Teams web 표시 / Change 017 worker actual 활성화·최신 Teams Activity `6/6 Sent`
 - DNS·Front Door: domain validation·deployment·provisioning 완료 / managed certificate·TLS 1.2·hostname 검증 완료 / direct origin 업무 route `403`
 - 공개 traffic: HTTP→HTTPS, 익명 비브라우저 root·asset·PWA·API `401`, 브라우저는 PMS shell·bundle 없는 Easy Auth 인증 화면, `/health/live` `200` / Dispatcher·Teams Activity·Mail·Web Push actual 활성화
@@ -132,3 +132,38 @@ DB 복구, edge·인증과 actual provider smoke는 `PRE_TRAFFIC_GATE`다. Git m
 - Teams·Gmail test 성공/실패
 
 hostname, email, tenant/client identifier, token, secret, connection string, 실제 업무명과 첨부 원문은 기록하지 않는다.
+
+## 6. Change 031 — 기존 운영의 오산 1단계 전환
+
+1. Exact latest `main`, 직전 Backend·Frontend immutable image, active revision·replica, PostgreSQL Ready·용량·14일 PITR·private network, user DB 수와 manual job mode를 privacy-safe projection으로 기록한다.
+2. 운영 기존 DB를 Cheongju로 그대로 유지한다. `workloads`를 기존 image, `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `activateWorkloads=true`로 what-if한 뒤 Directory·Osan DB 두 개와 job 변경만 적용한다. Public app revision 변경이 보이면 중단한다.
+3. 기존 3개 connection secret은 Cheongju에 유지하고 Directory·Osan 6개와 backfill private ID 2개를 Key Vault에 넣는다. Identity access what-if에서 예상 secret-scope assignment만 생성되고 Delete와 vault-scope read가 0인지 확인한다.
+4. OIDC identity에 role bootstrap·migration·membership backfill job 세 개의 exact job-scope 권한이 있는지 확인한다. 세 job은 `Manual`, Backend·Frontend는 `Single`, Backend max replica는 `1`이어야 한다.
+5. Latest main SHA의 수동 release를 bootstrap·backfill 선택, `database_prepare_only=true`로 실행한다. Bootstrap → migration → backfill이 모두 성공하기 전에는 app stage를 실행하지 않는다.
+6. 최초 phase-1은 Directory ledger `3/3 Exact`, Cheongju·Osan business ledger `87/87 Exact`를 확인한다. Change 007 hotfix 뒤 Directory ledger는 `4/4 Exact`여야 한다. Identity contract `0001`/`0086`, 세 DB 이름·역할·same-server와 no-fallback, bounded runtime role negative probe를 확인한다. 실제 업무 데이터는 count/aggregate로만 확인하고 fake record를 만들지 않는다.
+7. 새 restore point로 별도 PITR server를 만들고 세 DB, ledger·identity·aggregate를 확인한다. 운영 server를 덮어쓰지 않는다. 실패하면 Osan serving을 계속 분리하고 Cheongju public health를 확인한다.
+8. Restore 성공 시각을 기록하고 `configureServingBusinessUnits=true`로 workload를 what-if/apply한다. 기존 image로 public `200/401/401`을 확인한 뒤 같은 exact main SHA의 `force_full_release=true` run으로 Backend, Frontend 순서로 교체한다.
+9. 새 digest의 Ready/Running, public `200/401/401`, direct origin 차단, Cheongju 회귀와 제한된 Osan create/list/detail 준비를 확인한다. Task 4·5, Pending/hold/cancel/deleted/Excel과 Osan provider/worker는 disabled여야 한다.
+10. 일반 사용자에게는 Cheongju 또는 Osan membership 한 곳만 부여한다. 총괄만 다중 membership을 가질 수 있다. 정정 경로가 승인되기 전에는 fake production project를 생성하지 않는다.
+
+### Change 007 총괄 hotfix
+
+1. 배포 전 기존 overall·Cheongju/Osan profile·membership을 식별자 없이 집계하고 ordinary dual membership `0`을 확인한다.
+2. Directory additive migration `0004_overall_administrator_access`를 적용한다. Identity contract는 Directory `0001`, business `0086`을 유지한다.
+3. Membership backfill job이 Cheongju와 Osan migration connection을 모두 참조하는지와 두 secret의 exact secret-scope 접근만 있는지 확인한다.
+4. Private 입력의 기존 Cheongju System Administrator만 Osan local profile·역할을 먼저 준비한 뒤 두 membership과 overall designation을 공개한다. 이름·계정 ID는 provider·external subject가 같은 identity만 Directory에 보정한다.
+5. Overall 수, 두 membership 총괄 수, Osan local System Administrator 수와 ordinary dual `0`을 확인한 뒤 Backend와 Frontend를 순서대로 전환한다.
+6. 사용자 관리 이름·계정 ID, 총괄 checkbox, 두 사업부 full read/input 권한과 selector를 확인한다. 마지막 총괄 해제와 일반 사용자 dual assignment는 계속 거부돼야 한다.
+7. 실패 시 현재 app digest로 rollback하고 `0004`는 down하지 않는다. Backfill은 멱등 재실행 또는 additive forward-fix한다.
+
+어느 단계든 실패하면 downstream을 중단한다. DB 준비 실패는 기존 app을 유지하고, app 실패는 직전 immutable image로 되돌리며 additive migration은 down하지 않는다.
+
+### Change 008 접근 정합성 repair
+
+1. Business `0088`을 두 business DB에 additive 적용하고 identity contract Directory `0001`/Business `0086`을 유지한다.
+2. Repair 전 rollback-only inspection에서 current Directory overall을 권위 집합으로 사용하고 membership·managed role·department head·permission gap 수를 확인한다.
+3. 예상 수만 DB-only backfill로 적용한다. Public Backend·Frontend handover는 이 단계에서 skip한다.
+4. 같은 exact main으로 다시 inspect해 모든 변경 marker와 양 business permission gap이 `0`인지 확인한다.
+5. 실제 실행 결과는 PR #127 head `7e95129ce0cbf5b389ead02b7d6558c67b268675`, CI `34221079465`, main `b41c932e2154a921cf8b0aab753fc6d0692b209f`, full release `34225420777`, DB-only repair `34228436474`, final inspect `34229045510`이다.
+6. Roleless membership `1`건을 회수하고, current overall `3`을 보존한 채 stale managed System Administrator `1`건을 제거했다. Final inspect는 전체 변경 marker `0`, overall `3/3/3`, permission gap `0/0`이다.
+7. 최종 Backend `backend--0000040`, Frontend `frontend--0000029`는 latest ready·traffic `100%`다. 실제 계정 UI smoke는 별도 사용자 확인으로 남긴다.

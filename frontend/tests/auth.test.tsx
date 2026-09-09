@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MsalProvider } from '@azure/msal-react';
 import {
   EventType,
@@ -526,6 +526,89 @@ describe('authentication modes', () => {
     expect(setActiveAccount).toHaveBeenCalledWith(account);
     expect(acquireTokenSilent).toHaveBeenCalledWith(expect.objectContaining({ account }));
     expect(screen.queryByText('회사 Microsoft 365 계정으로 로그인해 주세요.')).not.toBeInTheDocument();
+  });
+
+  it('runs the App logout action through MSAL and invalidates the selected business context', async () => {
+    window.history.pushState(null, '', '/projects');
+    vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
+    vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
+    vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
+    vi.stubEnv('VITE_AZURE_API_SCOPE', 'api://33333333-3333-3333-3333-333333333333/access_as_user');
+
+    const account = testAccount('logout-admin');
+    let activeAccount: ReturnType<typeof testAccount> | null = account;
+    const setActiveAccount = vi.fn((nextAccount: ReturnType<typeof testAccount> | null) => {
+      activeAccount = nextAccount;
+    });
+    const logoutRedirect = vi.fn();
+    const fakeInstance = {
+      getActiveAccount: () => activeAccount,
+      getAllAccounts: () => [account],
+      setActiveAccount,
+      acquireTokenSilent: vi.fn().mockResolvedValue({ accessToken: 'logout-access-token' }),
+      loginRedirect: vi.fn(),
+      logoutRedirect
+    };
+    vi.doMock('@azure/msal-react', () => ({
+      MsalProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+      useMsal: () => ({
+        accounts: [account],
+        inProgress: 'none',
+        instance: fakeInstance
+      })
+    }));
+
+    let outstandingReadSignal: AbortSignal | null = null;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/admin/users') {
+        outstandingReadSignal = init?.signal ?? null;
+        return new Promise<Response>((_resolve, reject) => {
+          if (outstandingReadSignal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          outstandingReadSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true });
+        });
+      }
+      return approvedEntraFetch(input);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { App } = await import('../src/App');
+    const {
+      BusinessUnitRequestInvalidatedError,
+      getAdminUsers,
+      getBusinessUnitRequestState,
+      selectBusinessUnit
+    } = await import('../src/api');
+    selectBusinessUnit('CHEONGJU');
+    render(<App />);
+
+    expect(await screen.findByText('TASK-INFRA Project')).toBeInTheDocument();
+    const generationBeforeLogout = getBusinessUnitRequestState().generation;
+    const outstandingRead = getAdminUsers();
+    const invalidatedRead = expect(outstandingRead)
+      .rejects.toBeInstanceOf(BusinessUnitRequestInvalidatedError);
+    await waitFor(() => expect(outstandingReadSignal).not.toBeNull());
+
+    const accountTrigger = document.querySelector<HTMLButtonElement>('.account-identity-trigger');
+    expect(accountTrigger).not.toBeNull();
+    fireEvent.click(accountTrigger!);
+    const accountDialog = await screen.findByRole('dialog', { name: '내 계정' });
+    fireEvent.click(within(accountDialog).getByRole('button', { name: '로그아웃' }));
+
+    await waitFor(() => expect(logoutRedirect).toHaveBeenCalledTimes(1));
+    await invalidatedRead;
+    expect((outstandingReadSignal as AbortSignal | null)?.aborted).toBe(true);
+    expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBeNull();
+    expect(getBusinessUnitRequestState()).toMatchObject({
+      selectedBusinessUnit: null,
+      generation: generationBeforeLogout + 1
+    });
+    expect(setActiveAccount).toHaveBeenLastCalledWith(null);
   });
 
   it('shows the re-login screen when silent token acquisition requires interaction', async () => {

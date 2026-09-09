@@ -605,7 +605,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   expect(await queryDatabaseValue(`select receipt_completed::text from project_procurement_items where project_id = '${projectId}' limit 1;`)).toBe('true');
 
   await page.getByLabel('개발 사용자').selectOption('dev-procurement');
-  await page.getByRole('button', { name: '구매' }).click();
+  await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '구매', exact: true }).click();
   await expect(page.getByRole('heading', { name: '구매' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '구매' })).toHaveClass(/active/);
   await expect(page.getByLabel('구매 요약')).toContainText('입고대기품목');
@@ -639,7 +639,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
   await mobileMenu.getByLabel('개발 사용자').selectOption('dev-procurement');
-  await mobileMenu.getByRole('button', { name: '메뉴 닫기' }).click();
+  await expect(mobileMenu).toBeHidden();
   const mobileProjectCard = page.locator('.project-list-card').filter({ hasText: projectTitle });
   await expect(mobileProjectCard).toBeVisible();
   await mobileProjectCard.getByRole('button', { name: '상세 보기' }).click();
@@ -871,15 +871,22 @@ test('TASK-005A production planning page, project section, edit, permissions, an
   expect(salesForbidden.status()).toBe(403);
 
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
+  const administratorIdentity = await request.get(`${apiBaseUrl}/api/me`, {
+    headers: { 'X-Dev-User': 'dev-admin' }
+  });
+  expect(administratorIdentity.ok()).toBeTruthy();
+  const administratorIdentityJson = await administratorIdentity.json() as { permissions: string[] };
+  expect(administratorIdentityJson.permissions).toContain('ProductionPlan.Update');
   await page.goto('/production-planning/plans');
   await expect(page.getByLabel('생산계획 요약')).toContainText('생산계획 미등록');
-  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toHaveCount(0);
+  await page.locator('details.ds-secondary-tools > summary').click();
+  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excel 양식 다운로드' })).toBeVisible();
   await page.goto('/projects');
   await page.getByLabel('개발 사용자').selectOption('dev-admin');
   await openProject(page, projectTitle);
   await page.getByRole('tab', { name: '생산관리' }).click();
-  await expect(page.getByRole('button', { name: '생산계획 수정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '생산계획 수정' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
   await expect(page.getByText('생산계획 · 대상').first()).toBeVisible();
 
@@ -1229,15 +1236,10 @@ test('full-stack: project registration, permissions, status, and panel count use
   await openProject(page, projectTitle);
   await page.getByText('기본정보 전체 보기').click();
   await expect(page.getByText('KRW 1,250,000.5')).toBeVisible();
-  await expect(page.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '패널명·사이즈 수정' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '수정', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '패널명·사이즈 수정' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '전체 이력' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '보류' })).toHaveCount(0);
-  const adminWrite = await request.post(`${apiBaseUrl}/api/projects/${projectId}/hold`, {
-    headers: { 'X-Dev-User': 'dev-admin' },
-    data: { reason: '관리자 직접 쓰기 차단' }
-  });
-  expect(adminWrite.status()).toBe(403);
+  await expect(page.getByRole('button', { name: '보류' })).toBeVisible();
 
   await page.getByLabel('개발 사용자').selectOption('dev-sales');
   await openProject(page, projectTitle);
@@ -1286,7 +1288,15 @@ test('full-stack: project registration, permissions, status, and panel count use
 
   await page.getByRole('button', { name: '재활성' }).click();
   await page.getByLabel('사유*').fill('Full-stack 재활성');
+  const reactivationMutation = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/projects/${projectId}/reactivate`);
+  const reactivationRefresh = page.waitForResponse((response) =>
+    response.request().method() === 'GET'
+      && new URL(response.url()).pathname === `/api/projects/${projectId}`);
   await page.getByRole('button', { name: '확인' }).click();
+  expect((await reactivationMutation).ok()).toBeTruthy();
+  expect((await reactivationRefresh).ok()).toBeTruthy();
   await expect(page.locator('.status-badge', { hasText: '진행' })).toBeVisible();
 
   await page.getByRole('button', { name: '삭제' }).click();
@@ -1410,10 +1420,18 @@ async function openProject(page: Page, projectTitle: string) {
 }
 
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
+  await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
   const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  await drawer.getByLabel('개발 사용자').selectOption(userKey);
-  await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  const selector = drawer.getByLabel('개발 사용자');
+  await expect(drawer).toBeVisible();
+  await expect(selector).toBeVisible();
+  if (await selector.inputValue() === userKey) {
+    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+  } else {
+    await selector.selectOption(userKey);
+  }
+  await expect(drawer).toBeHidden();
 }
 
 async function findProjectId(projectTitle: string) {

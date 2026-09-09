@@ -7,6 +7,10 @@ const frontendUrl = `http://127.0.0.1:${frontendPort}`;
 
 export default defineConfig({
   testDir: './e2e/full-stack',
+  testIgnore: [
+    '**/business-unit-access.full-stack.spec.ts',
+    '**/osan-project-registration.full-stack.spec.ts'
+  ],
   fullyParallel: false,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],

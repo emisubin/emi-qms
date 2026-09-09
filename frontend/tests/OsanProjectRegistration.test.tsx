@@ -68,7 +68,8 @@ function projectDetail(quantity = 2) {
     deliveryDate: '2026-12-31',
     productName: '제품  이름',
     quantity,
-    status: 'Active',
+    status: 'NotStarted',
+    completedStepCount: 0, totalStepCount: quantity * 7,
     createdAtUtc: '2026-09-07T00:00:00Z',
     targets: Array.from({ length: quantity }, (_, targetIndex) => ({
       targetId: `92000000-0000-0000-0000-${String(targetIndex + 1).padStart(12, '0')}`,
@@ -132,6 +133,28 @@ describe('Osan project registration', () => {
     vi.unstubAllGlobals();
   });
 
+  it('진행 중 목록 집계를 표시하고 프로젝트 상세의 두 번째 대상으로 이동한다', async () => {
+    const data = projectDetail(); data.status = 'InProgress'; data.completedStepCount = 1;
+    data.targets[0].steps[0].status = 'Completed';
+    data.targets[1].status = 'InProgress'; data.targets[1].steps[0].status = 'InProgress';
+    const fetchMock = shellFetch(url => {
+      if (url.pathname === '/api/osan/projects') return json({ items: [data] });
+      if (url.pathname === `/api/osan/projects/${projectId}`) return json(data);
+      if (url.pathname === `/api/osan/projects/${projectId}/progress`) return json({ ...data, targets: data.targets.map(target => ({ ...target, version: 2, steps: target.steps.map(step => ({ ...step, photos: [], canCompleteIndividual: true, canCompleteBatch: true })) })) });
+      return undefined;
+    });
+    vi.stubGlobal('fetch', fetchMock); render(<App />);
+    const row = await screen.findByRole('row', { name: /저장된 Title 상세 열기/ });
+    expect(row).toHaveTextContent('진행 중'); expect(row).toHaveTextContent('7%');
+    fireEvent.click(row);
+    const targetRow = await screen.findByRole('row', { name: /제품 이름 2/ });
+    expect(targetRow).toHaveTextContent('시작 전');
+    expect(targetRow).not.toHaveTextContent('진행 중');
+    fireEvent.click(targetRow);
+    await screen.findByRole('button', { name: '제품 이름 2' });
+    expect(new URLSearchParams(window.location.search).get('targetId')).toBe(data.targets[1].targetId);
+  });
+
   it.each([true, false])('opens the progress deep link and enforces manufacturing mutation permission (%s)', async (allowed) => {
     const project = projectDetail(1);
     const progress = {
@@ -139,9 +162,9 @@ describe('Osan project registration', () => {
       completedStepCount: 0,
       totalStepCount: 7,
       targets: project.targets.map(target => ({
-        ...target, version: 1, canStart: true,
+        ...target, version: 1,
         steps: target.steps.map(step => ({
-          ...step, canCompleteIndividual: false, canCompleteBatch: false,
+          ...step, canCompleteIndividual: true, canCompleteBatch: true,
           completedAtUtc: null, completedByDisplayName: null, photos: []
         }))
       }))
@@ -156,7 +179,7 @@ describe('Osan project registration', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    const action = await screen.findByRole('button', { name: '작업 시작' });
+    const action = await screen.findByRole('button', { name: '완료' }, { timeout: 5000 });
     await waitFor(() => allowed ? expect(action).toBeEnabled() : expect(action).toBeDisabled());
     const progressRequest = fetchMock.mock.calls.find(([input]) => String(input).includes(`/projects/${projectId}/progress`));
     expect(new Headers(progressRequest?.[1]?.headers).get('X-Qms-Business-Unit')).toBe('OSAN');
@@ -257,7 +280,7 @@ describe('Osan project registration', () => {
 
     const pageQueries = within(page as HTMLElement);
     const statusTabs = pageQueries.getByRole('tablist', { name: '프로젝트 상태' });
-    expect(within(statusTabs).getAllByRole('tab').map((item) => item.textContent)).toEqual(['전체', '시작 전', '완료']);
+    expect(within(statusTabs).getAllByRole('tab').map((item) => item.textContent)).toEqual(['전체', '시작 전', '진행 중', '완료']);
     expect(pageQueries.queryByRole('tab', { name: '보류' })).not.toBeInTheDocument();
     expect(pageQueries.queryByRole('tab', { name: '취소' })).not.toBeInTheDocument();
     expect(pageQueries.queryByRole('tab', { name: '삭제' })).not.toBeInTheDocument();
@@ -377,11 +400,11 @@ describe('Osan project registration', () => {
     const targetRows = within(targetTable).getAllByRole('row');
     expect(targetRows).toHaveLength(3);
     expect(within(targetRows[0]).getAllByRole('columnheader')).toHaveLength(5);
-    expect(targetTable.querySelector('button')).not.toBeInTheDocument();
+    expect(targetTable.querySelectorAll('button')).toHaveLength(2);
     for (const targetRow of targetRows.slice(1)) {
       expect(targetRow).toHaveClass('project-panel-status-row');
-      expect(targetRow.tagName).toBe('DIV');
-      expect(targetRow).toHaveAttribute('data-interactive', 'false');
+      expect(targetRow.tagName).toBe('BUTTON');
+      expect(targetRow).toHaveAttribute('data-interactive', 'true');
       expect(targetRow).not.toHaveAttribute('tabindex');
       expect(within(targetRow).getAllByRole('cell')).toHaveLength(5);
       expect(targetRow).toHaveTextContent('시작 전');

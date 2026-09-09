@@ -35,9 +35,22 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
                 projects.delivery_date,
                 projects.osan_product_name,
                 projects.osan_quantity,
-                projects.status,
+                case
+                    when projects.status = 'Completed' then 'Completed'
+                    when progress.completed_step_count > 0 then 'InProgress'
+                    else 'NotStarted'
+                end,
+                progress.completed_step_count,
+                progress.total_step_count,
                 projects.created_at_utc
             from projects
+            cross join lateral (
+                select
+                    count(*) filter (where steps.status = 'Completed')::integer as completed_step_count,
+                    count(*)::integer as total_step_count
+                from osan_project_target_steps steps
+                where steps.project_id = projects.id
+            ) progress
             where {string.Join(" and ", where)}
             order by projects.delivery_date, projects.project_code, projects.id;
             """);
@@ -424,9 +437,22 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
                     projects.delivery_date,
                     projects.osan_product_name,
                     projects.osan_quantity,
-                    projects.status,
+                    case
+                        when projects.status = 'Completed' then 'Completed'
+                        when progress.completed_step_count > 0 then 'InProgress'
+                        else 'NotStarted'
+                    end,
+                    progress.completed_step_count,
+                    progress.total_step_count,
                     projects.created_at_utc
                 from projects
+                cross join lateral (
+                    select
+                        count(*) filter (where steps.status = 'Completed')::integer as completed_step_count,
+                        count(*)::integer as total_step_count
+                    from osan_project_target_steps steps
+                    where steps.project_id = projects.id
+                ) progress
                 where projects.id = @project_id
                   and projects.project_profile = 'Osan'
                   and projects.deleted_at_utc is null;
@@ -450,7 +476,6 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
                     targets.id,
                     targets.sequence_number,
                     targets.display_name,
-                    targets.status,
                     steps.id,
                     steps.sequence_number,
                     steps.step_code,
@@ -475,16 +500,15 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
                     currentTarget = new TargetBuilder(
                         targetId,
                         reader.GetInt32(1),
-                        reader.GetString(2),
-                        reader.GetString(3));
+                        reader.GetString(2));
                 }
 
                 currentTarget.Steps.Add(new OsanProjectStepResponse(
-                    reader.GetGuid(4),
-                    reader.GetInt32(5),
+                    reader.GetGuid(3),
+                    reader.GetInt32(4),
+                    reader.GetString(5),
                     reader.GetString(6),
-                    reader.GetString(7),
-                    reader.GetString(8)));
+                    reader.GetString(7)));
             }
         }
 
@@ -504,6 +528,8 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
             project.ProductName,
             project.Quantity,
             project.Status,
+            project.CompletedStepCount,
+            project.TotalStepCount,
             project.CreatedAtUtc,
             targets);
     }
@@ -521,7 +547,9 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
             reader.GetString(7),
             reader.GetInt32(8),
             reader.GetString(9),
-            reader.GetFieldValue<DateTimeOffset>(10));
+            reader.GetInt32(10),
+            reader.GetInt32(11),
+            reader.GetFieldValue<DateTimeOffset>(12));
     }
 
     private static void AddAccessScope(
@@ -592,13 +620,20 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
     private sealed class TargetBuilder(
         Guid targetId,
         int sequenceNumber,
-        string displayName,
-        string status)
+        string displayName)
     {
         public Guid TargetId { get; } = targetId;
         public List<OsanProjectStepResponse> Steps { get; } = [];
 
-        public OsanProjectTargetResponse ToResponse() =>
-            new(TargetId, sequenceNumber, displayName, status, Steps);
+        public OsanProjectTargetResponse ToResponse()
+        {
+            var completedStepCount = Steps.Count(step => step.Status == "Completed");
+            var projectedStatus = completedStepCount == 0
+                ? "NotStarted"
+                : completedStepCount == Steps.Count
+                    ? "Completed"
+                    : "InProgress";
+            return new(TargetId, sequenceNumber, displayName, projectedStatus, Steps);
+        }
     }
 }

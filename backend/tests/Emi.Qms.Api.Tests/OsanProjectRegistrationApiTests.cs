@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.OsanProjects;
+using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Security;
 using ImageMagick;
@@ -37,7 +38,7 @@ public sealed class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(7, endpoints.Length);
+        Assert.Equal(6, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -52,15 +53,14 @@ public sealed class OsanProjectRegistrationApiTests
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Post,
                 StringComparer.OrdinalIgnoreCase) == true).ToArray();
-        Assert.Equal(2, progressMutations.Length);
+        Assert.Single(progressMutations);
         Assert.All(progressMutations, endpoint => Assert.Contains(
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => string.Equals(
                 authorization.Policy,
                 QmsPolicies.ManufacturingUpdate,
                 StringComparison.Ordinal)));
-        var completion = Assert.Single(progressMutations, endpoint =>
-            endpoint.RoutePattern.RawText?.EndsWith("/completions", StringComparison.Ordinal) == true);
+        var completion = Assert.Single(progressMutations);
         Assert.Equal(
             OsanProgressPhotoValidator.MaximumMultipartBytes,
             completion.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
@@ -155,6 +155,9 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(OsanProjectCreateStatus.Success, created.Status);
         Assert.NotNull(created.Value);
         Assert.False(created.Value.Replayed);
+        Assert.Equal("NotStarted", created.Value.Project.Status);
+        Assert.Equal(0, created.Value.Project.CompletedStepCount);
+        Assert.Equal(21, created.Value.Project.TotalStepCount);
         Assert.Equal("001-PO/+", created.Value.Project.PoNumber);
         Assert.Equal("000-W/O", created.Value.Project.WorkOrderNumber);
         Assert.Equal(3, created.Value.Project.Targets.Count);
@@ -346,6 +349,96 @@ public sealed class OsanProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task ProjectViews_ProjectLegacyStartOnlyHistoryFromCompletedStepCountsWithoutMutation()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await database.ExecuteAsync($"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values ('{UserId:D}', 'osan-legacy-start-test', 'Osan Legacy Start Test',
+                    '89000000-0000-0000-0000-000000000010', true);
+            """, TestContext.Current.CancellationToken);
+
+        var projectStore = new OsanProjectStore(provider);
+        var created = await projectStore.CreateAsync(
+            Normalize(ValidRequest(projectCode: "OSAN-LEGACY-START")),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var projectId = created.Value!.Project.ProjectId;
+        var targetId = created.Value.Project.Targets[0].TargetId;
+        var operationId = Guid.NewGuid();
+        await database.ExecuteAsync($"""
+            update osan_project_targets
+            set status='InProgress', version=2, started_at_utc='2026-09-01T00:00:00Z',
+                started_by_user_id='{UserId:D}'
+            where id='{targetId:D}';
+            update osan_project_target_steps
+            set status='InProgress', started_at_utc='2026-09-01T00:00:00Z'
+            where target_id='{targetId:D}' and sequence_number=1;
+            insert into osan_progress_operations (
+                operation_id, project_id, action, completion_mode, stage_sequence,
+                target_ids, request_fingerprint, requested_by_user_id)
+            values (
+                '{operationId:D}', '{projectId:D}', 'Start', null, null,
+                array['{targetId:D}'::uuid], repeat('0', 64), '{UserId:D}');
+            """, TestContext.Current.CancellationToken);
+
+        var sourceState = await database.ReadScalarAsync<string>(
+            """
+            select concat_ws(':', target.status, target.version,
+                target.started_at_utc is not null, target.started_by_user_id,
+                step.status, step.started_at_utc is not null,
+                (select count(*) from osan_progress_operations operation
+                 where operation.project_id=target.project_id and operation.action='Start'))
+            from osan_project_targets target
+            join osan_project_target_steps step on step.target_id=target.id and step.sequence_number=1
+            where target.id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("target_id", targetId));
+
+        var listItem = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detail = await projectStore.GetAsync(projectId, TestContext.Current.CancellationToken);
+        var progress = await new OsanProgressStore(provider).GetAsync(
+            projectId,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("NotStarted", listItem.Status);
+        Assert.Equal(0, listItem.CompletedStepCount);
+        Assert.Equal(7, listItem.TotalStepCount);
+        Assert.NotNull(detail);
+        Assert.Equal("NotStarted", detail.Status);
+        Assert.Equal("NotStarted", Assert.Single(detail.Targets).Status);
+        Assert.Equal(0, detail.CompletedStepCount);
+        Assert.Equal(7, detail.TotalStepCount);
+        Assert.NotNull(progress);
+        Assert.Equal("NotStarted", progress.Status);
+        Assert.Equal("NotStarted", Assert.Single(progress.Targets).Status);
+        Assert.Equal(0, progress.CompletedStepCount);
+        Assert.Equal(7, progress.TotalStepCount);
+        Assert.Equal(sourceState, await database.ReadScalarAsync<string>(
+            """
+            select concat_ws(':', target.status, target.version,
+                target.started_at_utc is not null, target.started_by_user_id,
+                step.status, step.started_at_utc is not null,
+                (select count(*) from osan_progress_operations operation
+                 where operation.project_id=target.project_id and operation.action='Start'))
+            from osan_project_targets target
+            join osan_project_target_steps step on step.target_id=target.id and step.sequence_number=1
+            where target.id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("target_id", targetId)));
+    }
+
+    [Fact]
     public async Task ProgressStore_EnforcesAtomicStaleReplayPhotoAndLastPackingContracts()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -370,21 +463,6 @@ public sealed class OsanProjectRegistrationApiTests
         var targetIds = created.Value.Project.Targets.Select(target => target.TargetId).ToArray();
         var progressStore = new OsanProgressStore(provider);
 
-        var start = await progressStore.StartAsync(
-            projectId,
-            new StartOsanProgressRequest(
-                Guid.NewGuid(),
-                targetIds.Select(id => new OsanProgressTargetRequest(id, 1)).ToArray()),
-            UserId,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Success, start.Status);
-        Assert.All(start.Value!.Project.Targets, target =>
-        {
-            Assert.Equal("InProgress", target.Status);
-            Assert.Equal(2, target.Version);
-            Assert.True(target.Steps[0].CanCompleteIndividual);
-        });
-
         var staleOperation = Guid.NewGuid();
         var stale = await progressStore.CompleteAsync(
             projectId,
@@ -393,8 +471,8 @@ public sealed class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Batch,
                 1,
                 [
-                    new OsanProgressTargetRequest(targetIds[0], 2),
-                    new OsanProgressTargetRequest(targetIds[1], 1)
+                    new OsanProgressTargetRequest(targetIds[0], 1),
+                    new OsanProgressTargetRequest(targetIds[1], 2)
                 ],
                 []),
             UserId,
@@ -416,26 +494,43 @@ public sealed class OsanProjectRegistrationApiTests
                 Guid.NewGuid(),
                 OsanCompletionModes.Batch,
                 2,
-                [new OsanProgressTargetRequest(targetIds[0], 2)],
+                [new OsanProgressTargetRequest(targetIds[0], 1)],
                 []),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, skipPredecessor.Status);
         Assert.Equal("Completed", skipPredecessor.Value!.Project.Targets[0].Steps[1].Status);
-        Assert.Equal("InProgress", skipPredecessor.Value.Project.Targets[0].Steps[0].Status);
+        Assert.Equal("NotStarted", skipPredecessor.Value.Project.Targets[0].Steps[0].Status);
+        Assert.Equal("InProgress", skipPredecessor.Value.Project.Status);
+        Assert.Equal(1, skipPredecessor.Value.Project.CompletedStepCount);
+        Assert.Equal(14, skipPredecessor.Value.Project.TotalStepCount);
 
-        var individualOrderViolation = await progressStore.CompleteAsync(
+        var listedAfterFirstCompletion = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detailedAfterFirstCompletion = await projectStore.GetAsync(
+            projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("InProgress", listedAfterFirstCompletion.Status);
+        Assert.Equal(1, listedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, listedAfterFirstCompletion.TotalStepCount);
+        Assert.NotNull(detailedAfterFirstCompletion);
+        Assert.Equal("InProgress", detailedAfterFirstCompletion.Status);
+        Assert.Equal(1, detailedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, detailedAfterFirstCompletion.TotalStepCount);
+
+        var outOfOrderIndividual = await progressStore.CompleteAsync(
             projectId,
             new CompleteOsanProgressInput(
                 Guid.NewGuid(),
                 OsanCompletionModes.Individual,
-                3,
-                [new OsanProgressTargetRequest(targetIds[0], 3)],
+                6,
+                [new OsanProgressTargetRequest(targetIds[0], 2)],
                 []),
             UserId,
             TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Conflict, individualOrderViolation.Status);
-        Assert.Equal("osan_progress_individual_order_invalid", individualOrderViolation.ErrorCode);
+        Assert.Equal(OsanProgressMutationStatus.Success, outOfOrderIndividual.Status);
+        Assert.Equal("Completed", outOfOrderIndividual.Value!.Project.Targets[0].Steps[5].Status);
 
         var png = CreateStructurallyValidPng();
         var (photo, photoError) = await OsanProgressPhotoValidator.ValidateAsync(
@@ -452,7 +547,7 @@ public sealed class OsanProjectRegistrationApiTests
             1,
             [
                 new OsanProgressTargetRequest(targetIds[0], 3),
-                new OsanProgressTargetRequest(targetIds[1], 2)
+                new OsanProgressTargetRequest(targetIds[1], 1)
             ],
             [photo]);
         var stageOne = await progressStore.CompleteAsync(
@@ -494,7 +589,7 @@ public sealed class OsanProjectRegistrationApiTests
         var versions = new Dictionary<Guid, int>
         {
             [targetIds[0]] = 4,
-            [targetIds[1]] = 3
+            [targetIds[1]] = 2
         };
         var secondTargetStageTwo = await progressStore.CompleteAsync(
             projectId,
@@ -522,7 +617,7 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(OsanProgressMutationStatus.Conflict, prematurePacking.Status);
         Assert.Equal("osan_progress_packing_prerequisite_incomplete", prematurePacking.ErrorCode);
 
-        for (var stage = 3; stage <= 6; stage += 1)
+        for (var stage = 3; stage <= 5; stage += 1)
         {
             var result = await progressStore.CompleteAsync(
                 projectId,
@@ -540,6 +635,19 @@ public sealed class OsanProjectRegistrationApiTests
                 versions[targetId] += 1;
             }
         }
+
+        var secondTargetStageSix = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                6,
+                [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, secondTargetStageSix.Status);
+        versions[targetIds[1]] += 1;
 
         var firstPacking = await progressStore.CompleteAsync(
             projectId,
@@ -584,6 +692,17 @@ public sealed class OsanProjectRegistrationApiTests
             "select status from projects where id=@project_id;",
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
+        var listedCompleted = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detailedCompleted = await projectStore.GetAsync(projectId, TestContext.Current.CancellationToken);
+        Assert.Equal("Completed", listedCompleted.Status);
+        Assert.Equal(14, listedCompleted.CompletedStepCount);
+        Assert.Equal(14, listedCompleted.TotalStepCount);
+        Assert.NotNull(detailedCompleted);
+        Assert.Equal("Completed", detailedCompleted.Status);
+        Assert.Equal(14, detailedCompleted.CompletedStepCount);
+        Assert.Equal(14, detailedCompleted.TotalStepCount);
         Assert.Equal(0L, await database.ReadScalarAsync<long>(
             """
             select (select count(*) from pending_issues where project_id=@project_id)
@@ -660,14 +779,6 @@ public sealed class OsanProjectRegistrationApiTests
     {
         var provider = new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build());
         var store = new OsanProgressStore(provider);
-        var start = await store.StartAsync(
-            Guid.NewGuid(),
-            new StartOsanProgressRequest(Guid.NewGuid(), [null]),
-            UserId,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Validation, start.Status);
-        Assert.Contains("Targets", start.Errors!.Keys, StringComparer.OrdinalIgnoreCase);
-
         var completion = await store.CompleteAsync(
             Guid.NewGuid(),
             new CompleteOsanProgressInput(

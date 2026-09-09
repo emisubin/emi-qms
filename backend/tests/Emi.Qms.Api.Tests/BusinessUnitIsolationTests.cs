@@ -2627,7 +2627,13 @@ public sealed class BusinessUnitIsolationTests
             Assert.All(body.RootElement.GetProperty("targets").EnumerateArray(), target =>
             {
                 Assert.Equal(1, target.GetProperty("version").GetInt32());
-                Assert.True(target.GetProperty("canStart").GetBoolean());
+                Assert.All(target.GetProperty("steps").EnumerateArray().Take(6), step =>
+                {
+                    Assert.True(step.GetProperty("canCompleteIndividual").GetBoolean());
+                    Assert.True(step.GetProperty("canCompleteBatch").GetBoolean());
+                });
+                Assert.False(target.GetProperty("steps")[6]
+                    .GetProperty("canCompleteIndividual").GetBoolean());
             });
         }
 
@@ -2653,18 +2659,36 @@ public sealed class BusinessUnitIsolationTests
                 (select string_agg(status || '/' || version, ',' order by id) from osan_project_targets where project_id = '{osanProjectId:D}'));
             """,
             TestContext.Current.CancellationToken);
-        using (var unauthorizedStart = Request(
+        using (var removedStart = Request(
                    HttpMethod.Post,
                    $"/api/osan/projects/{osanProjectId:D}/progress/start",
-                   "dev-sales",
+                   "dev-admin",
                    BusinessUnitCodes.Osan))
         {
-            unauthorizedStart.Content = JsonContent.Create(new
+            removedStart.Content = JsonContent.Create(new
             {
                 operationId = Guid.NewGuid(),
                 targets = progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })
             });
-            var response = await client.SendAsync(unauthorizedStart, TestContext.Current.CancellationToken);
+            var response = await client.SendAsync(removedStart, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+        using (var unauthorizedCompletion = Request(
+                   HttpMethod.Post,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/completions",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            unauthorizedCompletion.Content = CreateProgressCompletionContent(
+                Guid.NewGuid(),
+                "batch",
+                1,
+                JsonSerializer.Serialize(
+                    progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })),
+                null);
+            var response = await client.SendAsync(
+                unauthorizedCompletion,
+                TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
         using (var nullTargetCompletion = Request(
@@ -2693,21 +2717,6 @@ public sealed class BusinessUnitIsolationTests
             """,
             TestContext.Current.CancellationToken));
 
-        using (var startProgress = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{osanProjectId:D}/progress/start",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
-        {
-            startProgress.Content = JsonContent.Create(new
-            {
-                operationId = Guid.NewGuid(),
-                targets = progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })
-            });
-            var response = await client.SendAsync(startProgress, TestContext.Current.CancellationToken);
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-
         var progressPhotoBytes = CreateValidPng();
         Guid progressPhotoId;
         using (var completeProgress = Request(
@@ -2721,7 +2730,7 @@ public sealed class BusinessUnitIsolationTests
                 "batch",
                 1,
                 JsonSerializer.Serialize(
-                    progressTargetIds.Select(targetId => new { targetId, expectedVersion = 2 })),
+                    progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })),
                 progressPhotoBytes);
             var response = await client.SendAsync(completeProgress, TestContext.Current.CancellationToken);
             var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);

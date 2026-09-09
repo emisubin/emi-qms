@@ -24,6 +24,8 @@ public sealed record OsanProjectListItemResponse(
     string ProductName,
     int Quantity,
     string Status,
+    int CompletedStepCount,
+    int TotalStepCount,
     DateTimeOffset CreatedAtUtc);
 
 public sealed record OsanProjectDetailResponse(
@@ -37,6 +39,8 @@ public sealed record OsanProjectDetailResponse(
     string ProductName,
     int Quantity,
     string Status,
+    int CompletedStepCount,
+    int TotalStepCount,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<OsanProjectTargetResponse> Targets);
 

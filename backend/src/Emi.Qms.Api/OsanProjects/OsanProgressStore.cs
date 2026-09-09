@@ -46,133 +46,6 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
             : null;
     }
 
-    public async Task<OsanProgressMutationResult> StartAsync(
-        Guid projectId,
-        StartOsanProgressRequest request,
-        Guid actorUserId,
-        CancellationToken cancellationToken)
-    {
-        var errors = ValidateStart(request);
-        if (errors.Count > 0)
-        {
-            return OsanProgressMutationResult.Validation(errors);
-        }
-
-        var targets = request.Targets!
-            .Where(target => target is not null)
-            .Select(target => target!)
-            .OrderBy(target => target.TargetId)
-            .ToArray();
-        var fingerprint = Fingerprint(new
-        {
-            Action = "Start",
-            ProjectId = projectId,
-            Targets = targets.Select(target => new { target.TargetId, target.ExpectedVersion })
-        });
-
-        await using var dataSource = CreateDataSource();
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var projectStatus = await LockProjectAsync(connection, transaction, projectId, cancellationToken);
-            if (projectStatus is null)
-            {
-                return await RollbackNotFoundAsync(transaction, cancellationToken);
-            }
-
-            var replay = await ReadOperationAsync(
-                connection,
-                transaction,
-                request.OperationId,
-                cancellationToken);
-            if (replay is not null)
-            {
-                if (!MatchesOperation(replay, projectId, "Start", fingerprint, actorUserId))
-                {
-                    return await RollbackConflictAsync(
-                        transaction,
-                        "osan_progress_operation_conflict",
-                        "같은 요청 식별자가 다른 입력에 사용되었습니다.",
-                        cancellationToken);
-                }
-
-                var replayed = await ReadProgressAsync(connection, transaction, projectId, cancellationToken)
-                    ?? throw new InvalidOperationException("A completed Osan progress operation has no project result.");
-                await transaction.CommitAsync(cancellationToken);
-                return OsanProgressMutationResult.Success(
-                    new OsanProgressMutationResponse(request.OperationId, true, replayed));
-            }
-
-            if (string.Equals(projectStatus, "Completed", StringComparison.Ordinal))
-            {
-                return await RollbackConflictAsync(
-                    transaction,
-                    "osan_project_completed",
-                    "완료된 프로젝트는 진행을 시작할 수 없습니다.",
-                    cancellationToken);
-            }
-
-            var snapshots = await LockTargetsAsync(
-                connection,
-                transaction,
-                projectId,
-                targets.Select(target => target.TargetId).ToArray(),
-                cancellationToken);
-            var conflict = ValidateTargetSnapshots(targets, snapshots, requireNotStarted: true);
-            if (conflict is not null)
-            {
-                return await RollbackConflictAsync(
-                    transaction,
-                    conflict.Value.Code,
-                    conflict.Value.Message,
-                    cancellationToken);
-            }
-
-            foreach (var target in targets)
-            {
-                await StartTargetAsync(
-                    connection,
-                    transaction,
-                    projectId,
-                    target.TargetId,
-                    actorUserId,
-                    cancellationToken);
-            }
-
-            await InsertOperationAsync(
-                connection,
-                transaction,
-                request.OperationId,
-                projectId,
-                "Start",
-                null,
-                null,
-                targets.Select(target => target.TargetId).ToArray(),
-                fingerprint,
-                actorUserId,
-                cancellationToken);
-
-            var progress = await ReadProgressAsync(connection, transaction, projectId, cancellationToken)
-                ?? throw new InvalidOperationException("The started Osan project was not readable before commit.");
-            await transaction.CommitAsync(cancellationToken);
-            return OsanProgressMutationResult.Success(
-                new OsanProgressMutationResponse(request.OperationId, false, progress));
-        }
-        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
-        {
-            await RollbackQuietlyAsync(transaction, cancellationToken);
-            return OsanProgressMutationResult.Conflict(
-                "osan_progress_operation_conflict",
-                "같은 요청 식별자가 다른 입력에 사용되었습니다.");
-        }
-        catch
-        {
-            await RollbackQuietlyAsync(transaction, cancellationToken);
-            throw;
-        }
-    }
-
     public async Task<OsanProgressMutationResult> CompleteAsync(
         Guid projectId,
         CompleteOsanProgressInput input,
@@ -255,7 +128,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                 projectId,
                 targets.Select(target => target.TargetId).ToArray(),
                 cancellationToken);
-            var targetConflict = ValidateTargetSnapshots(targets, snapshots, requireNotStarted: false);
+            var targetConflict = ValidateTargetSnapshots(targets, snapshots);
             if (targetConflict is not null)
             {
                 return await RollbackConflictAsync(
@@ -294,22 +167,6 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                         "osan_progress_step_already_completed",
                         $"{snapshots[target.TargetId].DisplayName}의 선택 단계가 이미 완료되었습니다.",
                         cancellationToken);
-                }
-
-                if (string.Equals(input.CompletionMode, OsanCompletionModes.Individual, StringComparison.Ordinal))
-                {
-                    var nextIncomplete = targetSteps.First(step => !string.Equals(
-                        step.Status,
-                        "Completed",
-                        StringComparison.Ordinal));
-                    if (nextIncomplete.SequenceNumber != input.StageSequence)
-                    {
-                        return await RollbackConflictAsync(
-                            transaction,
-                            "osan_progress_individual_order_invalid",
-                            $"{snapshots[target.TargetId].DisplayName}은(는) 다음 미완료 단계만 완료할 수 있습니다.",
-                            cancellationToken);
-                    }
                 }
 
                 if (input.StageSequence == 7
@@ -356,6 +213,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     transaction,
                     projectId,
                     target.TargetId,
+                    actorUserId,
                     cancellationToken);
             }
 
@@ -411,17 +269,6 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
             await RollbackQuietlyAsync(transaction, cancellationToken);
             throw;
         }
-    }
-
-    private static Dictionary<string, string[]> ValidateStart(StartOsanProgressRequest request)
-    {
-        var errors = new Dictionary<string, string[]>();
-        if (request.OperationId == Guid.Empty)
-        {
-            errors[nameof(request.OperationId)] = ["작업 식별자가 필요합니다."];
-        }
-        ValidateTargets(request.Targets, errors);
-        return errors;
     }
 
     private static Dictionary<string, string[]> ValidateCompletion(CompleteOsanProgressInput input)
@@ -536,8 +383,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
 
     private static (string Code, string Message)? ValidateTargetSnapshots(
         IReadOnlyList<OsanProgressTargetRequest> requested,
-        IReadOnlyDictionary<Guid, TargetSnapshot> snapshots,
-        bool requireNotStarted)
+        IReadOnlyDictionary<Guid, TargetSnapshot> snapshots)
     {
         foreach (var target in requested)
         {
@@ -549,49 +395,12 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
             {
                 return ("osan_progress_stale_version", $"{snapshot.DisplayName}의 진행 상태가 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
             }
-            if (requireNotStarted && !string.Equals(snapshot.Status, "NotStarted", StringComparison.Ordinal))
+            if (string.Equals(snapshot.Status, "Completed", StringComparison.Ordinal))
             {
-                return ("osan_progress_target_already_started", $"{snapshot.DisplayName}은(는) 이미 시작되었거나 완료되었습니다.");
-            }
-            if (!requireNotStarted && !string.Equals(snapshot.Status, "InProgress", StringComparison.Ordinal))
-            {
-                return ("osan_progress_target_not_in_progress", $"{snapshot.DisplayName}을(를) 먼저 시작해야 합니다.");
+                return ("osan_progress_target_completed", $"{snapshot.DisplayName}은(는) 이미 완료되었습니다.");
             }
         }
         return null;
-    }
-
-    private static async Task StartTargetAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        Guid targetId,
-        Guid actorUserId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            update osan_project_targets
-            set status = 'InProgress',
-                version = version + 1,
-                started_at_utc = now(),
-                started_by_user_id = @actor_id,
-                updated_at_utc = now()
-            where project_id = @project_id and id = @target_id;
-
-            update osan_project_target_steps
-            set status = 'InProgress',
-                started_at_utc = coalesce(started_at_utc, now()),
-                updated_at_utc = now()
-            where project_id = @project_id
-              and target_id = @target_id
-              and sequence_number = 1;
-            """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("target_id", targetId);
-        command.Parameters.AddWithValue("actor_id", actorUserId);
-        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<List<StepSnapshot>> LockStepsAsync(
@@ -662,41 +471,26 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         NpgsqlTransaction transaction,
         Guid projectId,
         Guid targetId,
+        Guid actorUserId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             with incomplete as (
-                select min(sequence_number) as next_sequence,
-                       count(*) as incomplete_count
+                select count(*) as incomplete_count
                 from osan_project_target_steps
                 where project_id = @project_id
                   and target_id = @target_id
                   and status <> 'Completed'
-            ), normalized_steps as (
-                update osan_project_target_steps step
-                set status = case
-                        when step.sequence_number = incomplete.next_sequence then 'InProgress'
-                        else 'NotStarted'
-                    end,
-                    started_at_utc = case
-                        when step.sequence_number = incomplete.next_sequence
-                            then coalesce(step.started_at_utc, now())
-                        else step.started_at_utc
-                    end,
-                    updated_at_utc = now()
-                from incomplete
-                where step.project_id = @project_id
-                  and step.target_id = @target_id
-                  and step.status <> 'Completed'
-                returning 1
             )
             update osan_project_targets target
             set status = case
                     when incomplete.incomplete_count = 0 then 'Completed'
                     else 'InProgress'
                 end,
+                started_at_utc = coalesce(target.started_at_utc, now()),
+                started_by_user_id = coalesce(target.started_by_user_id, @actor_id),
                 version = target.version + 1,
                 updated_at_utc = now()
             from incomplete
@@ -705,6 +499,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("target_id", targetId);
+        command.Parameters.AddWithValue("actor_id", actorUserId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -905,7 +700,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
             stepCommand.Transaction = transaction;
             stepCommand.CommandText = """
                 select
-                    target.id, target.sequence_number, target.display_name, target.status,
+                    target.id, target.sequence_number, target.display_name,
                     target.version, target.started_at_utc, target.started_by_user_id,
                     starter.display_name,
                     step.id, step.sequence_number, step.step_code, step.step_name, step.status,
@@ -929,24 +724,23 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                         targetId,
                         reader.GetInt32(1),
                         reader.GetString(2),
-                        reader.GetString(3),
-                        reader.GetInt32(4),
-                        reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5),
-                        reader.IsDBNull(6) ? null : reader.GetGuid(6),
-                        reader.IsDBNull(7) ? null : reader.GetString(7));
+                        reader.GetInt32(3),
+                        reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                        reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                        reader.IsDBNull(6) ? null : reader.GetString(6));
                     targets.Add(currentTarget);
                 }
 
                 currentTarget.Steps.Add(new StepBuilder(
-                    reader.GetGuid(8),
-                    reader.GetInt32(9),
+                    reader.GetGuid(7),
+                    reader.GetInt32(8),
+                    reader.GetString(9),
                     reader.GetString(10),
                     reader.GetString(11),
-                    reader.GetString(12),
+                    reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12),
                     reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13),
-                    reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
-                    reader.IsDBNull(15) ? null : reader.GetGuid(15),
-                    reader.IsDBNull(16) ? null : reader.GetString(16)));
+                    reader.IsDBNull(14) ? null : reader.GetGuid(14),
+                    reader.IsDBNull(15) ? null : reader.GetString(15)));
             }
         }
 
@@ -990,9 +784,9 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         var totalStepCount = targetResponses.Sum(target => target.Steps.Count);
         var progressStatus = storedStatus == "Completed"
             ? "Completed"
-            : targetResponses.All(target => target.Status == "NotStarted")
-                ? "NotStarted"
-                : "InProgress";
+            : completedStepCount > 0
+                ? "InProgress"
+                : "NotStarted";
         return new OsanProgressResponse(
             id,
             projectCode,
@@ -1062,7 +856,6 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         Guid targetId,
         int sequenceNumber,
         string displayName,
-        string status,
         int version,
         DateTimeOffset? startedAtUtc,
         Guid? startedByUserId,
@@ -1073,21 +866,27 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
 
         public OsanProgressTargetResponse ToResponse()
         {
-            var nextIncomplete = Steps.FirstOrDefault(step => step.Status != "Completed");
+            var completedStepCount = Steps.Count(step => step.Status == "Completed");
+            var projectedStatus = completedStepCount == 0
+                ? "NotStarted"
+                : completedStepCount == Steps.Count
+                    ? "Completed"
+                    : "InProgress";
             var priorSixComplete = Steps.Take(6).All(step => step.Status == "Completed");
             return new OsanProgressTargetResponse(
                 TargetId,
                 sequenceNumber,
                 displayName,
-                status,
+                projectedStatus,
                 version,
                 startedAtUtc,
                 startedByUserId,
                 startedByDisplayName,
-                status == "NotStarted",
                 Steps.Select(step => step.ToResponse(
-                    status == "InProgress" && ReferenceEquals(step, nextIncomplete),
-                    status == "InProgress"
+                    projectedStatus != "Completed"
+                        && step.Status != "Completed"
+                        && (step.SequenceNumber < 7 || priorSixComplete),
+                    projectedStatus != "Completed"
                         && step.Status != "Completed"
                         && (step.SequenceNumber < 7 || priorSixComplete)))
                     .ToArray());

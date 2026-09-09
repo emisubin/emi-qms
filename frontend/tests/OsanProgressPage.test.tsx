@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OsanProgressPage } from '../src/OsanProgressPage';
 import * as api from '../src/osanProgress';
 import { ApiError } from '../src/api';
-vi.mock('../src/osanProgress', async importOriginal => ({ ...await importOriginal<typeof import('../src/osanProgress')>(), getOsanProgress: vi.fn(), startOsanProgress: vi.fn(), completeOsanProgress: vi.fn(), getOsanProgressPhoto: vi.fn() }));
+vi.mock('../src/osanProgress', async importOriginal => ({ ...await importOriginal<typeof import('../src/osanProgress')>(), getOsanProgress: vi.fn(), completeOsanProgress: vi.fn(), getOsanProgressPhoto: vi.fn() }));
 function project(id = 'project-a'): api.OsanProgressDetail {
-  return { projectId: id, title: id, projectCode: 'TEST', completedStepCount: 0, totalStepCount: 14, status: 'Active', targets: [1, 2].map(index => ({ targetId: `target-${index}`, sequenceNumber: index, displayName: `제품 ${index}`, status: 'InProgress', version: 1, canStart: false, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null, steps: api.osanStageNames.map((stepName, i) => ({ stepId: `${index}-${i}`, stepCode: String(i), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: i + 1, stepName, status: 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) })) };
+  return { projectId: id, title: id, projectCode: 'TEST', completedStepCount: 0, totalStepCount: 14, status: 'Active', targets: [1, 2].map(index => ({ targetId: `target-${index}`, sequenceNumber: index, displayName: `제품 ${index}`, status: 'InProgress', version: 1, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null, steps: api.osanStageNames.map((stepName, i) => ({ stepId: `${index}-${i}`, stepCode: String(i), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: i + 1, stepName, status: 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) })) };
 }
 const renderPage = (id = 'project-a') => render(<OsanProgressPage projectId={id} developmentUserKey="dev-user" mutationAllowed />);
 async function openCompletion() { await screen.findByRole('button', { name: '완료' }); fireEvent.click(screen.getByRole('button', { name: '완료' })); }
@@ -20,6 +20,51 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe('오산 진행 상세', () => {
+  it('시작 전 대상도 별도 시작 없이 임의 단계 완료를 저장한다', async () => {
+    const data = project(); data.targets.forEach(target => { target.status = 'NotStarted'; });
+    vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+    renderPage(); await screen.findByRole('button', { name: '완료' });
+    expect(screen.queryByRole('button', { name: '작업 시작' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
+    fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
+    await openCompletion();
+    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
+    expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1]).toMatchObject({ stageSequence: 3, completionMode: 'individual' });
+  });
+  it('대상 링크로 진입한 두 번째 대상만 선택하고 저장한다', async () => {
+    render(<OsanProgressPage projectId="project-a" initialTargetId="target-2" developmentUserKey="dev-user" mutationAllowed />);
+    await screen.findByRole('button', { name: '제품 2' });
+    await openCompletion();
+    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
+    expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].targets).toEqual([{ targetId: 'target-2', expectedVersion: 1 }]);
+  });
+  it('촬영 버튼은 카메라 전용 입력을 직접 열고 촬영 원본을 재선택 없이 저장한다', async () => {
+    renderPage(); await openCompletion();
+    const camera = screen.getByLabelText('카메라 사진 선택');
+    expect(camera).toHaveAttribute('accept', 'image/*');
+    expect(camera).toHaveAttribute('capture', 'environment');
+    const clicked = vi.spyOn(camera, 'click');
+    fireEvent.click(screen.getByRole('button', { name: '촬영' }));
+    expect(clicked).toHaveBeenCalledOnce();
+    const original = new File(['jpeg'], 'camera.jpg', { type: 'image/jpeg' });
+    fireEvent.change(camera, { target: { files: [original] } });
+    expect(await screen.findByRole('img', { name: 'camera.jpg 미리보기' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
+    expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].photos[0]).toBe(original);
+  });
+  it('선택 행의 이름을 누를 때 발생하는 일시적 focus 해제에도 선택을 적용한다', async () => {
+    renderPage();
+    const trigger = await screen.findByRole('button', { name: '제품 1' });
+    fireEvent.click(trigger);
+    fireEvent.blur(trigger, { relatedTarget: null });
+    fireEvent.click(screen.getByText('제품 2', { exact: true }));
+    expect(screen.getByLabelText('제품 2')).toBeChecked();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: '2개 대상 선택' })).toHaveAttribute('aria-expanded', 'false');
+  });
   it('재조회에서 권한이 거부되면 이전 프로젝트와 사진을 화면에서 제거한다', async () => {
     renderPage();
     await screen.findByRole('heading', { name: 'project-a' });
@@ -113,7 +158,7 @@ describe('오산 진행 상세', () => {
     vi.mocked(api.getOsanProgress).mockResolvedValue(result);
     vi.mocked(api.getOsanProgressPhoto).mockResolvedValue(new Blob(['photo'], { type: 'image/png' }));
     renderPage(); fireEvent.click(await screen.findByRole('button', { name: /제품 1/ }));
-    fireEvent.click(screen.getByLabelText('전체 선택')); fireEvent.click(screen.getByRole('button', { name: '선택 완료' }));
+    fireEvent.click(screen.getByLabelText('전체 선택')); fireEvent.click(screen.getByRole('button', { name: '패널 선택' }));
     expect(within(screen.getByRole('region', { name: '제품 1 완료 기록' })).getByText('작업자 A')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: '제품 2 완료 기록' })).getByText('미완료')).toBeInTheDocument();
     await waitFor(() => expect(api.getOsanProgressPhoto).toHaveBeenCalledWith('project-a', 'photo-1', 'dev-user', expect.any(AbortSignal)));
@@ -131,7 +176,7 @@ describe('오산 진행 상세', () => {
     expect(api.getOsanProgressPhoto).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /^제품 1$/ }));
     fireEvent.click(screen.getByLabelText('전체 선택'));
-    fireEvent.click(screen.getByRole('button', { name: '선택 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '패널 선택' }));
     expect(screen.queryAllByRole('img', { name: 'evidence.png' })).toHaveLength(0);
     expect(api.getOsanProgressPhoto).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '제품 2 사진 보기 (1장)' }));

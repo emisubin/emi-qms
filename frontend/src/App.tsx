@@ -372,7 +372,7 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
-  | { kind: 'osan-progress'; projectId?: string }
+  | { kind: 'osan-progress'; projectId?: string; targetId?: string }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
@@ -815,7 +815,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/progress') {
-    return { kind: 'osan-progress', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined };
+    return { kind: 'osan-progress', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined, targetId: new URLSearchParams(window.location.search).get('targetId') ?? undefined };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1436,7 +1436,7 @@ function pathForView(view: View) {
         level: view.level ?? undefined
       })}`;
     case 'osan-progress':
-      return `/progress${queryString({ projectId: view.projectId })}`;
+      return `/progress${queryString({ projectId: view.projectId, targetId: view.targetId })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}${view.section && view.section !== 'summary' ? `?tab=${view.section}` : ''}`;
     case 'list':
@@ -2637,6 +2637,7 @@ function QmsAppShellContent({
         view.projectId ? <OsanProgressPage
           key={`${selectedBusinessUnit}:${view.projectId}`}
           projectId={view.projectId}
+          initialTargetId={view.targetId}
           developmentUserKey={developmentUserKey}
           mutationAllowed={mutationEnabled && canUpdateManufacturing}
           onBack={() => setView({ kind: 'osan-progress' })}
@@ -2721,7 +2722,7 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
           onBack={() => setView({ kind: 'list' })}
-          onOpenProgress={() => setView({ kind: 'osan-progress', projectId: view.projectId })}
+          onOpenProgress={(targetId) => setView({ kind: 'osan-progress', projectId: view.projectId, targetId })}
         /> : <>
           {projectActionFeedback?.projectId === view.projectId ? (
             <section className="page-action-feedback route-action-feedback" aria-label="최근 저장 결과">
@@ -4310,7 +4311,7 @@ function OsanProjectListPage({
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [tab, setTab] = useState<'All' | 'Active' | 'Completed'>('All');
+  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4370,16 +4371,17 @@ function OsanProjectListPage({
       }}
       kpis={[
         { title: '전체 프로젝트', value: projects.length, helperText: '등록 프로젝트' },
-        { title: '시작 전', value: projects.filter((project) => project.status === 'Active').length, helperText: '진행 시작 전' },
+        { title: '시작 전', value: projects.filter((project) => project.status === 'NotStarted').length, helperText: '진행 시작 전' },
         { title: '완료', value: projects.filter((project) => project.status === 'Completed').length, helperText: '전체 단계 완료', variant: 'positive' }
       ]}
       tabs={[
         { value: 'All', label: '전체' },
-        { value: 'Active', label: '시작 전' },
+        { value: 'NotStarted', label: '시작 전' },
+        { value: 'InProgress', label: '진행 중' },
         { value: 'Completed', label: '완료' }
       ]}
       activeTab={tab}
-      onTabChange={(value) => setTab(value as 'All' | 'Active' | 'Completed')}
+      onTabChange={(value) => setTab(value as 'All' | 'NotStarted' | 'InProgress' | 'Completed')}
     >
       {state.kind === 'loading' ? (
         <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
@@ -4437,7 +4439,7 @@ function OsanProjectListPage({
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
               { value: formatDate(project.deliveryDate), align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
-              { value: '0%', align: 'center' }
+              { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
               { label: '거래처', value: project.customerName },
@@ -4446,7 +4448,7 @@ function OsanProjectListPage({
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
               { label: '납기일', value: formatDate(project.deliveryDate) },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
-              { label: '진행률', value: '0%' }
+              { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
           }))}
         />
@@ -4457,7 +4459,8 @@ function OsanProjectListPage({
 
 function formatOsanProjectStatus(status: string) {
   if (status === 'Completed') return '완료';
-  if (status === 'Active') return '시작 전';
+  if (status === 'NotStarted' || status === 'Active') return '시작 전';
+  if (status === 'InProgress') return '진행 중';
   return status;
 }
 
@@ -4686,7 +4689,7 @@ function OsanProjectDetailPage({
   developmentUserKey: string;
   projectId: string;
   onBack: () => void;
-  onOpenProgress: () => void;
+  onOpenProgress: (targetId?: string) => void;
 }) {
   const isMobile = useIsMobileViewport();
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
@@ -4746,12 +4749,12 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <><button type="button" onClick={onOpenProgress}>진행 현황 열기</button><OsanProjectDetailContent project={state.data} /></> : null}
+      {state.kind === 'ready' ? <><button type="button" onClick={() => onOpenProgress()}>진행 현황 열기</button><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
     </section>
   );
 }
 
-function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
+function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProjectDetail; onOpenTarget: (targetId: string) => void }) {
   const values = [
     { label: '프로젝트 Title', value: project.title },
     { label: '프로젝트 코드', value: project.projectCode, valueClassName: 'project-code-value' },
@@ -4764,7 +4767,7 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
   ];
   const targetRows = project.targets.map((target) => {
     const completedSteps = target.steps.filter((step) => step.status === 'Completed').length;
-    const inProgress = target.steps.some((step) => step.status === 'InProgress') || completedSteps > 0;
+    const inProgress = completedSteps > 0;
     const completed = target.steps.length > 0 && completedSteps === target.steps.length;
     return {
       target,
@@ -4845,7 +4848,8 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
             stage: currentStage,
             completed: completedSteps,
             total: target.steps.length,
-            progressLabel: target.displayName
+            progressLabel: target.displayName,
+            onOpen: () => onOpenTarget(target.targetId)
           }))}
           tableAriaLabel="진행 관리 대상 현황"
           subjectColumnLabel="진행 대상"

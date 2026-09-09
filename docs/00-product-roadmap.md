@@ -11,7 +11,7 @@
 | 준비 | 최신 제품 코드 + 하네스 v2의 작업 기준 준비 — 기존 GOV/UX 작업의 준비 범위 | 최신 main과 local commit·WIP·runtime source를 확인하고 안전하게 통합. 새 초기화·기존 WIP 정리·원격 merge를 자동 수행하지 않음. Figma 지정과 독립적으로 조사 가능 |
 | 1 | [TASK-OSAN-UX-001](../tasks/osan-ux-001.md) — 지정 Figma 구현 기준·기능 범위 확정 | 원본 치수·자산·화면 상태와 현재 구현 차이를 확보하고 사진 세부 설계를 정리. 합의된 예외 외 100% 동일 구현 기준 적용 |
 | 2 | [TASK-DESIGN-LOGIN-001 Change 011](../tasks/design-login-001-change-011.md) — 공통 PC·모바일 로그인 | 지정 Figma와 기존 배포 디자인의 차이만 보정. 로그인·승인·재인증 동작 보존 |
-| 3 | [TASK-OSAN-PROGRESS-001](../tasks/osan-progress-001.md) — 모바일 진행 상세·완료 | 대상 개별·전체 선택, 7단계 이동·설명·안내 사진과 완료 처리. 최신 승인 계약의 개별/일괄 처리·포장 선행조건·전체 대상 포장 후 프로젝트 자동 완료 보존 |
+| 3 | [TASK-OSAN-PROGRESS-001](../tasks/osan-progress-001.md) — 모바일 진행 상세·완료 | 2026-09-09 검수 보정 우선: 작업 시작 제거, 개별·일괄 1~6단계 순서 무관 완료, 포장은 앞 6단계 완료 필수, 전체 대상 포장 후 프로젝트 자동 완료. 목록 집계·대상별 상세 연결·Figma 패널 선택 보정 |
 | 4 | [TASK-OSAN-PHOTO-001](../tasks/osan-photo-001.md) — 완료 증빙 사진 | 촬영·첨부·미리보기·영구 저장·완료 후 재조회, 진행 상세·완료 처리와 통합. DB 원본·제한은 승인된 PHOTO 계약 적용, 일괄 대상별 기록과 사진 조회 연결 |
 | 5 | [TASK-OSAN-DASHBOARD-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-dashboard-001.md) — 모바일 진행 현황 | 요약·목록·검색·필터·진행률·페이지 이동·상세 연결. 진행 상태 원본과 권한 경계 유지 |
 | 6 | [TASK-OSAN-VALIDATION-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-validation-001.md) — 통합·Figma 동일성 확인·일괄 사용자 검수 | 구현 중 직접 검증 증거를 재사용하고 기능 연결·동일 폭/상태의 디자인 차이를 확인. 마지막에 일괄 사용자 검수 |

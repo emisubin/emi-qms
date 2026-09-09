@@ -8,10 +8,6 @@ public static class OsanCompletionModes
 
 public sealed record OsanProgressTargetRequest(Guid TargetId, int ExpectedVersion);
 
-public sealed record StartOsanProgressRequest(
-    Guid OperationId,
-    IReadOnlyList<OsanProgressTargetRequest?>? Targets);
-
 public sealed record CompleteOsanProgressInput(
     Guid OperationId,
     string CompletionMode,
@@ -43,7 +39,6 @@ public sealed record OsanProgressTargetResponse(
     DateTimeOffset? StartedAtUtc,
     Guid? StartedByUserId,
     string? StartedByDisplayName,
-    bool CanStart,
     IReadOnlyList<OsanProgressStepResponse> Steps);
 
 public sealed record OsanProgressStepResponse(

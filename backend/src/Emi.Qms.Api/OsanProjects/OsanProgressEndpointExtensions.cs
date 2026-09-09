@@ -40,42 +40,6 @@ public static class OsanProgressEndpointExtensions
         .RequireAuthorization()
         .WithName("GetOsanProgress");
 
-        progress.MapPost("/start", async (
-            Guid projectId,
-            StartOsanProgressRequest request,
-            OsanProgressStore store,
-            OsanProjectStore projectStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
-            ClaimsPrincipal user,
-            CancellationToken cancellationToken) =>
-        {
-            var denied = await AuthorizeProjectAsync(
-                projectId,
-                QmsPermissions.ManufacturingUpdate,
-                projectStore,
-                connectionStringProvider,
-                user,
-                cancellationToken);
-            if (denied is not null)
-            {
-                return denied;
-            }
-
-            var actorId = ProjectEndpointExtensions.GetCurrentUserId(user);
-            if (actorId is null)
-            {
-                return Results.Unauthorized();
-            }
-
-            return ToResult(await store.StartAsync(
-                projectId,
-                request,
-                actorId.Value,
-                cancellationToken));
-        })
-        .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
-        .WithName("StartOsanProgress");
-
         progress.MapPost("/completions", async (
             Guid projectId,
             HttpRequest request,

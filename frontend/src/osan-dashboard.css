@@ -57,3 +57,19 @@
   .app-shell .osan-dashboard-project-meta dt,
   .app-shell .osan-dashboard-project-meta dd { font-size: 11px !important; font-weight: 400 !important; line-height: 16px; }
 }
+
+/* Home uses the same project data, with a deadline-first card layout. */
+.app-shell .osan-home-dashboard .osan-dashboard-description { font-size: 12px; line-height: 18px; }
+.app-shell .osan-home-dashboard .osan-dashboard-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.app-shell .osan-home-dashboard .osan-dashboard-project { height: 126px; }
+.app-shell .osan-home-dashboard .osan-dashboard-project-title { top: 14px; left: 14px; width: calc(100% - 28px); font-size: 14px; line-height: 18px; }
+.app-shell .osan-home-deadline { position: absolute; top: 39px; left: 14px; font-size: 12px; line-height: 16px; font-weight: 400; }
+.app-shell .osan-home-dashboard .osan-dashboard-stages { top: 66px; left: 12px; right: 12px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stages > span { font-size: 10px; line-height: 13px; }
+.app-shell .osan-home-dashboard .osan-dashboard-bar { height: 3px; left: 14px; right: 43px; bottom: 15px; }
+.app-shell .osan-home-dashboard .osan-dashboard-percent { font-size: 10px; right: 10px; bottom: 12px; line-height: 10px; }
+.app-shell .osan-home-dashboard .osan-dashboard-project-meta { display: none; }
+@media (max-width: 860px) {
+  .app-shell .osan-home-dashboard .osan-dashboard-list { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .osan-home-dashboard .osan-dashboard-stages > span { font-size: 9px; }
+}

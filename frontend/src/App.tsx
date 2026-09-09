@@ -2548,7 +2548,7 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        isOsan ? <OsanDashboardPage developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })} /> : <HomePage
+        isOsan ? <OsanDashboardPage view="home" developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })} /> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}

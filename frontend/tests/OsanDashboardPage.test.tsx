@@ -76,3 +76,34 @@ describe('오산 진행 현황', () => {
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeDisabled();
   });
 });
+
+
+describe('오산 홈 분리', () => {
+  it('홈 전용 조회와 납기를 표시하고 진행 현황 전환 시 조회 범위를 초기화한다', async () => {
+    const view = render(<OsanDashboardPage view="home" onOpen={vi.fn()} />);
+    await screen.findByText('납기 2026-10-01 · 진행 중');
+    expect(screen.getByRole('heading', { name: '오산 홈' })).toBeInTheDocument();
+    expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
+    view.rerender(<OsanDashboardPage onOpen={vi.fn()} />);
+    await screen.findByRole('button', { name: '오산 검수 프로젝트 진행 상세 열기' });
+    expect(screen.queryByText('납기 2026-10-01 · 진행 중')).not.toBeInTheDocument();
+    expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1 }, expect.any(AbortSignal));
+  });
+});
+
+
+it('홈 자동 갱신으로 마지막 페이지가 사라지면 유효 페이지를 다시 조회한다', async () => {
+  vi.mocked(api.getOsanDashboard).mockResolvedValueOnce({ ...fixture(), totalCount: 12 });
+  render(<OsanDashboardPage view="home" onOpen={vi.fn()} />);
+  await screen.findByText('1 / 2');
+  vi.mocked(api.getOsanDashboard).mockResolvedValueOnce({ ...fixture(), totalCount: 12, page: 2 });
+  fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+  await screen.findByText('2 / 2');
+  vi.mocked(api.getOsanDashboard)
+    .mockResolvedValueOnce({ ...fixture(), items: [], totalCount: 11, page: 2 })
+    .mockResolvedValueOnce({ ...fixture(), totalCount: 11, page: 1 });
+  fireEvent(window, new Event('focus'));
+  await screen.findByText('1 / 1');
+  expect(screen.queryByText('등록된 프로젝트가 없습니다.')).not.toBeInTheDocument();
+  expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
+});

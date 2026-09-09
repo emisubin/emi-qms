@@ -87,11 +87,13 @@ public sealed class OsanProjectRegistrationApiTests
             ["search"] = "  panel  ",
             ["status"] = OsanDashboardStatuses.InProgress,
             ["page"] = "2",
-            ["pageSize"] = "11"
+            ["pageSize"] = "11",
+            ["view"] = OsanDashboardViews.Home
         });
         var (query, errors) = OsanProjectEndpointExtensions.ParseDashboardQuery(validValues);
         Assert.Empty(errors);
-        Assert.Equal(new OsanDashboardQuery("panel", OsanDashboardStatuses.InProgress, 2, 11), query);
+        Assert.Equal(new OsanDashboardQuery(
+            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home), query);
 
         var (defaults, defaultErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection());
@@ -104,10 +106,11 @@ public sealed class OsanProjectRegistrationApiTests
                 ["search"] = new string('a', 201),
                 ["status"] = "Paused",
                 ["page"] = "0",
-                ["pageSize"] = "101"
+                ["pageSize"] = "101",
+                ["view"] = "archive"
             }));
         Assert.Null(invalid);
-        Assert.Equal(["search", "status", "page", "pageSize"], invalidErrors.Keys);
+        Assert.Equal(["search", "status", "page", "pageSize", "view"], invalidErrors.Keys);
     }
 
     [Fact]
@@ -517,7 +520,7 @@ public sealed class OsanProjectRegistrationApiTests
                 title: "Completed panel",
                 projectCode: "DASH-003",
                 workOrderNumber: "WO-COMPLETE",
-                deliveryDate: new DateOnly(2026, 9, 1))),
+                deliveryDate: new DateOnly(2026, 9, 8))),
             UserId,
             TestContext.Current.CancellationToken);
         var hidden = await projectStore.CreateAsync(
@@ -526,6 +529,27 @@ public sealed class OsanProjectRegistrationApiTests
                 projectCode: "DASH-HIDDEN",
                 poNumber: "LEAKTOKEN",
                 deliveryDate: new DateOnly(2026, 8, 1))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var pastUnfinished = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Past unfinished",
+                projectCode: "HOME-PAST-ACTIVE",
+                deliveryDate: new DateOnly(2026, 9, 8))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var todayCompleted = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Today completed",
+                projectCode: "HOME-TODAY-DONE",
+                deliveryDate: new DateOnly(2026, 9, 9))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var futureCompleted = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Future completed",
+                projectCode: "HOME-FUTURE-DONE",
+                deliveryDate: new DateOnly(2026, 9, 10))),
             UserId,
             TestContext.Current.CancellationToken);
         var cheongjuId = Guid.NewGuid();
@@ -561,34 +585,42 @@ public sealed class OsanProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, partialResult.Status);
 
-        var completedTarget = Assert.Single(completed.Value!.Project.Targets).TargetId;
-        var version = 1;
-        foreach (var stage in new[] { 6, 2, 5, 1, 4, 3, 7 })
+        async Task CompleteProjectAsync(OsanProjectCreateResponse value)
         {
-            var result = await progressStore.CompleteAsync(
-                completed.Value.Project.ProjectId,
-                new CompleteOsanProgressInput(
-                    Guid.NewGuid(),
-                    OsanCompletionModes.Individual,
-                    stage,
-                    [new OsanProgressTargetRequest(completedTarget, version)],
-                    []),
-                UserId,
-                TestContext.Current.CancellationToken);
-            Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
-            version += 1;
+            var targetId = Assert.Single(value.Project.Targets).TargetId;
+            var version = 1;
+            foreach (var stage in new[] { 6, 2, 5, 1, 4, 3, 7 })
+            {
+                var result = await progressStore.CompleteAsync(
+                    value.Project.ProjectId,
+                    new CompleteOsanProgressInput(
+                        Guid.NewGuid(),
+                        OsanCompletionModes.Individual,
+                        stage,
+                        [new OsanProgressTargetRequest(targetId, version)],
+                        []),
+                    UserId,
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
+                version += 1;
+            }
         }
+        await CompleteProjectAsync(completed.Value!);
+        await CompleteProjectAsync(todayCompleted.Value!);
+        await CompleteProjectAsync(futureCompleted.Value!);
 
         var visibleIds = new[]
         {
             notStarted.Value!.Project.ProjectId,
             partial.Value.Project.ProjectId,
-            completed.Value.Project.ProjectId
+            completed.Value!.Project.ProjectId
         };
         var scope = new ProjectAccessScope(
             false,
             visibleIds.Select(id => $"osan-{id:N}").ToArray());
-        var store = new OsanDashboardStore(provider);
+        var store = new OsanDashboardStore(
+            provider,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 8, 15, 0, 0, TimeSpan.Zero)));
 
         var firstPage = await store.GetAsync(
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 2),
@@ -664,6 +696,68 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(0, emptyScope.Summary.TotalCount);
         Assert.Equal(0, emptyScope.TotalCount);
         Assert.Empty(emptyScope.Items);
+
+        var homeScope = new ProjectAccessScope(
+            false,
+            new[]
+            {
+                notStarted.Value.Project.ProjectId,
+                partial.Value.Project.ProjectId,
+                completed.Value.Project.ProjectId,
+                pastUnfinished.Value!.Project.ProjectId,
+                todayCompleted.Value!.Project.ProjectId,
+                futureCompleted.Value!.Project.ProjectId
+            }.Select(id => $"osan-{id:N}").ToArray());
+        var beforeKoreaMidnight = await new OsanDashboardStore(
+            provider,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 8, 14, 59, 0, TimeSpan.Zero)))
+            .GetAsync(
+                new OsanDashboardQuery(
+                    string.Empty, OsanDashboardStatuses.All, 1, 10, OsanDashboardViews.Home),
+                new ProjectAccessScope(
+                    false,
+                    [$"osan-{completed.Value!.Project.ProjectId:N}"]),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(completed.Value!.Project.ProjectId, Assert.Single(beforeKoreaMidnight.Items).ProjectId);
+
+        var homeFirstPage = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.All, 1, 2, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(5, 2, 1, 2), homeFirstPage.Summary);
+        Assert.Equal(5, homeFirstPage.TotalCount);
+        Assert.Equal(
+            [pastUnfinished.Value.Project.ProjectId, todayCompleted.Value.Project.ProjectId],
+            homeFirstPage.Items.Select(item => item.ProjectId));
+
+        var homeSecondPage = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.All, 2, 2, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(homeFirstPage.Summary, homeSecondPage.Summary);
+        Assert.Equal(
+            [futureCompleted.Value.Project.ProjectId, partial.Value.Project.ProjectId],
+            homeSecondPage.Items.Select(item => item.ProjectId));
+
+        var homeThirdPage = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.All, 3, 2, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(notStarted.Value.Project.ProjectId, Assert.Single(homeThirdPage.Items).ProjectId);
+
+        var homeCompleted = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.Completed, 1, 10, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(homeFirstPage.Summary, homeCompleted.Summary);
+        Assert.Equal(2, homeCompleted.TotalCount);
+        Assert.Equal(
+            [todayCompleted.Value.Project.ProjectId, futureCompleted.Value.Project.ProjectId],
+            homeCompleted.Items.Select(item => item.ProjectId));
     }
 
     [Fact]
@@ -1310,5 +1404,10 @@ public sealed class OsanProjectRegistrationApiTests
         public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
         public string ContentRootPath { get; set; } = contentRootPath;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

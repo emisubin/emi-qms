@@ -13,6 +13,7 @@ public static class OsanProjectEndpointExtensions
         app.MapGet("/api/osan/dashboard", async (
             HttpRequest request,
             DatabaseConnectionStringProvider connectionStringProvider,
+            TimeProvider timeProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -32,7 +33,7 @@ public static class OsanProjectEndpointExtensions
                 return Results.ValidationProblem(errors);
             }
 
-            var response = await new OsanDashboardStore(connectionStringProvider).GetAsync(
+            var response = await new OsanDashboardStore(connectionStringProvider, timeProvider).GetAsync(
                 query,
                 ProjectEndpointExtensions.GetProjectAccessScope(user),
                 cancellationToken);
@@ -200,8 +201,18 @@ public static class OsanProjectEndpointExtensions
             errors["pageSize"] = ["페이지 크기는 100 이하여야 합니다."];
         }
 
+        var view = values["view"].ToString().Trim();
+        if (view.Length == 0)
+        {
+            view = OsanDashboardViews.Progress;
+        }
+        else if (!OsanDashboardViews.IsValid(view))
+        {
+            errors["view"] = ["대시보드 보기가 올바르지 않습니다."];
+        }
+
         return errors.Count == 0
-            ? (new OsanDashboardQuery(search, status, page, pageSize), errors)
+            ? (new OsanDashboardQuery(search, status, page, pageSize, view), errors)
             : (null, errors);
     }
 

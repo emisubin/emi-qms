@@ -5,8 +5,12 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed class OsanDashboardStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class OsanDashboardStore(
+    DatabaseConnectionStringProvider connectionStringProvider,
+    TimeProvider timeProvider)
 {
+    private static readonly TimeZoneInfo SeoulTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
+
     public async Task<OsanDashboardResponse> GetAsync(
         OsanDashboardQuery query,
         ProjectAccessScope accessScope,
@@ -24,7 +28,9 @@ public sealed class OsanDashboardStore(DatabaseConnectionStringProvider connecti
             await readOnly.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        var scope = BuildScope(query.Search, accessScope);
+        var today = DateOnly.FromDateTime(
+            TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), SeoulTimeZone).DateTime);
+        var scope = BuildScope(query.Search, query.View, today, accessScope);
         var summary = await ReadSummaryAsync(
             connection,
             transaction,
@@ -120,14 +126,17 @@ public sealed class OsanDashboardStore(DatabaseConnectionStringProvider connecti
         var statusFilter = query.Status == OsanDashboardStatuses.All
             ? string.Empty
             : "where progress_status = @status";
+        var ordering = query.View == OsanDashboardViews.Home
+            ? "delivery_date, project_code, project_id"
+            : $"case when progress_status = '{OsanDashboardStatuses.Completed}' then 1 else 0 end, "
+                + "delivery_date, project_code, project_id";
         await using var command = CreateScopedCommand(connection, transaction, scope, $"""
             select project_id, title, project_code, customer_name, product_name,
                    po_number, work_order_number, quantity, delivery_date, progress_status,
                    completed_step_count, total_step_count
             from scoped_projects
             {statusFilter}
-            order by case when progress_status = '{OsanDashboardStatuses.Completed}' then 1 else 0 end,
-                     delivery_date, project_code, project_id
+            order by {ordering}
             limit @page_size offset @offset;
             """);
         command.Parameters.AddWithValue("status", query.Status);
@@ -248,7 +257,11 @@ public sealed class OsanDashboardStore(DatabaseConnectionStringProvider connecti
         return command;
     }
 
-    private static QueryScope BuildScope(string search, ProjectAccessScope accessScope)
+    private static QueryScope BuildScope(
+        string search,
+        string view,
+        DateOnly today,
+        ProjectAccessScope accessScope)
     {
         var where = new List<string>
         {
@@ -256,6 +269,11 @@ public sealed class OsanDashboardStore(DatabaseConnectionStringProvider connecti
             "projects.deleted_at_utc is null"
         };
         var parameters = new List<NpgsqlParameter>();
+        if (view == OsanDashboardViews.Home)
+        {
+            where.Add("not (projects.delivery_date < @today and projects.status = 'Completed')");
+            parameters.Add(new NpgsqlParameter("today", NpgsqlDbType.Date) { Value = today });
+        }
         if (!accessScope.HasProjectReadAll)
         {
             if (accessScope.ProjectKeys.Count == 0)

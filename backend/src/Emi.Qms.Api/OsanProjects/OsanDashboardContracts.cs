@@ -11,11 +11,20 @@ public static class OsanDashboardStatuses
         value is All or NotStarted or InProgress or Completed;
 }
 
+public static class OsanDashboardViews
+{
+    public const string Progress = "progress";
+    public const string Home = "home";
+
+    public static bool IsValid(string value) => value is Progress or Home;
+}
+
 public sealed record OsanDashboardQuery(
     string Search,
     string Status,
     int Page,
-    int PageSize);
+    int PageSize,
+    string View = OsanDashboardViews.Progress);
 
 public sealed record OsanDashboardResponse(
     OsanDashboardSummaryResponse Summary,

@@ -24,3 +24,7 @@
 - 실제 서버 생성 양식을 별도로 열어 8개 항목, 빈 입력 행, 안내 문구와 화면 배치를 확인했다. 양식 검사용 산출물은 추적 테스트의 고정 경로 쓰기나 commit에 포함하지 않는다.
 - 최종 API Release build는 경고 0·오류 0, `git diff --check` PASS. 전체 회귀와 required CI는 이번 로컬 구현 단계에서 실행하지 않았으며 향후 최종 병합 후보에서 수행한다. 이번 기능은 `codex/osan-project-excel`에 범위 파일만 로컬 커밋한다.
 - 최종 보완: 정상 HTTP replay가 같은 ID 목록을 반환한 뒤 프로젝트 접근 연결을 회수하면 403이고 본문에 ID가 없음을 확인했다. `Project.Read.All`을 제거해 실제 개별 접근 분기를 실행했다. 두 번째 프로젝트 insert에 합성 실패를 발생시켜 첫 번째 저장까지 포함한 projects·targets·steps·access·events·operations 전후 건수가 같고 신규 프로젝트/root operation 잔여 0임을 확인했다. 해당 2 tests 재실행 PASS, 테스트 Release build 경고 0·오류 0. 독립 reviewer는 두 테스트 설계와 기존 코드 GO를 확인했다.
+
+## 검수 화면 제공 — 2026-09-09
+
+사용자의 “보여줘” 요청으로 기존 격리 검수 환경을 제품 커밋 `88bee7e`로 기동했다. 시작 전 5186/5096 listener가 없음을 확인했다. 소스는 `/private/tmp/emi-osan-progress-photo`, UI는 http://127.0.0.1:5186/projects, API는 5096이다. 기존 `/private/tmp/emi-osan-preview-20260909/api.env`를 사용하되 seed·startup migration을 명시적으로 끄고 기존 외부 provider 비활성 설정을 유지했다. API 실행 세션32597, frontend 세션4547이며 재개 시 실제 상태를 다시 확인한다. 프록시 health ready 200, 기존 완료 샘플 대상2/진행률100% 조회, 오산 엑셀 업로드 창과 실제 양식 다운로드 성공을 브라우저에서 확인했다. 새 프로젝트 등록은 사용자 검수에 남겼으며 DB 초기화·원격 반영·공개배포는 하지 않았다.

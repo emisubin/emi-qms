@@ -1,0 +1,38 @@
+.osan-project-actions { display: flex; gap: 6px; }
+.app-shell .osan-project-actions > button { height: 26px; min-height: 26px !important; padding: 0 10px !important; font-size: 9px !important; border-radius: 6.8px !important; }
+.osan-excel-dialog { width: min(1100px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow: auto; color: #282828; border-radius: 15px; }
+.osan-excel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.osan-excel-heading h2 { margin: 0; font-size: 20px; }
+.osan-excel-hint { color: #666; font-size: 13px; }
+.osan-excel-file { display: grid; gap: 8px; margin: 20px 0 12px; font-weight: 600; }
+.osan-excel-file input { width: 100%; min-width: 0; }
+.osan-excel-preview { margin-top: 20px; }
+.osan-excel-errors { color: #ad1821; padding-left: 20px; }
+.osan-excel-table-scroll { max-width: 100%; overflow: auto; max-height: 360px; border: 1px solid #eee; border-radius: 8px; }
+.osan-excel-table-scroll table { border-collapse: collapse; width: 100%; min-width: 960px; font-size: 13px; }
+.osan-excel-table-scroll th, .osan-excel-table-scroll td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 220px; }
+.osan-excel-table-scroll thead th { background: #f7f7f7; position: sticky; top: 0; }
+.osan-excel-invalid { background: #fff4f4; }
+.osan-excel-invalid td:last-child { color: #ad1821; min-width: 200px; }
+.app-shell .osan-excel-table-scroll td input { width: 145px; min-width: 90px; padding: 8px !important; font-size: 13px !important; height: 36px; border: 1px solid #ddd; border-radius: 4px; background: white; color: #282828; }
+.app-shell .osan-excel-table-scroll td input[aria-invalid="true"] { border-color: #c52630; background: #fff9f9; }
+.osan-excel-saved { background: #f0f8f2; }
+.osan-excel-success { color: #226a3b; }
+.osan-excel-confirm { border: 1px solid #d99e39; padding: 16px; border-radius: 8px; background: #fffaf0; }
+.osan-excel-confirm button + button { margin-left: 8px; }
+.osan-excel-table-scroll td:last-child, .osan-excel-table-scroll th:last-child { min-width: 180px; }
+.osan-excel-dialog .primary-button { background: #da2127; border-color: #da2127; }
+.app-shell .osan-dashboard .dialog.osan-excel-dialog { width: min(1100px, calc(100vw - 32px)); max-width: calc(100vw - 32px); font-size: 14px; line-height: 1.5; }
+.app-shell .osan-dashboard .osan-excel-dialog h2 { height: auto; font-size: 20px; line-height: 1.4; }
+.app-shell .osan-dashboard .osan-excel-dialog p { margin: 12px 0; }
+.app-shell .osan-dashboard .osan-excel-dialog .primary-button { background: #da2127 !important; border-color: #da2127 !important; color: #fff; }
+@media (max-width: 600px) {
+  .osan-excel-dialog { padding: 16px; }
+  .osan-excel-heading h2 { font-size: 18px; }
+}
+
+.app-shell .osan-excel-table-scroll .osan-excel-cell-value { display: block; width: 100%; min-height: 32px; height: auto; padding: 4px 0 !important; border: 0 !important; border-radius: 0; box-shadow: none; background: transparent !important; color: inherit; font: inherit; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.app-shell .osan-excel-table-scroll .osan-excel-cell-value:focus-visible { outline: 2px solid #888; outline-offset: 2px; }
+.app-shell .osan-excel-table-scroll .osan-excel-cell-value:disabled { opacity: 1; cursor: default; }
+.osan-excel-cell-empty { color: #888; }
+.osan-excel-invalid .osan-excel-cell-empty { color: #ad1821; }

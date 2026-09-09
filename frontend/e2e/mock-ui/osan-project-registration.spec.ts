@@ -310,6 +310,81 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(requestFailures).toEqual([]);
 });
 
+test('Osan Excel edits missing cells, saves valid rows and confirms duplicates', async ({ page }, testInfo) => {
+  const unexpected: string[] = [], consoleErrors: string[] = [];
+  page.on('pageerror', error => consoleErrors.push(error.message));
+  await installBackend(page, [], unexpected);
+  await page.addInitScript(() => window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN'));
+  let applied = false;
+  let releaseApply!: () => void;
+  const submitted: number[][] = [];
+  await page.route('**/api/osan/projects', route => fulfillJson(route, { items: applied ? [projectDetail()] : [] }));
+  await page.route('**/api/osan/projects/import/*', async route => {
+    const path = new URL(route.request().url()).pathname;
+    const body = route.request().postData() ?? '';
+    const edited = body.match(/name="rows"\r\n\r\n([\s\S]*?)\r\n--/);
+    const rows = edited ? JSON.parse(edited[1]) as Array<Record<string, unknown>> : [
+      { rowNumber: 2, ...projectDetail(), title: '' }, { rowNumber: 3, ...projectDetail() }
+    ];
+    if (path.endsWith('/template')) return route.fulfill({ status: 200, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: 'synthetic template response' });
+    if (path.endsWith('/preview')) return fulfillJson(route, {
+      supportsRowEditing: true, fileSha256: 'synthetic-file-hash', totalRowCount: rows.length, totalQuantity: 2 * rows.length, errorCount: rows.filter(row => !row.title).length, errors: [],
+      rows: rows.map(row => ({ ...row, errors: row.title ? [] : ['프로젝트명 필요'], duplicateKind: applied && row.title ? 'identical' : null }))
+    });
+    if (path.endsWith('/apply')) {
+      const rowNumbers = rows.map(row => Number(row.rowNumber)); submitted.push(rowNumbers);
+      expect(body).toContain('synthetic-file-hash');
+      if (!applied) await new Promise<void>(resolve => { releaseApply = resolve; });
+      else expect(body).toContain('[2]');
+      applied = true;
+      return fulfillJson(route, { operationId: 'synthetic-operation', replayed: false, createdCount: rows.length, projectIds: [projectId], createdRowNumbers: rowNumbers });
+    }
+    throw new Error(`Unexpected import route: ${path}`);
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/projects');
+  await page.getByRole('button', { name: '엑셀 업로드', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '오산 프로젝트 엑셀 업로드' });
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '엑셀 양식 다운로드' }).click();
+  expect((await downloadPromise).suggestedFilename()).toBe('EMI_오산_프로젝트_등록양식.xlsx');
+  await dialog.getByLabel('작성한 엑셀 파일').setInputFiles({ name: 'projects.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic workbook') });
+  await dialog.getByRole('button', { name: '내용 미리보기' }).click();
+  await expect(dialog.getByLabel('2행 프로젝트명')).toHaveText('입력 필요');
+  await expect(dialog.getByRole('textbox')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('osan-excel-edit-desktop.png'), fullPage: true });
+  await dialog.getByRole('button', { name: '1개 프로젝트 등록' }).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => submitted.length).toBe(1);
+  await page.keyboard.press('Tab');
+  expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();
+  releaseApply();
+  await expect(dialog.getByLabel('3행 프로젝트명')).toBeDisabled();
+  await expect(dialog.getByLabel('2행 프로젝트명')).toBeEnabled();
+  await dialog.getByLabel('2행 프로젝트명').click();
+  await dialog.getByLabel('2행 프로젝트명').fill(projectDetail().title);
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('textbox')).toHaveCount(0);
+  await page.keyboard.press('Tab');
+  expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('osan-excel-partial-mobile.png'), fullPage: true });
+  await dialog.getByRole('button', { name: '1개 프로젝트 등록' }).click();
+  await expect(dialog.getByRole('region', { name: '중복 프로젝트 확인' })).toBeVisible();
+  expect(submitted).toEqual([[3]]);
+  await page.screenshot({ path: testInfo.outputPath('osan-excel-duplicate-mobile.png'), fullPage: true });
+  await dialog.getByRole('button', { name: '중복 포함 1개 등록' }).click();
+  await expect(dialog.getByLabel('2행 프로젝트명')).toBeDisabled();
+  expect(submitted).toEqual([[3], [2]]);
+  await dialog.getByRole('button', { name: '닫기', exact: true }).click();
+  await expect(page.getByTestId('osan-project-list-mobile')).toBeVisible();
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  expect(unexpected).toEqual([]); expect(consoleErrors).toEqual([]);
+});
+
 async function installBackend(page: Page, postedBodies: Array<Record<string, unknown>>, unexpectedRequests: string[]) {
   let projectCreated = false;
   await page.route('http://localhost:5080/**', async (route) => {

@@ -1,11 +1,16 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.OsanProjects;
+using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Security;
 using ImageMagick;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -38,7 +43,7 @@ public sealed class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(6, endpoints.Length);
+        Assert.Equal(9, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -69,6 +74,23 @@ public sealed class OsanProjectRegistrationApiTests
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);
+        var excelRoutes = endpoints.Where(endpoint =>
+            endpoint.RoutePattern.RawText?.StartsWith(
+                "/api/osan/projects/import/",
+                StringComparison.Ordinal) == true).ToArray();
+        Assert.Equal(3, excelRoutes.Length);
+        Assert.All(excelRoutes, endpoint => Assert.Contains(
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => string.Equals(
+                authorization.Policy,
+                QmsPolicies.ProjectCreate,
+                StringComparison.Ordinal)));
+        Assert.All(excelRoutes.Where(endpoint =>
+            endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Post,
+                StringComparer.OrdinalIgnoreCase) == true), endpoint => Assert.Equal(
+                    OsanProjectExcelParser.MaximumMultipartBytes,
+                    endpoint.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize));
 
         var dashboard = Assert.Single(factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>(), endpoint =>
@@ -165,6 +187,360 @@ public sealed class OsanProjectRegistrationApiTests
             1,
             Guid.NewGuid()));
         Assert.Equal(6, lengthErrors.Count);
+    }
+
+    [Fact]
+    public async Task ExcelParser_TemplatePreservesTextAndRejectsUnsafeOrLossyWorkbooks()
+    {
+        var parser = new OsanProjectExcelParser();
+        var template = parser.CreateTemplate();
+        using (var workbook = new XLWorkbook(new MemoryStream(template)))
+        {
+            var sheet = Assert.Single(workbook.Worksheets);
+            Assert.Equal(
+                ["프로젝트 Title *", "프로젝트 코드 *", "거래처 *", "PO No", "W/O No", "납기일 *", "제품명 *", "수량 *"],
+                Enumerable.Range(1, 8).Select(column => sheet.Cell(3, column).GetString()));
+            Assert.DoesNotContain(sheet.RowsUsed(), row => row.RowNumber() > 3);
+        }
+
+        var valid = CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            AddExcelRow(workbook.Worksheet(1), 2, "  Title  Case ", " 00Ab  01 ", " Customer ",
+                " 001-PO ", " 000-W/O ", new DateOnly(2026, 12, 31), " Product  X ", 2);
+        });
+        var parsed = await parser.ParseAsync(Upload("valid.xlsx", valid), TestContext.Current.CancellationToken);
+        Assert.Empty(parsed.Errors);
+        var parsedRow = Assert.Single(parsed.Rows);
+        Assert.Equal("00Ab  01", parsedRow.ProjectCode);
+        Assert.Equal("001-PO", parsedRow.PoNumber);
+        Assert.Equal("000-W/O", parsedRow.WorkOrderNumber);
+        Assert.Equal("Title  Case", parsedRow.Title);
+
+        var fractional = CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            foreach (var (row, value) in new[] { (2, 1.4), (3, -0.4), (4, 500.4) })
+            {
+                AddExcelRow(workbook.Worksheet(1), row, $"Fraction {row}", $"FRACTION-{row}", "Customer",
+                    null, null, new DateOnly(2026, 12, 31), "Product", value);
+                workbook.Worksheet(1).Cell(row, 8).Style.NumberFormat.Format = "0";
+            }
+        });
+        var fractionalParsed = await parser.ParseAsync(
+            Upload("fractional.xlsx", fractional), TestContext.Current.CancellationToken);
+        Assert.All(fractionalParsed.Rows, row => Assert.Contains("수량은 정수여야 합니다.", row.Errors));
+
+        var formula = CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            AddExcelRow(workbook.Worksheet(1), 2, "Formula", "FORMULA-1", "Customer", null, null,
+                new DateOnly(2026, 12, 31), "Product", 1);
+            workbook.Worksheet(1).Cell(2, 8).FormulaA1 = "=1";
+        });
+        Assert.Contains("Excel Formula는 사용할 수 없습니다.",
+            (await parser.ParseAsync(Upload("formula.xlsx", formula), TestContext.Current.CancellationToken)).Errors);
+
+        var external = AddExternalRelationship(valid);
+        Assert.Contains("외부 링크가 포함된 Excel은 업로드할 수 없습니다.",
+            (await parser.ParseAsync(Upload("external.xlsx", external), TestContext.Current.CancellationToken)).Errors);
+
+        var hiddenLarge = CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            AddExcelRow(workbook.Worksheet(1), 2, "Visible", "VISIBLE-1", "Customer", null, null,
+                new DateOnly(2026, 12, 31), "Product", 1);
+            var hidden = workbook.AddWorksheet("Hidden");
+            hidden.Visibility = XLWorksheetVisibility.Hidden;
+            for (var row = 1; row <= 10001; row++) hidden.Cell(row, 1).Value = row;
+        });
+        var relocatedHiddenLarge = RelocateWorksheetPart(
+            hiddenLarge,
+            "xl/worksheets/sheet2.xml",
+            "xl/extra/hidden.dat");
+        Assert.Contains("Excel 사용 범위가 허용값을 초과했습니다.",
+            (await parser.ParseAsync(
+                Upload("hidden.xlsx", relocatedHiddenLarge), TestContext.Current.CancellationToken)).Errors);
+
+        var hugeQuantities = CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            AddExcelRow(workbook.Worksheet(1), 2, "Huge A", "HUGE-A", "Customer", null, null,
+                new DateOnly(2026, 12, 31), "Product", int.MaxValue);
+            AddExcelRow(workbook.Worksheet(1), 3, "Huge B", "HUGE-B", "Customer", null, null,
+                new DateOnly(2026, 12, 31), "Product", int.MaxValue);
+        });
+        var preview = await new OsanProjectStore(
+                new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build()), parser)
+            .PreviewExcelAsync(Upload("huge.xlsx", hugeQuantities), TestContext.Current.CancellationToken);
+        Assert.Equal(0, preview.TotalQuantity);
+        Assert.True(preview.ErrorCount > 0);
+        Assert.All(preview.Rows, row => Assert.Contains("quantity", row.FieldErrors!.Keys));
+    }
+
+    [Fact]
+    public async Task ExcelStore_AppliesWholeBatchReplaysAndSerializesReversedCodeCompetition()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await database.ExecuteAsync($"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values ('{UserId:D}', 'osan-excel-test', 'Osan Excel Test',
+                    '89000000-0000-0000-0000-000000000010', true);
+            """, TestContext.Current.CancellationToken);
+
+        var parser = new OsanProjectExcelParser();
+        var store = new OsanProjectStore(provider, parser);
+        var file = Upload("batch.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 2), ("Excel B", "Bb-002", 3)]));
+        var preview = await store.PreviewExcelAsync(file, TestContext.Current.CancellationToken);
+        Assert.Equal(2, preview.TotalRowCount);
+        Assert.Equal(5, preview.TotalQuantity);
+        Assert.Equal(0, preview.ErrorCount);
+        Assert.Equal(["00Aa  01", "Bb-002"], preview.Rows.Select(row => row.ProjectCode));
+
+        var operationId = Guid.NewGuid();
+        var created = await store.ApplyExcelAsync(
+            file, file.FileSha256, operationId, UserId, TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, created.Status);
+        Assert.False(created.Value!.Replayed);
+        Assert.Equal(2, created.Value.CreatedCount);
+        Assert.Equal(5L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_targets;", TestContext.Current.CancellationToken));
+        Assert.Equal(35L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_target_steps;", TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_events where event_type='ProjectCreated';",
+            TestContext.Current.CancellationToken));
+        var firstDetail = await store.GetAsync(created.Value.ProjectIds[0], TestContext.Current.CancellationToken);
+        Assert.NotNull(firstDetail);
+        Assert.Equal(2, firstDetail.Quantity);
+        Assert.Equal(2, firstDetail.Targets.Count);
+        Assert.All(firstDetail.Targets, target => Assert.Equal(7, target.Steps.Count));
+
+        var replayed = await store.ApplyExcelAsync(
+            file, file.FileSha256, operationId, UserId, TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, replayed.Status);
+        Assert.True(replayed.Value!.Replayed);
+        Assert.Equal(created.Value.ProjectIds, replayed.Value.ProjectIds);
+
+        var narrowedReplay = await store.ApplyExcelAsync(
+            file,
+            file.FileSha256,
+            operationId,
+            UserId,
+            [ToExcelRowRequest(preview.Rows[0])],
+            new HashSet<int>(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.OperationConflict, narrowedReplay.Status);
+
+        var changed = Upload("changed.xlsx", CreateBatchExcel([("Changed", "CHANGED-1", 1)]));
+        Assert.Equal(OsanProjectExcelApplyStatus.FileChanged,
+            (await store.ApplyExcelAsync(changed, file.FileSha256, Guid.NewGuid(), UserId,
+                TestContext.Current.CancellationToken)).Status);
+        Assert.Equal(OsanProjectExcelApplyStatus.OperationConflict,
+            (await store.ApplyExcelAsync(changed, changed.FileSha256, operationId, UserId,
+                TestContext.Current.CancellationToken)).Status);
+
+        var duplicateFile = Upload("duplicate.xlsx", CreateBatchExcel([("Dup A", "DUP-1", 1), ("Dup B", "DUP-1", 1)]));
+        var duplicatePreview = await store.PreviewExcelAsync(duplicateFile, TestContext.Current.CancellationToken);
+        Assert.Equal(0, duplicatePreview.ErrorCount);
+        Assert.All(duplicatePreview.Rows, row => Assert.Equal("code", row.DuplicateKind));
+        var duplicateOperationId = Guid.NewGuid();
+        var confirmationRequired = await store.ApplyExcelAsync(
+            duplicateFile,
+            duplicateFile.FileSha256,
+            duplicateOperationId,
+            UserId,
+            duplicatePreview.Rows.Select(ToExcelRowRequest).ToArray(),
+            new HashSet<int>(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.ConfirmationRequired, confirmationRequired.Status);
+        Assert.Equal([2, 3], confirmationRequired.ConfirmationRowNumbers);
+        var confirmedDuplicate = await store.ApplyExcelAsync(
+            duplicateFile,
+            duplicateFile.FileSha256,
+            duplicateOperationId,
+            UserId,
+            duplicatePreview.Rows.Select(ToExcelRowRequest).ToArray(),
+            new HashSet<int> { 2, 3 },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, confirmedDuplicate.Status);
+        Assert.Equal([2, 3], confirmedDuplicate.Value!.CreatedRowNumbers);
+        Assert.Equal(2L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code='DUP-1';",
+            TestContext.Current.CancellationToken));
+
+        var existing = Upload("existing.xlsx", CreateBatchExcel([("Existing", "00Aa  01", 1)]));
+        var existingPreview = await store.PreviewExcelAsync(existing, TestContext.Current.CancellationToken);
+        Assert.Equal(0, existingPreview.ErrorCount);
+        Assert.Equal("code", Assert.Single(existingPreview.Rows).DuplicateKind);
+        var identical = Upload("identical.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 2)]));
+        Assert.Equal("identical", Assert.Single((await store.PreviewExcelAsync(
+            identical,
+            TestContext.Current.CancellationToken)).Rows).DuplicateKind);
+
+        var invalid = Upload("invalid.xlsx", CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            AddExcelRow(workbook.Worksheet(1), 2, "Valid", "ATOMIC-VALID", "Customer", null, null,
+                new DateOnly(2026, 12, 31), "Product", 1);
+            AddExcelRow(workbook.Worksheet(1), 3, " ", "ATOMIC-INVALID", "Customer", null, null,
+                new DateOnly(2026, 12, 31), "Product", 1);
+        }));
+        Assert.Equal(OsanProjectExcelApplyStatus.Validation,
+            (await store.ApplyExcelAsync(invalid, invalid.FileSha256, Guid.NewGuid(), UserId,
+                TestContext.Current.CancellationToken)).Status);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code like 'ATOMIC-%';",
+            TestContext.Current.CancellationToken));
+
+        var editable = Upload("editable.xlsx", CreateBatchExcel([
+            ("Edit A", "EDIT-A", 1),
+            ("Edit B", "EDIT-B", 1),
+            ("Edit C", "EDIT-C", 1),
+            ("Edit D", "EDIT-D", 1)
+        ]));
+        var editedRows = new[]
+        {
+            new OsanProjectExcelRowRequest(2, "Edited  Title", "00Edit  A", "Customer", "001-PO", null,
+                "2027-01-02", "Edited Product", 2),
+            new OsanProjectExcelRowRequest(3, " ", "EDIT-B", "Customer", null, null,
+                "2027-01-03", "Product", 1)
+        };
+        var editedPreview = await store.PreviewExcelAsync(
+            editable,
+            editedRows,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2, editedPreview.Rows.Count);
+        Assert.Empty(editedPreview.Rows[0].Errors);
+        Assert.Equal("Edited  Title", editedPreview.Rows[0].Title);
+        Assert.Contains("title", editedPreview.Rows[1].FieldErrors!.Keys);
+        var rawInvalidPreview = await store.PreviewExcelAsync(
+            editable,
+            [
+                editedRows[0],
+                editedRows[1] with { Title = "Invalid date", DeliveryDate = "", Quantity = 1 },
+                new OsanProjectExcelRowRequest(4, "Invalid date", "EDIT-C", "Customer", null, null,
+                    "2027-13-40", "Product", 1),
+                new OsanProjectExcelRowRequest(5, "Invalid quantity", "EDIT-D", "Customer", null, null,
+                    "2027-01-04", "Product", 1.4m)
+            ],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2, rawInvalidPreview.TotalQuantity);
+        Assert.Empty(rawInvalidPreview.Rows[0].Errors);
+        Assert.Contains("deliveryDate", rawInvalidPreview.Rows[1].FieldErrors!.Keys);
+        Assert.Contains("deliveryDate", rawInvalidPreview.Rows[2].FieldErrors!.Keys);
+        Assert.Contains("quantity", rawInvalidPreview.Rows[3].FieldErrors!.Keys);
+        var partial = await store.ApplyExcelAsync(
+            editable,
+            editable.FileSha256,
+            Guid.NewGuid(),
+            UserId,
+            [editedRows[0]],
+            new HashSet<int>(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, partial.Status);
+        Assert.Equal([2], partial.Value!.CreatedRowNumbers);
+        Assert.Equal(1L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code='00Edit  A' and project_title='Edited  Title';",
+            TestContext.Current.CancellationToken));
+        var remainingPreview = await store.PreviewExcelAsync(
+            editable,
+            [editedRows[1] with { Title = "Fixed B" }],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, Assert.Single(remainingPreview.Rows).RowNumber);
+        Assert.Equal(0, remainingPreview.ErrorCount);
+
+        var reversedA = Upload("reverse-a.xlsx", CreateBatchExcel([("R A", "LOCK-A", 1), ("R B", "LOCK-B", 1)]));
+        var reversedB = Upload("reverse-b.xlsx", CreateBatchExcel([("R B", "LOCK-B", 1), ("R A", "LOCK-A", 1)]));
+        var reverseOperationA = Guid.NewGuid();
+        var reverseOperationB = Guid.NewGuid();
+        var competing = await Task.WhenAll(
+            store.ApplyExcelAsync(reversedA, reversedA.FileSha256, reverseOperationA, UserId,
+                TestContext.Current.CancellationToken),
+            store.ApplyExcelAsync(reversedB, reversedB.FileSha256, reverseOperationB, UserId,
+                TestContext.Current.CancellationToken));
+        Assert.Single(competing, result => result.Status == OsanProjectExcelApplyStatus.Success);
+        Assert.Single(competing, result => result.Status == OsanProjectExcelApplyStatus.ConfirmationRequired);
+        Assert.Equal(2L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code in ('LOCK-A','LOCK-B');",
+            TestContext.Current.CancellationToken));
+        var retryFile = competing[0].Status == OsanProjectExcelApplyStatus.ConfirmationRequired
+            ? reversedA
+            : reversedB;
+        var retryOperation = competing[0].Status == OsanProjectExcelApplyStatus.ConfirmationRequired
+            ? reverseOperationA
+            : reverseOperationB;
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, (await store.ApplyExcelAsync(
+            retryFile,
+            retryFile.FileSha256,
+            retryOperation,
+            UserId,
+            null,
+            new HashSet<int> { 2, 3 },
+            TestContext.Current.CancellationToken)).Status);
+        Assert.Equal(4L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code in ('LOCK-A','LOCK-B');",
+            TestContext.Current.CancellationToken));
+
+        var writeCountsBefore = await database.ReadScalarAsync<long>(
+            """
+            select (select count(*) from projects)
+                 + (select count(*) from osan_project_targets)
+                 + (select count(*) from osan_project_target_steps)
+                 + (select count(*) from user_project_access)
+                 + (select count(*) from osan_project_events)
+                 + (select count(*) from osan_project_create_operations);
+            """,
+            TestContext.Current.CancellationToken);
+        await database.ExecuteAsync(
+            """
+            create function fail_second_osan_excel_project_for_test()
+            returns trigger language plpgsql as $$
+            begin
+                if new.project_code = 'MID-B' then
+                    raise exception 'synthetic_second_excel_project_failure';
+                end if;
+                return new;
+            end $$;
+            create trigger trg_fail_second_osan_excel_project_for_test
+            before insert on projects
+            for each row execute function fail_second_osan_excel_project_for_test();
+            """,
+            TestContext.Current.CancellationToken);
+        var middleFailureOperationId = Guid.NewGuid();
+        var middleFailure = Upload(
+            "middle-failure.xlsx",
+            CreateBatchExcel([("Middle A", "MID-A", 1), ("Middle B", "MID-B", 1)]));
+        var middleFailureException = await Assert.ThrowsAsync<PostgresException>(() => store.ApplyExcelAsync(
+            middleFailure,
+            middleFailure.FileSha256,
+            middleFailureOperationId,
+            UserId,
+            TestContext.Current.CancellationToken));
+        Assert.Contains("synthetic_second_excel_project_failure", middleFailureException.MessageText, StringComparison.Ordinal);
+        Assert.Equal(writeCountsBefore, await database.ReadScalarAsync<long>(
+            """
+            select (select count(*) from projects)
+                 + (select count(*) from osan_project_targets)
+                 + (select count(*) from osan_project_target_steps)
+                 + (select count(*) from user_project_access)
+                 + (select count(*) from osan_project_events)
+                 + (select count(*) from osan_project_create_operations);
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code in ('MID-A','MID-B');",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_create_operations where operation_id=@operation_id;",
+            TestContext.Current.CancellationToken,
+            ("operation_id", middleFailureOperationId)));
     }
 
     [Fact]
@@ -332,6 +708,16 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Empty((await store.ListAsync(
             new Emi.Qms.Api.Projects.ProjectAccessScope(false, []),
             TestContext.Current.CancellationToken)).Items);
+
+        await database.ExecuteAsync(
+            "update projects set deleted_at_utc=now() where id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId));
+        var softDeletedCodeConflict = await store.CreateAsync(
+            Normalize(ValidRequest(title: "Deleted code remains reserved", projectCode: "OSAN-001")),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectCreateStatus.ProjectCodeConflict, softDeletedCodeConflict.Status);
     }
 
     [Fact]
@@ -1249,6 +1635,163 @@ public sealed class OsanProjectRegistrationApiTests
             productName,
             quantity,
             operationId ?? Guid.NewGuid());
+
+    private static UploadedExcelFile Upload(string fileName, byte[] content) =>
+        new(
+            fileName,
+            content.Length,
+            Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant(),
+            content);
+
+    private static OsanProjectExcelRowRequest ToExcelRowRequest(OsanProjectExcelPreviewRowResponse row) =>
+        new(
+            row.RowNumber,
+            row.Title,
+            row.ProjectCode,
+            row.CustomerName,
+            row.PoNumber,
+            row.WorkOrderNumber,
+            row.DeliveryDate,
+            row.ProductName,
+            row.Quantity);
+
+    private static byte[] CreateBatchExcel(IReadOnlyList<(string Title, string Code, int Quantity)> rows) =>
+        CreateOsanExcel(workbook =>
+        {
+            var sheet = workbook.Worksheet(1);
+            AddExcelHeaders(sheet);
+            for (var index = 0; index < rows.Count; index++)
+            {
+                var row = rows[index];
+                AddExcelRow(
+                    sheet,
+                    index + 2,
+                    row.Title,
+                    row.Code,
+                    "Customer",
+                    $"00{index + 1}-PO",
+                    $"00{index + 1}-W/O",
+                    new DateOnly(2026, 12, 31),
+                    "Product",
+                    row.Quantity);
+            }
+        });
+
+    private static byte[] CreateOsanExcel(Action<XLWorkbook> configure)
+    {
+        using var workbook = new XLWorkbook();
+        workbook.AddWorksheet("Projects");
+        configure(workbook);
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static void AddExcelHeaders(IXLWorksheet sheet)
+    {
+        var headers = new[]
+        {
+            "프로젝트 Title", "프로젝트 코드", "거래처", "PO No", "W/O No", "납기일", "제품명", "수량"
+        };
+        for (var index = 0; index < headers.Length; index++) sheet.Cell(1, index + 1).Value = headers[index];
+    }
+
+    private static void AddExcelRow(
+        IXLWorksheet sheet,
+        int row,
+        string title,
+        string code,
+        string customer,
+        string? po,
+        string? workOrder,
+        DateOnly deliveryDate,
+        string product,
+        double quantity)
+    {
+        sheet.Cell(row, 1).Value = title;
+        sheet.Cell(row, 2).Value = code;
+        sheet.Cell(row, 3).Value = customer;
+        sheet.Cell(row, 4).Value = po;
+        sheet.Cell(row, 5).Value = workOrder;
+        sheet.Cell(row, 6).Value = deliveryDate.ToDateTime(TimeOnly.MinValue);
+        sheet.Cell(row, 7).Value = product;
+        sheet.Cell(row, 8).Value = quantity;
+    }
+
+    private static byte[] AddExternalRelationship(byte[] source)
+    {
+        using var output = new MemoryStream();
+        output.Write(source);
+        output.Position = 0;
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            var entry = Assert.Single(archive.Entries, item =>
+                string.Equals(item.FullName, "_rels/.rels", StringComparison.OrdinalIgnoreCase));
+            string xml;
+            using (var reader = new StreamReader(entry.Open(), Encoding.UTF8)) xml = reader.ReadToEnd();
+            entry.Delete();
+            var replacement = archive.CreateEntry("_rels/.rels");
+            using var writer = new StreamWriter(replacement.Open(), new UTF8Encoding(false));
+            writer.Write(xml.Replace(
+                "</Relationships>",
+                "<Relationship Id=\"external-test\" Type=\"urn:test\" Target=\"https://example.invalid\" TargetMode = \"Exter&#110;al\"/></Relationships>",
+                StringComparison.Ordinal));
+        }
+        return output.ToArray();
+    }
+
+    private static byte[] RelocateWorksheetPart(byte[] source, string originalPath, string replacementPath)
+    {
+        using var output = new MemoryStream();
+        output.Write(source);
+        output.Position = 0;
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            var original = Assert.Single(archive.Entries, item =>
+                string.Equals(item.FullName, originalPath, StringComparison.OrdinalIgnoreCase));
+            byte[] content;
+            using (var input = original.Open())
+            using (var copied = new MemoryStream())
+            {
+                input.CopyTo(copied);
+                content = copied.ToArray();
+            }
+            original.Delete();
+            var replacement = archive.CreateEntry(replacementPath);
+            using (var replacementStream = replacement.Open()) replacementStream.Write(content);
+
+            RewriteZipTextEntry(
+                archive,
+                "xl/_rels/workbook.xml.rels",
+                text => text.Replace(
+                    "worksheets/sheet2.xml",
+                    replacementPath["xl/".Length..],
+                    StringComparison.Ordinal));
+            RewriteZipTextEntry(
+                archive,
+                "[Content_Types].xml",
+                text => text.Replace(
+                    "/xl/worksheets/sheet2.xml",
+                    $"/{replacementPath}",
+                    StringComparison.Ordinal));
+        }
+        return output.ToArray();
+    }
+
+    private static void RewriteZipTextEntry(
+        ZipArchive archive,
+        string path,
+        Func<string, string> rewrite)
+    {
+        var entry = Assert.Single(archive.Entries, item =>
+            string.Equals(item.FullName, path, StringComparison.OrdinalIgnoreCase));
+        string text;
+        using (var reader = new StreamReader(entry.Open(), Encoding.UTF8)) text = reader.ReadToEnd();
+        entry.Delete();
+        var replacement = archive.CreateEntry(path);
+        using var writer = new StreamWriter(replacement.Open(), new UTF8Encoding(false));
+        writer.Write(rewrite(text));
+    }
 
     private static NormalizedCreateOsanProjectInput Normalize(CreateOsanProjectRequest request)
     {

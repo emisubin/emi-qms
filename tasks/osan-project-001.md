@@ -1,5 +1,7 @@
 # TASK-OSAN-PROJECT-001 — 오산 프로젝트 등록과 진행 대상 생성
 
+현재 후속 작업: [Change 007 — 미리보기 편집·부분 등록·중복 확인](osan-project-001-change-007.md). 사용자가 Change006 검수 중 요청한 보정을 진행한다. 아래 최초 등록 기능의 검수 완료와 구분한다.
+
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - status: `USER_VALIDATION_COMPLETE`
 - userValidationStatus: `COMPLETE`

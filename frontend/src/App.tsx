@@ -12,6 +12,7 @@ import { ManufacturingPage } from './ManufacturingPage';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
+import { OsanListFrame } from './OsanListFrame';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -2351,7 +2352,7 @@ function QmsAppShellContent({
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
       data-osan-project-theme={isOsan && (view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
-      data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home') ? 'true' : undefined}
+      data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
 
@@ -2369,7 +2370,7 @@ function QmsAppShellContent({
               aria-label="EMI PMS 모바일 로고로 홈 이동"
               onClick={() => setView({ kind: 'home' })}
             >
-              <img className="app-brand-logo" src={isOsan && (view.kind === 'osan-progress' || view.kind === 'home') ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
+              <img className="app-brand-logo" src={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list') ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
             </button>
             <span>
               <small>EMI PROJECT</small>
@@ -4358,39 +4359,14 @@ function OsanProjectListPage({
   };
 
   return (
-    <ProjectListPageComposition
-      desktopTitle="프로젝트 목록"
-      mobileTitle="현장 프로젝트"
-      mobileDescription="납기를 먼저 보고 필요한 프로젝트를 선택하세요."
-      renderActions={(isMobile) => canCreate ? (
-        <div className={isMobile ? 'mobile-page-actions' : 'button-row page-export-actions'}>
-          <button type="button" className="primary-button" onClick={onCreate}>{isMobile ? '+ 프로젝트' : '신규 프로젝트'}</button>
-        </div>
-      ) : undefined}
-      filters={{
-        search,
-        dateFrom,
-        dateTo,
-        desktopSearchPlaceholder: '거래처, 제품명, 프로젝트 코드, 프로젝트 Title 검색',
-        mobileSearchPlaceholder: '거래처, 제품명, 코드, Title',
-        onSearchChange: setSearch,
-        onDateFromChange: setDateFrom,
-        onDateToChange: setDateTo,
-        onReset: resetFilters
-      }}
-      kpis={[
-        { title: '전체 프로젝트', value: projects.length, helperText: '등록 프로젝트' },
-        { title: '시작 전', value: projects.filter((project) => project.status === 'NotStarted').length, helperText: '진행 시작 전' },
-        { title: '완료', value: projects.filter((project) => project.status === 'Completed').length, helperText: '전체 단계 완료', variant: 'positive' }
-      ]}
-      tabs={[
-        { value: 'All', label: '전체' },
-        { value: 'NotStarted', label: '시작 전' },
-        { value: 'InProgress', label: '진행 중' },
-        { value: 'Completed', label: '완료' }
-      ]}
-      activeTab={tab}
-      onTabChange={(value) => setTab(value as 'All' | 'NotStarted' | 'InProgress' | 'Completed')}
+    <OsanListFrame
+      title="프로젝트"
+      description="프로젝트 정보를 확인하고 새 프로젝트를 등록합니다."
+      counts={state.kind === 'loading' || state.kind === 'error' || state.kind === 'forbidden' ? null : [projects.length, projects.filter(p => p.status === 'NotStarted').length, projects.filter(p => p.status === 'InProgress').length, projects.filter(p => p.status === 'Completed').length]}
+      search={search} onSearchChange={setSearch} onSearch={() => setSearch(search.trim())}
+      status={tab} onStatusChange={value => setTab(value as typeof tab)} onReset={resetFilters}
+      filters={<><label>시작일 <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>종료일 <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label></>}
+      actions={canCreate ? <button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button> : undefined}
     >
       {state.kind === 'loading' ? (
         <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
@@ -4462,7 +4438,7 @@ function OsanProjectListPage({
           }))}
         />
       ) : null}
-    </ProjectListPageComposition>
+    </OsanListFrame>
   );
 }
 

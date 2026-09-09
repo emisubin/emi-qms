@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from './api';
 import { getOsanDashboard, type OsanDashboardResponse, type OsanDashboardStatus } from './osanDashboard';
-import filterIcon from './assets/osan-dashboard-filter.png';
+import { OsanListFrame } from './OsanListFrame';
 import backIcon from './assets/osan-dashboard-back.png';
 import forwardIcon from './assets/osan-dashboard-forward.png';
 import './osan-dashboard.css';
@@ -19,7 +19,6 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
   const isHome = view === 'home';
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState({ search: '', status: 'All' as OsanDashboardStatus, page: 1 });
-  const [filterOpen, setFilterOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ query: typeof query; state: State }>({ query, state: { kind: 'loading' } });
   const state: State = result.query === query ? result.state : { kind: 'loading' };
@@ -51,29 +50,15 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
   const totalPages = data ? Math.max(1, Math.ceil(data.totalCount / data.pageSize)) : 1;
   const counts = data ? [data.summary.totalCount, data.summary.notStartedCount, data.summary.inProgressCount, data.summary.completedCount] : null;
   const reset = () => { setDraft(''); setQuery({ search: '', status: 'All', page: 1 }); };
-  return <section className={`osan-dashboard${isHome ? ' osan-home-dashboard' : ''}`} aria-labelledby="osan-dashboard-title">
-    <h1 id="osan-dashboard-title">{isHome ? '오산 홈' : '진행 현황'}</h1>
-    <p className="osan-dashboard-description">{isHome ? '납기가 빠른 순서입니다. 납기가 지난 완료 프로젝트는 홈에서 자동으로 제외됩니다.' : '프로젝트를 선택하면 해당 프로젝트의 진행 작업만 표시됩니다.'}</p>
-    <div className="osan-dashboard-summary" aria-label="프로젝트 요약">
-      {statuses.map((status, index) => <div key={status.value}><span>{status.label}</span><strong>{counts ? counts[index].toLocaleString() : '—'}</strong></div>)}
-    </div>
-    <h2>{isHome ? '납기순 프로젝트' : '프로젝트 목록'}</h2>
-    <div className="osan-dashboard-toolbar">
-      <form className="osan-dashboard-search" onSubmit={event => { event.preventDefault(); setQuery({ ...query, search: draft.trim(), page: 1 }); }}>
-        <input aria-label="프로젝트 검색" placeholder="프로젝트 검색" value={draft} maxLength={200} onChange={event => setDraft(event.target.value)} />
-        <button type="submit">검색</button>
-      </form>
-      <button type="button" className="osan-dashboard-filter" aria-expanded={filterOpen} aria-controls="osan-dashboard-filter-options" onClick={() => setFilterOpen(!filterOpen)}>
-        <img src={filterIcon} alt="" />필터{query.status !== 'All' && <span className="osan-dashboard-filter-active" aria-label="적용됨" />}
-      </button>
-    </div>
-    {filterOpen && <div className="osan-dashboard-filter-options" id="osan-dashboard-filter-options">
-      <label>상태 <select value={query.status} onChange={event => setQuery({ ...query, status: event.target.value as OsanDashboardStatus, page: 1 })}>
-        {statuses.map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
-      </select></label>
-      <button type="button" onClick={reset}>초기화</button>
-      <button type="button" onClick={() => setFilterOpen(false)}>닫기</button>
-    </div>}
+  return <OsanListFrame
+    className={isHome ? 'osan-home-dashboard' : ''}
+    title={isHome ? '오산 홈' : '진행 현황'}
+    description={isHome ? '납기가 빠른 순서입니다. 납기가 지난 완료 프로젝트는 홈에서 자동으로 제외됩니다.' : '프로젝트를 선택하면 해당 프로젝트의 진행 작업만 표시됩니다.'}
+    counts={counts} search={draft} onSearchChange={setDraft}
+    onSearch={() => setQuery({ ...query, search: draft.trim(), page: 1 })}
+    status={query.status} onStatusChange={value => setQuery({ ...query, status: value as OsanDashboardStatus, page: 1 })}
+    onReset={reset}
+  >
     <div className="osan-dashboard-results" aria-busy={state.kind === 'loading'}>
       {state.kind === 'loading' && <p role="status">진행 현황을 불러오는 중입니다.</p>}
       {state.kind === 'error' && <div role="alert"><p>{state.forbidden ? '진행 현황을 볼 권한이 없습니다.' : state.message}</p>
@@ -104,5 +89,5 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
       <span aria-live="polite">{data.page} / {totalPages}</span>
       <button type="button" aria-label="다음 페이지" disabled={data.page >= totalPages} onClick={() => setQuery({ ...query, page: data.page + 1 })}><img src={forwardIcon} alt="" /></button>
     </nav>}
-  </section>;
+  </OsanListFrame>;
 }

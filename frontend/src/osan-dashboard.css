@@ -59,7 +59,7 @@
 }
 
 /* Home uses the same project data, with a deadline-first card layout. */
-.app-shell .osan-home-dashboard .osan-dashboard-description { font-size: 12px; line-height: 18px; }
+.app-shell .osan-list-frame .osan-dashboard-description { font-size: 12px; line-height: 18px; min-height: 36px; }
 .app-shell .osan-home-dashboard .osan-dashboard-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
 .app-shell .osan-home-dashboard .osan-dashboard-project { height: 126px; }
 .app-shell .osan-home-dashboard .osan-dashboard-project-title { top: 14px; left: 14px; width: calc(100% - 28px); font-size: 14px; line-height: 18px; }
@@ -73,3 +73,12 @@
   .app-shell .osan-home-dashboard .osan-dashboard-list { grid-template-columns: minmax(0, 1fr); }
   .app-shell .osan-home-dashboard .osan-dashboard-stages > span { font-size: 9px; }
 }
+
+.app-shell .osan-list-frame .osan-list-heading { margin: 18px 0 16px; }
+.app-shell .osan-list-frame .osan-dashboard-toolbar { flex-wrap: wrap; }
+.app-shell .osan-list-frame { position: relative; }
+.app-shell .osan-list-actions { position: absolute; right: 24px; top: 16px; }
+.app-shell .osan-list-create { height: 26px; min-height: 26px !important; padding: 0 10px !important; font-size: 9px !important; border-radius: 6.8px !important; border: 0 !important; background: #da2127 !important; color: #fff !important; }
+@media (max-width: 860px) { .app-shell .osan-list-actions { top: 2px; } }
+.app-shell .osan-dashboard-filter-options label { white-space: nowrap; flex-shrink: 0; }
+.app-shell .osan-dashboard-filter-options input[type='date'] { width: 140px; min-width: 0; }

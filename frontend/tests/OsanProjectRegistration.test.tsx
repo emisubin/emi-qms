@@ -198,10 +198,9 @@ describe('Osan project registration', () => {
     render(<App />);
 
     const table = await screen.findByRole('table', { name: '오산 프로젝트 목록' });
-    const sharedPage = table.closest('[data-presentation-contract="project-list-page-v1"]');
+    const sharedPage = table.closest('[data-presentation-contract="osan-list-frame"]');
     expect(sharedPage).not.toBeNull();
-    expect(sharedPage).toHaveAttribute('data-presentation-layout', 'desktop');
-    expect(sharedPage).toHaveClass('page-surface', 'project-list-page');
+    expect(sharedPage).toHaveClass('osan-dashboard', 'osan-list-frame');
     expect(table).toHaveClass('project-list-table', 'project-list-desktop');
     const sharedList = table.closest('[data-presentation-contract="project-list-v1"]');
     expect(sharedList).not.toBeNull();
@@ -262,34 +261,25 @@ describe('Osan project registration', () => {
     render(<App />);
 
     const table = await screen.findByRole('table', { name: '오산 프로젝트 목록' });
-    const page = table.closest('[data-presentation-contract="project-list-page-v1"]');
+    const page = table.closest('[data-presentation-contract="osan-list-frame"]');
     expect(page).not.toBeNull();
     const directChildren = Array.from(page?.children ?? []);
     const directIndex = (selector: string) => directChildren.findIndex((element) => element.matches(selector));
-    expect(directIndex('.page-header')).toBeLessThan(directIndex('form.toolbar'));
-    expect(directIndex('form.toolbar')).toBeLessThan(directIndex('.project-kpi-grid'));
-    expect(directIndex('.project-kpi-grid')).toBeLessThan(directIndex('.tab-row'));
-    expect(directIndex('.tab-row')).toBeLessThan(directIndex('[data-presentation-contract="project-list-v1"]'));
-
+    expect(directIndex('h1')).toBeLessThan(directIndex('.osan-dashboard-description'));
+    expect(directIndex('.osan-dashboard-description')).toBeLessThan(directIndex('.osan-dashboard-summary'));
+    expect(directIndex('.osan-dashboard-summary')).toBeLessThan(directIndex('.osan-dashboard-toolbar'));
+    expect(directIndex('.osan-dashboard-toolbar')).toBeLessThan(directIndex('.osan-list-heading'));
     const summary = within(page as HTMLElement).getByLabelText('프로젝트 요약');
-    const kpiCards = within(summary).getAllByRole('article');
-    expect(kpiCards).toHaveLength(3);
-    expect(kpiCards[0]).toHaveTextContent('전체 프로젝트3등록 프로젝트');
-    expect(kpiCards[1]).toHaveTextContent('시작 전2진행 시작 전');
-    expect(kpiCards[2]).toHaveTextContent('완료1전체 단계 완료');
-
+    expect(Array.from(summary.children).map(item => item.textContent)).toEqual(['전체3', '시작 전2', '진행 중0', '완료1']);
     const pageQueries = within(page as HTMLElement);
-    const statusTabs = pageQueries.getByRole('tablist', { name: '프로젝트 상태' });
-    expect(within(statusTabs).getAllByRole('tab').map((item) => item.textContent)).toEqual(['전체', '시작 전', '진행 중', '완료']);
-    expect(pageQueries.queryByRole('tab', { name: '보류' })).not.toBeInTheDocument();
-    expect(pageQueries.queryByRole('tab', { name: '취소' })).not.toBeInTheDocument();
-    expect(pageQueries.queryByRole('tab', { name: '삭제' })).not.toBeInTheDocument();
+    fireEvent.click(pageQueries.getByRole('button', { name: '필터' }));
+    expect(pageQueries.getByRole('combobox', { name: '상태' })).toHaveValue('All');
     expect(pageQueries.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(page).not.toHaveTextContent('Excel');
     expect(page).not.toHaveTextContent('Pending');
     expect(page).not.toHaveTextContent('병목');
 
-    const searchInput = pageQueries.getByPlaceholderText('거래처, 제품명, 프로젝트 코드, 프로젝트 Title 검색');
+    const searchInput = pageQueries.getByRole('textbox', { name: '프로젝트 검색' });
     for (const query of ['완료 검색명', 'done-code', '두번째 거래처', '완료 제품']) {
       fireEvent.change(searchInput, { target: { value: query } });
       expect(within(table).getAllByRole('row')).toHaveLength(2);
@@ -302,8 +292,8 @@ describe('Osan project registration', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(within(table).getByText('완료 검색명')).toBeInTheDocument();
 
-    fireEvent.click(pageQueries.getByRole('button', { name: '필터 초기화' }));
-    fireEvent.click(pageQueries.getByRole('tab', { name: '시작 전' }));
+    fireEvent.click(pageQueries.getByRole('button', { name: '초기화' }));
+    fireEvent.change(pageQueries.getByRole('combobox', { name: '상태' }), { target: { value: 'NotStarted' } });
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     expect(within(table).queryByText('완료 검색명')).not.toBeInTheDocument();
 
@@ -311,7 +301,7 @@ describe('Osan project registration', () => {
     expect(await screen.findByText('조건에 맞는 프로젝트가 없습니다.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '검색 조건 초기화' }));
     expect(await screen.findByRole('table', { name: '오산 프로젝트 목록' })).toBeInTheDocument();
-    expect(pageQueries.getByRole('tab', { name: '전체' })).toHaveAttribute('aria-selected', 'true');
+    expect(pageQueries.getByRole('combobox', { name: '상태' })).toHaveValue('All');
     expect(within(screen.getByRole('table', { name: '오산 프로젝트 목록' })).getAllByRole('row')).toHaveLength(4);
 
     expect(fetchMock.mock.calls.filter(([input, init]) => (

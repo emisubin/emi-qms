@@ -60,3 +60,16 @@
   background: #f5f5f5 !important;
   border-color: #eee !important;
 }
+/* The shared frame owns its controls; only project-specific list content is themed here. */
+.app-shell[data-osan-project-theme='true'] .osan-list-frame :is(.project-list-table, .project-list-card) {
+  border-color: #eee !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+.app-shell[data-osan-project-theme='true'] .osan-list-frame .project-list-head {
+  background: #f5f5f5 !important;
+  color: #282828 !important;
+  border-color: #eee !important;
+}
+.app-shell[data-osan-project-theme='true'] .osan-list-frame .project-list-row { border-color: #eee !important; }

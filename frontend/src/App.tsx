@@ -13,6 +13,7 @@ import { OsanProgressPage } from './OsanProgressPage';
 import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
+import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
 import './osan-project-detail.css';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
@@ -4320,6 +4321,9 @@ function OsanProjectListPage({
   onOpen: (projectId: string) => void;
 }) {
   const [search, setSearch] = useState('');
+  const [excelOpen, setExcelOpen] = useState(false);
+  const [importRevision, setImportRevision] = useState(0);
+  const [importMessage, setImportMessage] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
@@ -4340,7 +4344,7 @@ function OsanProjectListPage({
     return () => controller.abort();
   }, [developmentUserKey]);
 
-  useEffect(() => load(), [load]);
+  useEffect(() => load(), [load, importRevision]);
 
   const projects = state.kind === 'ready' ? state.data : [];
   const normalizedSearch = search.trim().toLocaleLowerCase('ko-KR');
@@ -4367,8 +4371,12 @@ function OsanProjectListPage({
       search={search} onSearchChange={setSearch} onSearch={() => setSearch(search.trim())}
       status={tab} onStatusChange={value => setTab(value as typeof tab)} onReset={resetFilters}
       filters={<><label>시작일 <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>종료일 <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label></>}
-      actions={canCreate ? <button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button> : undefined}
+      actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
     >
+      {importMessage && <p role="status">{importMessage}</p>}
+      {excelOpen && canCreate && <OsanProjectExcelDialog developmentUserKey={developmentUserKey} onClose={() => setExcelOpen(false)} onApplied={count => {
+        setExcelOpen(false); setImportMessage(`${count}개 프로젝트를 등록했습니다.`); setImportRevision(value => value + 1);
+      }} />}
       {state.kind === 'loading' ? (
         <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
       ) : null}

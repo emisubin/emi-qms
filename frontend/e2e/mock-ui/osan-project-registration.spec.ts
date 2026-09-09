@@ -310,6 +310,70 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(requestFailures).toEqual([]);
 });
 
+test('Osan Excel previews errors and registers from the shared project menu on desktop and mobile', async ({ page }, testInfo) => {
+  const unexpected: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on('pageerror', error => consoleErrors.push(error.message));
+  await installBackend(page, [], unexpected);
+  await page.addInitScript(() => window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN'));
+  let applied = false;
+  let invalid = true;
+  let releaseApply!: () => void;
+  await page.route('**/api/osan/projects', route => fulfillJson(route, { items: applied ? [projectDetail()] : [] }));
+  await page.route('**/api/osan/projects/import/*', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/template')) return route.fulfill({ status: 200, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: 'synthetic template response' });
+    if (path.endsWith('/preview')) return fulfillJson(route, {
+      fileSha256: 'synthetic-file-hash', totalRowCount: 1, totalQuantity: 2, errorCount: invalid ? 1 : 0, errors: [],
+      rows: [{ rowNumber: 2, ...projectDetail(), errors: invalid ? ['이미 등록된 프로젝트 코드입니다.'] : [] }]
+    });
+    if (path.endsWith('/apply')) {
+      expect(route.request().postData()).toContain('synthetic-file-hash');
+      expect(route.request().postData()).toContain('operationId');
+      await new Promise<void>(resolve => { releaseApply = resolve; });
+      applied = true;
+      return fulfillJson(route, { operationId: 'synthetic-operation', replayed: false, createdCount: 1, projectIds: [projectId] });
+    }
+    throw new Error(`Unexpected import route: ${path}`);
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/projects');
+  await page.getByRole('button', { name: '엑셀 업로드', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '오산 프로젝트 엑셀 업로드' });
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '엑셀 양식 다운로드' }).click();
+  expect((await downloadPromise).suggestedFilename()).toBe('EMI_오산_프로젝트_등록양식.xlsx');
+  await dialog.getByLabel('작성한 엑셀 파일').setInputFiles({ name: 'projects.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic workbook') });
+  await dialog.getByRole('button', { name: '내용 미리보기' }).click();
+  await expect(dialog.getByRole('list', { name: '입력 오류 목록' })).toContainText('2행: 이미 등록된 프로젝트 코드입니다.');
+  await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('osan-excel-error-desktop.png'), fullPage: true });
+  invalid = false;
+  await dialog.getByLabel('작성한 엑셀 파일').setInputFiles({ name: 'corrected.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('corrected synthetic workbook') });
+  await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: '내용 미리보기' }).click();
+  await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toBeEnabled();
+  expect(await dialog.locator('tbody td').nth(1).textContent()).toBe('AbC  001');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('osan-excel-ready-mobile.png'), fullPage: true });
+  await dialog.getByRole('button', { name: '1개 프로젝트 등록' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: '등록 중…' })).toBeDisabled();
+  await page.keyboard.press('Tab');
+  expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  releaseApply();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: '1개 프로젝트를 등록했습니다.' })).toBeVisible();
+  await expect(page.getByTestId('osan-project-list-mobile')).toBeVisible();
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('osan-excel-success-mobile.png'), fullPage: true });
+  expect(unexpected).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 async function installBackend(page: Page, postedBodies: Array<Record<string, unknown>>, unexpectedRequests: string[]) {
   let projectCreated = false;
   await page.route('http://localhost:5080/**', async (route) => {

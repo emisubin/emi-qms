@@ -142,6 +142,7 @@ builder.Services.AddSingleton<NoticeStore>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
 builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddSingleton<OsanProjectExcelParser>();
 builder.Services.AddSingleton<OsanProjectStore>();
 OsanProgressPhotoValidator.ConfigureDecoderResourceLimits();
 builder.Services.AddSingleton<OsanProgressStore>();

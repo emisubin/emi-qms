@@ -91,3 +91,43 @@ public sealed record OsanProjectCreateResult(
     OsanProjectCreateResponse? Value = null);
 
 public sealed record OsanProjectAccessRecord(Guid ProjectId, string ProjectKey);
+
+public sealed record OsanProjectExcelPreviewResponse(
+    string FileSha256,
+    int TotalRowCount,
+    int TotalQuantity,
+    int ErrorCount,
+    IReadOnlyList<OsanProjectExcelPreviewRowResponse> Rows,
+    IReadOnlyList<string> Errors);
+
+public sealed record OsanProjectExcelPreviewRowResponse(
+    int RowNumber,
+    string? Title,
+    string? ProjectCode,
+    string? CustomerName,
+    string? PoNumber,
+    string? WorkOrderNumber,
+    DateOnly? DeliveryDate,
+    string? ProductName,
+    int? Quantity,
+    IReadOnlyList<string> Errors);
+
+public sealed record OsanProjectExcelApplyResponse(
+    Guid OperationId,
+    bool Replayed,
+    int CreatedCount,
+    IReadOnlyList<Guid> ProjectIds);
+
+public enum OsanProjectExcelApplyStatus
+{
+    Success,
+    Validation,
+    FileChanged,
+    ProjectCodeConflict,
+    OperationConflict
+}
+
+public sealed record OsanProjectExcelApplyResult(
+    OsanProjectExcelApplyStatus Status,
+    OsanProjectExcelApplyResponse? Value = null,
+    IReadOnlyDictionary<string, string[]>? Errors = null);

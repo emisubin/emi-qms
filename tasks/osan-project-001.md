@@ -1,5 +1,7 @@
 # TASK-OSAN-PROJECT-001 — 오산 프로젝트 등록과 진행 대상 생성
 
+현재 후속 작업: [Change 006 — 엑셀 양식과 일괄 등록](osan-project-001-change-006.md). 2026-09-09 사용자 추가 요청의 구현·관련 검증을 완료했고 사용자 검수를 기다린다. 아래 최초 등록 기능의 검수 완료와 구분한다.
+
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
 - status: `USER_VALIDATION_COMPLETE`
 - userValidationStatus: `COMPLETE`

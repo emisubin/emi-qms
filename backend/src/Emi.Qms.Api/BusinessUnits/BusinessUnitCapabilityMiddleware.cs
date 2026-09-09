@@ -115,6 +115,15 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
     {
         var segments = (remaining ?? string.Empty)
             .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 2
+            && string.Equals(segments[0], "import", StringComparison.OrdinalIgnoreCase))
+        {
+            return (HttpMethods.IsGet(method)
+                    && string.Equals(segments[1], "template", StringComparison.OrdinalIgnoreCase))
+                || (HttpMethods.IsPost(method)
+                    && (string.Equals(segments[1], "preview", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(segments[1], "apply", StringComparison.OrdinalIgnoreCase)));
+        }
         if (segments.Length == 0 || !Guid.TryParse(segments[0], out _))
         {
             return false;

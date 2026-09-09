@@ -9,6 +9,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Security;
 using Microsoft.AspNetCore.Http;
@@ -20,6 +21,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using ClosedXML.Excel;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
@@ -195,6 +197,266 @@ public sealed class BusinessUnitIsolationTests
                 legacyProvider.BusinessUnits.Businesses.Single(),
                 BusinessUnitConnectionPurpose.Runtime));
         Assert.Equal(implicitLegacy.ConnectionString, explicitLegacy.ConnectionString);
+    }
+
+    [Fact]
+    public async Task OsanExcelImport_ActualHttpPipelineEnforcesGuardPermissionAndAtomicCreation()
+    {
+        await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var environment = new TestEnvironment(databases.RepositoryRoot);
+        var migrationCatalog = new DatabaseMigrationCatalog(environment);
+        var inspector = new MigrationLedgerInspector(migrationCatalog);
+
+        await new DatabaseRoleBootstrapper(
+                databases.Configuration,
+                new DatabaseRuntimePrivilegeManager(),
+                NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(TestContext.Current.CancellationToken);
+        await ApplyExistingCheongjuSchemaAsync(
+            databases,
+            migrationCatalog,
+            TestContext.Current.CancellationToken);
+        await ApplyPartialOsanSchemaAsync(
+            databases,
+            migrationCatalog,
+            TestContext.Current.CancellationToken);
+        await new DatabaseMigrationRunner(
+                provider,
+                migrationCatalog,
+                new DatabaseRuntimePrivilegeManager(),
+                databases.Configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await new DevelopmentIdentitySeeder(
+                provider,
+                databases.Configuration,
+                environment,
+                NullLogger<DevelopmentIdentitySeeder>.Instance,
+                inspector)
+            .SeedAsync(TestContext.Current.CancellationToken);
+        databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_identities (
+                user_id, auth_provider, external_subject, display_name, is_active)
+            values
+                ('{AdminUserId:D}', 'Dev', 'dev-admin', 'Dev System Administrator', true),
+                ('{SalesUserId:D}', 'Dev', 'dev-sales', 'Dev Sales User', true),
+                ('{ManufacturingUserId:D}', 'Dev', 'dev-manufacturing', 'Dev Manufacturing User', true),
+                ('50000000-0000-0000-0000-000000000007', 'Dev', 'dev-viewer', 'Dev Read Only User', true)
+            on conflict (user_id) do nothing;
+
+            insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
+            values
+                ('{AdminUserId:D}', 'CHEONGJU', true),
+                ('{SalesUserId:D}', 'OSAN', true),
+                ('{ManufacturingUserId:D}', 'CHEONGJU', true),
+                ('50000000-0000-0000-0000-000000000007', 'OSAN', true)
+            on conflict (user_id, business_unit_code) do update
+            set is_active = true, updated_at_utc = now();
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into user_roles (user_id, role_id)
+            select '{AdminUserId:D}', id from roles where code='sales'
+            on conflict do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            delete from role_permissions
+            where role_id = (select id from roles where code='sales')
+              and permission_id = (select id from permissions where code='Project.Read.All');
+            """,
+            TestContext.Current.CancellationToken);
+
+        using var factory = QmsWebApplicationFactory.Create(
+            DevelopmentFeaturePolicy.TestingEnvironmentName,
+            databases.ConfigurationValues,
+            includeDefaultDevelopmentAuthentication: true);
+        using var client = factory.CreateClient();
+
+        using (var templateRequest = Request(
+                   HttpMethod.Get,
+                   "/api/osan/projects/import/template",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var templateResponse = await client.SendAsync(
+                   templateRequest,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.True(
+                templateResponse.StatusCode == HttpStatusCode.OK,
+                await templateResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                templateResponse.Content.Headers.ContentType?.MediaType);
+        }
+
+        var workbookBytes = CreateOsanImportWorkbook();
+        string fileSha256;
+        using (var previewRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/preview",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            previewRequest.Content = CreateOsanImportContent(workbookBytes);
+            using var previewResponse = await client.SendAsync(
+                previewRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+            var preview = await previewResponse.Content.ReadFromJsonAsync<OsanProjectExcelPreviewResponse>(
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(preview);
+            Assert.Equal(0, preview.ErrorCount);
+            Assert.Equal(2, preview.TotalRowCount);
+            Assert.Equal(3, preview.TotalQuantity);
+            fileSha256 = preview.FileSha256;
+        }
+
+        OsanProjectExcelApplyResponse applied;
+        var applyOperationId = Guid.NewGuid();
+        using (var applyRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            applyRequest.Content = CreateOsanImportContent(workbookBytes, fileSha256, applyOperationId);
+            using var applyResponse = await client.SendAsync(applyRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+            applied = Assert.IsType<OsanProjectExcelApplyResponse>(
+                await applyResponse.Content.ReadFromJsonAsync<OsanProjectExcelApplyResponse>(
+                    TestContext.Current.CancellationToken));
+            Assert.Equal(2, applied.CreatedCount);
+        }
+
+        using (var replayRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            replayRequest.Content = CreateOsanImportContent(workbookBytes, fileSha256, applyOperationId);
+            using var replayResponse = await client.SendAsync(replayRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
+            var replayed = await replayResponse.Content.ReadFromJsonAsync<OsanProjectExcelApplyResponse>(
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(replayed);
+            Assert.True(replayed.Replayed);
+            Assert.Equal(applied.ProjectIds, replayed.ProjectIds);
+        }
+
+        using (var detailRequest = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{applied.ProjectIds[0]:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var detailResponse = await client.SendAsync(detailRequest, TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+            var detail = await detailResponse.Content.ReadFromJsonAsync<OsanProjectDetailResponse>(
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(detail);
+            Assert.Equal(2, detail.Targets.Count);
+            Assert.All(detail.Targets, target => Assert.Equal(7, target.Steps.Count));
+        }
+
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from user_project_access
+            where user_id='{SalesUserId:D}'
+              and project_id = any(array[{string.Join(",", applied.ProjectIds.Select(id => $"'{id:D}'::uuid"))}]);
+            """,
+            TestContext.Current.CancellationToken);
+        using (var revokedReplayRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            revokedReplayRequest.Content = CreateOsanImportContent(
+                workbookBytes,
+                fileSha256,
+                applyOperationId);
+            using var revokedReplayResponse = await client.SendAsync(
+                revokedReplayRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, revokedReplayResponse.StatusCode);
+            var body = await revokedReplayResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.All(applied.ProjectIds, projectId =>
+                Assert.DoesNotContain(projectId.ToString("D"), body, StringComparison.OrdinalIgnoreCase));
+        }
+
+        using (var deniedPermission = Request(
+                   HttpMethod.Get,
+                   "/api/osan/projects/import/template",
+                   "dev-viewer",
+                   BusinessUnitCodes.Osan))
+        using (var deniedResponse = await client.SendAsync(deniedPermission, TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
+        }
+
+        using (var wrongBusinessUnit = Request(
+                   HttpMethod.Get,
+                   "/api/osan/projects/import/template",
+                   "dev-admin",
+                   BusinessUnitCodes.Cheongju))
+        using (var wrongBusinessUnitResponse = await client.SendAsync(
+                   wrongBusinessUnit,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, wrongBusinessUnitResponse.StatusCode);
+            Assert.Contains(
+                "business_unit_capability_disabled",
+                await wrongBusinessUnitResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+                StringComparison.Ordinal);
+        }
+
+        foreach (var (method, path) in new[]
+                 {
+                     (HttpMethod.Post, "/api/osan/projects/import/template"),
+                     (HttpMethod.Get, "/api/osan/projects/import/preview"),
+                     (HttpMethod.Get, "/api/osan/projects/import/apply"),
+                     (HttpMethod.Post, "/api/osan/projects/import/unknown")
+                 })
+        {
+            using var rejected = Request(method, path, "dev-sales", BusinessUnitCodes.Osan);
+            using var rejectedResponse = await client.SendAsync(rejected, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, rejectedResponse.StatusCode);
+        }
+
+        using var reviewSafeFactory = QmsWebApplicationFactory.Create(
+            Environments.Development,
+            new Dictionary<string, string?>
+            {
+                ["ReviewSafe:Enabled"] = "true",
+                ["DevAuthentication:Enabled"] = "true",
+                ["DevelopmentData:SeedEnabled"] = "false",
+                ["Database:ApplyMigrationsOnStartup"] = "false"
+            },
+            includeDefaultDevelopmentAuthentication: true);
+        using var reviewSafeClient = reviewSafeFactory.CreateClient();
+        using var lockedRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/osan/projects/import/apply");
+        using var lockedResponse = await reviewSafeClient.SendAsync(
+            lockedRequest,
+            TestContext.Current.CancellationToken);
+        Assert.Equal((HttpStatusCode)423, lockedResponse.StatusCode);
     }
 
     [Fact]
@@ -4222,6 +4484,52 @@ public sealed class BusinessUnitIsolationTests
             request.Headers.Add(BusinessUnitHeaderNames.Selection, businessUnit);
         }
         return request;
+    }
+
+    private static byte[] CreateOsanImportWorkbook()
+    {
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.AddWorksheet("Projects");
+        var headers = new[]
+        {
+            "프로젝트 Title", "프로젝트 코드", "거래처", "PO No", "W/O No", "납기일", "제품명", "수량"
+        };
+        for (var index = 0; index < headers.Length; index++) sheet.Cell(1, index + 1).Value = headers[index];
+        for (var row = 2; row <= 3; row++)
+        {
+            sheet.Cell(row, 1).Value = $"HTTP Excel {row}";
+            sheet.Cell(row, 2).Value = $"HTTP-EXCEL-{row}";
+            sheet.Cell(row, 3).Value = "Synthetic Customer";
+            sheet.Cell(row, 4).Value = $"00{row}-PO";
+            sheet.Cell(row, 5).Value = $"00{row}-W/O";
+            sheet.Cell(row, 6).Value = new DateTime(2026, 12, row);
+            sheet.Cell(row, 7).Value = "Synthetic Product";
+            sheet.Cell(row, 8).Value = row == 2 ? 2 : 1;
+        }
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static MultipartFormDataContent CreateOsanImportContent(
+        byte[] workbook,
+        string? expectedFileSha256 = null,
+        Guid? operationId = null)
+    {
+        var content = new MultipartFormDataContent();
+        var file = new ByteArrayContent(workbook);
+        file.Headers.ContentType = new(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(file, "file", "osan-import.xlsx");
+        if (expectedFileSha256 is not null)
+        {
+            content.Add(new StringContent(expectedFileSha256), "expectedFileSha256");
+        }
+        if (operationId is not null)
+        {
+            content.Add(new StringContent(operationId.Value.ToString("D")), "operationId");
+        }
+        return content;
     }
 
     private static MultipartFormDataContent CreateProgressCompletionContent(

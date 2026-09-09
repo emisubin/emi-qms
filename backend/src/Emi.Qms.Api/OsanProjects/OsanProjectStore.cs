@@ -1,15 +1,178 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Projects;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed class OsanProjectStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class OsanProjectStore
 {
     private const string OsanProjectCodeConstraint = "ux_projects_osan_project_code";
+    private readonly DatabaseConnectionStringProvider connectionStringProvider;
+    private readonly OsanProjectExcelParser excelParser;
+
+    public OsanProjectStore(DatabaseConnectionStringProvider connectionStringProvider)
+        : this(connectionStringProvider, new OsanProjectExcelParser())
+    {
+    }
+
+    public OsanProjectStore(
+        DatabaseConnectionStringProvider connectionStringProvider,
+        OsanProjectExcelParser excelParser)
+    {
+        this.connectionStringProvider = connectionStringProvider;
+        this.excelParser = excelParser;
+    }
+
+    public byte[] CreateExcelTemplate() => excelParser.CreateTemplate();
+
+    public async Task<OsanProjectExcelPreviewResponse> PreviewExcelAsync(
+        UploadedExcelFile file,
+        CancellationToken cancellationToken)
+    {
+        var parsed = await excelParser.ParseAsync(file, cancellationToken);
+        var built = BuildExcelPreview(parsed);
+        if (built.NormalizedRows.Count > 0)
+        {
+            var existingCodes = await ReadExistingProjectCodesAsync(
+                built.NormalizedRows.Select(row => row.Input.ProjectCode),
+                cancellationToken);
+            built = AddExistingCodeErrors(built, existingCodes);
+        }
+        return built.Response;
+    }
+
+    public async Task<OsanProjectExcelApplyResult> ApplyExcelAsync(
+        UploadedExcelFile file,
+        string expectedFileSha256,
+        Guid operationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(file.FileSha256, expectedFileSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return new OsanProjectExcelApplyResult(OsanProjectExcelApplyStatus.FileChanged);
+        }
+
+        var parsed = await excelParser.ParseAsync(file, cancellationToken);
+        var built = BuildExcelPreview(parsed);
+        if (built.Response.ErrorCount > 0)
+        {
+            return new OsanProjectExcelApplyResult(
+                OsanProjectExcelApplyStatus.Validation,
+                Errors: ToApplyErrors(built.Response));
+        }
+
+        var rows = built.NormalizedRows;
+        var fingerprints = rows.Select((row, index) =>
+            CreateExcelFingerprint(file.FileSha256, operationId, index, row.Input)).ToArray();
+        var operationIds = rows.Select((_, index) =>
+            index == 0 ? operationId : CreateDerivedOperationId(operationId, index)).ToArray();
+
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var rootCreated = await TryCreateOperationAsync(
+                connection,
+                transaction,
+                operationIds[0],
+                fingerprints[0],
+                userId,
+                cancellationToken);
+            if (!rootCreated)
+            {
+                var replay = await ReadExcelReplayAsync(
+                    connection,
+                    transaction,
+                    operationIds,
+                    fingerprints,
+                    userId,
+                    cancellationToken);
+                if (replay is null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new OsanProjectExcelApplyResult(OsanProjectExcelApplyStatus.OperationConflict);
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                return new OsanProjectExcelApplyResult(
+                    OsanProjectExcelApplyStatus.Success,
+                    new OsanProjectExcelApplyResponse(operationId, true, replay.Count, replay));
+            }
+
+            var existingCodes = await ReadExistingProjectCodesAsync(
+                connection,
+                transaction,
+                rows.Select(row => row.Input.ProjectCode),
+                cancellationToken);
+            if (existingCodes.Count > 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new OsanProjectExcelApplyResult(OsanProjectExcelApplyStatus.ProjectCodeConflict);
+            }
+
+            var projectIds = new Guid?[rows.Count];
+            var insertionOrder = Enumerable.Range(0, rows.Count)
+                .OrderBy(index => rows[index].Input.ProjectCode, StringComparer.Ordinal)
+                .ThenBy(index => index)
+                .ToArray();
+            foreach (var index in insertionOrder)
+            {
+                if (index > 0 && !await TryCreateOperationAsync(
+                        connection,
+                        transaction,
+                        operationIds[index],
+                        fingerprints[index],
+                        userId,
+                        cancellationToken))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new OsanProjectExcelApplyResult(OsanProjectExcelApplyStatus.OperationConflict);
+                }
+
+                var row = rows[index];
+                var projectId = Guid.NewGuid();
+                await InsertProjectAsync(connection, transaction, projectId, row.Input, userId, cancellationToken);
+                await InsertCreatorAccessAsync(connection, transaction, projectId, userId, cancellationToken);
+                await InsertTargetsAndStepsAsync(connection, transaction, projectId, row.Input, cancellationToken);
+                await InsertProjectEventAsync(connection, transaction, projectId, userId, cancellationToken);
+                await CompleteOperationAsync(
+                    connection,
+                    transaction,
+                    operationIds[index],
+                    projectId,
+                    cancellationToken);
+                projectIds[index] = projectId;
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            var orderedProjectIds = projectIds.Select(projectId => projectId!.Value).ToArray();
+            return new OsanProjectExcelApplyResult(
+                OsanProjectExcelApplyStatus.Success,
+                new OsanProjectExcelApplyResponse(
+                    operationId,
+                    false,
+                    orderedProjectIds.Length,
+                    orderedProjectIds));
+        }
+        catch (PostgresException exception)
+            when (exception.SqlState == PostgresErrorCodes.UniqueViolation
+                  && string.Equals(exception.ConstraintName, OsanProjectCodeConstraint, StringComparison.Ordinal))
+        {
+            await RollbackQuietlyAsync(transaction, cancellationToken);
+            return new OsanProjectExcelApplyResult(OsanProjectExcelApplyStatus.ProjectCodeConflict);
+        }
+        catch
+        {
+            await RollbackQuietlyAsync(transaction, cancellationToken);
+            throw;
+        }
+    }
 
     public async Task<OsanProjectListResponse> ListAsync(
         ProjectAccessScope accessScope,
@@ -177,6 +340,259 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
             await RollbackQuietlyAsync(transaction, cancellationToken);
             throw;
         }
+    }
+
+    private static ExcelPreviewBuild BuildExcelPreview(ParsedOsanProjectExcelFile parsed)
+    {
+        var normalizedRows = new List<ExcelNormalizedRow>();
+        var responseRows = new List<OsanProjectExcelPreviewRowResponse>(parsed.Rows.Count);
+        foreach (var row in parsed.Rows)
+        {
+            var errors = new List<string>(row.Errors);
+            var (input, normalizationErrors) = OsanProjectInputNormalizer.Normalize(
+                new CreateOsanProjectRequest(
+                    row.Title,
+                    row.ProjectCode,
+                    row.CustomerName,
+                    row.PoNumber,
+                    row.WorkOrderNumber,
+                    row.DeliveryDate,
+                    row.ProductName,
+                    row.Quantity,
+                    Guid.NewGuid()));
+            foreach (var (field, messages) in normalizationErrors)
+            {
+                errors.AddRange(messages.Select(message => $"{GetExcelFieldName(field)}: {message}"));
+            }
+
+            var response = new OsanProjectExcelPreviewRowResponse(
+                row.RowNumber,
+                input?.Title ?? row.Title,
+                input?.ProjectCode ?? row.ProjectCode,
+                input?.CustomerName ?? row.CustomerName,
+                input?.PoNumber ?? row.PoNumber,
+                input?.WorkOrderNumber ?? row.WorkOrderNumber,
+                input?.DeliveryDate ?? row.DeliveryDate,
+                input?.ProductName ?? row.ProductName,
+                input?.Quantity ?? row.Quantity,
+                errors.Distinct(StringComparer.Ordinal).ToArray());
+            responseRows.Add(response);
+            if (input is not null && response.Errors.Count == 0)
+            {
+                normalizedRows.Add(new ExcelNormalizedRow(responseRows.Count - 1, input));
+            }
+        }
+
+        var duplicateCodes = normalizedRows
+            .GroupBy(row => row.Input.ProjectCode, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        if (duplicateCodes.Count > 0)
+        {
+            foreach (var row in normalizedRows.Where(row => duplicateCodes.Contains(row.Input.ProjectCode)))
+            {
+                responseRows[row.ResponseIndex] = responseRows[row.ResponseIndex] with
+                {
+                    Errors = responseRows[row.ResponseIndex].Errors
+                        .Append("파일 안에서 프로젝트 코드가 중복되었습니다.")
+                        .ToArray()
+                };
+            }
+            normalizedRows.RemoveAll(row => duplicateCodes.Contains(row.Input.ProjectCode));
+        }
+
+        var fileErrors = parsed.Errors.ToList();
+        var totalQuantityValue = parsed.Rows.Sum(row => row.Quantity is > 0 ? (long)row.Quantity.Value : 0L);
+        var totalQuantity = (int)Math.Min(totalQuantityValue, int.MaxValue);
+        if (totalQuantity > OsanProjectExcelParser.MaximumTotalQuantity)
+        {
+            fileErrors.Add($"전체 수량은 최대 {OsanProjectExcelParser.MaximumTotalQuantity}개까지 허용됩니다.");
+            normalizedRows.Clear();
+        }
+
+        var responseValue = CreateExcelPreviewResponse(
+            parsed.FileSha256,
+            parsed.TotalRowCount,
+            totalQuantity,
+            responseRows,
+            fileErrors);
+        return new ExcelPreviewBuild(responseValue, normalizedRows);
+    }
+
+    private static ExcelPreviewBuild AddExistingCodeErrors(
+        ExcelPreviewBuild built,
+        IReadOnlySet<string> existingCodes)
+    {
+        if (existingCodes.Count == 0)
+        {
+            return built;
+        }
+
+        var rows = built.Response.Rows.ToArray();
+        foreach (var row in built.NormalizedRows.Where(row => existingCodes.Contains(row.Input.ProjectCode)))
+        {
+            rows[row.ResponseIndex] = rows[row.ResponseIndex] with
+            {
+                Errors = rows[row.ResponseIndex].Errors
+                    .Append("이미 등록된 프로젝트 코드입니다.")
+                    .ToArray()
+            };
+        }
+        var normalizedRows = built.NormalizedRows
+            .Where(row => !existingCodes.Contains(row.Input.ProjectCode))
+            .ToArray();
+        return new ExcelPreviewBuild(
+            CreateExcelPreviewResponse(
+                built.Response.FileSha256,
+                built.Response.TotalRowCount,
+                built.Response.TotalQuantity,
+                rows,
+                built.Response.Errors),
+            normalizedRows);
+    }
+
+    private static OsanProjectExcelPreviewResponse CreateExcelPreviewResponse(
+        string fileSha256,
+        int totalRowCount,
+        int totalQuantity,
+        IReadOnlyList<OsanProjectExcelPreviewRowResponse> rows,
+        IReadOnlyList<string> errors) =>
+        new(
+            fileSha256,
+            totalRowCount,
+            totalQuantity,
+            rows.Count(row => row.Errors.Count > 0) + errors.Count,
+            rows,
+            errors.Distinct(StringComparer.Ordinal).ToArray());
+
+    private static IReadOnlyDictionary<string, string[]> ToApplyErrors(
+        OsanProjectExcelPreviewResponse preview)
+    {
+        var errors = new Dictionary<string, string[]>();
+        if (preview.Errors.Count > 0)
+        {
+            errors["file"] = preview.Errors.ToArray();
+        }
+        foreach (var row in preview.Rows.Where(row => row.Errors.Count > 0))
+        {
+            errors[$"rows[{row.RowNumber}]"] = row.Errors.ToArray();
+        }
+        return errors;
+    }
+
+    private static string GetExcelFieldName(string field) => field switch
+    {
+        nameof(CreateOsanProjectRequest.Title) => "프로젝트명",
+        nameof(CreateOsanProjectRequest.ProjectCode) => "프로젝트 코드",
+        nameof(CreateOsanProjectRequest.CustomerName) => "거래처",
+        nameof(CreateOsanProjectRequest.PoNumber) => "PO",
+        nameof(CreateOsanProjectRequest.WorkOrderNumber) => "W/O",
+        nameof(CreateOsanProjectRequest.DeliveryDate) => "납기일",
+        nameof(CreateOsanProjectRequest.ProductName) => "제품명",
+        nameof(CreateOsanProjectRequest.Quantity) => "수량",
+        _ => field
+    };
+
+    private async Task<IReadOnlySet<string>> ReadExistingProjectCodesAsync(
+        IEnumerable<string> projectCodes,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await ReadExistingProjectCodesAsync(connection, null, projectCodes, cancellationToken);
+    }
+
+    private static async Task<IReadOnlySet<string>> ReadExistingProjectCodesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        IEnumerable<string> projectCodes,
+        CancellationToken cancellationToken)
+    {
+        var codes = projectCodes.Distinct(StringComparer.Ordinal).ToArray();
+        if (codes.Length == 0)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select project_code
+            from projects
+            where project_profile = 'Osan'
+              and deleted_at_utc is null
+              and project_code = any(@project_codes);
+            """;
+        command.Parameters.Add(new NpgsqlParameter<string[]>("project_codes", codes));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            existing.Add(reader.GetString(0));
+        }
+        return existing;
+    }
+
+    private static async Task<IReadOnlyList<Guid>?> ReadExcelReplayAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        IReadOnlyList<Guid> operationIds,
+        IReadOnlyList<string> fingerprints,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var projectIds = new List<Guid>(operationIds.Count);
+        for (var index = 0; index < operationIds.Count; index++)
+        {
+            var existing = await ReadOperationAsync(
+                connection,
+                transaction,
+                operationIds[index],
+                cancellationToken);
+            if (existing is null
+                || existing.CreatedByUserId != userId
+                || !string.Equals(existing.RequestFingerprint, fingerprints[index], StringComparison.Ordinal)
+                || existing.ProjectId is null)
+            {
+                return null;
+            }
+            projectIds.Add(existing.ProjectId.Value);
+        }
+        return projectIds;
+    }
+
+    private static string CreateExcelFingerprint(
+        string fileSha256,
+        Guid rootOperationId,
+        int rowIndex,
+        NormalizedCreateOsanProjectInput input)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            Kind = "OsanProjectExcelImport",
+            FileSha256 = fileSha256,
+            RootOperationId = rootOperationId,
+            RowIndex = rowIndex,
+            input.Title,
+            input.ProjectCode,
+            input.CustomerName,
+            input.PoNumber,
+            input.WorkOrderNumber,
+            DeliveryDate = input.DeliveryDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            input.ProductName,
+            input.Quantity
+        });
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
+    private static Guid CreateDerivedOperationId(Guid rootOperationId, int rowIndex)
+    {
+        var input = Encoding.UTF8.GetBytes($"osan-project-excel-operation|{rootOperationId:D}|{rowIndex}");
+        var bytes = SHA256.HashData(input).AsSpan(0, 16).ToArray();
+        bytes[7] = (byte)((bytes[7] & 0x0f) | 0x50);
+        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
+        return new Guid(bytes);
     }
 
     private static async Task<bool> TryCreateOperationAsync(
@@ -616,6 +1032,14 @@ public sealed class OsanProjectStore(DatabaseConnectionStringProvider connection
         string RequestFingerprint,
         Guid CreatedByUserId,
         Guid? ProjectId);
+
+    private sealed record ExcelNormalizedRow(
+        int ResponseIndex,
+        NormalizedCreateOsanProjectInput Input);
+
+    private sealed record ExcelPreviewBuild(
+        OsanProjectExcelPreviewResponse Response,
+        IReadOnlyList<ExcelNormalizedRow> NormalizedRows);
 
     private sealed class TargetBuilder(
         Guid targetId,

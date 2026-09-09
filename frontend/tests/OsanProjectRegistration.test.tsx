@@ -507,6 +507,7 @@ describe('Osan project registration', () => {
     render(<App />);
     expect(await screen.findByText('프로젝트를 볼 권한이 없습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '신규 프로젝트' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '엑셀 업로드' })).not.toBeInTheDocument();
   });
 
   it('requires projects.read as well as Project.Create for the button and direct create route', async () => {
@@ -522,6 +523,7 @@ describe('Osan project registration', () => {
     const listRender = render(<App />);
     expect(await screen.findByText('프로젝트를 볼 권한이 없습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '신규 프로젝트' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '엑셀 업로드' })).not.toBeInTheDocument();
     listRender.unmount();
 
     window.history.replaceState(null, '', '/projects/create');

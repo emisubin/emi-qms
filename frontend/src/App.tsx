@@ -9,6 +9,11 @@ import { MobileSheet } from './MobileSheet';
 import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
+import { OsanProgressPage } from './OsanProgressPage';
+import { OsanDashboardPage } from './OsanDashboardPage';
+import './osan-project-theme.css';
+import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
+import './osan-project-detail.css';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -202,8 +207,12 @@ import { getSiteAccessBrowserClientId, type SiteAccessMenuCode } from './siteAcc
 import authEllipse66 from './assets/auth-ellipse-66.svg';
 import authEllipse67 from './assets/auth-ellipse-67.svg';
 import emiLoginLogo from './assets/emi-logo.png';
+import emiInternalLogo from './assets/emi-logo-internal.png';
 import emiPmsProductLogo from './assets/emi-pms-product-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
+import authMobileMicrosoft from './assets/auth-mobile-microsoft.png';
+import authDesktopEmi from './assets/auth-desktop-emi.png';
+import authDesktopMicrosoft from './assets/auth-desktop-microsoft.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { NoticeBoardPage } from './NoticeBoardPage';
@@ -369,7 +378,7 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
-  | { kind: 'osan-progress' }
+  | { kind: 'osan-progress'; projectId?: string; targetId?: string }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
@@ -812,7 +821,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/progress') {
-    return { kind: 'osan-progress' };
+    return { kind: 'osan-progress', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined, targetId: new URLSearchParams(window.location.search).get('targetId') ?? undefined };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1433,7 +1442,7 @@ function pathForView(view: View) {
         level: view.level ?? undefined
       })}`;
     case 'osan-progress':
-      return '/progress';
+      return `/progress${queryString({ projectId: view.projectId, targetId: view.targetId })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}${view.section && view.section !== 'summary' ? `?tab=${view.section}` : ''}`;
     case 'list':
@@ -2331,7 +2340,7 @@ function QmsAppShellContent({
     ? [
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
+        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
       ]
     : cheongjuNavigationItems;
 
@@ -2343,6 +2352,8 @@ function QmsAppShellContent({
       className="app-shell"
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
+      data-osan-project-theme={isOsan && (view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
+      data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
 
@@ -2360,7 +2371,7 @@ function QmsAppShellContent({
               aria-label="EMI PMS 모바일 로고로 홈 이동"
               onClick={() => setView({ kind: 'home' })}
             >
-              <img className="app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
+              <img className="app-brand-logo" src={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
             </button>
             <span>
               <small>EMI PROJECT</small>
@@ -2541,7 +2552,7 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        isOsan ? <OsanAreaPlaceholder area="home" /> : <HomePage
+        isOsan ? <OsanDashboardPage view="home" developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'detail', projectId })} /> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
@@ -2630,7 +2641,17 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && view.kind === 'osan-progress' ? (
-        <OsanAreaPlaceholder area="progress" />
+        view.projectId ? <OsanProgressPage
+          key={`${selectedBusinessUnit}:${view.projectId}`}
+          projectId={view.projectId}
+          initialTargetId={view.targetId}
+          developmentUserKey={developmentUserKey}
+          mutationAllowed={mutationEnabled && canUpdateManufacturing}
+          onBack={() => setView({ kind: 'osan-progress' })}
+        /> : <OsanDashboardPage
+          developmentUserKey={developmentUserKey}
+          onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'pending-types' ? (
@@ -2706,6 +2727,7 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
           onBack={() => setView({ kind: 'list' })}
+          onOpenProgress={(targetId) => setView({ kind: 'osan-progress', projectId: view.projectId, targetId })}
         /> : <>
           {projectActionFeedback?.projectId === view.projectId ? (
             <section className="page-action-feedback route-action-feedback" aria-label="최근 저장 결과">
@@ -3808,6 +3830,8 @@ function authLoginCanvasScale() {
     return 1;
   }
 
+  if (window.innerWidth <= 860) return Math.min(1, window.innerWidth / 402);
+
   return Math.min(
     window.innerWidth / authLoginCanvasWidth,
     window.innerHeight / authLoginCanvasHeight
@@ -3836,7 +3860,7 @@ export function AuthInitializationScreen({ rememberSession = true }: { rememberS
   return <AuthLoginScreen loading rememberSession={rememberSession} />;
 }
 
-function AuthLoginScreen({
+export function AuthLoginScreen({
   loading = false,
   rememberSession,
   onRememberSessionChange,
@@ -3915,7 +3939,7 @@ function AuthGateMessage({
         </div>
         <span className="auth-brand-overlay" aria-hidden="true" />
         <div className="auth-brand-logo-canvas">
-          <img className="auth-brand-logo" src={emiLoginLogo} alt="EMI Electric Modular Innovation" />
+          <img className="auth-brand-logo" src={usesLoginLayout ? authDesktopEmi : emiLoginLogo} alt="EMI Electric Modular Innovation" />
         </div>
         <div className="auth-brand-pattern-canvas">
           <span className="auth-brand-dots" data-figma-node-id="1:181" aria-hidden="true" />
@@ -3931,13 +3955,19 @@ function AuthGateMessage({
             {!showsProductTitle ? <p className="auth-product-name">EMI PMS</p> : null}
             <h1 id="auth-gate-title" className={showsProductTitle ? 'auth-product-logo-heading' : undefined}>
               {showsProductTitle ? (
-                <img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />
+                <>
+                  <img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />
+                  {usesLoginLayout && <>
+                    <span className="auth-desktop-product-title">EMI 프로젝트 통합관리시스템</span>
+                    <span className="auth-mobile-product-title">EMI 프로젝트 통합정보시스템</span>
+                  </>}
+                </>
               ) : (
                 <span className="auth-gate-title-text">{title}</span>
               )}
             </h1>
             <div className="auth-microsoft-brand">
-              <img src={microsoftLogo} alt="Microsoft" />
+              <picture>{usesLoginLayout && <source media="(max-width: 860px)" srcSet={authMobileMicrosoft} />}<img src={usesLoginLayout ? authDesktopMicrosoft : microsoftLogo} alt="Microsoft" /></picture>
             </div>
             {message ? (
               <p className={usesLoginLayout ? 'auth-gate-message auth-login-guidance' : 'auth-gate-message'}>
@@ -3995,7 +4025,7 @@ function AuthGateMessage({
             '--auth-login-glass-blur': `${23.25 * loginCanvasScale}px`
           } as CSSProperties}
         >
-          {shell}
+          <div className="auth-login-composition">{shell}</div>
         </div>
       ) : shell}
     </main>
@@ -4292,7 +4322,7 @@ function OsanProjectListPage({
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [tab, setTab] = useState<'All' | 'Active' | 'Completed'>('All');
+  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4330,38 +4360,14 @@ function OsanProjectListPage({
   };
 
   return (
-    <ProjectListPageComposition
-      desktopTitle="프로젝트 목록"
-      mobileTitle="현장 프로젝트"
-      mobileDescription="납기를 먼저 보고 필요한 프로젝트를 선택하세요."
-      renderActions={(isMobile) => canCreate ? (
-        <div className={isMobile ? 'mobile-page-actions' : 'button-row page-export-actions'}>
-          <button type="button" className="primary-button" onClick={onCreate}>{isMobile ? '+ 프로젝트' : '신규 프로젝트'}</button>
-        </div>
-      ) : undefined}
-      filters={{
-        search,
-        dateFrom,
-        dateTo,
-        desktopSearchPlaceholder: '거래처, 제품명, 프로젝트 코드, 프로젝트 Title 검색',
-        mobileSearchPlaceholder: '거래처, 제품명, 코드, Title',
-        onSearchChange: setSearch,
-        onDateFromChange: setDateFrom,
-        onDateToChange: setDateTo,
-        onReset: resetFilters
-      }}
-      kpis={[
-        { title: '전체 프로젝트', value: projects.length, helperText: '등록 프로젝트' },
-        { title: '시작 전', value: projects.filter((project) => project.status === 'Active').length, helperText: '진행 시작 전' },
-        { title: '완료', value: projects.filter((project) => project.status === 'Completed').length, helperText: '전체 단계 완료', variant: 'positive' }
-      ]}
-      tabs={[
-        { value: 'All', label: '전체' },
-        { value: 'Active', label: '시작 전' },
-        { value: 'Completed', label: '완료' }
-      ]}
-      activeTab={tab}
-      onTabChange={(value) => setTab(value as 'All' | 'Active' | 'Completed')}
+    <OsanListFrame
+      title="프로젝트"
+      description="프로젝트 정보를 확인하고 새 프로젝트를 등록합니다."
+      counts={state.kind === 'loading' || state.kind === 'error' || state.kind === 'forbidden' ? null : [projects.length, projects.filter(p => p.status === 'NotStarted').length, projects.filter(p => p.status === 'InProgress').length, projects.filter(p => p.status === 'Completed').length]}
+      search={search} onSearchChange={setSearch} onSearch={() => setSearch(search.trim())}
+      status={tab} onStatusChange={value => setTab(value as typeof tab)} onReset={resetFilters}
+      filters={<><label>시작일 <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>종료일 <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label></>}
+      actions={canCreate ? <button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button> : undefined}
     >
       {state.kind === 'loading' ? (
         <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />
@@ -4419,7 +4425,7 @@ function OsanProjectListPage({
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
               { value: formatDate(project.deliveryDate), align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
-              { value: '0%', align: 'center' }
+              { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
               { label: '거래처', value: project.customerName },
@@ -4428,18 +4434,19 @@ function OsanProjectListPage({
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
               { label: '납기일', value: formatDate(project.deliveryDate) },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
-              { label: '진행률', value: '0%' }
+              { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
           }))}
         />
       ) : null}
-    </ProjectListPageComposition>
+    </OsanListFrame>
   );
 }
 
 function formatOsanProjectStatus(status: string) {
   if (status === 'Completed') return '완료';
-  if (status === 'Active') return '시작 전';
+  if (status === 'NotStarted' || status === 'Active') return '시작 전';
+  if (status === 'InProgress') return '진행 중';
   return status;
 }
 
@@ -4662,13 +4669,14 @@ function OsanProjectField({
 function OsanProjectDetailPage({
   developmentUserKey,
   projectId,
-  onBack
+  onBack,
+  onOpenProgress
 }: {
   developmentUserKey: string;
   projectId: string;
   onBack: () => void;
+  onOpenProgress: (targetId?: string) => void;
 }) {
-  const isMobile = useIsMobileViewport();
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4687,34 +4695,11 @@ function OsanProjectDetailPage({
   useEffect(() => load(), [load]);
 
   return (
-    <section className={isMobile ? 'page-surface mobile-first-page mobile-project-detail-page' : 'page-surface'}>
-      {state.kind === 'ready' && !isMobile ? (
-        <DsBreadcrumbs items={[{ label: '프로젝트', onClick: onBack }]} current={state.data.title} />
-      ) : null}
-      {state.kind === 'ready' ? (
-        <div className={isMobile ? 'mobile-detail-hero' : 'page-header'}>
-          <div>
-            {isMobile ? <button type="button" className="mobile-back-button" onClick={onBack}>← 프로젝트</button> : null}
-            <p className={isMobile ? 'eyebrow project-code-value' : 'eyebrow'}>
-              {isMobile ? state.data.projectCode : '프로젝트 상세'}
-            </p>
-            <h2>{state.data.title}</h2>
-            {isMobile ? (
-              <div className="mobile-detail-hero-meta">
-                <StatusBadge label={formatOsanProjectStatus(state.data.status)} tone={state.data.status === 'Completed' ? 'success' : 'neutral'} />
-                <span>{state.data.quantity.toLocaleString()}개 대상</span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <DsPageHeader
-          className="page-header"
-          eyebrow="OSAN"
-          title="프로젝트 상세"
-          actions={<button type="button" onClick={onBack}>목록으로</button>}
-        />
-      )}
+    <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
+      <header className="osan-detail-header">
+        <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
+          actions={<button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button>} />
+      </header>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
       {state.kind === 'not-found' ? <DsStatePanel kind="not-found" title="프로젝트를 찾을 수 없습니다." description={state.message} /> : null}
@@ -4726,25 +4711,15 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} /> : null}
+      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /> : null}
     </section>
   );
 }
 
-function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
-  const values = [
-    { label: '프로젝트 Title', value: project.title },
-    { label: '프로젝트 코드', value: project.projectCode, valueClassName: 'project-code-value' },
-    { label: '거래처', value: project.customerName },
-    { label: 'PO No', value: project.poNumber ?? '없음' },
-    { label: 'W/O No', value: project.workOrderNumber ?? '없음' },
-    { label: '납기일', value: project.deliveryDate },
-    { label: '제품명', value: project.productName },
-    { label: '수량', value: `${project.quantity.toLocaleString()}개` }
-  ];
+function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProjectDetail; onOpenTarget: (targetId: string) => void }) {
   const targetRows = project.targets.map((target) => {
     const completedSteps = target.steps.filter((step) => step.status === 'Completed').length;
-    const inProgress = target.steps.some((step) => step.status === 'InProgress') || completedSteps > 0;
+    const inProgress = completedSteps > 0;
     const completed = target.steps.length > 0 && completedSteps === target.steps.length;
     return {
       target,
@@ -4761,39 +4736,36 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
   const totalStepCount = targetRows.reduce((sum, row) => sum + row.target.steps.length, 0);
   const completedStepCount = targetRows.reduce((sum, row) => sum + row.completedSteps, 0);
   const completedTargetCount = targetRows.filter((row) => row.completedSteps > 0 && row.completedSteps === row.target.steps.length).length;
-  const statusItem = {
-    label: '상태',
-    value: <StatusBadge label={formatOsanProjectStatus(project.status)} tone={project.status === 'Completed' ? 'success' : 'neutral'} />
-  };
-  const progressItem = { label: '진행률', value: `${calculateProgressPercent(completedStepCount, totalStepCount)}%` };
-
   return (
     <>
-      <ProjectSummaryPresentation
-        primaryItems={[statusItem, values[2], values[6], values[5], values[7], progressItem]}
-        moreItems={[values[0], values[1], values[3], values[4]]}
-        mobileItems={[statusItem, ...values, progressItem]}
-        mobileAriaLabel="프로젝트 입력 정보"
-      />
-
-      <div className="section-switcher project-department-tabs" role="tablist" aria-label="프로젝트 상세 섹션">
-        <button
-          type="button"
-          role="tab"
-          id="osan-progress-tab"
-          aria-controls="osan-progress-panel"
-          aria-selected="true"
-          className="secondary-button active"
-        >
-          진행 관리
-        </button>
-      </div>
+      <section className="osan-detail-overview" aria-label="프로젝트 기본 정보">
+        <div className="osan-detail-identity">
+          <span className="osan-detail-status">{formatOsanProjectStatus(project.status)}</span>
+          <h2>{project.title}</h2>
+          <p className="project-code-value">{project.projectCode}</p>
+        </div>
+        <div className="osan-detail-facts">
+          <section aria-label="프로젝트 정보">
+            <h3>프로젝트 정보</h3>
+            <p><span>거래처</span><strong>{project.customerName}</strong></p>
+            <p><span>제품명</span><strong>{project.productName}</strong></p>
+            <p><span>수량</span><strong>{project.quantity.toLocaleString()}개</strong></p>
+          </section>
+          <section aria-label="문서 정보">
+            <h3>문서 정보</h3>
+            <p><span>PO No</span><strong>{project.poNumber ?? '없음'}</strong></p>
+            <p><span>W/O No</span><strong>{project.workOrderNumber ?? '없음'}</strong></p>
+          </section>
+          <section className="osan-detail-deadline" aria-label="납기일">
+            <h3>납기일</h3>
+            <time dateTime={project.deliveryDate}>{project.deliveryDate}</time>
+          </section>
+        </div>
+      </section>
 
       <div
         id="osan-progress-panel"
         className="project-detail-tab-content"
-        role="tabpanel"
-        aria-labelledby="osan-progress-tab"
         data-section="progress"
       >
         <ProjectDepartmentStatusBoard
@@ -4825,7 +4797,8 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
             stage: currentStage,
             completed: completedSteps,
             total: target.steps.length,
-            progressLabel: target.displayName
+            progressLabel: target.displayName,
+            onOpen: () => onOpenTarget(target.targetId)
           }))}
           tableAriaLabel="진행 관리 대상 현황"
           subjectColumnLabel="진행 대상"
@@ -4833,19 +4806,6 @@ function OsanProjectDetailContent({ project }: { project: OsanProjectDetail }) {
         />
       </div>
     </>
-  );
-}
-
-function OsanAreaPlaceholder({ area }: { area: 'home' | 'progress' }) {
-  const content = area === 'home'
-    ? ['오산 사업부 홈', '프로젝트와 진행 관리 메뉴에서 오산 사업부의 준비된 업무 범위를 확인할 수 있습니다.']
-    : ['오산 진행 관리', '오산에서는 G2, Pending, 보류와 취소를 사용하지 않습니다. 승인된 7단계 진행 화면은 후속 진행 Task에서 열립니다.'];
-
-  return (
-    <section className="panel-section osan-area-placeholder">
-      <DsPageHeader className="page-header" eyebrow="OSAN" title={content[0]} />
-      <DsEmptyState title="준비 중인 업무입니다." description={content[1]} />
-    </section>
   );
 }
 

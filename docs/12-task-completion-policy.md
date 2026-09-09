@@ -1,199 +1,55 @@
-# Task 종료 및 산출물 정책
+# 작업 완료·검토·게시 기준
 
-## 1. 목적과 적용 범위
+승인 권한은 [Root AGENTS](../AGENTS.md), 테스트 선택은 [검증표](development/validation-matrix.md)가 소유한다. 이 문서는 “무엇을 완료했다고 말할 수 있는가”를 정한다.
 
-이 문서는 EMI 프로젝트 통합관리시스템의 모든 Task에 적용하는 종료 기준의 canonical policy다. Product Roadmap은 제품 방향과 Task 상태의 source of truth이고, Task 종료 산출물·품질 gate·검수 상태 판정은 이 문서를 따른다.
+## 완료 기록
 
-작은 문서 수정, hotfix, 조사 Task를 포함한 모든 Task에 적용한다. 적용 대상이 없는 항목도 생략하지 않고 `N/A`와 이유를 기록한다.
+현재 Task 또는 최신 change 하나에 목적·승인 범위·실제 변경·검증 근거·남은 일을 기록한다. [기본 양식](../tasks/_templates/task-template.md)은 시작점이며 모든 작업에 동일 항목 수나 별도 파일 수를 강제하지 않는다.
 
-## 2. 필수 종료 산출물
+- 읽기 전용 질문·감사는 근거·결론·한계를 대화에 보고하면 끝난다.
+- 구현 작업은 사용자가 관찰할 완료 조건, 실제 검증 결과와 미실행 이유를 남긴다.
+- 사용자 행동이 바뀌면 안내와 검수 항목을, 반복 운영이 바뀌면 SOP를, 제품 순서가 바뀌면 Roadmap을 갱신한다.
+- 기존 보고/Task가 있으면 그 기록을 재사용한다. SOP·manual·블로그·5종 N/A·10개 완료 제목을 모든 작업에 만들지 않는다.
+- 과거 승인본·결정·작성 출처는 보존한다. 현재 기록을 갱신한 사실과 과거 결과를 구분한다.
 
-Task 종료 시 다음 5종 산출물의 상태와 위치를 추적할 수 있어야 한다.
+## 구분할 상태
 
-1. Implementation report
-2. SOP
-3. User manual
-4. Roadmap update
-5. User validation checklist
+| 상태 | 완료의 근거 |
+| --- | --- |
+| 구현 | 승인된 범위와 완료 조건이 실제 결과에 반영됨 |
+| 자동 검증 | 필요한 검사 결과를 해당 기준선에서 확인함. 미실행/실패는 따로 표시 |
+| 사용자 검수 | 사용자가 해당 결과·범위·환경을 확인했다는 근거. 실행 승인이나 자동 테스트는 대체 불가 |
+| 원격 반영 | push·PR·merge의 실제 Git 결과를 각각 기록 |
+| 배포 | 승인된 대상과 source의 실제 release·readiness 결과. 코드 병합과 별개 |
 
-다섯 개의 독립 파일을 반드시 생성한다는 의미는 아니다. 기존 Task 문서 또는 implementation report 안에 명확히 분리된 섹션으로 포함할 수 있다. 다만 implementation report 또는 Product Roadmap에서 각 산출물의 상태와 위치를 찾을 수 있어야 한다.
+사용자 검수 대기여도 필수 개발 검증과 review를 마친 local commit은 가능하다. 구현 완료와 사용자 최종 수락을 합쳐서 “모두 완료”라고 말하지 않는다. 게시가 요청됐지만 사용자 검수가 남았으면 Draft PR로 표시한다.
 
-- 각 산출물의 경로와 상태를 기록한다.
-- 독립 파일이 아니면 포함된 canonical 문서와 section을 기록한다.
-- 적용 대상이 없으면 `N/A`로 기록하고 구체적인 비적용 근거를 함께 쓴다. 단순 누락은 `N/A`가 아니다.
-- 산출물 링크는 현재 checkout에서 유효해야 한다.
-- 5종 산출물 중 하나라도 누락·미추적 상태이면 Task 완료로 판정하지 않는다.
+실험의 `EXPERIMENT_COMPLETE`는 명시한 scope의 개발·검증 완료다. `BATCHED_FINAL`은 마지막 일괄 사용자 검수 대기이며, 다음 개발로 진행할 수 있어도 사용자 검수·main·운영 반영 완료는 아니다. 완료 slice를 재구현하지 않는다. [실험 원장](27-experiment-task-ledger.md)은 이력 위치를 안내한다.
 
-## 3. Implementation report 필수 내용
+## 필요한 독립 검토
 
-기본 파일명은 `tasks/<task-id>-implementation-report.md`다. repository naming convention 때문에 다른 이름을 사용하면 Product Roadmap 또는 Task 문서에서 실제 위치를 link한다.
+권한·DB·동시성·운영/CI·공통 계약의 동작 변경과 큰 기능은 작성/구현과 분리된 reviewer가 검토한다. 작은 가역 변경은 직접 diff 확인과 관련 검증으로 충분하다.
 
-Implementation report에는 다음을 실제 수행 결과 기준으로 기록한다.
+1. 검토 기준은 Task의 시작 base, 전체 누적 diff, 포함 경로, 관련 계약과 검증 증거다. latest commit 한 개만 보고 Task 전체를 검토했다고 하지 않는다.
+2. 검토 중 대상 파일은 쓰지 않는다. committed 기준선이 기본이며, 완료 전 WIP 검토는 HEAD·allowlist·대상 파일 내용/hash로 고정할 수 있다. 검증용 임시 commit을 강제하지 않는다.
+3. reviewer는 **계약/완료 조건 충족**과 **구현 품질/회귀 위험**을 함께 판단한다. 형식 체크만 통과시켜서는 안 된다.
+4. 보정 후 수정분과 영향받는 경계를 다시 본다. 기존 지적·판정의 적용 범위를 연결하고 새로운 위험이 생기면 검토를 넓힌다.
+5. 검토 결과 기록만 추가했다면 그것 때문에 제품 전체 검증을 다시 실행하지 않는다. 실제 구현·계약 변경은 해당 증거를 갱신한다.
 
-- Task 목적, 배경, 포함·제외 범위
-- 전체 아키텍처와 Backend/Frontend/DB/Migration/API/UI·UX/권한/Workflow 영향
-- Excel/PDF/첨부파일 영향과 기존 기능 회귀 영향
-- 실제 변경 파일과 주요 파일의 역할
-- 실행한 자동 테스트, UAT와 사용자 검수 결과
-- 미실행 검증과 구체적인 미실행 이유
-- 개인정보·secret 검토 결과
-- known issue, 잔여 위험, 후속 Task와 운영 적용 전 checklist
-- rollback, 복구 또는 forward-fix 방법
-- 5종 종료 산출물의 상태와 위치
-- 코드 구현 사실과 live UAT 검증 사실의 구분
-- user validation checklist의 생성 여부와 사용자 완료 여부
+독립 수단을 못 쓰면 필수 독립 검토를 미완료로 표시한다. 맥락/모델의 실제 사용·한계는 [모델 방식](development/codex-model-workflow.md)을 따른다.
 
-변경 유형별 최소·영향·전체 테스트 선택은 [Validation Matrix](development/validation-matrix.md)를 따르고, Implementation report에는 이 매트릭스를 복사하지 않고 실제 적용 결과와 미실행 이유를 기록한다.
+## Finding 처리
 
-범위상 해당하지 않는 report 항목은 삭제하지 않고 `N/A`와 이유를 기록할 수 있다. 코드 전체 diff를 대형 Markdown 문서에 복사하지 않는다. 전체 코드는 repository와 Git diff를 source of truth로 두고 report는 구조, 결정, 위치와 검증 결과를 설명한다.
+| 심각도 | 처리 |
+| --- | --- |
+| P0/P1 | 영향받는 구현 완료·게시·병합을 차단하고 원인을 수정 |
+| P2 | 원칙적으로 수정. 예외 수용은 사용자 승인, risk owner, 이유·영향·완화책·재검토 시점·후속 항목을 기록 |
+| P3 | 명시적인 backlog 또는 후속 Task에 연결하고 진행 가능 |
 
-Migration이 포함된 Task는 migration 번호, additive/destructive 여부, rollback 또는 forward-fix 정책을 기록한다. 외부 알림 발송이나 데이터 변경이 포함된 검수는 사용자 승인 여부를 기록한다.
+각 Finding은 이름/ID, 원인·영향, 상태와 해소/후속 위치를 남긴다. 반복 횟수·보고서 길이·테스트 총수로 결함을 수용하지 않는다. 조사 결과를 보고한 것은 제품 결함을 해결한 것과 다르다. 해당 문제에 의존하지 않는 승인 작업은 계속한다.
 
-개발 블로그 소재를 추적할 수 있도록 다음 고정 섹션을 포함한다.
+## 마무리와 게시
 
-1. 해결한 업무 문제
-2. 기술적 결정과 검토한 대안
-3. 시행착오 및 폐기한 접근
-4. 사용자 검수 결과와 남은 항목
+필요한 검증·review와 포함 범위를 확인한 뒤, 승인된 완료 변경만 개별 경로로 stage하고 cached diff·secret·생성물·범위 밖 WIP를 확인해 local commit한다. 게시·병합·배포·정리는 Root의 각각 다른 승인 경계를 따른다.
 
-미실행 검증을 실행 완료처럼 표현하지 않는다. 체크리스트가 미완료이면 그 상태를 명시한다.
-
-## 4. 사용자 검수 상태
-
-user validation checklist는 자동 검증과 사용자 직접 확인 항목을 분리하고 다음 상태 중 하나로 관리한다.
-
-- `Checklist 작성됨`
-- `자동 검증 완료`
-- `사용자 검수 대기`
-- `사용자 검수 완료`
-- `사용자 검수 실패`
-- `적용 대상 아님`
-
-체크리스트가 존재한다는 이유만으로 사용자 검수 완료로 기록하지 않는다. 미체크 항목이 남은 checklist는 완료가 아니며, 사용자 검수 실패 또는 대기 상태를 성공으로 바꾸지 않는다. 사용자 검수 대기 중 PR이 필요하면 상태를 명시한 draft PR만 허용하고 Task 완료·merge는 별도 gate를 따른다.
-
-### 4.1 실험 개발 완료와 마지막 일괄 검수
-
-사용자가 `experiment/*`에서 사용자 직접 검수를 마지막에 일괄 수행하고, 그 전에는 개발 흐름을 계속하도록 명시한 경우 [실험 브랜치 Task 완료 원장](27-experiment-task-ledger.md)의 `EXPERIMENT_COMPLETE / BATCHED_FINAL` 상태를 사용할 수 있다.
-
-이 상태는 다음 조건을 모두 충족해야 한다.
-
-- 승인된 실험 scope의 구현과 Validation Matrix상 필수 자동 검증이 완료됨
-- Open P0/P1/P2가 없음
-- UI Task는 요구된 desktop/mobile screenshot 또는 동등한 privacy-safe 시각 증빙이 있음
-- Implementation report와 5종 종료 산출물의 상태·위치를 추적할 수 있음
-- 결과 commit이 현재 experiment 계보에서 reachable함
-- 미실행 항목, P3 backlog, 제외 범위와 사용자 검수 대기를 명시함
-
-`EXPERIMENT_COMPLETE`는 실험 개발의 다음 Task 선택을 위한 완료 판정이다. user validation checklist는 계속 `사용자 검수 대기 — 마지막 일괄 검수`이며 `사용자 검수 완료`로 바꾸지 않는다. 대표 repo·`main` 반영, UAT 적용, 실제 provider 검수, push·PR·merge 완료를 의미하지도 않는다.
-
-같은 목적은 다시 기획하거나 구현하지 않는다. 사용자 최종 검수에서 실패가 발견되면 기존 Task의 change 또는 bugfix로 재개하고, 신규 능력이 필요한 경우에만 별도 `NEW_FEATURE`를 만든다. P3·optional scope·운영 승격은 완료 Task를 자동으로 다시 여는 사유가 아니며 각각 후속 backlog나 별도 승격 Task로 추적한다.
-
-사용자가 해당 experiment 대화·branch에 인터뷰와 중간 승인 생략, Fable 권장안 자동 채택과 연속 구현을 standing instruction으로 지정했다면 “다음 작업 시작”은 완료 원장의 첫 번째 이름 있는 미완료 제품 Task를 선택하는 실행 지시로 처리한다. `DEFERRED / POLICY_INPUT`의 비차단 정책은 Fable 2-pass에서 확정하며 사용자에게 승인·채택·확인을 다시 요구하지 않는다. 단, 후보가 둘 이상이라 canonical purpose를 확정할 수 없는 경우, Repository 충돌, 보안·권한 불변조건 위반 또는 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation 경계는 자동 진행 대상이 아니다.
-
-## 5. Finding gate
-
-Finding은 P0/P1/P2/P3로 관리하고 다음 gate를 적용한다.
-
-- P0: 하나라도 미해결이면 Task 완료, 게시와 merge를 금지한다.
-- P1: 하나라도 미해결이면 Task 완료, 게시와 merge를 금지한다.
-- P2: 원칙적으로 수정한 뒤 진행한다. 예외적으로 수용하려면 사용자 승인, risk owner, 수용 근거, 영향, 완화책, 재검토 시점과 후속 Task ID를 모두 기록한다.
-- P3: 후속 Task ID 또는 명시적인 backlog 항목에 연결하면 현재 Task 완료를 허용한다.
-
-Finding을 수용하거나 후속으로 넘긴 사실은 implementation report와 Roadmap 또는 backlog에서 추적할 수 있어야 한다.
-
-미검증 항목, 미실행 테스트와 확인하지 못한 운영 상태를 성공으로 표시하지 않는다.
-
-## 6. 개인정보 및 공개 문서
-
-Task 산출물과 공개 가능한 tracked 문서에는 다음 원문을 기록하지 않는다.
-
-- 실제 사용자 이름, 회사 이메일/UPN, 사번, 전화번호, 개인 식별 가능한 계정명
-- 실제 tenant/client/object id
-- secret, token, password, webhook URL, Authorization header
-- 인증서 private key
-- 고객, 프로젝트 또는 조직의 민감 정보
-
-사용자 검수 증빙에는 다음 정보만 기록한다.
-
-- 역할명 또는 `검수 사용자 A/B`와 같은 일관된 익명 식별자
-- 날짜
-- 환경
-- 결과
-- 증빙 유형
-
-placeholder domain(`example.com`, `example.test`, `example.invalid`), 명백한 테스트 사용자명과 기능 역할명은 사용할 수 있다. 필요한 경우 마스킹 값을 사용한다. 실제 값이 필요한 운영 절차는 문서에 값을 적지 않고 승인된 secret/env 저장 위치만 안내한다.
-
-Git/GitHub, browser, API와 DB 검증 증빙의 허용 projection, output guard와 임시 artifact 기준은 [Privacy-safe Evidence](development/privacy-safe-evidence.md)를 따른다.
-
-## 7. Task 종료 표준 절차
-
-### Task 시작 instruction chain gate
-
-모든 새 Task와 분리된 Codex session은 첫 변경·runtime mutation·Git mutation 전에 현재 filesystem의 Root 및 적용 경로 `AGENTS.md`, Product Roadmap, 이 정책, Validation Matrix, Privacy-safe Evidence와 해당 Task 산출물을 다시 읽는다. 이전 Task나 대화 기억에서 읽은 상태를 재사용하지 않는다.
-
-읽은 뒤 `instructionChainRead=true`, `taskType`, branch/worktree 기준선과 적용되는 하위 지침을 먼저 보고한다. 새 session, branch/base 변경, instruction file 변경 또는 source-of-truth drift가 있으면 이 gate를 다시 수행한다. 읽을 수 없거나 의미 있는 충돌이 있으면 구현 전에 중단한다.
-
-### 표준 종료 절차
-
-1. Task 시작 전 instruction chain gate, branch, HEAD, working tree, remote와 기존 동일 목적 작업을 확인한다. `experiment/*`에서는 완료 원장의 같은 purpose와 완료 slice도 먼저 확인한다.
-2. 조사·기획에서 범위, 제외 범위, 선행조건, 위험과 검수 기준을 확정한다.
-3. 승인된 범위만 구현하고 Task 범위와 실제 변경 범위를 대조한다.
-4. 관련 자동 테스트를 실행하고 결과 및 미실행 항목을 기록한다.
-5. user validation checklist를 작성하고 자동 검증과 사용자 검수 상태를 분리한다.
-6. Finding을 P0/P1/P2/P3로 분류하고 gate를 적용한다.
-7. 5종 산출물의 경로와 상태를 확인한다.
-8. Product Roadmap을 실제 구현에 맞게 갱신한다.
-9. 문서 link와 개인정보/secret 포함 여부를 검사한다.
-10. 명시적 allowlist로만 staging하고 cached file list를 재검증한다.
-11. 사용자 승인 범위에서 commit, push와 PR을 수행한다.
-12. CI 결과와 사용자 검수 상태를 확인한 뒤 승인된 경우에만 merge한다.
-13. merge 후 branch 정리는 별도 승인과 보존 필요성을 확인해 수행한다.
-
-자동 테스트의 공통 명령과 변경 유형별 선택 기준은 [Validation Matrix](development/validation-matrix.md)의 canonical 절차를 사용한다. 환경별 기동·handover·rollback 명령은 해당 Task SOP에 두며 이 종료 정책이나 Roadmap에 복사하지 않는다.
-
-Roadmap 갱신 후보는 현재 구현 기능, 수정 방향, 향후 Task 상태, 추적 대상, Decision Log, 관련 용어와 작업 유의사항이다. 구현하지 않은 기능을 완료로 쓰지 않고 방향 변경은 Decision Log에 누적하며 기존 행은 삭제하지 않는다.
-
-### 고정 10개 항목 완료 보고
-
-Task를 완료·중단하거나 사용자 검수 handoff로 종료할 때 최종 응답은 먼저 다음 고정 필드의 `작업 현황 요약` 표를 표시한다.
-
-- 현재 Task와 현재 단계
-- 현재 Task에 남은 일
-- Git 게시 상태: Commit·Push·PR·Merge 각각 `완료`, `미완료`, `승인 대기` 또는 `적용 없음`
-- 중단·보류 Task의 Task ID, 중단 단계, 사유와 재개 조건
-- 재개 우선순위
-- 모든 활성·중단·보류 작업이 끝난 뒤 Product Roadmap 기준 다음 canonical Task와 `Next Gate`
-
-중단·보류 Task가 없으면 `없음`으로 쓰되 다음 Roadmap Task는 생략하지 않는다. 요약 표 뒤에는 다음 제목과 순서를 고정한다.
-
-1. 수정 요약
-2. 수정한 파일
-3. 실행한 테스트
-4. 테스트 결과
-5. Frontend URL
-6. Backend URL
-7. 수동 검수 체크리스트
-8. 미커밋 변경사항
-9. 남은 문제
-10. 게시 가능 여부
-
-모든 항목은 필수다. 적용 대상이 없으면 `N/A`와 구체적인 이유를 쓰고 생략하지 않는다. 미실행 검증은 테스트 성공으로 기록하지 않으며, URL은 실제 확인한 환경만 쓴다. 미커밋 변경사항에는 changed/staged와 Commit·Push·PR·Merge 각각의 상태, 남은 Git 작업과 필요한 승인을 기록한다. 남은 문제에는 현재 Task의 잔여 단계, 중단·보류 Task·재개 조건, Finding, 외부 blocker, 별도 승인 항목과 Roadmap 다음 Gate를 포함한다. 게시 가능 여부의 `GO`는 품질 gate 판정일 뿐 Git 게시 승인이 아니다.
-
-Finding은 count만으로 축약하지 않는다. 각 Finding의 ID 또는 stable label, severity, 상태(`OPEN`, `RESOLVED`, `RISK_ACCEPTED`, `BACKLOG`), 원인·영향과 해소 또는 후속 위치를 남긴다. 해소된 Finding도 무엇이 발생했는지 추적 가능해야 한다. 현재 Task와 Git 게시가 끝난 경우에도 중단·보류 Task가 없다는 사실과 Product Roadmap 기준 다음 canonical Task·`Next Gate`를 명시한다.
-
-고정 10개 항목은 대화 완료 보고를 일관되게 만드는 형식이며 Implementation report, SOP, User manual, Roadmap update와 user validation checklist를 대체하지 않는다.
-
-## 8. Staging, 게시와 branch 정리
-
-- staging은 Task allowlist의 개별 경로만 사용한다. `git add .`와 `git add -A`는 사용하지 않는다.
-- stage 후 cached file list에 runtime, dependency, migration, `.env`, 인증서, secret 또는 삭제 파일이 섞이지 않았는지 확인한다.
-- Commit, push, PR, merge는 `AGENTS.md`와 사용자의 명시적 승인 범위를 따른다.
-- 사용자 검수 대기 상태는 draft PR에 명시한다. 사용자 검수 완료로 가장하지 않는다.
-- CI 실패, allowlist 위반, 개인정보/secret 잔존 또는 Finding gate 위반 시 게시·merge를 중단한다.
-- 기존 또는 대체된 branch는 새 정책 PR이 merge됐다는 이유만으로 자동 삭제하지 않는다. 별도 승인 후 local/remote 보존 필요성을 확인한다.
-
-## 9. 예외와 N/A
-
-Task 규모가 작거나 문서 전용이어도 5종 산출물 상태는 기록한다. 독립 SOP/User manual이 필요하지 않으면 포함된 section을 canonical 위치로 지정하거나, 정말 적용 대상이 없을 때만 구체적 이유와 함께 `N/A`로 기록한다.
-
-정책을 적용할 수 없는 충돌, 실제 secret/개인정보, 범위 밖 runtime 변경 또는 깨진 문서 구조가 발견되면 임의로 예외 처리하지 않고 작업을 중단해 보고한다.
+최종 응답은 **무엇이 바뀌었는지, 무엇으로 확인했는지, 미완료·사용자 행동이 무엇인지, 어디까지 commit/게시됐는지**를 이해하기 쉽게 설명한다. URL은 실제 열고 확인한 환경만 제공한다. 품질상 GO는 사용자 게시 승인이 아니다.

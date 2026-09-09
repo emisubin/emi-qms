@@ -1,0 +1,225 @@
+# TASK-GOV-CODEX-002 — Codex 모델 역할과 작업 라우터
+
+## 1. 상태
+
+- 현재 변경: [Change 020](gov-codex-002-change-020.md) 승인된 구현의 품질 Gate 통과 후 local commit 자동 수행 — 문서 구현·fresh 독립 검증 완료 / 사용자 결과 검수 대기 / Push·PR·Merge 미수행·미승인
+- 현재 결과: [Change 020 Implementation report](gov-codex-002-change-020-implementation-report.md). Change 019의 구현 방향 Brief 검증 결과는 [별도 보고](gov-codex-002-change-019-implementation-report.md)에 보존한다. 아래 이전 change의 완료·검수·게시 행은 당시 이력이며 현재 변경의 승인을 뜻하지 않는다.
+
+- Task 유형: `DOCS_GOVERNANCE`
+- 본체 Task 구현·자동 검증·사용자 검수: 완료
+- 본체 Task 게시·merge: PR #38 squash merge 승인
+- Fable 5 호출: 초기 Task 0 / Change 007 USER-FLOW interview Round 1·2 실제 호출 2 / Change 008 Round 3 검증 호출 2
+- Change 001: Fable 5 deep-interview+planning Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
+- Change 002: Task Identity+Roadmap Sequence Gate 보정·자동 검증·사용자 검수 완료 / merge 승인
+- Change 003: 단일 canonical clone lifecycle 구현·local clean worktree 정리·자동 검증·사용자 검수 완료 / merge 승인
+- Change 004: merged temporary worktree `5→2` 정리·canonical root 정규화·5174 Entra frontend-only handover·자동·독립 재검증·사용자 검수 완료 / 게시·merge 승인
+- Change 005: public main required-PR 최소 ruleset 적용·운영 문서 P2 보정·독립 검증·사용자 검수 완료 / P2·P3 Resolved / 게시·merge 승인
+- Change 006: GitHub 최상위 폴더 `6→3→2` 보존 통합·exact audit·controlled maintenance·최종 삭제·자동·독립 검증·사용자 검수 완료 / PR #52 squash merge 완료
+- Change 007: Fable 5 `fable` CLI alias·읽기 전용 runner·runner 전용 project rule 구현 / 대표 branch 선별 통합·자동 검증·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 008: Task-scoped private session·drift guard·질문 최대 5개·exact cleanup 구현 / USER-FLOW Round 3와 planning true-resume 성능 검증·대표 branch 통합·사용자 검수 완료 / session cleanup은 USER-FLOW closure로 이관
+- Change 009: Fable interview 원문·승인된 기획 전문 direct write와 GPT-5.6 SOL 사후 review 계약 / USER-FLOW 전문·review 실제 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 010: Fable primary draft 1회·Codex 내용 review 1회·자동 revise 금지 계약 / USER-FLOW 내용 review·자동·독립 검증·대표 branch 통합·사용자 검수 완료 / 독립 재검증 뒤 merge 승인
+- Change 011: 대표 5174 branch-following 운영 보정 / 구현·자동·독립 검증·대표 branch 통합·사용자 검수 완료 / merge 승인
+- Change 012: Fable 정책·USER-FLOW WIP 선별 이식과 대표·디자인 2-worktree 정규화 / 로컬 보존·결과 커밋·일반 worktree 제거·자동·독립 검증·사용자 검수 완료 / merge 승인
+- Change 013: Generic primary draft와 USER-FLOW compatibility redraft 분리·exact target 승인 gate·상태 충돌 P2 보정 / 구현·자동·독립 검증·사용자 검수 완료 / P2 `3/3` Resolved / merge 승인
+- Change 014: `experiment/*` 전용 Fable 1차 기획·Codex review·Fable 2차 기획·Codex 구현 fast-track과 `second-planning` runner 계약 / 사용자 정책·구현 승인 / 자동 검증·local commit 완료 / push·PR·merge 미승인
+- Change 015: experiment 완료 원장·`BATCHED_FINAL` 판정·완료 scope 중복 실행 방지 gate / 사용자 정책·문서 구현 승인 / local commit 범위 / push·PR·merge 미승인
+- Change 016: experiment standing instruction의 “다음 작업” 실행 의미·비차단 정책 Fable 권장안 자동 채택·재승인 질문 방지 gate / 사용자 정책·문서 구현 승인 / local commit 범위 / push·PR·merge 미승인
+
+## 2. 목표
+
+현재 목표는 모든 코딩 작업에서 GPT-6 High가 구현 방향·완료 조건·테스트 방법을 먼저 고정하고 Sol Extra high가 구현·테스트한 뒤 같은 GPT-6 High가 실제 결과를 직접 review하며, 모든 품질 Gate를 통과한 승인 범위를 별도 확인 없이 local commit하는 것이다. 원격 게시·병합·정리 경계와 historical 기록은 보존한다.
+
+## 3. 기준선
+
+- PR #32가 Root·Backend·Frontend·Scripts 지침, 종료 정책, validation matrix, privacy-safe evidence와 project-local Rules를 main에 이관했다.
+- Root `AGENTS.md`에는 Task 유형별 Fable/Codex 라우터가 없었다.
+- Fable 전용 `CLAUDE.md`는 main에 없었다.
+- 기존 root worktree에 다른 장문 초안이 있으나 과거 UAT WIP와 혼재되어 있고 canonical main 지침을 통째로 대체하므로 본 Task 범위에서 수정·정리하지 않는다.
+
+## 4. 확정 라우팅
+
+현행 모델 역할과 실행 조건은 [Root AGENTS.md](../AGENTS.md), 설정·사용법은 [Codex 모델 분업 안내](../docs/development/codex-model-workflow.md)를 따른다.
+
+- 새 기획·총괄·검토: GPT-6 High. 구현·테스트·승인 범위 안 수정: Sol Extra high.
+- 제품·test·migration·script·build·CI·infra·deployment·동작 설정을 바꾸는 모든 코딩 작업은 `GPT-6 Implementation Direction Brief → Sol 구현·테스트·범위 내 보정 → 같은 parent GPT-6 직접 review` 순서를 따른다. 문서 전용 편집과 읽기 전용 작업에는 Sol 위임을 요구하지 않는다.
+- Brief는 Task/change·승인 출처, 현재 동작·root cause, 구현 방식·순서·이유, allowlist·불변조건·제외 범위, 관찰 가능한 완료 조건, 실패·경계·회귀·DB/browser/runtime를 포함한 테스트와 기대 증거, 반환 조건을 포함한다.
+- Fresh GPT-6 High verifier가 필요한 경우 parent review 뒤 추가 gate로 수행하며 parent review를 대체하지 않는다.
+- 일반 신규 기능의 사용자 확인·기획·구현 승인은 보존하고 유효한 experiment 생략 승인만 별도 경로로 적용한다.
+- 기획 완료·구현 완료·독립 검증·사용자 검수·Git 게시를 구분한다.
+- 기존 Fable 승인 계약은 보존한다. 작성 모델 교체를 이유로 완료 scope를 재기획하지 않는다.
+
+## 5. 포함 범위
+
+아래 목록은 Change 001~017의 도입 범위 이력이다. 현재 코딩 작업 분업은 [Change 019](gov-codex-002-change-019.md), 완료 시 local commit 경계는 [Change 020](gov-codex-002-change-020.md)을 따른다.
+
+- Root `AGENTS.md` Task 유형 라우터
+- 신규 기능, Codex-only, 수정 요청과 세션 분리 규칙
+- Fable 5 read-only 호출 경계
+- Fable 5 deep-interview와 사용자 확인 Gate
+- 신규 기능 interview template와 artifact 경로
+- Fable 전용 `CLAUDE.md`
+- planning·review·change·implementation report 역할 구분
+- Task 종료 산출물 상태와 Roadmap 추적
+- 대표 instruction-chain dry run
+- 같은 목적 Task semantic identity와 Roadmap Sequence Gate
+- Fixed projection template과 기존 canonical Task 재사용
+- 단일 canonical clone 재사용, bounded runtime·temporary worktree와 cleanup gate
+- 대표·디자인 두 폴더의 local 최상위 구조와 불명확한 checkout의 선감사·후삭제 경계
+- Fable 5 전용 fail-closed runner와 runner prefix만 허용하는 project-local Rule
+- Fable 질문 원문 artifact, 승인된 전문 `draft|revise`와 Codex 사후 review 책임 분리
+- Codex review 뒤 자동 Fable revise를 금지하고 사용자 명시적 redraft 요청만 허용하는 단일-pass 계약
+- 대표 clone 현재 branch를 따르는 HTTPS 5174 Vite 유지·조건부 재시작 경계
+- `experiment/*`에서만 허용되는 Fable `second-planning`, planning·review·approval·exact-target gate와 사용량 기록
+
+## 6. 제외 범위
+
+- Backend·Frontend·migration·dependency·runtime·Persistent UAT 변경
+- 실제 신규 기능 기획 또는 구현
+- Change 008 Round 3 검증을 넘는 실제 Fable 5 기획 호출
+- 기존 dirty root worktree, 실행 중 runtime worktree와 historical branch 정리
+- Fable runner 전용 allow 이외 project-local Rules 완화
+- 사용자 승인 전 Ready 전환과 merge
+
+## 7. 보존할 불변조건
+
+- main 직접 작업·push 금지, Task별 branch와 필요한 runtime 격리
+- Persistent UAT, migration, provider와 runtime 승인 경계
+- P0/P1/P2 Finding gate
+- 개인정보·secret과 fixed projection
+- 명시적 allowlist staging
+- 자동 검증과 사용자 검수 상태 분리
+- Task 종료 5종 산출물 추적
+
+## 8. 운영 SOP
+
+현행 실행 절차는 [Codex 모델 분업 안내](../docs/development/codex-model-workflow.md)를 canonical 위치로 사용한다. 모든 코딩 작업에서 Root의 instruction chain·Task identity·Roadmap gate와 승인 범위를 확인하고 Implementation Direction Brief를 먼저 작성한 뒤 Sol 한 명에게 전달한다. 같은 parent GPT-6가 실제 diff·테스트·증거를 완료 조건별로 직접 review하고, 필요한 별도 GPT-6 독립 검증을 그 뒤에 수행한다. 사용자 검수·게시 상태는 분리하며 과거 Fable 실행 옵션과 원문 보존 계약은 [CLAUDE.md](../CLAUDE.md)의 명시적 선택 경로에서만 적용한다.
+
+## 9. 사용자 안내
+
+이 Repository 채팅에서 GPT-6 High를 선택하고 요청한다. 구현 때 채팅을 Sol로 전환하지 않아도 부모가 Sol Extra high를 명시해 위임한다. 실행 도구·모델이 지원돼야 하며 설정 파일만으로 자동 실행이나 기존 채팅의 재로딩을 보장하지 않는다. [채팅 설정·지시문·확인 방법](../docs/development/codex-model-workflow.md)을 참고한다.
+
+명확한 기존 승인은 다시 요구하지 않는다. 추가 범위·미결정 정책과 Git 게시·운영 경계는 기존 규칙을 유지한다. 이번 로컬 설정은 원격 main 병합 승인이 아니다.
+
+## 10. Rollback
+
+아래는 기존 Fable 라우터 도입 당시의 복구 설명이다. Change 019는 해당 report의 후속 문서 diff만 되돌리는 절차를 따른다.
+
+`AGENTS.md`의 Task 라우터 section, `CLAUDE.md`, Fable runner와 runner 전용 project rule을 함께 revert한다. Code, DB, migration와 runtime rollback은 없다. 기존 PR #32 지침 구조는 변경하지 않는다.
+
+## 11. Findings
+
+- 신규 P0/P1/P2: 없음
+- 기존 root 장문 초안: Change 006 exact audit에서 현재 canonical 지침으로 대체된 비채택 초안임을 확인하고 승인 범위에서 삭제
+- `docs/task-close-process-guidelines`: remote에는 있으나 open PR 0인 historical branch다. Change 006에서 local preservation checkout만 삭제했고 remote branch는 변경하지 않았다.
+- Change 003 cleanup: worktree 30→9, 약 4.03GB 회수. Dirty 3개와 process 사용 5개는 보존했다.
+- Change 004 cleanup: PR #48·#49·#50의 clean inactive worktree를 제거해 `5→2`로 정리했다. Canonical root와 5176 디자인 실험 worktree만 보존하고 local·remote branch와 이름 있는 WIP stash는 삭제하지 않았다.
+- Change 005 P3: Public default branch `main`에 active required-pull-request ruleset을 적용했다. 승인·CI·최신화·review 해결을 강제하지 않아 기존 1인 개발 속도를 유지하면서 direct main push 금지만 서버 측에서 강제한다.
+- Change 005 P2: 독립 검증에서 발견한 History Rewrite SOP·User manual의 과거 private 상태 표기를 실제 public·required-PR 상태로 동기화해 Resolved했다.
+- Change 006 cleanup: 먼저 GitHub 최상위 폴더를 대표·디자인·보존 3개로 통합하고 linked worktree 3개를 repair했다. 이후 dirty checkout 6개·local branch 32개·local 설정·artifact를 exact audit해 canonical 자료가 없음을 확인했다. Docker/PostgreSQL controlled maintenance로 stale handle `4→0`을 만든 뒤 보존 폴더를 영구 삭제해 최종 `6→3→2`로 정리했다. 동일 PostgreSQL container·persistent volume과 DB aggregate, 대표·디자인 runtime은 보존했고 사용자 검수와 PR #52 squash merge를 완료했다.
+- Change 007 root Finding: private stdout/stderr redirect를 포함한 compound command가 generic shell-wrapper prompt와 일치했고 `never` approval policy에서 실행 전 거절됐다. Broad shell allow 없이 fail-closed runner prefix만 허용해 해소했다.
+- Change 008 performance Finding: Round마다 전체 Repository 기준선을 다시 읽는 비영구 호출을 Task-scoped session·drift guard로 대체했다. Round 3 bootstrap·contract refresh model 시간은 129초·135초였고 첫 true-resume planning은 264초였다. Session 재개와 preflight 1초는 입증했지만 장문 planning 생성 때문에 총시간 단축은 입증하지 못했다.
+- Change 009 authorship Finding: Fable stdout을 Codex가 검증·반영하는 기존 계약은 Fable이 질문과 전문의 실제 작성자여야 한다는 사용자 의도와 달랐다. Runner는 contract 위반 시 거부하거나 stdout을 그대로 운반할 뿐이며 Codex는 원문을 편집하지 않는다.
+- Change 010 content-review Finding: 자동 review·revise 반복을 Fable primary draft 1회와 Codex 내용 review 1회로 종료하도록 바꾸고, revise는 별도 사용자 명시 요청이 있을 때만 허용한다.
+- Change 011 P3 `CANONICAL_VITE_PROCESS_BRANCH_SWITCH_CONFLICT`: 대표 clone 재사용과 실행 중 5174 process 소유 금지 규칙의 충돌을 5174 branch-following·조건부 재시작 정책으로 해소했다.
+- Change 011 P3 `PAUSED_WORKTREE_INTEGRATION_PENDING`: `RESOLVED`. Governance·USER-FLOW source WIP를 local preservation commit으로 고정하고 각각 결과 commit을 만든 뒤 두 임시 worktree를 force 없이 제거했다.
+- Change 011 P3 `USER_FLOW_P3_001_IDENTITY_TRACE_GAP`: `RESOLVED`. USER-FLOW Change 003·Implementation report·Roadmap에서 과거 문서 작성 승인과 제품 구현·Fable redraft·게시 미승인을 stable identity로 분리했다.
+- Change 012 Finding `WORKTREE_PROCESS_HANDLE_ACTIVE`: `RESOLVED`. USER-FLOW worktree의 terminal/Fable handle 때문에 첫 제거를 중단했고 사용자 terminal 종료 뒤 handle 0을 재확인한 후 일반 제거했다.
+- Change 012: Governance preservation/result `4058849`/`a6232b2`, USER-FLOW preservation/result `1cc66fe`/`c4b2858`. 최종 worktree는 대표·디자인 `2/2`이며 강제 제거·runtime restart·branch 삭제·push·PR·merge는 실행하지 않았다.
+- Change 013 P2 `FABLE_PRIMARY_DRAFT_MODE_CONTRACT_CONFLICT`: `RESOLVED`. Generic `docs/` primary draft를 planning·review 구현 승인과 분리하고 latest change의 사용자 요청·exact target으로 gate했다. USER-FLOW 전용 형식은 exact historical redraft 조합으로 한정했다.
+- Change 013 P2 `REPORTING_CHANGE001_COMPLETION_STATE_CONFLICT`: `RESOLVED`. 최초 Task 완료·Change 작성 당시 snapshot·현재 closure를 분리하고 Task·Roadmap과 정렬했다.
+- Change 013 P2 `ROADMAP_CURRENT_STATE_CONFLICT`: `RESOLVED`. 실행 큐·USER-FLOW 상세·추적 87·88·Decision Log를 Governance merge 선행·redraft/문서 merge 승인·제품 구현 미승인으로 정렬했다.
+- Change 014 `EXPERIMENT_SECOND_PLANNING_NOT_ENFORCED`: `RESOLVED_IN_CHANGE_014`. 기존 `draft`가 Codex review를 필수 source로 확인하지 않던 공백을 experiment-only `second-planning` mode와 planning·review·approval·target fail-closed gate로 해소했다.
+- Change 015 `EXPERIMENT_COMPLETED_TASK_RESELECTED`: `RESOLVED_IN_CHANGE_015`. canonical main queue의 Pending 상태와 experiment implementation 완료가 한 표에서 구분되지 않아 `TASK-007A`가 다시 선택된 원인을 완료 원장, `BATCHED_FINAL` 상태와 fail-closed 재선택 규칙으로 해소했다.
+- Change 016 `EXPERIMENT_FAST_TRACK_REAPPROVAL_PROMPTED`: `RESOLVED_IN_CHANGE_016`. Roadmap과 완료 원장에 추가된 “정책 입력 전 다음 작업 불가” 문구가 기존 standing instruction보다 강하게 읽혀 승인 질문을 재발시킨 원인을 제거하고, 이름 있는 다음 Task 선택·비차단 Fable 권장안 자동 채택·실제 차단 경계를 source-of-truth에 명시했다.
+- Change 019 `CODING_DIRECTION_BRIEF_NOT_EXPLICIT`: `RESOLVED_IN_CHANGE_019`. 모든 코딩 작업에서 구현 전에 GPT-6 High가 방식·완료 조건·테스트·반환 조건을 한 Brief로 고정하고 같은 parent가 실제 결과를 직접 review하도록 명시했다. 기존 fresh verifier는 추가 gate로 보존한다.
+- Change 019 P2 `GOV019-PARENT-CODING-EXCEPTION`: `RESOLVED_VERIFIED_BY_PARENT`. 기존 GPT-6 직접 코딩 예외를 제거하고 parent root cause 재분석·Brief 보정·같은 Sol 반환과 Sol 도구 부재 시 fail-closed로 통일했으며 parent 재검토를 통과했다.
+- Change 020 `COMPLETED_IMPLEMENTATION_REASKED_FOR_LOCAL_COMMIT`: `RESOLVED_IN_CHANGE_020`. 승인된 구현의 품질 Gate가 끝난 뒤 local commit 확인을 다시 요구하던 중복 경계를 제거하고, exact allowlist만 자동 commit하며 원격 게시·병합·정리는 별도 승인으로 유지했다.
+
+## 12. 5종 산출물 상태
+
+| 산출물 | Canonical 위치 | 상태 |
+| --- | --- | --- |
+| Implementation report | `tasks/gov-codex-002-change-020-implementation-report.md` | Change 020 구현·fresh 독립 검증 PASS, open P0/P1/P2/P3 0/0/0/0 |
+| SOP | 이 문서 8장, Root `AGENTS.md`, Task 종료 정책 | 품질 Gate 후 자동 local commit 조건 작성됨 |
+| User manual | 이 문서 9장, `docs/development/codex-model-workflow.md` | local commit과 원격 게시 경계 안내 작성됨 |
+| Roadmap update | `docs/00-product-roadmap.md` | Change 020 권한 영향과 오산 Task 3 상태 동기화 |
+| User validation checklist | 이 문서 13장 | Change 020 사용자 정책 승인·독립 검증 반영 / 결과 검수 대기 |
+
+## 13. 사용자 검수 체크리스트
+
+- [x] `NEW_FEATURE`만 Fable 5로 라우팅되는지 확인
+- [x] 승인된 기능 구현과 BUGFIX/P2/SECURITY/UAT/DOCS/HOUSEKEEPING/POLICY가 Codex-only인지 확인
+- [x] Fable이 Repository 파일과 Codex workflow를 재귀 실행하지 않는지 확인
+- [x] planning·review·change·implementation report 역할이 구분되는지 확인
+- [x] 사용자 승인 전 구현, Ready 전환과 merge가 금지되는지 확인
+- [x] 기존 Repository 안전·Finding·5종 산출물 규칙이 유지되는지 확인
+- [x] `NEW_FEATURE`에서 Fable 5 deep-interview와 사용자 요약 확인 후에만 Fable 5 planning이 시작되는지 확인
+- [x] Interview 완료가 planning·implementation 승인으로 오인되지 않는지 확인
+- [x] 같은 목적의 다른 Task 이름이 제안돼도 기존 canonical Task를 재사용하는지 확인
+- [x] Roadmap의 현재 Next Gate와 다른 Task가 사용자 재정렬 승인 없이 시작되지 않는지 확인
+- [x] 새 채팅에서도 instruction chain과 Task Identity Gate가 첫 변경 전에 다시 실행되는지 확인
+- [x] 일반 Task를 단일 canonical clone에서 수행하고 Task별 영구 worktree를 만들지 않는 운영 모델 승인
+- [x] Dirty·runtime worktree가 보존되고 clean inactive worktree만 정리됐는지 확인
+- [x] Change 003 게시·merge 승인
+- [x] Change 004 worktree cleanup과 5174 중단·재시작·root 정규화 승인
+- [x] Change 004 자동·독립 재검증
+- [x] Change 004 사용자 검수
+- [x] Change 005 required-PR 최소 ruleset 정책·적용 승인
+- [x] Change 005 active main effective rule 확인
+- [x] Change 005 사용자 검수
+- [x] Change 004·005 commit·push·PR·merge 승인
+- [x] Change 006 GitHub 최상위 폴더를 대표·디자인·보존 3개로 통합
+- [x] Change 006 dirty checkout 보존과 legacy linked-worktree repair
+- [x] Change 006 보존 폴더 exact audit와 완전 삭제 승인
+- [x] Change 006 Docker/PostgreSQL controlled maintenance와 stale handle 해제 승인
+- [x] Change 006 최상위 폴더 `6→3→2`, 동일 persistent volume·DB aggregate·runtime 자동 검증
+- [x] Change 006 독립 검증
+- [x] Change 006 사용자 검수
+- [x] Change 006 commit·push·PR·merge 승인·PR #52 squash merge
+- [x] Change 007 `fable`이 CLI에서 Fable 5로 표시되는지 사용자 확인
+- [x] Change 007 전용 runner로 사용자 terminal 실행 없이 Fable interview가 생성되는지 확인
+- [x] Change 007 일반 shell wrapper 보호가 유지되는지 확인
+- [x] Change 008 Task-scoped session·drift guard·질문 최대 5개 정책 확인
+- [x] Change 008 session cleanup은 남은 USER-FLOW redraft·merge 뒤 그 Task closure에서 실행하도록 이관
+- [x] Change 009 Fable 원문 직접 작성·Codex 사후 review 정책 승인
+- [x] Change 009 preview direct-write byte equality와 GPT-5.6 SOL review 확인
+- [x] Change 010 Fable primary draft 1회·Codex 내용 review 1회 정책 승인
+- [x] Change 010 USER-FLOW 내용·제품 방향 review 작성과 governance 독립 검증
+- [x] Change 011에서 5174가 대표 폴더의 현재 branch를 따르도록 운영 정책 승인
+- [x] Branch 전환마다 5174를 중단하지 않고 조건부 재시작만 허용하는 정책 승인
+- [x] Change 011 branch 전환 중 5174 유지와 root·Teams Activity·live·ready route 확인
+- [x] Change 011 대표 branch 전환 뒤 5174 현재 branch 반영과 필수 route 확인
+- [x] Change 011 분리된 Codex 독립 검증
+- [x] Change 011 작업 현황·Finding·게시 경계 사용자 검수
+- [x] Change 011 독립 재검증 PASS 뒤 commit·push·PR·merge 승인
+- [x] Change 012 Roadmap 순서 변경과 기존 canonical Task 재사용 승인
+- [x] Change 012 Fable 정책·USER-FLOW 선별 이식과 로컬 보존·결과 커밋 승인
+- [x] Change 012 5174·5176·Backend·DB 보존과 push·PR·merge·branch 삭제 제외 승인
+- [x] Change 012 대표·디자인 2-worktree exact projection 확인
+- [x] Change 012 자동 검증
+- [x] Change 012 분리된 Codex 독립 검증
+- [x] Change 012 사용자 검수와 별도 Git 게시 승인
+- [x] Change 013 generic primary draft·USER-FLOW compatibility 분리와 exact target gate 확인
+- [x] Change 013 Governance 독립 재검증 뒤 merge 승인
+- [x] Change 013 분리된 Codex 독립 재검증
+- [x] Change 014 experiment-only Fable 2-pass 정책·구현·local commit 승인
+- [x] Change 014 runner·Markdown·privacy·제품 diff 자동 검증
+- [x] Change 014 local governance commit
+- [x] Change 015에서 experiment 완료와 사용자 검수·대표 repo·UAT·merge 상태를 분리
+- [x] Change 015 완료 원장에 구현 완료 scope와 남은 후속 scope를 중복 없이 기록
+- [x] `EXPERIMENT_COMPLETE`와 같은 purpose의 Fable·새 planning·재구현 차단 규칙 확인
+- [x] `TASK-UX-001 A1` 완료와 A2 Deferred, 선택 export 완료와 column picker optional 후속을 분리
+- [x] Change 015 local governance commit 승인; push·PR·merge와 `main` 승인 `0/3` 유지
+- [x] Change 016에서 “다음 작업 시작”을 실행 지시로 고정하고 비차단 정책 재승인 질문을 금지
+- [x] Change 016의 실제 차단 경계와 일반 branch·`main` merge 승인 `0/3` 보존
+- [x] Change 019 모든 코딩 작업의 GPT-6 Brief → Sol 구현·테스트 → parent GPT-6 직접 review 순서 승인
+- [x] Brief의 구현 방식·완료 조건·테스트·불변조건·반환 조건 필수 항목 승인
+- [x] Fresh GPT-6 verifier가 parent review 뒤 추가 gate이며 기존 승인·scope·Git·runtime·provider 경계를 넓히지 않는 정책 승인
+- [x] Change 019 parent 직접 review 결과 확인
+- [x] Change 019 fresh 독립 검증 결과 확인 — PASS, 신규 Finding 0
+- [ ] Change 019 사용자 결과 검수
+- [x] Change 020에서 승인된 구현의 품질 Gate 통과 후 별도 질문 없는 local commit 정책 승인
+- [x] Exact allowlist staging, 미완료·blocked commit 금지와 push·PR·merge·정리 별도 승인 경계 확인
+- [x] Change 020 fresh 독립 검증 결과 확인 — PASS, open P0/P1/P2/P3 0/0/0/0
+- [ ] Change 020 사용자 결과 검수

@@ -1,0 +1,12 @@
+# Repository defaults. Explicit per-chat and per-agent choices take precedence.
+# Task-specific model selection and approval boundaries live in ../AGENTS.md.
+model = "gpt-6-astra"
+model_reasoning_effort = "medium"
+
+model_verbosity = "medium"
+[features]
+multi_agent = true
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 2

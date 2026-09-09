@@ -1,17 +1,24 @@
+using System.Buffers.Binary;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.OsanProjects;
+using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Security;
+using ImageMagick;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -21,7 +28,7 @@ public sealed class OsanProjectRegistrationApiTests
     private static readonly Guid UserId = Guid.Parse("89000000-0000-0000-0000-000000000001");
 
     [Fact]
-    public void EndpointCatalog_ExposesOnlyDedicatedAuthorizedCreateListAndDetailRoutes()
+    public void EndpointCatalog_ExposesAuthorizedProjectAndProgressRoutes()
     {
         using var factory = new QmsWebApplicationFactory();
         var endpoints = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
@@ -31,22 +38,79 @@ public sealed class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(3, endpoints.Length);
+        Assert.Equal(6, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
-        var create = Assert.Single(endpoints, endpoint =>
-            endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+        var projectCreate = Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Post,
                 StringComparer.OrdinalIgnoreCase) == true);
         Assert.Contains(
-            create.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            projectCreate.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => string.Equals(authorization.Policy, QmsPolicies.ProjectCreate, StringComparison.Ordinal));
+        var progressMutations = endpoints.Where(endpoint =>
+            endpoint.RoutePattern.RawText?.Contains("/progress/", StringComparison.Ordinal) == true
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Post,
+                StringComparer.OrdinalIgnoreCase) == true).ToArray();
+        Assert.Single(progressMutations);
+        Assert.All(progressMutations, endpoint => Assert.Contains(
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => string.Equals(
+                authorization.Policy,
+                QmsPolicies.ManufacturingUpdate,
+                StringComparison.Ordinal)));
+        var completion = Assert.Single(progressMutations);
         Assert.Equal(
-            ["/api/osan/projects/", "/api/osan/projects/{projectId:guid}"],
-            endpoints
-                .Where(endpoint => endpoint != create)
-                .Select(endpoint => endpoint.RoutePattern.RawText!)
-                .Order(StringComparer.Ordinal)
-                .ToArray());
+            OsanProgressPhotoValidator.MaximumMultipartBytes,
+            completion.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
+        Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/photos/{photoId:guid}"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Get,
+                StringComparer.OrdinalIgnoreCase) == true);
+
+        var dashboard = Assert.Single(factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>(), endpoint =>
+                endpoint.RoutePattern.RawText == "/api/osan/dashboard"
+                && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                    HttpMethods.Get,
+                    StringComparer.OrdinalIgnoreCase) == true);
+        Assert.NotEmpty(dashboard.Metadata.GetOrderedMetadata<IAuthorizeData>());
+    }
+
+    [Fact]
+    public void DashboardQuery_DefaultsAndRejectsInvalidValues()
+    {
+        var validValues = new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+        {
+            ["search"] = "  panel  ",
+            ["status"] = OsanDashboardStatuses.InProgress,
+            ["page"] = "2",
+            ["pageSize"] = "11",
+            ["view"] = OsanDashboardViews.Home
+        });
+        var (query, errors) = OsanProjectEndpointExtensions.ParseDashboardQuery(validValues);
+        Assert.Empty(errors);
+        Assert.Equal(new OsanDashboardQuery(
+            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home), query);
+
+        var (defaults, defaultErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
+            new QueryCollection());
+        Assert.Empty(defaultErrors);
+        Assert.Equal(new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10), defaults);
+
+        var (invalid, invalidErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
+            new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+            {
+                ["search"] = new string('a', 201),
+                ["status"] = "Paused",
+                ["page"] = "0",
+                ["pageSize"] = "101",
+                ["view"] = "archive"
+            }));
+        Assert.Null(invalid);
+        Assert.Equal(["search", "status", "page", "pageSize", "view"], invalidErrors.Keys);
     }
 
     [Fact]
@@ -133,6 +197,9 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(OsanProjectCreateStatus.Success, created.Status);
         Assert.NotNull(created.Value);
         Assert.False(created.Value.Replayed);
+        Assert.Equal("NotStarted", created.Value.Project.Status);
+        Assert.Equal(0, created.Value.Project.CompletedStepCount);
+        Assert.Equal(21, created.Value.Project.TotalStepCount);
         Assert.Equal("001-PO/+", created.Value.Project.PoNumber);
         Assert.Equal("000-W/O", created.Value.Project.WorkOrderNumber);
         Assert.Equal(3, created.Value.Project.Targets.Count);
@@ -323,6 +390,845 @@ public sealed class OsanProjectRegistrationApiTests
             TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task ProjectViews_ProjectLegacyStartOnlyHistoryFromCompletedStepCountsWithoutMutation()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await database.ExecuteAsync($"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values ('{UserId:D}', 'osan-legacy-start-test', 'Osan Legacy Start Test',
+                    '89000000-0000-0000-0000-000000000010', true);
+            """, TestContext.Current.CancellationToken);
+
+        var projectStore = new OsanProjectStore(provider);
+        var created = await projectStore.CreateAsync(
+            Normalize(ValidRequest(projectCode: "OSAN-LEGACY-START")),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var projectId = created.Value!.Project.ProjectId;
+        var targetId = created.Value.Project.Targets[0].TargetId;
+        var operationId = Guid.NewGuid();
+        await database.ExecuteAsync($"""
+            update osan_project_targets
+            set status='InProgress', version=2, started_at_utc='2026-09-01T00:00:00Z',
+                started_by_user_id='{UserId:D}'
+            where id='{targetId:D}';
+            update osan_project_target_steps
+            set status='InProgress', started_at_utc='2026-09-01T00:00:00Z'
+            where target_id='{targetId:D}' and sequence_number=1;
+            insert into osan_progress_operations (
+                operation_id, project_id, action, completion_mode, stage_sequence,
+                target_ids, request_fingerprint, requested_by_user_id)
+            values (
+                '{operationId:D}', '{projectId:D}', 'Start', null, null,
+                array['{targetId:D}'::uuid], repeat('0', 64), '{UserId:D}');
+            """, TestContext.Current.CancellationToken);
+
+        var sourceState = await database.ReadScalarAsync<string>(
+            """
+            select concat_ws(':', target.status, target.version,
+                target.started_at_utc is not null, target.started_by_user_id,
+                step.status, step.started_at_utc is not null,
+                (select count(*) from osan_progress_operations operation
+                 where operation.project_id=target.project_id and operation.action='Start'))
+            from osan_project_targets target
+            join osan_project_target_steps step on step.target_id=target.id and step.sequence_number=1
+            where target.id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("target_id", targetId));
+
+        var listItem = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detail = await projectStore.GetAsync(projectId, TestContext.Current.CancellationToken);
+        var progress = await new OsanProgressStore(provider).GetAsync(
+            projectId,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("NotStarted", listItem.Status);
+        Assert.Equal(0, listItem.CompletedStepCount);
+        Assert.Equal(7, listItem.TotalStepCount);
+        Assert.NotNull(detail);
+        Assert.Equal("NotStarted", detail.Status);
+        Assert.Equal("NotStarted", Assert.Single(detail.Targets).Status);
+        Assert.Equal(0, detail.CompletedStepCount);
+        Assert.Equal(7, detail.TotalStepCount);
+        Assert.NotNull(progress);
+        Assert.Equal("NotStarted", progress.Status);
+        Assert.Equal("NotStarted", Assert.Single(progress.Targets).Status);
+        Assert.Equal(0, progress.CompletedStepCount);
+        Assert.Equal(7, progress.TotalStepCount);
+        Assert.Equal(sourceState, await database.ReadScalarAsync<string>(
+            """
+            select concat_ws(':', target.status, target.version,
+                target.started_at_utc is not null, target.started_by_user_id,
+                step.status, step.started_at_utc is not null,
+                (select count(*) from osan_progress_operations operation
+                 where operation.project_id=target.project_id and operation.action='Start'))
+            from osan_project_targets target
+            join osan_project_target_steps step on step.target_id=target.id and step.sequence_number=1
+            where target.id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("target_id", targetId)));
+    }
+
+    [Fact]
+    public async Task DashboardStore_AggregatesOnlyScopedSearchAndStatusAcrossPages()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await database.ExecuteAsync($"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values ('{UserId:D}', 'osan-dashboard-test', 'Osan Dashboard Test',
+                    '89000000-0000-0000-0000-000000000010', true);
+            """, TestContext.Current.CancellationToken);
+
+        var projectStore = new OsanProjectStore(provider);
+        var notStarted = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Not started panel",
+                projectCode: "DASH-002",
+                customerName: "Alpha Customer",
+                deliveryDate: new DateOnly(2026, 10, 2))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var partial = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Partial panel",
+                projectCode: "DASH-001",
+                customerName: "Beta Customer",
+                poNumber: "PO-FIND-ME",
+                quantity: 2,
+                deliveryDate: new DateOnly(2026, 10, 1))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var completed = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Completed panel",
+                projectCode: "DASH-003",
+                workOrderNumber: "WO-COMPLETE",
+                deliveryDate: new DateOnly(2026, 9, 8))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var hidden = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "LEAKTOKEN hidden",
+                projectCode: "DASH-HIDDEN",
+                poNumber: "LEAKTOKEN",
+                deliveryDate: new DateOnly(2026, 8, 1))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var pastUnfinished = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Past unfinished",
+                projectCode: "HOME-PAST-ACTIVE",
+                deliveryDate: new DateOnly(2026, 9, 8))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var todayCompleted = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Today completed",
+                projectCode: "HOME-TODAY-DONE",
+                deliveryDate: new DateOnly(2026, 9, 9))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var futureCompleted = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Future completed",
+                projectCode: "HOME-FUTURE-DONE",
+                deliveryDate: new DateOnly(2026, 9, 10))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var cheongjuId = Guid.NewGuid();
+        await database.ExecuteAsync(
+            """
+            insert into projects (
+                id, project_key, project_number, name, customer_name, item, project_code,
+                project_title, delivery_date, status, created_by_user_id, updated_at_utc,
+                project_profile)
+            values (
+                @project_id, @project_key, @project_number, 'MIXEDPROFILE project',
+                'Cheongju Customer', '', @project_code, 'MIXEDPROFILE project',
+                '2026-07-01', 'Active', @user_id, now(), 'Cheongju');
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", cheongjuId),
+            ("project_key", $"cheongju-{cheongjuId:N}"),
+            ("project_number", $"CJ-{cheongjuId:N}"),
+            ("project_code", $"CJ-{cheongjuId:N}"),
+            ("user_id", UserId));
+
+        var progressStore = new OsanProgressStore(provider);
+        var partialTargets = partial.Value!.Project.Targets.Select(target => target.TargetId).ToArray();
+        var partialResult = await progressStore.CompleteAsync(
+            partial.Value.Project.ProjectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Batch,
+                4,
+                partialTargets.Select(id => new OsanProgressTargetRequest(id, 1)).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, partialResult.Status);
+
+        async Task CompleteProjectAsync(OsanProjectCreateResponse value)
+        {
+            var targetId = Assert.Single(value.Project.Targets).TargetId;
+            var version = 1;
+            foreach (var stage in new[] { 6, 2, 5, 1, 4, 3, 7 })
+            {
+                var result = await progressStore.CompleteAsync(
+                    value.Project.ProjectId,
+                    new CompleteOsanProgressInput(
+                        Guid.NewGuid(),
+                        OsanCompletionModes.Individual,
+                        stage,
+                        [new OsanProgressTargetRequest(targetId, version)],
+                        []),
+                    UserId,
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
+                version += 1;
+            }
+        }
+        await CompleteProjectAsync(completed.Value!);
+        await CompleteProjectAsync(todayCompleted.Value!);
+        await CompleteProjectAsync(futureCompleted.Value!);
+
+        var visibleIds = new[]
+        {
+            notStarted.Value!.Project.ProjectId,
+            partial.Value.Project.ProjectId,
+            completed.Value!.Project.ProjectId
+        };
+        var scope = new ProjectAccessScope(
+            false,
+            visibleIds.Select(id => $"osan-{id:N}").ToArray());
+        var store = new OsanDashboardStore(
+            provider,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 8, 15, 0, 0, TimeSpan.Zero)));
+
+        var firstPage = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 2),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
+        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Equal(2, firstPage.Items.Count);
+        Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
+            firstPage.Items.Select(item => item.ProjectId));
+        var partialItem = firstPage.Items[0];
+        Assert.Equal(2, partialItem.CompletedStepCount);
+        Assert.Equal(14, partialItem.TotalStepCount);
+        Assert.Equal(14, partialItem.ProgressPercent);
+        Assert.Equal(7, partialItem.Stages.Count);
+        var partialStage = Assert.Single(partialItem.Stages, stage => stage.SequenceNumber == 4);
+        Assert.Equal(2, partialStage.CompletedTargetCount);
+        Assert.Equal(2, partialStage.TotalTargetCount);
+
+        var secondPage = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 2, 2),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(firstPage.Summary, secondPage.Summary);
+        Assert.Equal(3, secondPage.TotalCount);
+        var completedItem = Assert.Single(secondPage.Items);
+        Assert.Equal(completed.Value.Project.ProjectId, completedItem.ProjectId);
+        Assert.Equal(7, completedItem.CompletedStepCount);
+        Assert.Equal(7, completedItem.TotalStepCount);
+        Assert.Equal(100, completedItem.ProgressPercent);
+        Assert.All(completedItem.Stages, stage =>
+        {
+            Assert.Equal(1, stage.CompletedTargetCount);
+            Assert.Equal(1, stage.TotalTargetCount);
+        });
+
+        var filtered = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.InProgress, 1, 10),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(firstPage.Summary, filtered.Summary);
+        Assert.Equal(1, filtered.TotalCount);
+        Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(filtered.Items).ProjectId);
+
+        var searched = await store.GetAsync(
+            new OsanDashboardQuery("PO-FIND-ME", OsanDashboardStatuses.All, 1, 10),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(1, 0, 1, 0), searched.Summary);
+        Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(searched.Items).ProjectId);
+
+        var noLeak = await store.GetAsync(
+            new OsanDashboardQuery("LEAKTOKEN", OsanDashboardStatuses.All, 1, 10),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(0, 0, 0, 0), noLeak.Summary);
+        Assert.Equal(0, noLeak.TotalCount);
+        Assert.Empty(noLeak.Items);
+        Assert.NotEqual(hidden.Value!.Project.ProjectId, partial.Value.Project.ProjectId);
+
+        var noCheongjuLeak = await store.GetAsync(
+            new OsanDashboardQuery("MIXEDPROFILE", OsanDashboardStatuses.All, 1, 10),
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, noCheongjuLeak.Summary.TotalCount);
+        Assert.Equal(0, noCheongjuLeak.TotalCount);
+        Assert.Empty(noCheongjuLeak.Items);
+
+        var emptyScope = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10),
+            new ProjectAccessScope(false, []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, emptyScope.Summary.TotalCount);
+        Assert.Equal(0, emptyScope.TotalCount);
+        Assert.Empty(emptyScope.Items);
+
+        var homeScope = new ProjectAccessScope(
+            false,
+            new[]
+            {
+                notStarted.Value.Project.ProjectId,
+                partial.Value.Project.ProjectId,
+                completed.Value.Project.ProjectId,
+                pastUnfinished.Value!.Project.ProjectId,
+                todayCompleted.Value!.Project.ProjectId,
+                futureCompleted.Value!.Project.ProjectId
+            }.Select(id => $"osan-{id:N}").ToArray());
+        var beforeKoreaMidnight = await new OsanDashboardStore(
+            provider,
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 8, 14, 59, 0, TimeSpan.Zero)))
+            .GetAsync(
+                new OsanDashboardQuery(
+                    string.Empty, OsanDashboardStatuses.All, 1, 10, OsanDashboardViews.Home),
+                new ProjectAccessScope(
+                    false,
+                    [$"osan-{completed.Value!.Project.ProjectId:N}"]),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(completed.Value!.Project.ProjectId, Assert.Single(beforeKoreaMidnight.Items).ProjectId);
+
+        var homeFirstPage = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.All, 1, 2, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(5, 2, 1, 2), homeFirstPage.Summary);
+        Assert.Equal(5, homeFirstPage.TotalCount);
+        Assert.Equal(
+            [pastUnfinished.Value.Project.ProjectId, todayCompleted.Value.Project.ProjectId],
+            homeFirstPage.Items.Select(item => item.ProjectId));
+
+        var homeSecondPage = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.All, 2, 2, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(homeFirstPage.Summary, homeSecondPage.Summary);
+        Assert.Equal(
+            [futureCompleted.Value.Project.ProjectId, partial.Value.Project.ProjectId],
+            homeSecondPage.Items.Select(item => item.ProjectId));
+
+        var homeThirdPage = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.All, 3, 2, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(notStarted.Value.Project.ProjectId, Assert.Single(homeThirdPage.Items).ProjectId);
+
+        var homeCompleted = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty, OsanDashboardStatuses.Completed, 1, 10, OsanDashboardViews.Home),
+            homeScope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(homeFirstPage.Summary, homeCompleted.Summary);
+        Assert.Equal(2, homeCompleted.TotalCount);
+        Assert.Equal(
+            [todayCompleted.Value.Project.ProjectId, futureCompleted.Value.Project.ProjectId],
+            homeCompleted.Items.Select(item => item.ProjectId));
+    }
+
+    [Fact]
+    public async Task ProgressStore_EnforcesAtomicStaleReplayPhotoAndLastPackingContracts()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await database.ExecuteAsync($"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values ('{UserId:D}', 'osan-progress-test', 'Osan Progress Test',
+                    '89000000-0000-0000-0000-000000000010', true);
+            """, TestContext.Current.CancellationToken);
+
+        var projectStore = new OsanProjectStore(provider);
+        var created = await projectStore.CreateAsync(
+            Normalize(ValidRequest(projectCode: "OSAN-PROGRESS", quantity: 2)),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var projectId = created.Value!.Project.ProjectId;
+        var targetIds = created.Value.Project.Targets.Select(target => target.TargetId).ToArray();
+        var progressStore = new OsanProgressStore(provider);
+
+        var staleOperation = Guid.NewGuid();
+        var stale = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                staleOperation,
+                OsanCompletionModes.Batch,
+                1,
+                [
+                    new OsanProgressTargetRequest(targetIds[0], 1),
+                    new OsanProgressTargetRequest(targetIds[1], 2)
+                ],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, stale.Status);
+        Assert.Equal("osan_progress_stale_version", stale.ErrorCode);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_target_steps where project_id=@project_id and status='Completed';",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_operations where operation_id=@operation_id;",
+            TestContext.Current.CancellationToken,
+            ("operation_id", staleOperation)));
+
+        var skipPredecessor = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Batch,
+                2,
+                [new OsanProgressTargetRequest(targetIds[0], 1)],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, skipPredecessor.Status);
+        Assert.Equal("Completed", skipPredecessor.Value!.Project.Targets[0].Steps[1].Status);
+        Assert.Equal("NotStarted", skipPredecessor.Value.Project.Targets[0].Steps[0].Status);
+        Assert.Equal("InProgress", skipPredecessor.Value.Project.Status);
+        Assert.Equal(1, skipPredecessor.Value.Project.CompletedStepCount);
+        Assert.Equal(14, skipPredecessor.Value.Project.TotalStepCount);
+
+        var listedAfterFirstCompletion = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detailedAfterFirstCompletion = await projectStore.GetAsync(
+            projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("InProgress", listedAfterFirstCompletion.Status);
+        Assert.Equal(1, listedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, listedAfterFirstCompletion.TotalStepCount);
+        Assert.NotNull(detailedAfterFirstCompletion);
+        Assert.Equal("InProgress", detailedAfterFirstCompletion.Status);
+        Assert.Equal(1, detailedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, detailedAfterFirstCompletion.TotalStepCount);
+
+        var outOfOrderIndividual = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                6,
+                [new OsanProgressTargetRequest(targetIds[0], 2)],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, outOfOrderIndividual.Status);
+        Assert.Equal("Completed", outOfOrderIndividual.Value!.Project.Targets[0].Steps[5].Status);
+
+        var png = CreateStructurallyValidPng();
+        var (photo, photoError) = await OsanProgressPhotoValidator.ValidateAsync(
+            "evidence.png",
+            "image/png",
+            png,
+            TestContext.Current.CancellationToken);
+        Assert.Null(photoError);
+        Assert.NotNull(photo);
+        var stageOneOperation = Guid.NewGuid();
+        var stageOneInput = new CompleteOsanProgressInput(
+            stageOneOperation,
+            OsanCompletionModes.Batch,
+            1,
+            [
+                new OsanProgressTargetRequest(targetIds[0], 3),
+                new OsanProgressTargetRequest(targetIds[1], 1)
+            ],
+            [photo]);
+        var stageOne = await progressStore.CompleteAsync(
+            projectId,
+            stageOneInput,
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, stageOne.Status);
+        Assert.False(stageOne.Value!.Replayed);
+        Assert.Equal(1L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_photos where project_id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        Assert.Equal(2L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_step_photos where project_id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+
+        var replay = await progressStore.CompleteAsync(
+            projectId,
+            stageOneInput,
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, replay.Status);
+        Assert.True(replay.Value!.Replayed);
+        Assert.Equal(1L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_photos where project_id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+
+        var conflictingReplay = await progressStore.CompleteAsync(
+            projectId,
+            stageOneInput with { StageSequence = 2 },
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, conflictingReplay.Status);
+        Assert.Equal("osan_progress_operation_conflict", conflictingReplay.ErrorCode);
+
+        var versions = new Dictionary<Guid, int>
+        {
+            [targetIds[0]] = 4,
+            [targetIds[1]] = 2
+        };
+        var secondTargetStageTwo = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Batch,
+                2,
+                [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, secondTargetStageTwo.Status);
+        versions[targetIds[1]] += 1;
+
+        var prematurePacking = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Batch,
+                7,
+                targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, prematurePacking.Status);
+        Assert.Equal("osan_progress_packing_prerequisite_incomplete", prematurePacking.ErrorCode);
+
+        for (var stage = 3; stage <= 5; stage += 1)
+        {
+            var result = await progressStore.CompleteAsync(
+                projectId,
+                new CompleteOsanProgressInput(
+                    Guid.NewGuid(),
+                    OsanCompletionModes.Batch,
+                    stage,
+                    targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
+                    []),
+                UserId,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
+            foreach (var targetId in targetIds)
+            {
+                versions[targetId] += 1;
+            }
+        }
+
+        var secondTargetStageSix = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                6,
+                [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, secondTargetStageSix.Status);
+        versions[targetIds[1]] += 1;
+
+        var firstPacking = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                7,
+                [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, firstPacking.Status);
+        Assert.Equal("InProgress", firstPacking.Value!.Project.Status);
+        Assert.Equal("Active", await database.ReadScalarAsync<string>(
+            "select status from projects where id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+
+        var finalPackingInput = new CompleteOsanProgressInput(
+            Guid.NewGuid(),
+            OsanCompletionModes.Individual,
+            7,
+            [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
+            []);
+        var concurrentLastPacking = await Task.WhenAll(
+            progressStore.CompleteAsync(
+                projectId,
+                finalPackingInput,
+                UserId,
+                TestContext.Current.CancellationToken),
+            progressStore.CompleteAsync(
+                projectId,
+                finalPackingInput with { OperationId = Guid.NewGuid() },
+                UserId,
+                TestContext.Current.CancellationToken));
+        Assert.Single(concurrentLastPacking, result => result.Status == OsanProgressMutationStatus.Success);
+        Assert.Single(concurrentLastPacking, result => result.Status == OsanProgressMutationStatus.Conflict);
+        var lastPacking = concurrentLastPacking.Single(result => result.Status == OsanProgressMutationStatus.Success);
+        Assert.Equal("Completed", lastPacking.Value!.Project.Status);
+        Assert.All(lastPacking.Value.Project.Targets, target => Assert.Equal("Completed", target.Status));
+        Assert.Equal("Completed", await database.ReadScalarAsync<string>(
+            "select status from projects where id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        var listedCompleted = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detailedCompleted = await projectStore.GetAsync(projectId, TestContext.Current.CancellationToken);
+        Assert.Equal("Completed", listedCompleted.Status);
+        Assert.Equal(14, listedCompleted.CompletedStepCount);
+        Assert.Equal(14, listedCompleted.TotalStepCount);
+        Assert.NotNull(detailedCompleted);
+        Assert.Equal("Completed", detailedCompleted.Status);
+        Assert.Equal(14, detailedCompleted.CompletedStepCount);
+        Assert.Equal(14, detailedCompleted.TotalStepCount);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            """
+            select (select count(*) from pending_issues where project_id=@project_id)
+                 + (select count(*) from notification_deliveries where project_id=@project_id)
+                 + (select count(*) from logistics_packing_units where project_id=@project_id)
+                 + (select count(*) from panel_quality_inspection_attempts where project_id=@project_id);
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+    }
+
+    [Fact]
+    public async Task ProgressPhotoValidator_RejectsMismatchCorruptionAndLimits()
+    {
+        var valid = CreateStructurallyValidPng();
+        Assert.NotNull((await ValidatePhotoAsync("photo.png", "image/png", valid)).Photo);
+        Assert.NotNull((await ValidatePhotoAsync("photo.png", "application/octet-stream", valid)).Photo);
+        Assert.NotNull((await ValidatePhotoAsync(
+            "photo.jpg", "image/jpeg", CreateStructurallyValidJpeg())).Photo);
+        var validJpeg = CreateStructurallyValidJpeg();
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "missing-entropy.jpg", "image/jpeg", RemoveJpegEntropy(validJpeg, keepOneByte: false))).Error,
+            StringComparison.Ordinal);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "corrupt-entropy.jpg", "image/jpeg", RemoveJpegEntropy(validJpeg, keepOneByte: true))).Error,
+            StringComparison.Ordinal);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "fake.jpg",
+            "image/jpeg",
+            Convert.FromHexString("FFD8FFDB0002FFC40002FFC00008080001000100FFDA000200FFD9"))).Error,
+            StringComparison.Ordinal);
+        Assert.Contains("일치하지", (await ValidatePhotoAsync(
+            "photo.jpg", "image/jpeg", valid)).Error, StringComparison.Ordinal);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "photo.png", "image/png", [1, 2, 3])).Error, StringComparison.Ordinal);
+        Assert.Contains("5MiB", (await ValidatePhotoAsync(
+            "large.png", "image/png", new byte[OsanProgressPhotoValidator.MaximumPhotoBytes + 1])).Error,
+            StringComparison.Ordinal);
+
+        var corruptCrc = valid.ToArray();
+        corruptCrc[corruptCrc.Length - 5] ^= 0x01;
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "corrupt.png", "image/png", corruptCrc)).Error, StringComparison.Ordinal);
+
+        var corruptImageData = RewritePngChunk(valid, "IDAT"u8, data => data[0] ^= 0xff);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "invalid-zlib.png", "image/png", corruptImageData)).Error, StringComparison.Ordinal);
+        Assert.NotNull((await ValidatePhotoAsync(
+            "empty-idat.png", "image/png", InsertEmptyIdatBeforeFirst(valid))).Photo);
+
+        var oversizedDimension = RewritePngChunk(valid, "IHDR"u8, data =>
+            BinaryPrimitives.WriteUInt32BigEndian(data[..4], uint.MaxValue));
+        var exception = await Record.ExceptionAsync(async () => await ValidatePhotoAsync(
+            "dimension.png", "image/png", oversizedDimension));
+        Assert.Null(exception);
+        Assert.Null((await ValidatePhotoAsync(
+            "dimension.png", "image/png", oversizedDimension)).Photo);
+
+        using var wideImage = new Image<Rgba32>(9000, 1);
+        using var wideStream = new MemoryStream();
+        wideImage.SaveAsPng(wideStream);
+        Assert.NotNull((await ValidatePhotoAsync(
+            "wide.png", "image/png", wideStream.ToArray())).Photo);
+
+        using var interlacedImage = new MagickImage(MagickColors.Red, 1, 1);
+        interlacedImage.Settings.Interlace = Interlace.Png;
+        var interlacedBytes = interlacedImage.ToByteArray(MagickFormat.Png);
+        Assert.NotNull((await ValidatePhotoAsync(
+            "interlaced.png", "image/png", interlacedBytes)).Photo);
+    }
+
+    [Fact]
+    public async Task ProgressStore_RejectsNullTargetElementsBeforeDatabaseAccess()
+    {
+        var provider = new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build());
+        var store = new OsanProgressStore(provider);
+        var completion = await store.CompleteAsync(
+            Guid.NewGuid(),
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(), OsanCompletionModes.Batch, 1, [null], []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Validation, completion.Status);
+        Assert.Contains("Targets", completion.Errors!.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static byte[] CreateStructurallyValidPng()
+    {
+        using var image = new Image<Rgba32>(1, 1);
+        using var stream = new MemoryStream();
+        image.SaveAsPng(stream);
+        return stream.ToArray();
+    }
+
+    private static Task<(OsanProgressPhotoInput? Photo, string? Error)> ValidatePhotoAsync(
+        string fileName,
+        string contentType,
+        byte[] content) =>
+        OsanProgressPhotoValidator.ValidateAsync(
+            fileName,
+            contentType,
+            content,
+            TestContext.Current.CancellationToken);
+
+    private static byte[] RewritePngChunk(
+        byte[] source,
+        ReadOnlySpan<byte> chunkType,
+        PngChunkRewrite rewrite)
+    {
+        var result = source.ToArray();
+        var offset = 8;
+        while (offset <= result.Length - 12)
+        {
+            var length = BinaryPrimitives.ReadInt32BigEndian(result.AsSpan(offset, 4));
+            if (length < 0 || (long)offset + length + 12 > result.Length)
+            {
+                throw new InvalidOperationException("Invalid source PNG fixture.");
+            }
+            if (result.AsSpan(offset + 4, 4).SequenceEqual(chunkType))
+            {
+                var data = result.AsSpan(offset + 8, length);
+                rewrite(data);
+                BinaryPrimitives.WriteUInt32BigEndian(
+                    result.AsSpan(offset + 8 + length, 4),
+                    ComputePngCrc(result.AsSpan(offset + 4, 4), data));
+                return result;
+            }
+            offset += length + 12;
+        }
+        throw new InvalidOperationException("PNG fixture chunk was not found.");
+    }
+
+    private static byte[] InsertEmptyIdatBeforeFirst(byte[] source)
+    {
+        var offset = 8;
+        while (offset <= source.Length - 12)
+        {
+            var length = BinaryPrimitives.ReadInt32BigEndian(source.AsSpan(offset, 4));
+            if (length < 0 || (long)offset + length + 12 > source.Length)
+            {
+                throw new InvalidOperationException("Invalid source PNG fixture.");
+            }
+            if (source.AsSpan(offset + 4, 4).SequenceEqual("IDAT"u8))
+            {
+                var result = new byte[source.Length + 12];
+                source.AsSpan(0, offset).CopyTo(result);
+                BinaryPrimitives.WriteInt32BigEndian(result.AsSpan(offset, 4), 0);
+                "IDAT"u8.CopyTo(result.AsSpan(offset + 4, 4));
+                BinaryPrimitives.WriteUInt32BigEndian(
+                    result.AsSpan(offset + 8, 4),
+                    ComputePngCrc("IDAT"u8, []));
+                source.AsSpan(offset).CopyTo(result.AsSpan(offset + 12));
+                return result;
+            }
+            offset += length + 12;
+        }
+        throw new InvalidOperationException("PNG fixture IDAT chunk was not found.");
+    }
+
+    private static uint ComputePngCrc(ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
+    {
+        var crc = uint.MaxValue;
+        foreach (var value in type)
+        {
+            crc = UpdatePngCrc(crc, value);
+        }
+        foreach (var value in data)
+        {
+            crc = UpdatePngCrc(crc, value);
+        }
+        return crc ^ uint.MaxValue;
+    }
+
+    private static uint UpdatePngCrc(uint crc, byte value)
+    {
+        crc ^= value;
+        for (var bit = 0; bit < 8; bit += 1)
+        {
+            crc = (crc & 1) == 0 ? crc >> 1 : 0xedb88320U ^ (crc >> 1);
+        }
+        return crc;
+    }
+
+    private delegate void PngChunkRewrite(Span<byte> data);
+
+    private static byte[] CreateStructurallyValidJpeg()
+    {
+        using var image = new Image<Rgba32>(1, 1);
+        using var stream = new MemoryStream();
+        image.SaveAsJpeg(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] RemoveJpegEntropy(byte[] source, bool keepOneByte)
+    {
+        var startOfScan = source.AsSpan().IndexOf(new byte[] { 0xff, 0xda });
+        Assert.True(startOfScan >= 0);
+        var segmentLength = BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(startOfScan + 2, 2));
+        var entropyStart = startOfScan + 2 + segmentLength;
+        return keepOneByte
+            ? [.. source.AsSpan(0, entropyStart), 0x00, 0xff, 0xd9]
+            : [.. source.AsSpan(0, entropyStart), 0xff, 0xd9];
+    }
+
     private static CreateOsanProjectRequest ValidRequest(
         string title = "Project title",
         string projectCode = "OSAN-TEST",
@@ -330,15 +1236,17 @@ public sealed class OsanProjectRegistrationApiTests
         string? poNumber = null,
         string? workOrderNumber = null,
         int? quantity = 1,
-        Guid? operationId = null) =>
+        Guid? operationId = null,
+        DateOnly? deliveryDate = null,
+        string productName = "Product") =>
         new(
             title,
             projectCode,
             customerName,
             poNumber,
             workOrderNumber,
-            new DateOnly(2026, 12, 31),
-            "Product",
+            deliveryDate ?? new DateOnly(2026, 12, 31),
+            productName,
             quantity,
             operationId ?? Guid.NewGuid());
 
@@ -496,5 +1404,10 @@ public sealed class OsanProjectRegistrationApiTests
         public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
         public string ContentRootPath { get; set; } = contentRootPath;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

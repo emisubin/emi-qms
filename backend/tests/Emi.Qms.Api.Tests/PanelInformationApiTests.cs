@@ -353,7 +353,11 @@ public sealed class PanelInformationApiTests
         using var salesClient = context.CreateClient("dev-sales");
         using var client = context.CreateClient(developmentUserKey);
         using var created = await CreateProjectAsync(salesClient, $"PANEL-HISTORY-AUTH-{developmentUserKey}", $"Panel History Auth {developmentUserKey}", "StretchWrap", 1);
-        using var createdJson = await ReadJsonAsync(created);
+        var createdBody = await created.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            created.StatusCode == HttpStatusCode.Created,
+            $"Expected project setup to return Created, got {created.StatusCode}. Body: {createdBody}");
+        using var createdJson = JsonDocument.Parse(createdBody);
         var projectId = createdJson.RootElement.GetProperty("projectId").GetGuid();
 
         using var response = await client.GetAsync($"/api/projects/{projectId}/panel-information/history", TestContext.Current.CancellationToken);

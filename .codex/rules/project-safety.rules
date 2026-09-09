@@ -1,38 +1,16 @@
 # Project-local command safety policy.
-# These rules apply when the repository .codex layer is trusted. They complement,
-# rather than replace, AGENTS.md judgment and task-specific user approval.
-
-prefix_rule(
-    pattern = ["bash", "scripts/run-fable-readonly.sh"],
-    decision = "allow",
-    justification = "Allow only the fail-closed Fable 5 runner that fixes read-only tools, Task-scoped private session ownership, drift checks, cleanup, exact interview artifacts, one primary draft and explicit-user-request-only redraft.",
-    match = [
-        "bash scripts/run-fable-readonly.sh interview tasks/user-flow-001-interview.md 1",
-        "bash scripts/run-fable-readonly.sh planning tasks/user-flow-001-interview.md",
-        "bash scripts/run-fable-readonly.sh draft tasks/user-flow-001-interview.md docs/13-user-flow-baseline.md",
-        "bash scripts/run-fable-readonly.sh revise tasks/user-flow-001-interview.md docs/13-user-flow-baseline.md",
-        "bash scripts/run-fable-readonly.sh cleanup tasks/user-flow-001-interview.md",
-    ],
-    not_match = [
-        "bash scripts/e2e-full-stack.sh",
-        "zsh -c claude --print prompt",
-    ],
-)
-
-prefix_rule(
-    pattern = [["bash", "zsh", "sh"], ["-lc", "-c"]],
-    decision = "prompt",
-    justification = "Shell wrappers can hide multiple operations; inspect the full script and apply AGENTS.md scope before approval.",
-    match = ["bash -lc git-status", "zsh -c git-status", "sh -c git-status"],
-    not_match = ["bash scripts/e2e-full-stack.sh", "git status --short"],
-)
+#
+# Prefix rules inspect argv from the start. They do not understand SQL semantics,
+# expand aliases, or find a dangerous option after arbitrary positional arguments.
+# These rules therefore protect common command forms and leave broader judgment,
+# ownership checks, and any stricter user or managed policy in force.
 
 prefix_rule(
     pattern = ["git", "add", "."],
     decision = "forbidden",
     justification = "Stage the reviewed Task allowlist with explicit file paths.",
     match = ["git add ."],
-    not_match = ["git add AGENTS.md", "git add docs/development/validation-matrix.md"],
+    not_match = ["git add AGENTS.md", "git add -- AGENTS.md"],
 )
 
 prefix_rule(
@@ -43,34 +21,93 @@ prefix_rule(
     not_match = ["git add -- AGENTS.md"],
 )
 
+# Every push remains an explicit external action. Common force forms are denied by
+# the more restrictive rules below; a force flag in an unlisted argv position is
+# still subject to this prompt and Repository policy review.
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Push only the explicitly approved branch after reviewing the scoped commit and remote target.",
+    match = ["git push origin feature/task", "git push upstream feature/task"],
+    not_match = ["git status --short"],
+)
+
 prefix_rule(
     pattern = ["git", "push", ["--force", "--force-with-lease", "-f"]],
     decision = "forbidden",
-    justification = "Use a normal fast-forward push; history rewriting requires a separate approved procedure.",
-    match = ["git push --force origin feature", "git push --force-with-lease", "git push -f"],
-    not_match = ["git push origin feature", "git push origin --force"],
+    justification = "Use a normal push; history rewriting requires a separately approved recovery procedure.",
+    match = [
+        "git push --force origin feature/task",
+        "git push --force-with-lease origin feature/task",
+        "git push -f origin feature/task",
+    ],
+    not_match = ["git push origin feature/task", "git push origin --force feature/task"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "origin", ["--force", "--force-with-lease", "-f"]],
+    decision = "forbidden",
+    justification = "Use a normal push; history rewriting requires a separately approved recovery procedure.",
+    match = [
+        "git push origin --force feature/task",
+        "git push origin --force-with-lease feature/task",
+        "git push origin -f feature/task",
+    ],
+    not_match = ["git push origin feature/task", "git push --force origin feature/task"],
+)
+
+prefix_rule(
+    pattern = ["git", "push", "origin", ["main", "HEAD:main", "refs/heads/main"]],
+    decision = "forbidden",
+    justification = "Direct main push is prohibited; use the approved pull request workflow.",
+    match = [
+        "git push origin main",
+        "git push origin HEAD:main",
+        "git push origin refs/heads/main",
+    ],
+    not_match = ["git push origin feature/task", "git push origin main-review"],
 )
 
 prefix_rule(
     pattern = ["git", "reset", "--hard"],
     decision = "forbidden",
-    justification = "Preserve user WIP; inspect the diff and request an explicit recovery plan instead.",
+    justification = "Preserve user WIP; inspect the diff and use an explicit recovery plan.",
     match = ["git reset --hard", "git reset --hard HEAD~1"],
     not_match = ["git reset AGENTS.md"],
 )
 
 prefix_rule(
-    pattern = ["git", "clean", ["-fd", "-df", "-fdx", "-xdf"]],
+    pattern = [
+        "git",
+        "clean",
+        ["-f", "--force", "-fd", "-df", "-fx", "-xf", "-fdx", "-fxd", "-dfx", "-dxf", "-xfd", "-xdf"],
+    ],
     decision = "forbidden",
     justification = "Do not delete untracked user files; remove only verified Task-owned artifacts explicitly.",
-    match = ["git clean -fd", "git clean -df", "git clean -fdx"],
+    match = ["git clean -f", "git clean --force", "git clean -fd", "git clean -fx", "git clean -fdx", "git clean -xdf"],
     not_match = ["git clean -n"],
+)
+
+prefix_rule(
+    pattern = ["git", "clean", ["-d", "--directories"], ["-f", "--force"]],
+    decision = "forbidden",
+    justification = "Do not delete untracked user files; remove only verified Task-owned artifacts explicitly.",
+    match = ["git clean -d -f", "git clean --directories --force"],
+    not_match = ["git clean -d -n"],
+)
+
+prefix_rule(
+    pattern = ["git", "clean", ["-f", "--force"], ["-d", "--directories"]],
+    decision = "forbidden",
+    justification = "Do not delete untracked user files; remove only verified Task-owned artifacts explicitly.",
+    match = ["git clean -f -d", "git clean --force --directories"],
+    not_match = ["git clean -n -d"],
 )
 
 prefix_rule(
     pattern = ["git", "filter-repo"],
     decision = "forbidden",
-    justification = "History rewriting belongs to the separately approved governance procedure.",
+    justification = "History rewriting belongs to a separately approved governance procedure.",
     match = ["git filter-repo --path AGENTS.md"],
     not_match = ["git status --short"],
 )
@@ -84,57 +121,51 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["docker", "compose", "down", "-v"],
+    pattern = ["docker", "compose", "down", ["-v", "--volumes"]],
     decision = "forbidden",
-    justification = "Persistent volumes must be preserved; stop only explicitly owned disposable resources without -v.",
-    match = ["docker compose down -v"],
+    justification = "Preserve persistent volumes; stop only explicitly owned disposable resources without volume deletion.",
+    match = ["docker compose down -v", "docker compose down --volumes"],
     not_match = ["docker compose down", "docker compose ps"],
+)
+
+prefix_rule(
+    pattern = ["docker-compose", "down", ["-v", "--volumes"]],
+    decision = "forbidden",
+    justification = "Preserve persistent volumes; stop only explicitly owned disposable resources without volume deletion.",
+    match = ["docker-compose down -v", "docker-compose down --volumes"],
+    not_match = ["docker-compose down", "docker-compose ps"],
 )
 
 prefix_rule(
     pattern = ["dropdb"],
     decision = "forbidden",
-    justification = "Use the guarded E2E cleanup script for disposable emi_qms_e2e_* databases; never drop Persistent UAT directly.",
+    justification = "Use the guarded E2E cleanup path for owned disposable databases; never drop Persistent UAT directly.",
     match = ["dropdb emi_qms_uat", "dropdb emi_qms_e2e_test"],
-    not_match = ["createdb emi_qms_e2e_test"],
+    not_match = ["createdb emi_qms_e2e_test", "pg_isready"],
 )
 
-prefix_rule(
-    pattern = ["gh", "pr", "merge"],
-    decision = "prompt",
-    justification = "Merge requires the latest CI, Finding gate and explicit user validation approval.",
-    match = ["gh pr merge 31 --squash"],
-    not_match = ["gh pr checks 31"],
-)
-
-prefix_rule(
-    pattern = ["git", "push", "origin", "main"],
-    decision = "prompt",
-    justification = "Direct main push is prohibited by Repository policy; use an approved PR workflow.",
-    match = ["git push origin main"],
-    not_match = ["git push origin feature/task"],
-)
-
+# A psql prefix cannot prove that SQL is read-only or identify the target database,
+# so direct psql remains a per-invocation prompt instead of a blanket allow.
 prefix_rule(
     pattern = ["psql"],
     decision = "prompt",
-    justification = "Confirm the target DB, read/write intent and Persistent UAT protection before direct SQL execution.",
+    justification = "Confirm the target database, read/write intent, and Persistent UAT protection before direct SQL execution.",
     match = ["psql --dbname emi_qms_uat", "psql -c SELECT 1"],
     not_match = ["pg_isready"],
 )
 
 prefix_rule(
-    pattern = ["gh", "pr", "view"],
+    pattern = ["gh", "pr", "merge"],
     decision = "prompt",
-    justification = "Request only privacy-safe fixed fields; do not output raw body, comments or personal metadata.",
-    match = ["gh pr view 31", "gh pr view 31 --json body,comments"],
-    not_match = ["gh pr checks 31"],
+    justification = "Merge requires the latest CI, Finding gate, user validation, and explicit merge approval.",
+    match = ["gh pr merge 31 --squash"],
+    not_match = ["gh pr view 31 --json number,state", "gh pr checks 31"],
 )
 
 prefix_rule(
     pattern = ["git", "worktree", ["remove", "prune"]],
     decision = "prompt",
-    justification = "Verify runtime dependencies, clean state and preservation requirements before worktree cleanup.",
+    justification = "Verify runtime dependencies, clean state, and preservation requirements before worktree cleanup.",
     match = ["git worktree remove ../task", "git worktree prune"],
     not_match = ["git worktree list"],
 )
@@ -150,7 +181,7 @@ prefix_rule(
 prefix_rule(
     pattern = [["kill", "pkill"]],
     decision = "prompt",
-    justification = "Verify listener PID, cwd, command and Task ownership before terminating a runtime.",
+    justification = "Verify listener PID, cwd, command, and Task ownership before terminating a runtime.",
     match = ["kill 1234", "pkill dotnet"],
     not_match = ["ps -p 1234"],
 )
@@ -169,4 +200,12 @@ prefix_rule(
     justification = "Verify service ownership and Persistent UAT protection before lifecycle changes.",
     match = ["docker compose stop postgres", "docker compose restart api"],
     not_match = ["docker compose ps"],
+)
+
+prefix_rule(
+    pattern = ["docker", "volume", ["rm", "prune"]],
+    decision = "prompt",
+    justification = "Verify volume ownership, disposable scope, and Persistent UAT exclusion before deletion.",
+    match = ["docker volume rm test-volume", "docker volume prune"],
+    not_match = ["docker volume ls", "docker volume inspect test-volume"],
 )

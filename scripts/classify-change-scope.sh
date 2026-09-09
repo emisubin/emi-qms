@@ -51,6 +51,13 @@ else
     [[ -n "${changed_path}" ]] || continue
     changed_file_count=$((changed_file_count + 1))
 
+    if [[ "${changed_path}" == docs/archive/harness-v1-2026-09-09/*.snapshot ]]; then
+      archive_snapshot_name="${changed_path#docs/archive/harness-v1-2026-09-09/}"
+      if [[ -n "${archive_snapshot_name}" && "${archive_snapshot_name}" != */* ]]; then
+        continue
+      fi
+    fi
+
     case "${changed_path}" in
       *.md \
         | FILE_INVENTORY.txt \
@@ -68,6 +75,10 @@ else
 
     documentation_only='false'
     case "${changed_path}" in
+      .codex/config.toml \
+        | .codex/rules/project-safety.rules)
+        run_policy_validation='true'
+        ;;
       .github/workflows/azure-pilot-images.yml \
         | scripts/deploy-azure-pilot-release.sh \
         | scripts/test-azure-pilot-release.sh \

@@ -1,49 +1,10 @@
-# Task Identity Gate
+# 같은 목적의 작업 찾기
 
-새 Task·branch·worktree·planning 파일을 만들기 전에 작성하는 fixed projection이다. 값은 실제 Repository와 Git/GitHub 상태를 확인한 결과만 사용한다.
+새 Task 생성 또는 목적이 모호할 때만 사용한다. 기존 Task를 명확히 이어가는 매 turn의 별도 승인 gate가 아니다.
 
-- proposedTaskId: `<TASK-ID>`
-- taskType: `<fixed enum>`
-- instructionChainRead: `false`
-- instructionConflictCount: `0`
-- roadmapExpectedTaskId: `<TASK-ID | NONE>`
-- roadmapNextGate: `<fixed enum or canonical Task ID>`
-- roadmapSequenceMatch: `false`
-- samePurposeMatchCount: `0`
-- canonicalTaskId: `<TASK-ID | NONE | AMBIGUOUS>`
-- reuseExistingTask: `false`
-- explicitRoadmapOverrideApproved: `false`
-- experimentStandingInstructionApplies: `false`
-- experimentLedgerSelectedTask: `<TASK-ID | NAME | NONE>`
-- policyInputResolution: `<USER_DECISION | FABLE_RECOMMENDATION_AUTO_ADOPT | N/A>`
-- gateStatus: `BLOCKED`
+- 목적·기존 문제·새로 만들 사용자 결과:
+- 관련 Task/change, branch·WIP·PR에서 확인한 같은 목적:
+- 선택한 canonical Task 또는 새 Task가 필요한 이유:
+- 실질 선행조건·현재 요청의 범위와 남은 결정:
 
-## Purpose identity
-
-- 업무 목표:
-- Root Finding 또는 정책 결정:
-- 변경·검증 경계:
-- 보존할 불변조건:
-- 예상 산출물:
-
-## 검색 범위
-
-- [ ] `tasks/`의 Task·planning·review·change·implementation report
-- [ ] Product Roadmap 실행 큐·추적 항목·Decision Log
-- [ ] Local/remote branch와 worktree
-- [ ] Open/merged PR
-
-## Gate 상태
-
-허용 값은 다음과 같다.
-
-- `PASS_REUSE`: 같은 목적의 canonical Task 하나를 재사용하며 Roadmap 순서도 일치하거나 명시적 override가 승인됐다.
-- `PASS_CREATE`: 같은 목적이 없고 Roadmap 순서가 일치하거나 명시적 override가 승인돼 새 Task를 만들 수 있다.
-- `BLOCKED_SEQUENCE`: Roadmap의 현재 Task 또는 Next Gate와 일치하지 않는다.
-- `BLOCKED_AMBIGUOUS`: 같은 목적 후보가 둘 이상이거나 canonical Task를 확정할 수 없다.
-- `BLOCKED_ID_COLLISION`: 제안한 Task ID가 기존의 다른 목적에 이미 사용 중이다.
-- `BLOCKED_INCOMPLETE`: 검색 범위나 source of truth를 충분히 확인하지 못했다.
-
-`PASS_REUSE`이면 새 Task ID를 만들지 않고 `canonicalTaskId`의 다음 `change-###`를 사용한다. `PASS_REUSE`와 `PASS_CREATE` 외에는 Fable 호출, 새 Task·branch·worktree·planning 파일 작성을 시작하지 않는다.
-
-`experimentStandingInstructionApplies=true`이고 완료 원장의 첫 번째 이름 있는 미완료 제품 Task가 하나로 확정되면 사용자의 “다음 작업 시작”은 해당 Task에 대한 명시적 실행 지시다. 이때 `experimentLedgerSelectedTask`를 기록하고 `roadmapSequenceMatch=true`로 판정한다. `DEFERRED / POLICY_INPUT`의 비차단 선택은 `policyInputResolution=FABLE_RECOMMENDATION_AUTO_ADOPT`로 기록하며 별도 승인 질문을 만들지 않는다. 실제 차단 경계는 Root `AGENTS.md`의 experiment 완료 원장 gate를 따른다.
+같은 목적의 수정은 기존 Task/change로 잇는다. 이름만 다르다고 새 Task를 만들지 않는다. 같은 ID에 다른 목적을 덮어쓰지 않는다. 후보의 실제 차이가 해결되지 않으면 의존 변경만 보류하고 필요한 결정을 묻는다. 실행 순서는 [Root](../../AGENTS.md)와 [Roadmap](../../docs/00-product-roadmap.md)을 따른다. 고정 PASS marker나 별도 재승인 상태를 만들지 않는다.

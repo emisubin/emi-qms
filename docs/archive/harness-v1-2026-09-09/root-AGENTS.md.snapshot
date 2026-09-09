@@ -1,0 +1,295 @@
+# AGENTS.md
+
+## 프로젝트와 지침 범위
+
+이 Repository는 EMI 프로젝트 통합관리시스템을 개발한다. Root 지침은 Repository 전체에 적용하며, `backend/`, `frontend/`, `scripts/` 아래에서는 각 하위 `AGENTS.md`가 영역별 규칙을 추가한다.
+
+## Source of truth
+
+작업을 시작하기 전에 다음 순서로 실제 Repository 상태를 확인한다.
+
+1. 현재 경로에 적용되는 `AGENTS.md` 계층
+2. [Product Roadmap](docs/00-product-roadmap.md)의 제품 방향, Task 상태와 선행 의존성
+3. `experiment/*`에서는 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)의 완료 scope·남은 scope와 중복 실행 방지 상태
+4. [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 Finding·검수·게시 gate
+5. 실제 코드, migration, 설정과 tests
+6. 현재 branch, worktree, runtime과 DB 상태
+
+구현 사실과 현재 상태는 실제 Repository로 검증하며 대화 기억으로 대체하지 않는다. 사용자의 현재 명시적 지시와 유효한 기존 승인은 해당 범위의 실행 근거다. 변경 작업에서는 지시·승인의 출처와 범위를 Task/change에 기록하며, 문서에 아직 기록되지 않았다는 이유만으로 같은 승인을 다시 요구하지 않는다.
+
+문서끼리 또는 문서와 구현 사이에 의미 있는 충돌이 있으면 위치, 영향과 선택지를 보고하고 충돌 해결에 의존하는 변경·게시만 중단한다. 이미 승인된 충돌 보정은 그 승인 범위에서 수행하고, 충돌과 무관한 승인 작업·읽기 전용 조사·검증은 계속한다. 충돌하는 정책을 임의 선택하거나 승인 범위를 넓혀서는 안 된다.
+
+### Task 시작 instruction chain gate
+
+- 모든 새 Task와 분리된 Codex 조사·구현·독립 검증 session은 첫 변경·runtime mutation·Git mutation 전에 현재 filesystem의 instruction chain을 다시 읽는다. 이전 Task, 대화 기억이나 요약에서 읽었다는 사실로 대체하지 않는다.
+- 최소 확인 범위는 Root `AGENTS.md`, 변경 경로에 적용되는 하위 `AGENTS.md`, Product Roadmap, Task 종료 및 산출물 정책, Validation Matrix, Privacy-safe Evidence와 해당 Task의 planning·review·change·implementation report다. 적용 대상이 없으면 그 이유를 기록한다.
+- instruction chain을 읽은 뒤 `instructionChainRead=true`, 선택한 `taskType`, branch/worktree 기준선과 적용되는 하위 지침을 privacy-safe projection으로 먼저 보고한다.
+- 적용 지침이 없거나 읽을 수 없으면 그 지침에 의존하는 구현을 시작하지 않는다. 읽은 뒤 base branch·instruction file이 바뀌면 영향받는 지침과 기준선을 다시 읽는다. 의미 있는 충돌은 위 Source of truth의 의존 작업 중단 규칙을 따른다.
+- 같은 Task의 단순 연속 turn은 매번 전체 파일을 다시 읽지 않아도 되지만, 새 session, branch/base 변경, instruction file 변경 또는 source-of-truth drift가 있으면 gate를 다시 수행한다.
+
+### Task Identity Gate와 Roadmap Sequence Gate
+
+새 Task ID, branch, worktree, planning 또는 Task 파일을 만들기 전에 다음 gate를 순서대로 수행한다. Task 이름이 다르다는 이유만으로 별도 목적이라고 판단하지 않는다. 자원 생성·파일 쓰기·runtime mutation을 하지 않는 질문·감사는 이 자원 생성 gate의 대상이 아니다. 읽기 전용으로 시작했더라도 변경으로 전환하기 전에 gate를 수행한다.
+
+1. Product Roadmap의 실행 큐, 현재 상태, 선행 의존성, external blocker와 `Next Gate`를 읽어 현재 실행 가능한 canonical Task를 확인한다.
+2. 제안된 작업의 업무 목표, root Finding, 변경 경계, 보존할 불변조건과 예상 산출물을 기준으로 purpose identity를 작성한다.
+3. `tasks/`, Roadmap·Decision Log·추적 항목, local/remote branch, worktree와 open/merged PR에서 같은 purpose identity를 검색한다.
+4. 결과를 [Task Identity Gate 템플릿](tasks/_templates/task-identity-gate-template.md)의 fixed projection으로 먼저 대화에 보고한다. PASS와 해당 쓰기 승인 이후에만 기존 Task/change 또는 새 Task 파일에 기록한다.
+5. 같은 목적이 하나면 새 Task를 만들지 않고 기존 canonical Task와 다음 `change-###`를 재사용 대상으로 확정한다. 잘못 제안된 별칭은 기존 Task의 Finding으로만 기록한다.
+6. 같은 목적 후보가 둘 이상이거나 canonical Task를 확정할 수 없으면 어느 것도 임의 선택하지 않고 후보와 차이를 보고한 뒤 중단한다.
+7. 기존 Task 재사용과 새 Task 생성 모두 Roadmap의 현재 실행 가능 Task 또는 명시된 `Next Gate`와 일치하거나, 명시적 순서 변경 승인이 기록된 경우에만 시작할 수 있다.
+
+제안한 Task ID가 이미 존재하지만 purpose identity가 다르면 기존 Task에 덮어쓰지 않고 `BLOCKED_ID_COLLISION`으로 중단한다.
+
+Roadmap 순서는 단순 번호가 아니라 status, dependencies, external blocker, 승인된 병렬 진행과 `Next Gate`를 함께 해석한다. 앞선 Task가 외부 blocker로 대기 중이라는 이유만으로 뒤 Task를 자동 선택하지 않는다. Roadmap이나 Decision Log에 병렬 진행이 명시되어 있거나 사용자가 순서 변경을 명시적으로 승인하고 그 결정을 Roadmap에 기록할 때만 우회할 수 있다.
+
+사용자가 Roadmap과 다른 Task를 요청해도 이를 묵시적 순서 변경으로 해석하지 않는다. `roadmapSequenceMatch=false`를 먼저 보고하고, 선행조건·영향과 권장 순서를 설명한 뒤 명시적 재정렬 승인을 받는다. 확인된 P0/P1 또는 신규 P2는 현재 작업을 차단할 수 있지만, 발견 사실만으로 임의 Task를 시작하지 않고 canonical Task ID와 Roadmap 우선순위를 먼저 확정한다.
+
+일반적인 Roadmap 단계명, 상태명 또는 “P2 Gate” 같은 설명을 Task ID로 합성하지 않는다. Base branch, Roadmap, instruction file 또는 관련 PR 상태가 바뀌면 이 gate를 다시 실행한다. `roadmapSequenceMatch=true` 또는 `explicitRoadmapOverrideApproved=true`가 아니면 `PASS_REUSE`와 `PASS_CREATE`로 판정하지 않는다. Gate 결과가 두 PASS 상태 중 하나가 아니면 기획 agent 호출, 조사용 mutation, branch/worktree 생성과 파일 작성을 시작하지 않는다.
+
+이 gate는 instruction chain, Task 유형 라우터, Finding·검수·게시 gate와 영역별 `AGENTS.md`를 대체하지 않고 추가한다. 새 Codex 채팅과 분리된 session도 현재 Repository 안에서 이 모든 지침을 다시 읽은 뒤 동일한 gate를 수행한다.
+
+### `experiment/*` 완료 원장 gate
+
+- `experiment/*`에서 새 Task·다음 Task·GPT-6 기획·구현을 선택하기 전에 [실험 브랜치 Task 완료 원장](docs/27-experiment-task-ledger.md)을 반드시 읽는다.
+- 사용자가 이 대화와 branch에 대해 인터뷰·중간 승인 생략, 권장안 자동 채택과 결과까지의 연속 진행을 standing instruction으로 명시했다면, “다음 작업 시작”은 완료 원장의 우선순위가 가장 높은 이름 있는 미완료 제품 Task를 선택하고 그 Task의 `experiment/*` fast-track을 실행하라는 명시적 지시다. 이 경우 `roadmapSequenceMatch=true`로 기록하며 별도 승인·확인 질문을 만들지 않는다. 이번 모델 전환 승인에 따라 과거 Fable 명칭으로 기록된 standing instruction도 동일 Task·branch·환경·승인 범위에서만 현행 GPT-6 기획자에 적용하며, 기획자 명칭 변경을 이유로 같은 승인을 다시 요구하지 않는다. 과거 원문·승인 기록은 그대로 보존하고 다른 scope로 넓히지 않는다.
+- 위 standing instruction 아래의 `DEFERRED / POLICY_INPUT`은 사용자 승인 대기가 아니라 GPT-6 1차 기획에서 선택지·권장안을 만들고 독립 GPT-6 review를 거쳐 GPT-6 최종 기획이 확정할 비차단 입력이다. 권장안이 기존 보안·권한·workflow 불변조건을 보존하고 최종 기획의 blocking decision이 0이면 자동 채택해 구현까지 이어간다.
+- 같은 목적 후보가 둘 이상이거나 이름 있는 다음 Task를 하나로 확정할 수 없으면 해당 Task 선택을 중단한다. 선택·안전 경계에 영향을 주는 Repository 충돌 또는 대표 repo·`main`·Persistent UAT·실제 provider·destructive operation 같은 fast-track 제외 경계가 있으면 그에 의존하는 선택·구현만 중단하고 무관한 승인 작업은 위 Source of truth 규칙을 따른다. 단순히 Task ID가 아직 없거나 제품 정책 선택지가 남았다는 이유만으로 사용자 승인을 다시 요청하지 않는다.
+- 완료 원장·Roadmap·change를 갱신할 때 이 standing instruction을 약화해 “다음 작업”을 다시 승인 대기로 바꾸는 문구를 추가하지 않는다. 일반 branch의 승인 흐름과 아래 `main` 병합 승인 규칙은 그대로 유지한다.
+- 원장의 `EXPERIMENT_COMPLETE` scope와 같은 목적이면 사용자 검수 대기, 대표 repo 미반영, UAT 미적용 또는 P3 backlog를 이유로 planning·새 Task·재구현을 시작하지 않는다. 새 기능 요청이 아니라면 `BLOCKED_ALREADY_COMPLETED`로 먼저 보고한다.
+- 사용자가 완료 기능의 수정을 요청하면 새 Task ID를 만들지 않고 기존 canonical Task의 다음 `change-###` 또는 확인된 결함의 `BUGFIX`를 사용한다. 신규 사용자 능력·상태·권한·외부 연동이면 별도 `NEW_FEATURE`로 분류한다.
+- `EXPERIMENT_SLICE_COMPLETE`는 완료 slice를 다시 열지 않는다. purpose identity와 변경 allowlist는 원장에 이름이 적힌 후속 slice만 포함해야 한다.
+- `BATCHED_FINAL`은 사용자 검수 완료를 뜻하지 않는다. 실험 개발의 다음 Task 선택에서만 완료로 취급하며 checklist에는 `사용자 검수 대기 — 마지막 일괄 검수`를 유지한다. 사용자 검수 실패가 기록된 경우에만 기존 Task를 재개한다.
+- 실험 완료, 사용자 검수 완료, 대표 repo·`main` 반영, Persistent UAT 적용과 게시·merge 상태를 서로 대체하지 않는다. 승격이 필요하면 기능 재구현이 아니라 별도 통합·UAT Task로 처리하며 아래 `main` 병합 승인 규칙을 유지한다.
+- Product Roadmap과 완료 원장이 충돌하면 완료된 experiment scope를 자동 재선택하지 않는다. 제품 source와 implementation report를 대조해 `DOCS_GOVERNANCE`로 상태를 동기화한 뒤 다음 Task를 선택한다.
+
+## 작업 격리와 범위
+
+- `main`에서 직접 개발하거나 push하지 않는다.
+- Task별 branch는 유지하되, 일반적인 순차 작업은 하나의 canonical local clone에서 branch만 전환한다. Task마다 영구 worktree나 전체 checkout을 새로 만들지 않는다.
+- 대표 local 구조는 일반 Task workspace를 겸하는 canonical clone 하나와 실제 실행에 필요한 bounded runtime worktree로 제한한다. Task 문서와 결과는 별도 폴더 복제가 아니라 Repository의 `tasks/`, Git commit과 PR에 누적한다.
+- canonical clone은 새 Task 시작 전에 clean이어야 하며 최신 `origin/main`에서 승인된 Task branch를 만든다. Branch 전환 전 현재 Task 단계·남은 일·Git 게시 상태·재개 조건을 보고하고, 현재 commit이 이름 있는 local branch 또는 remote ref에서 reachable인지 확인한다. Dirty WIP, 이름 없는 stash, 보존되지 않은 detached commit 또는 source-of-truth 미기록 상태에서는 전환하지 않는다. Clean·reachable branch의 open PR과 게시 승인 대기는 그 자체로 branch 전환이나 새 worktree 생성 사유가 아니며 완료 보고의 중단·보류 Task로 추적한다.
+- HTTPS 5174 Vite Development frontend는 canonical clone의 현재 branch를 그대로 반영한다. Clean branch 전환 중에는 server를 유지하고 Vite HMR 또는 full reload 뒤 root·필수 route와 화면을 확인한다. `.env*`·process env, dependency·lockfile·`node_modules`, Vite config·plugin·HTTPS certificate·port·proxy·startup command가 바뀌었거나 자동 갱신 실패·stale module·지속 오류가 있을 때만 5174를 재시작한다. 5174가 실행 중이라는 사실만으로 branch 전환을 막거나 별도 worktree를 만들지 않는다.
+- 5174는 현재 branch를 따르는 Development runtime이며 latest `main` 고정·review-safe·release candidate가 아니다. Backend 5081과 다른 runtime의 source·configuration·migration·worker handover는 해당 Task의 별도 승인과 검증 규칙을 계속 따른다.
+- 5174 이외 process가 canonical clone source를 고정 기준으로 사용하고 branch 전환이 source/runtime 불일치를 만들면 해당 runtime의 handover·재시작·격리 승인 전에는 전환하지 않는다. 이미 실행 중인 compiled Backend가 source 변경을 자동 반영한 것으로 간주하지 않는다.
+- 병렬 구현, 5174 이외 runtime source 고정, 위험한 history/migration rehearsal처럼 물리 격리가 필요한 경우에만 임시 worktree를 추가한다. 생성 전에 purpose, owner, 기준 SHA, 예상 종료 시점과 cleanup 승인 경계를 기록한다.
+- 구현·독립 검증의 Codex session 분리는 논리적 책임 분리이며 영구 worktree나 사용자 새 대화를 하나씩 추가해야 한다는 의미가 아니다. 독립 검증의 실행·기준선 고정은 아래 Codex 실행 컨텍스트 분리 규칙을 따른다.
+- 임시 worktree는 Task 종료 시 clean, process 미사용, open PR 없음과 commit reachable을 확인한 뒤 승인 범위에서 `git worktree remove`로 정리한다. `rm -rf`, dirty worktree 강제 제거와 branch 자동 삭제를 사용하지 않는다.
+- 임시 worktree의 `node_modules`, Backend `bin/obj`, browser report와 E2E artifact는 ownership을 확인하고 Task cleanup 범위에서 제거한다. runtime이 사용 중이거나 소유가 불명확하면 보존한다.
+- 기능 개발은 `feat/<task-id>-<short-name>`, 버그 수정은 `fix/<task-id>-<short-name>`, 디자인 실험은 `experiment/<purpose>` 형식을 사용한다.
+- 기존 dirty worktree, stash, branch, runtime과 사용자가 만든 WIP를 임의 수정·정리·재시작하지 않는다.
+- 시작 전 동일 목적 branch/worktree/PR과 현재 diff를 확인한다.
+- 승인된 포함 범위만 변경하고 범위 밖 개선은 Finding 또는 후속 Task로 분리한다.
+- 사용자가 구현을 승인하면 해당 Task가 필수 테스트, parent review와 적용되는 독립 검증 gate를 통과한 시점의 allowlist 변경을 local commit하는 것까지 승인 범위에 포함한다. 구현 완료 local commit을 위해 별도 승인을 다시 요구하지 않는다. 범위 밖 WIP는 stage하거나 commit하지 않으며, 미완료·blocked 상태를 완료 commit으로 가장하지 않는다.
+- Push, PR, merge와 branch/worktree 정리는 사용자의 명시적 요청 범위에서만 수행한다.
+
+### `main` 병합 승인
+
+`main` merge는 자동 검증과 사용자 검수 뒤 해당 병합에 대한 사용자의 명시적 승인 1회가 기록되기 전까지 금지한다. 승인 횟수 정책을 설명하거나 변경한 메시지는 특정 병합 실행 승인이 아니다. 과거 Task/change의 3회 승인 기록은 당시 실행 이력이며 현재 병합의 승인 횟수를 정하지 않는다. 다른 문서는 이 규칙을 참조하고 횟수를 별도로 정의하지 않는다.
+
+## Codex 모델 역할과 위임 계약
+
+이 Repository의 기본 협업 구성은 사용자와 대화하는 parent `gpt-6-astra` High가 기획·조정·최종 review를 맡고, 실제 구현과 테스트는 `gpt-5.6-sol` xhigh(화면의 Extra high) implementer에게 맡기는 방식이다. 설정 기본값은 [`.codex/config.toml`](.codex/config.toml), 실행 절차와 예외는 [Codex 모델 작업 방식](docs/development/codex-model-workflow.md)을 따른다. 설정 파일은 새 실행의 기본값일 뿐 현재 session이나 agent가 실제로 어떤 모델에서 실행됐다는 증거가 아니다.
+
+- `코딩 작업`은 제품 코드, 자동화 테스트, migration, script, build·CI, 배포·인프라 또는 실행 동작을 바꾸는 설정을 편집하는 작업이다. 읽기 전용 조사·상태 확인·설명과 문서만 편집하는 작업에는 Sol 구현 위임을 요구하지 않는다.
+- 모든 코딩 작업에서 Parent는 instruction chain, Task identity와 승인 범위를 읽은 뒤 아래의 `Implementation Direction Brief`를 먼저 작성한다. Brief가 완성되기 전에는 구현을 넘기지 않는다. 구현 결과가 돌아오면 같은 Parent가 실제 Git diff, 테스트 결과와 증거를 직접 읽어 승인 계약·완료 조건·범위·품질을 review하고 보고서와 사용자 설명을 완성한다.
+- Implementer는 기본적으로 `gpt-5.6-sol` xhigh 한 명을 사용한다. 승인 범위의 구현, 필요한 테스트, 테스트나 parent review에서 발견된 범위 내 결함 보정까지 맡기며 다른 agent에게 재위임하지 않는다.
+- 구현 위임에는 `model: gpt-5.6-sol`, `reasoning_effort: xhigh`를 명시하고 `fork_turns: none` 또는 필요한 최근 turn 수만 지정한다. 전체 대화 상속에서는 model·reasoning override를 적용할 수 없으므로 모델을 바꿔야 하는 위임에 사용하지 않는다. Handoff에는 아래에서 정의한 Implementation Direction Brief 전문과 보고 경계를 짧고 완결되게 적는다.
+- Parent가 계획이나 대상 artifact를 직접 작성·변경했다면 구현 뒤 fresh `gpt-6-astra` High read-only verifier가 승인 계약, 고정 기준선, 실제 diff, 테스트와 Finding gate를 독립 검증한다. 사용자가 새 대화를 열 필요는 없다. Verifier는 대상 파일을 쓰거나 구현 결론을 그대로 받아들이지 않는다.
+- 요청한 역할 모델과 도구가 관측해 반환한 실제 모델을 구분해 기록한다. 도구가 실제 모델을 반환하지 않으면 `관측 불가`로 쓰며, 요청값을 실행 사실로 바꾸거나 다른 모델을 조용히 대체하지 않는다. 위임이나 독립 실행 수단이 없으면 가능한 read-only 조사·기획은 계속하고 구현 또는 독립 검증의 미완료 범위와 blocker를 보고한다. 외부 CLI를 대체 agent처럼 실행하지 않는다.
+- Parent는 agent의 로그를 계속 중계하거나 짧은 간격으로 polling하지 않는다. 기본은 한 번의 bounded implementer handoff이며, 완료·사용자 입력 필요·실패 같은 상태 변화에 맞춰 기다린다.
+- 비용이 크거나 위험도가 높은 변경, 같은 root cause로 반복 실패한 변경은 parent가 원인을 다시 분석하고 Implementation Direction Brief를 좁히거나 보정해 같은 Sol implementer에게 범위 내 수정을 반환한다. Parent는 코딩 작업에서 Sol을 대신해 구현하지 않고 방향 제시와 review를 맡는다. 요청한 Sol 모델이나 위임 도구를 사용할 수 없으면 구현을 미완료·blocked로 보고하며 parent 직접 구현이나 다른 모델로 조용히 대체하지 않는다.
+- Main 사용자 대화와 일반 기획·review는 High를 기본으로 한다. GPT-6 xhigh는 복잡한 migration·보안·동시성·architecture 판단처럼 표적화된 고난도 범위에만 사용한다. 작은 읽기 전용 질문, 설명과 단순 상태 확인에는 implementer를 만들지 않는다.
+
+### 모든 코딩 작업의 Implementation Direction Brief와 최종 review
+
+코딩 작업은 다음 순서를 반드시 지킨다.
+
+1. Parent GPT-6 High가 Repository, canonical Task/change와 사용자 승인 범위를 읽고 구체적인 `Implementation Direction Brief`를 작성한다.
+2. Brief를 작성한 뒤에만 `gpt-5.6-sol` xhigh implementer 한 명에게 전달한다.
+3. Sol은 Brief의 승인 범위 안에서 구현, 지정 테스트와 테스트가 찾은 범위 내 결함 보정을 수행한다.
+4. 같은 Parent GPT-6 High가 실제 diff·테스트 결과·증거를 직접 읽고 Brief의 완료 조건별로 최종 review한다.
+5. 기존 규칙이 fresh GPT-6 High verifier를 요구하면 parent 최종 review 뒤 추가 독립 gate로 수행한다. 독립 verifier는 parent review를 대체하지 않는다.
+
+Implementation Direction Brief에는 다음을 빠짐없이 포함한다.
+
+- canonical Task/change와 사용자 승인 출처
+- 현재 동작·문제 또는 root cause
+- 권장 구현 방식, 주요 순서와 그 이유
+- exact allowlist, interface·data·authorization·workflow 불변조건과 제외 범위
+- 사용자가 관찰할 수 있는 완료 조건
+- 변경에 직접 대응하는 test, 실패·경계 사례, 필요한 regression, 적용되는 DB·browser·runtime 검증, 기대 증거와 실행하지 못한 검증의 보고 방식
+- 승인 scope 확대, source-of-truth 충돌, destructive operation, 실제 provider 또는 게시 권한이 필요할 때 해당 의존 작업을 parent에 반환하는 조건
+
+Sol은 Brief의 빈 항목을 임의로 채우거나 승인 범위를 넓히지 않는다. Parent는 이미 승인된 선택을 사용자에게 다시 묻지 않는다. Parent 최종 review는 완료 조건별 충족 여부, exact allowlist와 승인 scope, interface·data·authorization·workflow 불변조건, 테스트 방법의 적합성·실제 결과·미실행 사유와 미해결 Finding을 확인한다. 범위 안의 결함은 같은 Sol implementer에게 반환해 보정한 뒤 변경 부분과 영향 범위를 다시 review한다.
+
+이 계약은 GPT-6 High의 구현 방향 결정 재량을 이미 승인된 코딩 범위 안에서만 넓힌다. 구현 승인은 위 작업 격리 규칙에 따른 완료 시점 local commit을 포함한다. 제품 scope, 데이터·runtime·provider 변경, push·PR·merge와 `main` 병합 권한은 추가하지 않는다. 기존 사용자 승인, Finding, 사용자 검수, 게시·운영 gate와 요청 모델·관측 모델 분리 규칙은 그대로 유지한다.
+
+## Task 유형 라우터
+
+Codex는 작업을 시작하기 전에 실제 요청과 Repository 상태를 기준으로 `taskType`을 하나 선택한다.
+
+- `NEW_FEATURE`: 사용자가 새로 수행할 수 있는 업무 흐름, 화면, 데이터 개념·상태 전이, 외부 연동, 알림 채널 또는 권한 능력을 추가한다.
+- `APPROVED_FEATURE_IMPLEMENTATION`: 승인된 신규 기능 planning과 review resolution을 구현한다.
+- `BUGFIX`: 기존 계약과 기대 동작의 결함을 수정한다.
+- `P2_REMEDIATION`: 확인된 P2 Finding을 기존 정책 안에서 보정한다.
+- `SECURITY_HARDENING`: 기존 보안·권한·동시성 불변조건을 강화한다.
+- `UAT_RUNTIME`: migration 적용, UAT 검증, runtime handover와 운영 안전 gate를 다룬다.
+- `DOCS_GOVERNANCE`: 문서, Repository 지침과 Task 상태를 실제 상태에 맞춘다.
+- `HOUSEKEEPING`: 승인된 branch, worktree, candidate, backup과 임시 자원을 정리한다.
+- `POLICY_DECISION`: 기존 기능 범위 안에서 사용자 정책 선택이 필요하다.
+
+`NEW_FEATURE`는 GPT-6 신규 기능 기획 흐름으로 보낸다. 제품 source 구현은 승인 후 Sol implementer에게 위임하며 `APPROVED_FEATURE_IMPLEMENTATION`에서 기획을 다시 시작하지 않는다. 일반 branch에서는 사용자가 확인한 interview를 바탕으로 GPT-6가 primary draft를 작성하고 fresh GPT-6가 내용 관점에서 한 번 review하면 planning과 review resolution 승인 단계로 넘어간다. 별도 사용자-facing 문서가 primary draft로 승인된 경우에만 `docs/` target을 사용하며 planning과 preview를 중복 생성하지 않는다. 명시적으로 승인된 `experiment/*` fast-track은 아래의 2-pass 예외 계약을 따른다.
+
+신규 기능 이외 조사 중 신규 제품 능력이나 기존 확정 정책을 바꾸는 설계가 필요해지면 구현을 중단한다. 신규 능력이면 `NEW_FEATURE`, 기존 범위의 정책 선택이면 `POLICY_DECISION`으로 재분류하고 사용자 승인을 다시 받는다.
+
+## 신규 기능: GPT-6 기획·독립 검토와 Sol 구현
+
+`NEW_FEATURE`는 다음 순서를 지킨다.
+
+1. Parent GPT-6 High가 Task 유형과 read-only 안전 경계를 확인하고 deep-interview를 시작한다.
+2. Parent가 Repository를 읽고 사용자에게 필요한 관련 질문 1~5개, 선택지 비교와 권장안을 작성한다.
+3. 사용자 답변을 의미 변경 없이 interview source에 기록한다.
+4. Parent가 누적 interview source를 다시 읽어 추가 질문 또는 확인용 요약을 작성한다. 필수 결정이 채워질 때까지 2~4를 반복한다.
+5. 사용자가 interview 요약을 명시적으로 확인한다.
+6. Parent GPT-6 High가 확인된 interview를 source of truth로 primary draft Markdown 전문을 Repository write 도구로 직접 작성한다. Claude/Fable runner나 사용량에 의존하지 않는다. 기본 target은 `tasks/<task-id>-planning.md`이며, 사용자가 개인 검토용 또는 사용자-facing `docs/` 전문을 primary draft로 명시하면 최신 change에 사용자 요청·exact target을 기록하고 승인된 target 하나만 사용한다.
+7. Fresh GPT-6 High read-only reviewer가 primary draft와 Repository를 직접 읽고 내용·제품 방향 review 결과를 한 번 반환한다. Reviewer는 Repository에 쓰지 않으며 parent가 반환된 결과를 의미 변경 없이 승인된 `tasks/<task-id>-review.md` 경로에 기록한다.
+8. Parent가 유지·추가·보류·제거 권고, 개발 순서, 사용자 가치, 누락 기능, 과도한 범위, 결정 필요 항목과 review resolution을 사용자에게 보고한다. Code 대조는 구현 가능성과 충돌 확인의 보조 근거다.
+9. Review만으로 승인된 planning 전문 전체를 자동 재작성하지 않는다. 사용자가 명시적으로 redraft를 요청한 경우에만 별도 change와 승인 범위를 기록해 한 번 수정한다. 범위 내 review resolution은 원문과 분리해 추적할 수 있다.
+10. 사용자가 primary draft를 승인한다.
+11. 사용자가 review resolution을 승인한다.
+12. 사용자가 구현 범위와 필요한 mutation을 승인한다. 한 메시지에서 세 항목을 모두 명시한 경우 같은 승인을 다시 요구하지 않는다.
+13. Parent가 위 필수 항목을 갖춘 Implementation Direction Brief를 작성해 `gpt-5.6-sol` xhigh implementer에게 전달한다. Implementer는 구현·테스트·범위 내 보정을 수행한다.
+14. Parent가 실제 diff·테스트·증거를 Brief의 완료 조건별로 직접 review한 뒤 fresh GPT-6 High verifier가 read-only 독립 검증한다.
+15. 사용자 검수와 별도 게시·merge 승인을 받는다.
+
+과거 Fable 작성 planning·interview·review는 당시 승인 이력과 원문 provenance를 유지한다. 현재 GPT-6 workflow로 전환했다는 이유만으로 승인된 기존 전문을 일괄 redraft하거나 작성 모델 metadata를 바꾸지 않는다.
+
+### `experiment/*` GPT-6 2-pass fast-track
+
+사용자가 실험 branch의 반복 개발에 대해 인터뷰·중간 승인 생략과 권장안 자동 채택을 명시하고, 대표 repo·`main`·Persistent UAT·실제 provider를 제외한 경우에만 다음 예외를 적용한다.
+
+1. 사용자-facing deep-interview를 진행하지 않는다. Parent는 사용자의 standing instruction, Roadmap의 확정 정책과 직접 관련된 기존 계약만 `tasks/<task-id>-interview.md`에 기록한다. 미확정 정책은 임의 확정하지 않고 GPT-6 1차 기획의 권장안 대상으로 남긴다. Repository 충돌이나 안전상 blocking decision은 fast-track으로 우회하지 않는다.
+   - 실제 요약 확인과 생략 승인을 구분해 `interviewOwner: CODEX`, `interviewStatus: WAIVED_BY_USER_FOR_EXPERIMENT`, `userConfirmed: false`, `interviewWaivedByUser: true`, `waiverSource: USER_EXPLICIT_EXPERIMENT_RULE`, `waiverSourceTask: <TASK-ID>`, `openBlockingDecisionCount: 0`을 기록한다. `waiverSourceTask`는 interview의 Task와 정확히 일치해야 한다.
+   - 최신 같은 Task change에 `experimentFastTrackApproved: true`, `experimentFastTrackSource: USER_EXPLICIT_EXPERIMENT_RULE`, `experimentFastTrackInterviewTarget: tasks/<task-id>-interview.md`와 사용자 standing instruction 근거를 기록한다. 단순 상태 marker가 사용자 승인을 만들어내지는 않는다.
+   - Experiment branch·해당 Task·최신 명시 승인·exact interview target을 모두 확인한다. 과거 `WAIVED_BY_USER_FOR_EXPERIMENT`와 `userConfirmed: true`의 조합은 새 실행의 근거로 사용하지 않는다. 과거 change·Fable 원문은 보존하며 실제 유효한 생략 승인을 확인해 현재 canonical interview와 다음 change를 정렬한 뒤에만 실행한다.
+2. Parent GPT-6 High가 1차 planning을 `tasks/<task-id>-planning.md`에 작성한다. 작성 모델, Task, interview source, 승인 출처와 exact target을 metadata로 기록한다.
+3. Fresh GPT-6 High read-only reviewer가 1차 planning, Repository와 확정 계약을 직접 읽고 유지·추가·보류·제거와 resolution을 한 번 반환한다. Reviewer는 Repository에 쓰지 않으며 parent가 반환된 결과를 의미 변경 없이 승인된 `tasks/<task-id>-review.md` 경로에 기록한다.
+4. Parent GPT-6 High가 1차 planning과 review를 모두 읽어 별도 exact target에 최종 planning을 한 번 작성한다. 최신 같은 Task change에 다음 marker와 standing instruction 근거를 먼저 기록하며 기존 1차 planning과 review를 수정·삭제하지 않는다.
+   - `experimentFinalPlanningApproved: true`
+   - `experimentFinalPlanningSource: USER_EXPLICIT_EXPERIMENT_RULE`
+   - `experimentFinalPlanningTask: <TASK-ID>`
+   - `experimentFinalPlanningTarget: docs/<approved-target>.md`
+   - 최종 planning에는 `finalPlanningStatus: DRAFT_FOR_IMPLEMENTATION`, 같은 `sourceTask`, `authoringModelRequested`, 도구가 반환한 `authoringModelObserved` 또는 `NOT_REPORTED`, `openBlockingDecisionCount`를 기록한다. Marker의 Task와 target은 최신 change 및 실제 파일과 정확히 일치해야 한다.
+   - 새 최종 planning target은 exclusive create로 생성해 기존 파일과 symlink를 덮어쓰지 않는다. Target이 이미 있으면 해당 target 충돌만 보고하고 자동 교체하지 않는다. 교체가 필요하면 사용자가 최신 같은 Task change에 redraft와 exact target을 명시적으로 승인한 경계에서만 처리하며 기존 원문·승인 planning provenance를 보존한다.
+5. 최종 planning은 해당 실험 Task의 구현 source of truth다. Blocking decision이 0이고 같은 Task·branch·환경에 대한 standing approval이 계속 유효할 때만 `gpt-5.6-sol` xhigh implementer에게 구현·테스트·범위 내 보정·Implementation report·privacy-safe desktop/mobile screenshot·local commit을 위임한다. 승인 marker를 다른 Task, branch, worktree, runtime 또는 provider로 이전하지 않는다.
+6. Parent는 실제 diff와 테스트를 직접 review하고, parent가 planning이나 artifact를 썼으므로 fresh GPT-6 High verifier가 고정 기준선을 read-only로 독립 검증한다.
+7. Fast-track에서 planning review와 최종 planning round를 추가로 반복하지 않는다.
+8. fast-track은 local experiment commit만 승인한다. 대표 repo, `main`, push, PR, merge, Persistent UAT migration·runtime handover와 실제 provider는 포함하지 않는다. `main` 병합은 위 `main` 병합 승인 규칙을 따른다.
+
+일반 branch의 deep-interview 요약 확인, planning 승인, review resolution 승인과 구현 승인은 이 예외로 변경되지 않는다.
+
+### GPT-6 독립 기획 Review 계약
+
+- Review의 첫 목적은 문법·코드 결함 탐지가 아니라 기획 품질 판단이다.
+- 반드시 사용자 문제와 기대 결과, 제품 방향·Roadmap 정합성, 기능별 필요성·사용자 가치, 우선순위와 의존성, 과도한 범위·운영 부담, 누락 기능, 대안과 trade-off를 검토한다.
+- 기능은 가능한 경우 `유지`, `추가`, `보류`, `제거`로 분류하고 근거와 권장 개발 순서를 제시한다.
+- 현재 코드·API·DB·권한 대조는 “지금 가능한가”, “기존 계약과 충돌하는가”, “예상 비용이 큰가”를 판단하는 보조 근거로만 사용한다. Code와 정확히 일치한다는 사실만으로 좋은 기획이라고 판정하지 않는다.
+- Review는 planning 원문과 분리해 provenance를 보존한다. Reviewer는 fresh `gpt-6-astra` High read-only agent를 명시해 planner의 결론을 그대로 상속하지 않고 결과만 반환한다. Reviewer는 Repository에 쓰지 않으며 parent가 그 결과를 의미 변경 없이 승인된 review 경로에 기록한다. 요청 모델과 관측 모델의 기록 규칙은 위 모델 역할 계약을 따른다.
+- 기본 review는 한 번으로 끝낸다. 일반 branch에서는 Review Finding을 이유로 자동 수정·재검토 round를 반복하지 않는다. `experiment/*` fast-track에서는 같은 review 한 번을 입력으로 GPT-6 최종 기획 한 번만 수행하며 추가 loop는 만들지 않는다.
+
+### GPT-6 deep-interview Gate
+
+- `NEW_FEATURE`의 업무 interview owner는 parent GPT-6 High다. 현재 업무, 문제, 대상 사용자와 역할, 정상·예외·복구 흐름, 권한, data/state lifecycle, audit, UX·접근성·좁은 화면, integration·attachment·notification, migration·UAT·rollout·rollback과 성공 기준을 Repository 기준선에 맞춰 질문한다.
+- 한 round에는 서로 관련된 질문 1~5개만 제시한다. 정책 선택이 있으면 2~3개의 상호 배타적 선택지를 쉬운 말로 비교하고 Repository 근거에 따른 권장안을 함께 제시한다. 질문 수를 채우기 위한 비차단·무관 질문은 추가하지 않는다.
+- [신규 기능 deep-interview 템플릿](tasks/_templates/new-feature-interview-template.md)으로 `tasks/<task-id>-interview.md`를 유지한다. 질문, 사용자 답변과 확인 요약을 의미 변경 없이 기록하며 다음 round와 planning은 최신 파일과 현재 Repository를 다시 읽는다.
+- `QUESTIONS_REQUIRED`, `SUMMARY_CONFIRMATION_REQUIRED`, `COMPLETED_CONFIRMED` 상태를 유지한다. 사용자가 요약을 확인하기 전에는 `userConfirmed: false`다.
+- 위의 유효한 experiment 생략 승인 계약을 충족한 경우를 제외하면 planning은 `interviewStatus: COMPLETED_CONFIRMED`, `userConfirmed: true`, `openBlockingDecisionCount: 0`일 때만 시작한다. Branch 이름만으로 확인을 생략하지 않는다. 명시적으로 deferred된 비차단 결정은 planning의 사용자 결정 항목으로 전달한다.
+- Interview 완료는 planning 승인이나 구현 승인이 아니다. `planningApproved`와 `implementationApproved`는 계속 `false`다.
+
+### Legacy Fable 실행 경계
+
+Fable은 현재 기본 기획 경로가 아니다. 사용자가 Fable 사용을 명시적으로 요청한 legacy Task/change에만 [CLAUDE.md](CLAUDE.md)의 fail-closed 계약을 적용한다. 과거 Fable artifact의 작성자·원문·승인 이력을 보존하며, 현재 GPT-6 workflow 전환을 Fable 재호출이나 원문 재작성 승인으로 해석하지 않는다. 일반 NEW_FEATURE, experiment planning과 구현을 위해 Fable 사용량이나 Claude CLI 가용성을 확인하지 않는다.
+
+기본 interview 위치는 `tasks/<task-id>-interview.md`, planning 위치는 `tasks/<task-id>-planning.md`, 기획 review 위치는 `tasks/<task-id>-review.md`다. `docs/tasks/`를 새로 만들지 않는다.
+
+## 신규 기능 이외 조사·구현·검증
+
+`APPROVED_FEATURE_IMPLEMENTATION`, `BUGFIX`, `P2_REMEDIATION`, `SECURITY_HARDENING`, `UAT_RUNTIME`, `DOCS_GOVERNANCE`, `HOUSEKEEPING`, `POLICY_DECISION`은 다음 순서를 지킨다.
+
+1. Parent GPT-6 High가 Repository와 실제 상태를 read-only로 확인하고 가능한 경우 문제를 재현한다.
+2. Parent가 root cause, 불변조건, 대안, 권장 최소안, 영향 범위와 검증 계획을 사용자에게 제시한다.
+3. 사용자가 구현 범위와 필요한 mutation·게시 경계를 승인한다.
+4. 코딩 작업이면 Parent가 위 필수 항목을 갖춘 Implementation Direction Brief를 작성한 뒤 `gpt-5.6-sol` xhigh implementer가 승인 범위만 변경하고 테스트와 범위 내 보정을 수행한다. 문서만 편집하는 작업에는 Sol 위임을 요구하지 않는다.
+5. Parent가 실제 diff·테스트·증거를 Brief의 완료 조건별로 직접 review하고, 필요한 fresh GPT-6 High verifier가 그 뒤에 승인 계약, 고정 기준선과 Finding gate를 read-only로 확인한다.
+6. 사용자 검수와 별도 게시·merge 승인을 받는다.
+
+조사 요청은 구현 승인이 아니다. 현재 요청 또는 유효한 기존 승인에 구체적인 변경 범위와 실행이 명시되어 있으면 같은 행동을 재승인받지 않는다. 조사 결과 승인 범위를 벗어나는 변경이나 아직 결정되지 않은 정책 선택이 필요할 때만 그 추가 범위·결정을 질문한다. 이미 승인된 범위를 넓혀 해석하지 않는다.
+
+## 수정 요청과 문서 역할
+
+구현 결과에 대한 수정 요청은 먼저 실제 코드와 기존 승인 계약에 대조한다. Codex는 증상, 기대 동작, 확인된 원인, 포함·제외 범위, 영향 파일, 보존할 불변조건과 검증 방법을 정리한다. 현재 요청 또는 유효한 기존 승인에 구체적인 수정 범위와 실행이 명시되어 있으면 그 범위에서 진행한다. 실행 승인이 없거나 조사로 추가 범위·정책 결정이 필요해진 경우에만 해당 부분을 승인받은 뒤 수정한다.
+
+승인된 planning 범위 안의 실질적 수정은 `tasks/<task-id>-change-###.md`에 순번대로 기록한다. 신규 사용자 능력, 신규 상태 전이, 신규 외부 연동 또는 권한 확대가 필요하면 change로 처리하지 않고 `NEW_FEATURE`로 재분류한다. 의미를 바꾸지 않는 단순 오탈자도 사용자가 수정 실행을 요청한 범위 안에서만 처리한다.
+
+문서 역할은 다음과 같이 분리한다.
+
+- Planning: 구현 전 업무 문제, 정책, 범위, 대안과 완료 기준을 정의한다.
+- Review: Codex가 planning을 실제 Repository와 대조한 Finding과 resolution을 기록한다.
+- Change: 승인된 planning 또는 Task 계약 안에서 후속 수정 지시를 고정한다.
+- Implementation report: 실제 구현, 결정, 변경 파일, 검증, 미실행 항목, Finding, rollback과 planning 대비 차이를 기록한다.
+
+Planning, review와 change는 구현 완료 증빙을 대신하지 않는다. Implementation report는 사용자 승인이나 planning 정책을 사후에 새로 만들어내지 않는다. Task 마감 산출물은 별도 파일 수를 임의로 강제하지 않고 [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 5종 상태·위치 추적 규칙을 따른다.
+
+## Codex 실행 컨텍스트 분리
+
+- 신규 기능의 기획·검토, 승인 후 구현, 구현 후 독립 검증은 서로 다른 Codex 실행 컨텍스트를 기본으로 한다.
+- 신규 기능 이외 작업도 조사·조정, 승인 후 구현, 독립 검증 컨텍스트를 분리한다.
+- 세션 분리는 책임과 실행 컨텍스트의 분리다. 지원되는 내부 독립 실행 컨텍스트를 사용하며 사용자에게 새 대화를 열도록 요구하지 않는다. 독립 실행 수단이 없으면 수행 가능한 승인 작업을 마치고 독립 검증 단계만 미완료로 보고한다.
+- 독립 검증 세션은 구현 세션의 결론을 신뢰하지 않고 승인 계약, Repository 상태, diff와 실행 가능한 검증을 직접 확인한다.
+- 독립 검증 중에는 대상 파일에 동시 write하지 않는다. 같은 clean committed branch를 read-only로 사용하는 것이 기본이며, 완료 전 미커밋 구현은 base SHA, 변경 파일 목록·각 내용 digest와 전체 diff digest(미추적 파일 포함)를 고정해 검증할 수 있다. 검증 전후 기준선 일치를 확인하고 바뀌면 영향받는 검증을 새 기준선으로 다시 수행한다. 구현 완료 local commit은 검증과 parent review가 통과한 뒤 생성한다.
+- 컨텍스트 사이 구현 사실의 source of truth는 planning, review와 resolution, Task, change, Implementation report, Git diff와 PR이다. 사용자 지시·승인은 출처와 범위를 함께 전달하며 과거 요약만으로 새 승인을 만들어내지 않는다.
+- 사용자 승인 전 구현 세션으로 넘어가지 않고, merge 승인 전 Ready 전환이나 merge를 수행하지 않는다.
+
+## 데이터와 migration 안전
+
+- Persistent UAT DB를 drop, truncate, reset하지 않고 persistent volume을 삭제하지 않는다.
+- 이미 `main`에 반영된 migration은 수정하거나 번호를 재사용하지 않는다.
+- 신규 migration은 feature branch에서 additive·forward-fix 원칙으로 작성하고 기존 DB와 fresh DB를 모두 검증한다.
+- Persistent UAT write, migration 적용, 실제 provider 발송과 runtime 교체는 Task 범위와 사용자 승인이 명확할 때만 수행한다.
+- E2E는 Persistent UAT와 분리된 전용 DB·container·storage를 사용한다.
+
+## Finding과 완료 판정
+
+- P0/P1은 미해결 상태에서 제품 수정 완료·게시·merge할 수 없다. 감사·조사 단계 완료와 제품 완료의 구분은 [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)의 Finding gate를 따른다.
+- P2는 먼저 해결한다. Risk acceptance는 canonical 종료 정책의 필수 기록과 사용자 승인이 모두 있을 때만 허용한다.
+- P3는 후속 Task 또는 backlog에 연결한다.
+- 확인하지 않았거나 실행하지 않은 결과를 성공으로 기록하지 않는다.
+- 자동 검증 완료와 사용자 검수 완료를 별도 상태로 관리한다.
+- Task 종료 시 5종 산출물의 위치와 상태를 [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)에 따라 추적한다.
+- Implementation report는 실제 변경, 결정, 검증, 미실행 항목과 rollback을 기록하는 기술 원장이다.
+
+## 개인정보와 secret
+
+- 실제 사용자·회사 계정·고객·프로젝트·업무·알림 원문, tenant/client/object ID, credential과 secret을 tracked 파일이나 보고에 기록하지 않는다.
+- raw DOM, API/DB response body, console 원문과 Git/GitHub 개인 metadata를 검증 증빙으로 출력하지 않는다.
+- 검증 결과는 가능한 경우 boolean, integer, fixed enum, aggregate와 익명 역할명으로 기록한다.
+- 상세 규칙과 output guard는 [Privacy-safe Evidence](docs/development/privacy-safe-evidence.md)를 따른다.
+
+## 검증과 게시
+
+- 변경 유형별 최소·영향·전체 테스트는 [Validation Matrix](docs/development/validation-matrix.md)를 따른다.
+- Task allowlist의 개별 경로만 stage한다. `git add .`와 `git add -A`를 사용하지 않는다.
+- stage 후 cached file 목록, 삭제, migration, dependency, env/certificate, generated artifact와 secret/PII 포함 여부를 재검증한다.
+- 사용자 검수 대기 상태에서 PR이 필요하면 Draft로 유지한다.
+- CI 실패, Finding gate 위반, 범위 밖 변경 또는 secret/PII가 있으면 게시·merge를 중단한다.
+
+## Task 종료 보고
+
+최종 응답의 적용 범위·간단 보고·고정 10개 항목과 산출물 추적은 [Task 종료 및 산출물 정책](docs/12-task-completion-policy.md)을 따른다. 이 파일에서 보고 형식을 중복 정의하지 않는다. 자동 검증, 사용자 검수, Git 게시와 운영 적용의 완료 상태는 어떤 보고 형식에서도 구분한다.
+
+## 영역별 지침
+
+- Backend: [backend/AGENTS.md](backend/AGENTS.md)
+- Frontend: [frontend/AGENTS.md](frontend/AGENTS.md)
+- Scripts: [scripts/AGENTS.md](scripts/AGENTS.md)

@@ -3843,7 +3843,24 @@ function trackBusinessUnitResponseBody(
   });
 }
 
-async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
+export async function fetchBlob(path: string, developmentUserKey?: string, signal?: AbortSignal): Promise<Blob> {
+  try {
+    const response = await fetchWithAuth(path, developmentUserKey, { signal });
+    if (!response.ok) {
+      const problem = await readProblem(response);
+      throw new ApiError(response.status, problem.message, problem.errors, problem.errorCode);
+    }
+    return await response.blob();
+  } catch (error: unknown) {
+    if (error instanceof ApiError || error instanceof BusinessUnitRequestInvalidatedError) throw error;
+    if (isInteractionRequiredAuthError(error)) {
+      throw new ApiError(401, '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.');
+    }
+    throw new ApiError(0, '서버에 연결할 수 없습니다. 서버 실행 상태를 확인해 주세요.');
+  }
+}
+
+export async function fetchJson<T>(path: string, developmentUserKey?: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
   const isMutation = !safeRequestMethods.has(method);
   if (isMutation && !mutationAllowed) {

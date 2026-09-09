@@ -170,6 +170,9 @@ function shellFetch(
     if (url.pathname === '/api/me') {
       return json(typeof me === 'function' ? (me as (headers: Headers) => unknown)(new Headers(init?.headers)) : me);
     }
+    if (url.pathname === '/api/osan/dashboard') {
+      return json({ summary: { totalCount: 0, notStartedCount: 0, inProgressCount: 0, completedCount: 0 }, items: [], totalCount: 0, page: 1, pageSize: 11 });
+    }
     if (url.pathname === '/api/admin/users') {
       return json({
         users: [{
@@ -352,7 +355,7 @@ describe('business-unit access shell', () => {
 
   it.each([
     ['CHEONGJU', '사용자 관리'],
-    ['OSAN', '오산 사업부 홈']
+    ['OSAN', '오산 홈']
   ] as const)('does not render a header selector for a %s-only overall administrator', async (
     businessUnit,
     title
@@ -385,7 +388,7 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '오산 사업부 홈' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '오산 홈' })).toBeInTheDocument();
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('OSAN');
     const meCalls = calls.filter((call) => call.path === '/api/me');
     expect(meCalls.length).toBeGreaterThanOrEqual(2);
@@ -429,11 +432,11 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '오산 사업부 홈' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '오산 홈' })).toBeInTheDocument();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     const navigation = screen.getAllByRole('navigation', { name: '공통 메뉴' })[0];
     expect(within(navigation).getByRole('button', { name: '프로젝트' })).toBeInTheDocument();
-    expect(within(navigation).getByRole('button', { name: '진행 관리' })).toBeInTheDocument();
+    expect(within(navigation).getByRole('button', { name: '진행 현황' })).toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'Pending' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'G2' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: '사용자 관리' })).not.toBeInTheDocument();
@@ -707,7 +710,7 @@ describe('business-unit access shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '오산 사업부 홈' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '오산 홈' })).toBeInTheDocument();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     expect(calls.filter((call) => call.path === '/api/admin/users')).toHaveLength(0);
     const navigation = screen.getAllByRole('navigation', { name: '공통 메뉴' })[0];

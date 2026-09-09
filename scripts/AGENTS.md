@@ -1,43 +1,26 @@
-# Scripts AGENTS.md
+# Script·CI·실행환경 작업 계약
 
-이 파일은 `scripts/` 아래 작업에 적용되며 Root [AGENTS.md](../AGENTS.md)를 보완한다.
+[Root 지침](../AGENTS.md)의 승인 경계를 따른다. 공통 지침에 과거 runtime을 항상 시작·갱신하라는 명령을 두지 않는다.
 
-## Shell과 실패 처리
+## 실행과 실패
 
-- 기존 script의 Bash/PowerShell 대상 플랫폼과 문법을 유지한다.
-- Bash script는 명시적인 strict mode, 인용된 변수, 안정적인 path 계산과 실패 시 non-zero 종료를 사용한다.
-- secret, connection string, token과 certificate/private key 원문을 stdout/stderr에 출력하지 않는다.
-- 임시 파일은 Task 전용 경로와 ownership을 확인하고 cleanup 범위를 명시한다.
+- 기존 Bash/PowerShell 대상 플랫폼을 유지한다. Bash는 strict mode, 인용된 변수, 안정적인 경로와 non-zero 실패를 사용한다.
+- secret·token·connection string·private key를 로그에 출력하지 않는다. 단순 조회에도 과도한 shell wrapper를 만들지 않는다.
+- timeout이면 기존 session/process와 결과부터 확인한다. 배포·migration·전송을 응답 불명확 상태에서 다시 실행하지 않는다.
+- 준비 상태는 process 존재와 구분하고 HTTP/HTTPS·liveness/readiness를 실제 확인한다.
 
-## Process ownership과 readiness
+## 자원과 DB
 
-- port 점유만으로 process를 종료하지 않는다. listener PID, cwd 경계, command type, session과 PID file을 함께 확인한다.
-- ownership이 하나라도 불일치하면 해당 process를 종료하지 않고 stable failure로 보고한다.
-- strict port를 사용하고 요청한 port가 점유됐을 때 자동 fallback하지 않는다.
-- HTTP/HTTPS protocol과 live/ready를 구분하며 단순 process 존재를 startup 성공으로 판정하지 않는다.
-- runtime 교체 전 rollback 정보와 기존 runtime 보존 상태를 기록한다.
+- process 종료 전 PID, cwd/source, command, session/owner를 확인한다. 포트만 보고 다른 process를 죽이지 않는다. 요청 포트가 점유되면 자동으로 다른 포트로 바꾸지 않는다.
+- 공유 runtime 교체는 승인된 대상과 rollback/source/configuration을 확인한다. 이미 실행 중인 Backend가 파일 변경을 자동 반영했다고 가정하지 않는다.
+- Persistent UAT/운영 DB·container·volume은 테스트 cleanup 대상이 아니다. 실행별 E2E DB·container·network/storage와 합성 데이터를 사용하고 실제 target/owner를 fail-closed로 검사한다.
+- cleanup은 명시된 승인 범위의 이번 실행 소유 자원만 대상으로 한다. 사용자가 나중에 직접 지우기로 한 자원은 기록만 유지한다.
+- 실제 provider와 `.env.notify-local`은 명시된 실제 발송 작업 밖에서 로드하지 않는다.
+- 환경별 기동·주소·DB·보존 조건은 해당 Task SOP에서 찾고 실행 전에 관측한다. 안내 경로는 [제품·환경 안내](../docs/development/pms-project-guide.md)에 있다.
 
-## Persistent UAT와 E2E 분리
+## 검증과 CI
 
-- Persistent UAT DB/container/volume은 reset·truncate·drop·cleanup 대상이 아니다.
-- Full-Stack E2E는 실행별 전용 PostgreSQL container/network/tmpfs와 `emi_qms_e2e_*` DB guard를 사용한다.
-- data command 전에 DB 이름, container와 connection target을 fail-closed로 검사한다.
-- cleanup은 이번 실행이 만든 E2E 자원으로 제한하고 다른 runtime, worktree 또는 사용자 파일을 삭제하지 않는다.
-- actual provider와 `.env.notify-local`은 명시적인 실제 발송 Task 외에는 로드하지 않는다.
-
-현재 공통 환경 기준은 다음과 같다. Task별 candidate/preview port는 해당 SOP와 실제 startup script를 source of truth로 사용한다.
-
-| 환경 | Backend | Frontend | DB |
-| --- | ---: | ---: | --- |
-| 수동 UAT | 5081 | 5174 | `emi_qms_uat_005a` |
-| Full-Stack E2E | 5082 | 5175 | `emi_qms_e2e_*` |
-| Figma 디자인 검증 | N/A | 5176 | N/A |
-| 현재 `experiment/*` 사용자 검수 | 41166 | 42983 | `emi_qms_experiment_validation_41164` |
-
-현재 `experiment/*` 사용자 검수 주소는 Backend `http://127.0.0.1:41166`, Frontend `http://127.0.0.1:42983`으로 고정한다. Task 종료 때 새 검수 포트를 만들지 않고 이 runtime을 최신 source로 재검증해 계속 열어 둔다. 포트가 점유됐거나 runtime 교체가 실패하면 다른 주소로 자동 우회하지 말고 ownership과 실패 원인을 보고한다. Full-Stack E2E의 실행별 임시 포트는 이 사용자 검수 주소가 아니며 완료 후 정리한다. DB 이름의 `41164` suffix는 기존 실험 데이터를 보존하기 위한 historical label일 뿐 현재 Backend port를 뜻하지 않는다.
-
-## Script 검증
-
-- shell syntax, actionlint, occupied-port/ownership/protocol 실패 경로와 cleanup 잔여 자원 검증을 수행한다.
-- runtime/Persistent UAT 영향이 있는 script는 before/after PID·container·volume·aggregate를 비식별 projection으로 비교한다.
-- 전체 검증 기준은 [Validation Matrix](../docs/development/validation-matrix.md)를 따른다.
+- 변경에 해당하는 syntax/actionlint·정상/실패·ownership·strict port·protocol·DB guard·cleanup 반례를 선택한다. [검증표](../docs/development/validation-matrix.md)를 복사하지 않는다.
+- CI 분류는 영향 있는 suite를 포함하고 알 수 없는 변경은 fail-safe로 다룬다. skipped job을 실행 성공으로 기록하지 않는다.
+- policy 규칙 검사는 명령을 데이터로 평가한다. 보호 동작이 차단되는지 확인하려고 실제 삭제·push·DB mutation을 실행하지 않는다.
+- 운영 승인·실행 정책·CI required check는 서로 다른 장치다. Markdown 변경만으로 강제 보호가 실제 적용됐다고 주장하지 않는다.

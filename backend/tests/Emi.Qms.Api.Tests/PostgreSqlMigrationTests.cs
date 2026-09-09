@@ -280,6 +280,127 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task Migration0089_PreservesTargetsAndAddsBoundedAppendOnlyPhotoRelations()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var migrationDirectory = Path.Combine(database.RepositoryRoot, "database", "migrations");
+
+        foreach (var migrationFile in Directory.GetFiles(migrationDirectory, "*.sql")
+                     .Order(StringComparer.Ordinal)
+                     .TakeWhile(file => !Path.GetFileName(file).StartsWith("0089_", StringComparison.Ordinal)))
+        {
+            await ApplyMigrationFileAsync(provider, migrationFile, TestContext.Current.CancellationToken);
+        }
+
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            select '89000000-0000-0000-0000-000000000089', 'migration-0089-user',
+                   'Migration 0089 User', id, true
+            from departments where code='manufacturing';
+
+            insert into projects (
+                id, project_key, project_number, name, customer_name, item,
+                project_code, project_title, delivery_date, project_profile,
+                osan_product_name, osan_quantity, created_by_user_id)
+            values (
+                '89000000-0000-0000-0000-000000000090', 'migration-0089-project',
+                'MIGRATION-0089', 'Migration 0089', 'Customer', '',
+                'MIGRATION-0089', 'Migration 0089', '2026-12-31', 'Osan',
+                'Product', 1, '89000000-0000-0000-0000-000000000089');
+
+            insert into osan_project_targets (
+                id, project_id, sequence_number, display_name)
+            values (
+                '89000000-0000-0000-0000-000000000091',
+                '89000000-0000-0000-0000-000000000090', 1, 'Product 1');
+
+            insert into osan_project_target_steps (
+                id, project_id, target_id, sequence_number, step_code, step_name)
+            values (
+                '89000000-0000-0000-0000-000000000092',
+                '89000000-0000-0000-0000-000000000090',
+                '89000000-0000-0000-0000-000000000091',
+                1, 'INCOMING_INSPECTION', '입고검사');
+            """,
+            TestContext.Current.CancellationToken);
+
+        var migration0089 = Path.Combine(migrationDirectory, "0089_osan_progress_photo.sql");
+        await ApplyMigrationFileAsync(provider, migration0089, TestContext.Current.CancellationToken);
+        await ApplyMigrationFileAsync(provider, migration0089, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, await ReadScalarAsync<int>(
+            provider,
+            "select version from osan_project_targets where id='89000000-0000-0000-0000-000000000091';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from information_schema.tables
+            where table_schema='public'
+              and table_name in (
+                  'osan_progress_operations',
+                  'osan_progress_photos',
+                  'osan_progress_step_photos');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            provider,
+            """
+            select count(*)
+            from pg_trigger
+            where not tgisinternal
+              and tgname in (
+                  'trg_guard_osan_progress_operations',
+                  'trg_guard_osan_progress_photos',
+                  'trg_guard_osan_progress_step_photos');
+            """,
+            TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into osan_progress_operations (
+                operation_id, project_id, action, completion_mode, stage_sequence,
+                target_ids, request_fingerprint, requested_by_user_id)
+            values (
+                '89000000-0000-0000-0000-000000000093',
+                '89000000-0000-0000-0000-000000000090',
+                'Complete', 'individual', 1,
+                array['89000000-0000-0000-0000-000000000091'::uuid],
+                repeat('a', 64), '89000000-0000-0000-0000-000000000089');
+            """,
+            TestContext.Current.CancellationToken);
+        var invalidPhoto = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            provider,
+            """
+            insert into osan_progress_photos (
+                project_id, operation_id, original_file_name, display_order,
+                normalized_mime, byte_size, sha256, content, uploaded_by_user_id)
+            values (
+                '89000000-0000-0000-0000-000000000090',
+                '89000000-0000-0000-0000-000000000093',
+                'invalid.png', 1, 'image/png', 2, repeat('b', 64),
+                decode('00', 'hex'), '89000000-0000-0000-0000-000000000089');
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, invalidPhoto.SqlState);
+
+        var appendOnly = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(
+            provider,
+            """
+            update osan_progress_operations
+            set request_fingerprint=repeat('c', 64)
+            where operation_id='89000000-0000-0000-0000-000000000093';
+            """,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, appendOnly.SqlState);
+    }
+
+    [Fact]
     public async Task SiteAccessSessions_UseDatabaseTimeThirtyMinuteBoundaryConcurrencyAndExplicitLogout()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -753,7 +874,7 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+        Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -980,7 +1101,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1237,7 +1358,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1305,7 +1426,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1435,7 +1556,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2123,7 +2244,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2389,7 +2510,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2493,7 +2614,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2559,7 +2680,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+        Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -2623,7 +2744,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2746,7 +2867,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2912,7 +3033,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3434,7 +3555,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3477,7 +3598,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3658,7 +3779,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3735,7 +3856,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3800,7 +3921,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+            Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3850,7 +3971,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0088_system_administrator_access_consistency", await ReadScalarAsync<string>(
+        Assert.Equal("0089_osan_progress_photo", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

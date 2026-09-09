@@ -665,4 +665,7 @@ public sealed record ParsedOsanProjectExcelRow(
     DateOnly? DeliveryDate,
     string? ProductName,
     int? Quantity,
-    IReadOnlyList<string> Errors);
+    IReadOnlyList<string> Errors,
+    string? RawDeliveryDate = null,
+    decimal? RawQuantity = null,
+    IReadOnlyDictionary<string, string[]>? FieldErrors = null);

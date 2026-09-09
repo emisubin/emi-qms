@@ -4375,7 +4375,7 @@ function OsanProjectListPage({
     >
       {importMessage && <p role="status">{importMessage}</p>}
       {excelOpen && canCreate && <OsanProjectExcelDialog developmentUserKey={developmentUserKey} onClose={() => setExcelOpen(false)} onApplied={count => {
-        setExcelOpen(false); setImportMessage(`${count}개 프로젝트를 등록했습니다.`); setImportRevision(value => value + 1);
+        setImportMessage(`${count}개 프로젝트를 등록했습니다.`); setImportRevision(value => value + 1);
       }} />}
       {state.kind === 'loading' ? (
         <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." />

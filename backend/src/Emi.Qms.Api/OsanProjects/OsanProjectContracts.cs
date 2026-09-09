@@ -94,6 +94,7 @@ public sealed record OsanProjectAccessRecord(Guid ProjectId, string ProjectKey);
 
 public sealed record OsanProjectExcelPreviewResponse(
     string FileSha256,
+    bool SupportsRowEditing,
     int TotalRowCount,
     int TotalQuantity,
     int ErrorCount,
@@ -107,22 +108,42 @@ public sealed record OsanProjectExcelPreviewRowResponse(
     string? CustomerName,
     string? PoNumber,
     string? WorkOrderNumber,
-    DateOnly? DeliveryDate,
+    string? DeliveryDate,
     string? ProductName,
-    int? Quantity,
-    IReadOnlyList<string> Errors);
+    decimal? Quantity,
+    IReadOnlyList<string> Errors,
+    string? DuplicateKind = null,
+    IReadOnlyDictionary<string, string[]>? FieldErrors = null);
+
+public sealed record OsanProjectExcelRowRequest(
+    int RowNumber,
+    string? Title,
+    string? ProjectCode,
+    string? CustomerName,
+    string? PoNumber,
+    string? WorkOrderNumber,
+    string? DeliveryDate,
+    string? ProductName,
+    decimal? Quantity);
 
 public sealed record OsanProjectExcelApplyResponse(
     Guid OperationId,
     bool Replayed,
     int CreatedCount,
-    IReadOnlyList<Guid> ProjectIds);
+    IReadOnlyList<Guid> ProjectIds,
+    IReadOnlyList<int> CreatedRowNumbers);
+
+public sealed record OsanProjectExcelConfirmationRequiredResponse(
+    string ErrorCode,
+    string Message,
+    IReadOnlyList<int> RowNumbers);
 
 public enum OsanProjectExcelApplyStatus
 {
     Success,
     Validation,
     FileChanged,
+    ConfirmationRequired,
     ProjectCodeConflict,
     OperationConflict
 }
@@ -130,4 +151,5 @@ public enum OsanProjectExcelApplyStatus
 public sealed record OsanProjectExcelApplyResult(
     OsanProjectExcelApplyStatus Status,
     OsanProjectExcelApplyResponse? Value = null,
-    IReadOnlyDictionary<string, string[]>? Errors = null);
+    IReadOnlyDictionary<string, string[]>? Errors = null,
+    IReadOnlyList<int>? ConfirmationRowNumbers = null);

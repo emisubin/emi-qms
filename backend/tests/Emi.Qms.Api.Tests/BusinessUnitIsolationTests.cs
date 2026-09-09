@@ -303,6 +303,8 @@ public sealed class BusinessUnitIsolationTests
 
         var workbookBytes = CreateOsanImportWorkbook();
         string fileSha256;
+        OsanProjectExcelRowRequest selectedRow;
+        OsanProjectExcelRowRequest secondSourceRow;
         using (var previewRequest = Request(
                    HttpMethod.Post,
                    "/api/osan/projects/import/preview",
@@ -318,9 +320,80 @@ public sealed class BusinessUnitIsolationTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(preview);
             Assert.Equal(0, preview.ErrorCount);
+            Assert.True(preview.SupportsRowEditing);
             Assert.Equal(2, preview.TotalRowCount);
             Assert.Equal(3, preview.TotalQuantity);
             fileSha256 = preview.FileSha256;
+            var sourceRow = preview.Rows[0];
+            selectedRow = new OsanProjectExcelRowRequest(
+                sourceRow.RowNumber,
+                "HTTP Edited Title",
+                "00Http  Edited",
+                sourceRow.CustomerName,
+                sourceRow.PoNumber,
+                sourceRow.WorkOrderNumber,
+                sourceRow.DeliveryDate,
+                sourceRow.ProductName,
+                sourceRow.Quantity);
+            secondSourceRow = new OsanProjectExcelRowRequest(
+                preview.Rows[1].RowNumber,
+                preview.Rows[1].Title,
+                preview.Rows[1].ProjectCode,
+                preview.Rows[1].CustomerName,
+                preview.Rows[1].PoNumber,
+                preview.Rows[1].WorkOrderNumber,
+                preview.Rows[1].DeliveryDate,
+                preview.Rows[1].ProductName,
+                preview.Rows[1].Quantity);
+        }
+
+        foreach (var (deliveryDate, quantity, expectedField) in new (string?, decimal?, string)[]
+                 {
+                     ("", 1, "deliveryDate"),
+                     ("2027-13-40", 1, "deliveryDate"),
+                     ("2027-01-03", 1.4m, "quantity")
+                 })
+        {
+            var invalidRow = secondSourceRow with { DeliveryDate = deliveryDate, Quantity = quantity };
+            using var invalidEditRequest = Request(
+                HttpMethod.Post,
+                "/api/osan/projects/import/preview",
+                "dev-sales",
+                BusinessUnitCodes.Osan);
+            invalidEditRequest.Content = CreateOsanImportContent(
+                workbookBytes,
+                rows: [selectedRow, invalidRow]);
+            using var invalidEditResponse = await client.SendAsync(
+                invalidEditRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, invalidEditResponse.StatusCode);
+            var invalidEditPreview = await invalidEditResponse.Content
+                .ReadFromJsonAsync<OsanProjectExcelPreviewResponse>(TestContext.Current.CancellationToken);
+            Assert.NotNull(invalidEditPreview);
+            Assert.Empty(invalidEditPreview.Rows[0].Errors);
+            Assert.Contains(expectedField, invalidEditPreview.Rows[1].FieldErrors!.Keys);
+        }
+
+        using (var editedPreviewRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/preview",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            editedPreviewRequest.Content = CreateOsanImportContent(
+                workbookBytes,
+                rows: [selectedRow]);
+            using var editedPreviewResponse = await client.SendAsync(
+                editedPreviewRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, editedPreviewResponse.StatusCode);
+            var editedPreview = await editedPreviewResponse.Content
+                .ReadFromJsonAsync<OsanProjectExcelPreviewResponse>(TestContext.Current.CancellationToken);
+            Assert.NotNull(editedPreview);
+            var editedRow = Assert.Single(editedPreview.Rows);
+            Assert.Equal(selectedRow.RowNumber, editedRow.RowNumber);
+            Assert.Equal("HTTP Edited Title", editedRow.Title);
+            Assert.Equal(0, editedPreview.ErrorCount);
         }
 
         OsanProjectExcelApplyResponse applied;
@@ -331,13 +404,19 @@ public sealed class BusinessUnitIsolationTests
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         {
-            applyRequest.Content = CreateOsanImportContent(workbookBytes, fileSha256, applyOperationId);
+            applyRequest.Content = CreateOsanImportContent(
+                workbookBytes,
+                fileSha256,
+                applyOperationId,
+                [selectedRow],
+                []);
             using var applyResponse = await client.SendAsync(applyRequest, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
             applied = Assert.IsType<OsanProjectExcelApplyResponse>(
                 await applyResponse.Content.ReadFromJsonAsync<OsanProjectExcelApplyResponse>(
                     TestContext.Current.CancellationToken));
-            Assert.Equal(2, applied.CreatedCount);
+            Assert.Equal(1, applied.CreatedCount);
+            Assert.Equal([selectedRow.RowNumber], applied.CreatedRowNumbers);
         }
 
         using (var replayRequest = Request(
@@ -346,7 +425,12 @@ public sealed class BusinessUnitIsolationTests
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         {
-            replayRequest.Content = CreateOsanImportContent(workbookBytes, fileSha256, applyOperationId);
+            replayRequest.Content = CreateOsanImportContent(
+                workbookBytes,
+                fileSha256,
+                applyOperationId,
+                [selectedRow],
+                []);
             using var replayResponse = await client.SendAsync(replayRequest, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
             var replayed = await replayResponse.Content.ReadFromJsonAsync<OsanProjectExcelApplyResponse>(
@@ -354,6 +438,7 @@ public sealed class BusinessUnitIsolationTests
             Assert.NotNull(replayed);
             Assert.True(replayed.Replayed);
             Assert.Equal(applied.ProjectIds, replayed.ProjectIds);
+            Assert.Equal(applied.CreatedRowNumbers, replayed.CreatedRowNumbers);
         }
 
         using (var detailRequest = Request(
@@ -367,8 +452,138 @@ public sealed class BusinessUnitIsolationTests
             var detail = await detailResponse.Content.ReadFromJsonAsync<OsanProjectDetailResponse>(
                 TestContext.Current.CancellationToken);
             Assert.NotNull(detail);
+            Assert.Equal("HTTP Edited Title", detail.Title);
+            Assert.Equal("00Http  Edited", detail.ProjectCode);
             Assert.Equal(2, detail.Targets.Count);
             Assert.All(detail.Targets, target => Assert.Equal(7, target.Steps.Count));
+        }
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from projects where project_code='HTTP-EXCEL-3';",
+            TestContext.Current.CancellationToken));
+
+        var duplicateRow = secondSourceRow with
+        {
+            Title = "HTTP Same Code Other Project",
+            ProjectCode = selectedRow.ProjectCode,
+            Quantity = 1
+        };
+        using (var duplicatePreviewRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/preview",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            duplicatePreviewRequest.Content = CreateOsanImportContent(workbookBytes, rows: [duplicateRow]);
+            using var duplicatePreviewResponse = await client.SendAsync(
+                duplicatePreviewRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, duplicatePreviewResponse.StatusCode);
+            var duplicatePreview = await duplicatePreviewResponse.Content
+                .ReadFromJsonAsync<OsanProjectExcelPreviewResponse>(TestContext.Current.CancellationToken);
+            Assert.Equal("code", Assert.Single(Assert.IsType<OsanProjectExcelPreviewResponse>(duplicatePreview).Rows).DuplicateKind);
+        }
+
+        var duplicateOperationId = Guid.NewGuid();
+        using (var unconfirmedDuplicateRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            unconfirmedDuplicateRequest.Content = CreateOsanImportContent(
+                workbookBytes, fileSha256, duplicateOperationId, [duplicateRow], []);
+            using var unconfirmedDuplicateResponse = await client.SendAsync(
+                unconfirmedDuplicateRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Conflict, unconfirmedDuplicateResponse.StatusCode);
+            var confirmation = await unconfirmedDuplicateResponse.Content
+                .ReadFromJsonAsync<OsanProjectExcelConfirmationRequiredResponse>(TestContext.Current.CancellationToken);
+            Assert.Equal([duplicateRow.RowNumber], Assert.IsType<OsanProjectExcelConfirmationRequiredResponse>(confirmation).RowNumbers);
+        }
+
+        OsanProjectExcelApplyResponse duplicateApplied;
+        using (var confirmedDuplicateRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            confirmedDuplicateRequest.Content = CreateOsanImportContent(
+                workbookBytes,
+                fileSha256,
+                duplicateOperationId,
+                [duplicateRow],
+                [duplicateRow.RowNumber]);
+            using var confirmedDuplicateResponse = await client.SendAsync(
+                confirmedDuplicateRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, confirmedDuplicateResponse.StatusCode);
+            duplicateApplied = Assert.IsType<OsanProjectExcelApplyResponse>(
+                await confirmedDuplicateResponse.Content.ReadFromJsonAsync<OsanProjectExcelApplyResponse>(
+                    TestContext.Current.CancellationToken));
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"delete from user_project_access where user_id='{SalesUserId:D}' and project_id='{duplicateApplied.ProjectIds[0]:D}';",
+            TestContext.Current.CancellationToken);
+        using (var inaccessibleDuplicateRequest = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{duplicateApplied.ProjectIds[0]:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var inaccessibleDuplicateResponse = await client.SendAsync(
+                   inaccessibleDuplicateRequest,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, inaccessibleDuplicateResponse.StatusCode);
+        }
+        using (var accessibleOriginalRequest = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{applied.ProjectIds[0]:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var accessibleOriginalResponse = await client.SendAsync(
+                   accessibleOriginalRequest,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, accessibleOriginalResponse.StatusCode);
+        }
+
+        var batchRows = new[]
+        {
+            selectedRow with { Title = "HTTP Batch A", ProjectCode = "HTTP-BATCH-A" },
+            secondSourceRow with { Title = "HTTP Batch B", ProjectCode = "HTTP-BATCH-B" }
+        };
+        var batchOperationId = Guid.NewGuid();
+        using (var batchApplyRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            batchApplyRequest.Content = CreateOsanImportContent(
+                workbookBytes, fileSha256, batchOperationId, batchRows, []);
+            using var batchApplyResponse = await client.SendAsync(
+                batchApplyRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, batchApplyResponse.StatusCode);
+        }
+        using (var narrowedBatchRequest = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects/import/apply",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            narrowedBatchRequest.Content = CreateOsanImportContent(
+                workbookBytes, fileSha256, batchOperationId, [batchRows[0]], []);
+            using var narrowedBatchResponse = await client.SendAsync(
+                narrowedBatchRequest,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Conflict, narrowedBatchResponse.StatusCode);
         }
 
 
@@ -390,7 +605,9 @@ public sealed class BusinessUnitIsolationTests
             revokedReplayRequest.Content = CreateOsanImportContent(
                 workbookBytes,
                 fileSha256,
-                applyOperationId);
+                applyOperationId,
+                [selectedRow],
+                []);
             using var revokedReplayResponse = await client.SendAsync(
                 revokedReplayRequest,
                 TestContext.Current.CancellationToken);
@@ -4514,7 +4731,9 @@ public sealed class BusinessUnitIsolationTests
     private static MultipartFormDataContent CreateOsanImportContent(
         byte[] workbook,
         string? expectedFileSha256 = null,
-        Guid? operationId = null)
+        Guid? operationId = null,
+        IReadOnlyList<OsanProjectExcelRowRequest>? rows = null,
+        IReadOnlyList<int>? confirmedDuplicateRowNumbers = null)
     {
         var content = new MultipartFormDataContent();
         var file = new ByteArrayContent(workbook);
@@ -4528,6 +4747,15 @@ public sealed class BusinessUnitIsolationTests
         if (operationId is not null)
         {
             content.Add(new StringContent(operationId.Value.ToString("D")), "operationId");
+        }
+        if (rows is not null)
+        {
+            content.Add(new StringContent(JsonSerializer.Serialize(rows)), "rows");
+        }
+        if (confirmedDuplicateRowNumbers is not null)
+        {
+            content.Add(new StringContent(JsonSerializer.Serialize(confirmedDuplicateRowNumbers)),
+                "confirmedDuplicateRowNumbers");
         }
         return content;
     }

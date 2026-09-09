@@ -273,9 +273,9 @@ public sealed class OsanProjectRegistrationApiTests
         var preview = await new OsanProjectStore(
                 new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build()), parser)
             .PreviewExcelAsync(Upload("huge.xlsx", hugeQuantities), TestContext.Current.CancellationToken);
-        Assert.Equal(int.MaxValue, preview.TotalQuantity);
+        Assert.Equal(0, preview.TotalQuantity);
         Assert.True(preview.ErrorCount > 0);
-        Assert.Contains(preview.Errors, error => error.Contains("1000", StringComparison.Ordinal));
+        Assert.All(preview.Rows, row => Assert.Contains("quantity", row.FieldErrors!.Keys));
     }
 
     [Fact]
@@ -328,6 +328,16 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.True(replayed.Value!.Replayed);
         Assert.Equal(created.Value.ProjectIds, replayed.Value.ProjectIds);
 
+        var narrowedReplay = await store.ApplyExcelAsync(
+            file,
+            file.FileSha256,
+            operationId,
+            UserId,
+            [ToExcelRowRequest(preview.Rows[0])],
+            new HashSet<int>(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.OperationConflict, narrowedReplay.Status);
+
         var changed = Upload("changed.xlsx", CreateBatchExcel([("Changed", "CHANGED-1", 1)]));
         Assert.Equal(OsanProjectExcelApplyStatus.FileChanged,
             (await store.ApplyExcelAsync(changed, file.FileSha256, Guid.NewGuid(), UserId,
@@ -337,9 +347,42 @@ public sealed class OsanProjectRegistrationApiTests
                 TestContext.Current.CancellationToken)).Status);
 
         var duplicateFile = Upload("duplicate.xlsx", CreateBatchExcel([("Dup A", "DUP-1", 1), ("Dup B", "DUP-1", 1)]));
-        Assert.True((await store.PreviewExcelAsync(duplicateFile, TestContext.Current.CancellationToken)).ErrorCount > 0);
+        var duplicatePreview = await store.PreviewExcelAsync(duplicateFile, TestContext.Current.CancellationToken);
+        Assert.Equal(0, duplicatePreview.ErrorCount);
+        Assert.All(duplicatePreview.Rows, row => Assert.Equal("code", row.DuplicateKind));
+        var duplicateOperationId = Guid.NewGuid();
+        var confirmationRequired = await store.ApplyExcelAsync(
+            duplicateFile,
+            duplicateFile.FileSha256,
+            duplicateOperationId,
+            UserId,
+            duplicatePreview.Rows.Select(ToExcelRowRequest).ToArray(),
+            new HashSet<int>(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.ConfirmationRequired, confirmationRequired.Status);
+        Assert.Equal([2, 3], confirmationRequired.ConfirmationRowNumbers);
+        var confirmedDuplicate = await store.ApplyExcelAsync(
+            duplicateFile,
+            duplicateFile.FileSha256,
+            duplicateOperationId,
+            UserId,
+            duplicatePreview.Rows.Select(ToExcelRowRequest).ToArray(),
+            new HashSet<int> { 2, 3 },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, confirmedDuplicate.Status);
+        Assert.Equal([2, 3], confirmedDuplicate.Value!.CreatedRowNumbers);
+        Assert.Equal(2L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code='DUP-1';",
+            TestContext.Current.CancellationToken));
+
         var existing = Upload("existing.xlsx", CreateBatchExcel([("Existing", "00Aa  01", 1)]));
-        Assert.True((await store.PreviewExcelAsync(existing, TestContext.Current.CancellationToken)).ErrorCount > 0);
+        var existingPreview = await store.PreviewExcelAsync(existing, TestContext.Current.CancellationToken);
+        Assert.Equal(0, existingPreview.ErrorCount);
+        Assert.Equal("code", Assert.Single(existingPreview.Rows).DuplicateKind);
+        var identical = Upload("identical.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 2)]));
+        Assert.Equal("identical", Assert.Single((await store.PreviewExcelAsync(
+            identical,
+            TestContext.Current.CancellationToken)).Rows).DuplicateKind);
 
         var invalid = Upload("invalid.xlsx", CreateOsanExcel(workbook =>
         {
@@ -356,16 +399,92 @@ public sealed class OsanProjectRegistrationApiTests
             "select count(*) from projects where project_code like 'ATOMIC-%';",
             TestContext.Current.CancellationToken));
 
+        var editable = Upload("editable.xlsx", CreateBatchExcel([
+            ("Edit A", "EDIT-A", 1),
+            ("Edit B", "EDIT-B", 1),
+            ("Edit C", "EDIT-C", 1),
+            ("Edit D", "EDIT-D", 1)
+        ]));
+        var editedRows = new[]
+        {
+            new OsanProjectExcelRowRequest(2, "Edited  Title", "00Edit  A", "Customer", "001-PO", null,
+                "2027-01-02", "Edited Product", 2),
+            new OsanProjectExcelRowRequest(3, " ", "EDIT-B", "Customer", null, null,
+                "2027-01-03", "Product", 1)
+        };
+        var editedPreview = await store.PreviewExcelAsync(
+            editable,
+            editedRows,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2, editedPreview.Rows.Count);
+        Assert.Empty(editedPreview.Rows[0].Errors);
+        Assert.Equal("Edited  Title", editedPreview.Rows[0].Title);
+        Assert.Contains("title", editedPreview.Rows[1].FieldErrors!.Keys);
+        var rawInvalidPreview = await store.PreviewExcelAsync(
+            editable,
+            [
+                editedRows[0],
+                editedRows[1] with { Title = "Invalid date", DeliveryDate = "", Quantity = 1 },
+                new OsanProjectExcelRowRequest(4, "Invalid date", "EDIT-C", "Customer", null, null,
+                    "2027-13-40", "Product", 1),
+                new OsanProjectExcelRowRequest(5, "Invalid quantity", "EDIT-D", "Customer", null, null,
+                    "2027-01-04", "Product", 1.4m)
+            ],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2, rawInvalidPreview.TotalQuantity);
+        Assert.Empty(rawInvalidPreview.Rows[0].Errors);
+        Assert.Contains("deliveryDate", rawInvalidPreview.Rows[1].FieldErrors!.Keys);
+        Assert.Contains("deliveryDate", rawInvalidPreview.Rows[2].FieldErrors!.Keys);
+        Assert.Contains("quantity", rawInvalidPreview.Rows[3].FieldErrors!.Keys);
+        var partial = await store.ApplyExcelAsync(
+            editable,
+            editable.FileSha256,
+            Guid.NewGuid(),
+            UserId,
+            [editedRows[0]],
+            new HashSet<int>(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, partial.Status);
+        Assert.Equal([2], partial.Value!.CreatedRowNumbers);
+        Assert.Equal(1L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code='00Edit  A' and project_title='Edited  Title';",
+            TestContext.Current.CancellationToken));
+        var remainingPreview = await store.PreviewExcelAsync(
+            editable,
+            [editedRows[1] with { Title = "Fixed B" }],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, Assert.Single(remainingPreview.Rows).RowNumber);
+        Assert.Equal(0, remainingPreview.ErrorCount);
+
         var reversedA = Upload("reverse-a.xlsx", CreateBatchExcel([("R A", "LOCK-A", 1), ("R B", "LOCK-B", 1)]));
         var reversedB = Upload("reverse-b.xlsx", CreateBatchExcel([("R B", "LOCK-B", 1), ("R A", "LOCK-A", 1)]));
+        var reverseOperationA = Guid.NewGuid();
+        var reverseOperationB = Guid.NewGuid();
         var competing = await Task.WhenAll(
-            store.ApplyExcelAsync(reversedA, reversedA.FileSha256, Guid.NewGuid(), UserId,
+            store.ApplyExcelAsync(reversedA, reversedA.FileSha256, reverseOperationA, UserId,
                 TestContext.Current.CancellationToken),
-            store.ApplyExcelAsync(reversedB, reversedB.FileSha256, Guid.NewGuid(), UserId,
+            store.ApplyExcelAsync(reversedB, reversedB.FileSha256, reverseOperationB, UserId,
                 TestContext.Current.CancellationToken));
         Assert.Single(competing, result => result.Status == OsanProjectExcelApplyStatus.Success);
-        Assert.Single(competing, result => result.Status == OsanProjectExcelApplyStatus.ProjectCodeConflict);
+        Assert.Single(competing, result => result.Status == OsanProjectExcelApplyStatus.ConfirmationRequired);
         Assert.Equal(2L, await database.ReadScalarAsync<long>(
+            "select count(*) from projects where project_code in ('LOCK-A','LOCK-B');",
+            TestContext.Current.CancellationToken));
+        var retryFile = competing[0].Status == OsanProjectExcelApplyStatus.ConfirmationRequired
+            ? reversedA
+            : reversedB;
+        var retryOperation = competing[0].Status == OsanProjectExcelApplyStatus.ConfirmationRequired
+            ? reverseOperationA
+            : reverseOperationB;
+        Assert.Equal(OsanProjectExcelApplyStatus.Success, (await store.ApplyExcelAsync(
+            retryFile,
+            retryFile.FileSha256,
+            retryOperation,
+            UserId,
+            null,
+            new HashSet<int> { 2, 3 },
+            TestContext.Current.CancellationToken)).Status);
+        Assert.Equal(4L, await database.ReadScalarAsync<long>(
             "select count(*) from projects where project_code in ('LOCK-A','LOCK-B');",
             TestContext.Current.CancellationToken));
 
@@ -589,6 +708,16 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Empty((await store.ListAsync(
             new Emi.Qms.Api.Projects.ProjectAccessScope(false, []),
             TestContext.Current.CancellationToken)).Items);
+
+        await database.ExecuteAsync(
+            "update projects set deleted_at_utc=now() where id=@project_id;",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId));
+        var softDeletedCodeConflict = await store.CreateAsync(
+            Normalize(ValidRequest(title: "Deleted code remains reserved", projectCode: "OSAN-001")),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProjectCreateStatus.ProjectCodeConflict, softDeletedCodeConflict.Status);
     }
 
     [Fact]
@@ -1513,6 +1642,18 @@ public sealed class OsanProjectRegistrationApiTests
             content.Length,
             Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant(),
             content);
+
+    private static OsanProjectExcelRowRequest ToExcelRowRequest(OsanProjectExcelPreviewRowResponse row) =>
+        new(
+            row.RowNumber,
+            row.Title,
+            row.ProjectCode,
+            row.CustomerName,
+            row.PoNumber,
+            row.WorkOrderNumber,
+            row.DeliveryDate,
+            row.ProductName,
+            row.Quantity);
 
     private static byte[] CreateBatchExcel(IReadOnlyList<(string Title, string Code, int Quantity)> rows) =>
         CreateOsanExcel(workbook =>

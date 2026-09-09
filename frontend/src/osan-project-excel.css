@@ -14,6 +14,13 @@
 .osan-excel-table-scroll thead th { background: #f7f7f7; position: sticky; top: 0; }
 .osan-excel-invalid { background: #fff4f4; }
 .osan-excel-invalid td:last-child { color: #ad1821; min-width: 200px; }
+.app-shell .osan-excel-table-scroll td input { width: 145px; min-width: 90px; padding: 8px !important; font-size: 13px !important; height: 36px; border: 1px solid #ddd; border-radius: 4px; background: white; color: #282828; }
+.app-shell .osan-excel-table-scroll td input[aria-invalid="true"] { border-color: #c52630; background: #fff9f9; }
+.osan-excel-saved { background: #f0f8f2; }
+.osan-excel-success { color: #226a3b; }
+.osan-excel-confirm { border: 1px solid #d99e39; padding: 16px; border-radius: 8px; background: #fffaf0; }
+.osan-excel-confirm button + button { margin-left: 8px; }
+.osan-excel-table-scroll td:last-child, .osan-excel-table-scroll th:last-child { min-width: 180px; }
 .osan-excel-dialog .primary-button { background: #da2127; border-color: #da2127; }
 .app-shell .osan-dashboard .dialog.osan-excel-dialog { width: min(1100px, calc(100vw - 32px)); max-width: calc(100vw - 32px); font-size: 14px; line-height: 1.5; }
 .app-shell .osan-dashboard .osan-excel-dialog h2 { height: auto; font-size: 20px; line-height: 1.4; }

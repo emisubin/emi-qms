@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
@@ -74,12 +75,19 @@ public static class OsanProjectEndpointExtensions
                 return denied;
             }
 
-            var (file, errors) = await ReadExcelFileAsync(request, cancellationToken);
-            if (file is null)
+            var (form, errors) = await ReadExcelFormAsync(request, cancellationToken);
+            if (form is null)
             {
                 return Results.ValidationProblem(errors);
             }
-            return Results.Ok(await store.PreviewExcelAsync(file, cancellationToken));
+            var (file, fileErrors) = await ReadExcelFileAsync(form, cancellationToken);
+            foreach (var error in fileErrors) errors[error.Key] = error.Value;
+            var rows = ReadExcelRows(form, errors);
+            if (file is null || errors.Count > 0)
+            {
+                return Results.ValidationProblem(errors);
+            }
+            return Results.Ok(await store.PreviewExcelAsync(file, rows, cancellationToken));
         })
         .RequireAuthorization(QmsPolicies.ProjectCreate)
         .WithMetadata(new RequestSizeLimitAttribute(OsanProjectExcelParser.MaximumMultipartBytes))
@@ -112,6 +120,8 @@ public static class OsanProjectEndpointExtensions
             var (file, fileErrors) = await ReadExcelFileAsync(form, cancellationToken);
             var expectedFileSha256 = form["expectedFileSha256"].ToString().Trim();
             var operationValue = form["operationId"].ToString().Trim();
+            var rows = ReadExcelRows(form, fileErrors);
+            var confirmedDuplicateRowNumbers = ReadConfirmedDuplicateRowNumbers(form, fileErrors);
             if (!Regex.IsMatch(expectedFileSha256, "^[0-9a-fA-F]{64}$", RegexOptions.CultureInvariant))
             {
                 fileErrors["expectedFileSha256"] = ["미리보기에서 받은 파일 식별자를 입력해 주세요."];
@@ -130,6 +140,8 @@ public static class OsanProjectEndpointExtensions
                 expectedFileSha256,
                 operationId,
                 userId.Value,
+                rows,
+                confirmedDuplicateRowNumbers,
                 cancellationToken);
             if (result is { Status: OsanProjectExcelApplyStatus.Success, Value: { Replayed: true } replayed })
             {
@@ -151,6 +163,11 @@ public static class OsanProjectEndpointExtensions
                 OsanProjectExcelApplyStatus.FileChanged => Results.Conflict(new OsanProjectErrorResponse(
                     "osan_project_excel_file_changed",
                     "미리보기 후 파일이 변경되었습니다. 다시 미리보기해 주세요.")),
+                OsanProjectExcelApplyStatus.ConfirmationRequired => Results.Conflict(
+                    new OsanProjectExcelConfirmationRequiredResponse(
+                        "osan_project_excel_confirmation_required",
+                        "중복 가능성이 있는 행을 확인한 뒤 다시 등록해 주세요.",
+                        result.ConfirmationRowNumbers ?? [])),
                 OsanProjectExcelApplyStatus.ProjectCodeConflict => Results.Conflict(new OsanProjectErrorResponse(
                     "osan_project_excel_project_code_conflict",
                     "이미 등록된 프로젝트 코드가 있습니다. 다시 미리보기해 주세요.")),
@@ -396,6 +413,61 @@ public static class OsanProjectEndpointExtensions
         return form is null
             ? (null, errors)
             : await ReadExcelFileAsync(form, cancellationToken);
+    }
+
+    private static IReadOnlyList<OsanProjectExcelRowRequest>? ReadExcelRows(
+        IFormCollection form,
+        IDictionary<string, string[]> errors)
+    {
+        var json = form["rows"].ToString();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+        try
+        {
+            var rows = JsonSerializer.Deserialize<IReadOnlyList<OsanProjectExcelRowRequest>>(
+                json,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web) { MaxDepth = 16 });
+            if (rows is null)
+            {
+                errors["rows"] = ["행 입력을 확인해 주세요."];
+            }
+            return rows;
+        }
+        catch (JsonException)
+        {
+            errors["rows"] = ["행 입력 JSON을 확인해 주세요."];
+            return null;
+        }
+    }
+
+    private static IReadOnlySet<int> ReadConfirmedDuplicateRowNumbers(
+        IFormCollection form,
+        IDictionary<string, string[]> errors)
+    {
+        var json = form["confirmedDuplicateRowNumbers"].ToString();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new HashSet<int>();
+        }
+        try
+        {
+            var rows = JsonSerializer.Deserialize<IReadOnlyList<int>>(
+                json,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web) { MaxDepth = 4 });
+            if (rows is null || rows.Any(row => row < 1) || rows.Count != rows.Distinct().Count())
+            {
+                errors["confirmedDuplicateRowNumbers"] = ["중복 확인 행 번호를 확인해 주세요."];
+                return new HashSet<int>();
+            }
+            return rows.ToHashSet();
+        }
+        catch (JsonException)
+        {
+            errors["confirmedDuplicateRowNumbers"] = ["중복 확인 행 번호 JSON을 확인해 주세요."];
+            return new HashSet<int>();
+        }
     }
 
     private static async Task<(IFormCollection? Form, Dictionary<string, string[]> Errors)> ReadExcelFormAsync(

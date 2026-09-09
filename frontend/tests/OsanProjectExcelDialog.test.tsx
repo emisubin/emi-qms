@@ -25,8 +25,8 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     render(<OsanProjectExcelDialog developmentUserKey="dev-user" onClose={vi.fn()} onApplied={applied} />);
     expect(screen.queryByRole('button', { name: /프로젝트 등록/ })).not.toBeInTheDocument();
     await showPreview();
-    expect(screen.getByLabelText('2행 프로젝트 코드')).toHaveValue('AbC  001');
-    expect(screen.getByLabelText('2행 PO No')).toHaveValue('001-PO');
+    expect(screen.getByLabelText('2행 프로젝트 코드')).toHaveTextContent('AbC 001');
+    expect(screen.getByLabelText('2행 PO No')).toHaveTextContent('001-PO');
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await waitFor(() => expect(applied).toHaveBeenCalledWith(1));
     expect(api.applyOsanProjectExcel).toHaveBeenCalledWith('dev-user', expect.any(File), 'file-hash', expect.stringMatching(/^[0-9a-f-]{36}$/), expect.any(AbortSignal), preview.rows, []);
@@ -87,6 +87,7 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     await waitFor(() => expect(applied).toHaveBeenCalledWith(1));
     expect(screen.getByLabelText('2행 프로젝트명')).toBeDisabled();
     expect(screen.getByLabelText('3행 프로젝트명')).toBeEnabled();
+    fireEvent.click(screen.getByLabelText('3행 프로젝트명'));
     fireEvent.change(screen.getByLabelText('3행 프로젝트명'), { target: { value: '추가 프로젝트' } });
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await waitFor(() => expect(applied).toHaveBeenCalledTimes(2));
@@ -103,6 +104,7 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     await showPreview(); fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await screen.findByRole('region', { name: '중복 프로젝트 확인' });
     expect(api.applyOsanProjectExcel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('2행 프로젝트명'));
     fireEvent.change(screen.getByLabelText('2행 프로젝트명'), { target: { value: '수정' } });
     expect(screen.queryByRole('region', { name: '중복 프로젝트 확인' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));

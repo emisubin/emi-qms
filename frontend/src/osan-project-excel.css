@@ -30,3 +30,9 @@
   .osan-excel-dialog { padding: 16px; }
   .osan-excel-heading h2 { font-size: 18px; }
 }
+
+.app-shell .osan-excel-table-scroll .osan-excel-cell-value { display: block; width: 100%; min-height: 32px; height: auto; padding: 4px 0 !important; border: 0 !important; border-radius: 0; box-shadow: none; background: transparent !important; color: inherit; font: inherit; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.app-shell .osan-excel-table-scroll .osan-excel-cell-value:focus-visible { outline: 2px solid #888; outline-offset: 2px; }
+.app-shell .osan-excel-table-scroll .osan-excel-cell-value:disabled { opacity: 1; cursor: default; }
+.osan-excel-cell-empty { color: #888; }
+.osan-excel-invalid .osan-excel-cell-empty { color: #ad1821; }

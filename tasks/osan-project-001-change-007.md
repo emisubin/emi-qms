@@ -19,3 +19,5 @@ Frontend 관련 테스트 25개·합성 브라우저 1개 PASS, TypeScript 포�
 2026-09-10 로컬 검수 handoff: 기존 `/private/tmp/emi-osan-preview-20260909/api.env`의 provider 경계를 유지하고 seed/startup migration을 false로 강제했다. migration-only 실행이 90개 migration 검증을 완료했고 API5096을 최신 Release로 재기동했다(session49535). Frontend5186은 같은 worktree 소스를 사용한다. 기존 API의 ledger mismatch는 갱신 후 해소됐고 실제 사업부 조회·프로젝트 목록·multipart 미리보기가 정상 동작했다. 갱신 전후 오산 9개 업무 테이블의 전체 행 해시·건수가 동일했다(사진 원본 포함). reset·seed·실제 프로젝트 추가 등록 없이 예제 정상1행/누락1행의 미리보기를 열었다. 검수 주소는 http://127.0.0.1:5186/projects 이다.
 
 해당 change 소스·검증·문서만 로컬 커밋한다. 원본 checkout WIP와 미추적 login-review 파일은 제외한다. 다음은 사용자 검수이며 원격 반영·공개배포는 별도 승인 범위다.
+
+2026-09-10 사용자 보정: 미리보기는 기본적으로 값만 텍스트로 표시하고 클릭한 셀 하나만 입력으로 전환한다. 빈 필수값은 ‘입력 필요’, 빈 선택값은 ‘—’로 표시한다. 바깥 클릭·Enter 후 텍스트로 복귀하며 기존 부분 등록·중복 확인·잠금은 보존한다. 관련 단위 테스트11개, TypeScript·ESLint·build PASS. 실제5186 화면에서 텍스트 표시와 클릭 후 단일 입력 전환을 직접 확인했다. 이번 합성 브라우저 재실행은 preview build의 API 주소와 기존 mock route 불일치로 초기 화면에서 실패하여 최신 E2E PASS로 기록하지 않는다. 이전 Change007 기능 검증 결과는 유지한다. 로컬 검수 서버 반영, 원격 반영·배포 없음.

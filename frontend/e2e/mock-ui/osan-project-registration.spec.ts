@@ -350,7 +350,8 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   expect((await downloadPromise).suggestedFilename()).toBe('EMI_오산_프로젝트_등록양식.xlsx');
   await dialog.getByLabel('작성한 엑셀 파일').setInputFiles({ name: 'projects.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic workbook') });
   await dialog.getByRole('button', { name: '내용 미리보기' }).click();
-  await expect(dialog.getByLabel('2행 프로젝트명')).toHaveValue('');
+  await expect(dialog.getByLabel('2행 프로젝트명')).toHaveText('입력 필요');
+  await expect(dialog.getByRole('textbox')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath('osan-excel-edit-desktop.png'), fullPage: true });
   await dialog.getByRole('button', { name: '1개 프로젝트 등록' }).focus();
@@ -362,6 +363,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   releaseApply();
   await expect(dialog.getByLabel('3행 프로젝트명')).toBeDisabled();
   await expect(dialog.getByLabel('2행 프로젝트명')).toBeEnabled();
+  await dialog.getByLabel('2행 프로젝트명').click();
   await dialog.getByLabel('2행 프로젝트명').fill(projectDetail().title);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await hasHorizontalOverflow(page)).toBe(false);

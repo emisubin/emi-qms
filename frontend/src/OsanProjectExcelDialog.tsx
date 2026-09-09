@@ -27,6 +27,7 @@ function inputErrors(row: OsanProjectExcelRow) {
 export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied }: {
   developmentUserKey: string; onClose: () => void; onApplied: (count: number) => void;
 }) {
+  const [editingCell, setEditingCell] = useState<{ rowNumber: number; key: Field } | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<OsanProjectExcelPreview | null>(null);
   const [saved, setSaved] = useState<number[]>([]);
@@ -75,7 +76,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
 
   async function run(kind: 'download' | 'preview' | 'apply', prepared?: Attempt) {
     if (busyRef.current || (kind !== 'download' && !file) || (retry && !prepared)) return;
-    busyRef.current = true; dialog.current?.focus();
+    busyRef.current = true; setEditingCell(null); dialog.current?.focus();
     const controller = new AbortController(); activeRequest.current = controller;
     setBusy(kind); setMessage('');
     let submitted: Attempt | undefined;
@@ -143,7 +144,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
         <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={locked} onChange={event => {
           if (busyRef.current || retry) return;
           const selected = event.target.files?.[0] ?? null;
-          setPreview(null); setMessage(''); setSuccess(''); setFile(null); setSaved([]); setConfirmation(null);
+          setEditingCell(null); setPreview(null); setMessage(''); setSuccess(''); setFile(null); setSaved([]); setConfirmation(null);
           if (selected && (!selected.name.toLowerCase().endsWith('.xlsx') || selected.size === 0 || selected.size > 5 * 1024 * 1024)) {
             setMessage('비어 있지 않은 5MiB 이하의 .xlsx 파일을 선택해 주세요.'); return;
           }
@@ -163,13 +164,17 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
               const complete = saved.includes(row.rowNumber);
               const errors = [...new Set([...row.errors, ...inputErrors(row)])];
               return <tr key={row.rowNumber} className={complete ? 'osan-excel-saved' : errors.length ? 'osan-excel-invalid' : undefined}>
-                <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}><input
+                <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}>{editingCell?.rowNumber === row.rowNumber && editingCell.key === key && !complete ? <input
+                  ref={element => { element?.focus(); }}
+                  onBlur={() => setEditingCell(null)}
+                  onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setEditingCell(null); } }}
                   aria-label={`${row.rowNumber}행 ${label}`} aria-invalid={!complete && key !== 'poNumber' && key !== 'workOrderNumber' && !String(row[key] ?? '').trim()}
                   type={key === 'quantity' ? 'number' : 'text'} inputMode={key === 'quantity' ? 'numeric' : undefined}
                   min={key === 'quantity' ? 1 : undefined} max={key === 'quantity' ? 500 : undefined} step={key === 'quantity' ? 1 : undefined}
                   maxLength={max || undefined} placeholder={key === 'deliveryDate' ? 'YYYY-MM-DD' : key === 'poNumber' || key === 'workOrderNumber' ? '선택' : '입력 필요'}
                   value={row[key] ?? ''} disabled={locked || complete} onChange={event => edit(row.rowNumber, key, event.target.value)}
-                /></td>)}<td>{complete ? '등록 완료' : errors.length ? errors.join(' / ') : row.duplicateKind === 'identical' ? '동일 프로젝트 확인 필요' : row.duplicateKind === 'code' ? '같은 코드 확인 필요' : '등록 가능'}</td>
+                /> : <button type="button" className="osan-excel-cell-value" aria-label={`${row.rowNumber}행 ${label}`} disabled={locked || complete}
+                  onClick={() => setEditingCell({ rowNumber: row.rowNumber, key })}>{String(row[key] ?? '').trim() || <span className="osan-excel-cell-empty">{key === 'poNumber' || key === 'workOrderNumber' ? '—' : '입력 필요'}</span>}</button>}</td>)}<td>{complete ? '등록 완료' : errors.length ? errors.join(' / ') : row.duplicateKind === 'identical' ? '동일 프로젝트 확인 필요' : row.duplicateKind === 'code' ? '같은 코드 확인 필요' : '등록 가능'}</td>
               </tr>;
             })}</tbody></table>
         </div>}

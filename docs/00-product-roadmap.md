@@ -6,12 +6,14 @@
 
 | 순서 | 목적과 canonical Task | 선행조건·다음 행동 |
 | --- | --- | --- |
-| 현재 | [TASK-GOV-CODEX-002](../tasks/gov-codex-002.md) — 승인된 하네스의 전면 재구축 | [Change 024](../tasks/gov-codex-002-change-024.md)의 구현·검증·결과 설명. 제품 구현·원격 게시와 별개 |
-| 제품 1 | [TASK-OSAN-PROGRESS-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-progress-001.md) — 진행 기록과 포장 후 자동 완료 | 이미 배포한 접근/프로젝트 생성 계약을 기준으로 진행 Task의 승인 범위·다음 행동을 확인. 과거 개발 branch에서 바로 구현하지 않고 최신 main과 작업 기준을 정합화 |
-| 제품 2 | [TASK-OSAN-DASHBOARD-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-dashboard-001.md) — 전체 프로젝트 현황 | 진행 상태와 집계 계약 확정 후 구현 |
+| 제품 선행 | [TASK-OSAN-UX-001](../tasks/osan-ux-001.md) — Figma 기반 UI/UX·기능 범위 확정 | 사용자 지정 화면·동작을 기존 제품과 비교해 필요한 기능을 기존/신규 Task에 연결. Figma 지정 대기는 이 Task에서 추적 |
+| 제품 1 | [TASK-OSAN-PROGRESS-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-progress-001.md) — 진행 기록과 포장 후 자동 완료 | UX-001에서 해당 화면·기능 범위를 확인한 뒤 구현. 이미 배포한 접근/프로젝트 생성 계약과 최신 main·v2 작업 기준을 유지 |
+| 제품 2 | [TASK-OSAN-DASHBOARD-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-dashboard-001.md) — 전체 프로젝트 현황 | UX-001의 해당 화면과 진행 상태·집계 계약 확정 후 구현 |
 | 제품 3 | [TASK-OSAN-VALIDATION-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-validation-001.md) — 후속 진행·현황 통합 검증 | 해당 구현과 관련 검증을 모아 사용자 일괄 검수·최종 후보 회귀. 1차 배포 완료 범위를 다시 구현하지 않음 |
 
-이번 하네스 요청은 위 제품 기능의 구현·병합·배포 승인이 아니다. 사용자가 작업을 지정하면 실질 선행조건을 확인해 그 요청을 실행하고, 단순 큐 순서 차이로 재승인을 만들지 않는다.
+2026-09-09 사용자 요청으로 Figma 기반 UX-001을 오산 후속 개발의 선행 범위로 추가했다. 지정된 오산 화면은 Figma가 이전 청주 동일 디자인 기준을 대체하며, 미지정 영역은 기존 구성을 유지한다. 디자인에서 드러난 새 업무 기능은 범위를 확인해 반영한다. 디자인에 의존하지 않는 조사·기준선 준비는 계속할 수 있다.
+
+이번 등록은 미제공 디자인·새 기능의 일괄 구현이나 병합·배포 승인이 아니다. 사용자가 작업을 지정하면 실질 선행조건을 확인해 그 요청을 실행하고, 단순 큐 순서 차이로 재승인을 만들지 않는다. 하네스 재구축의 기록·원격 반영 상태는 [TASK-GOV-CODEX-002](../tasks/gov-codex-002.md)에서 별도로 추적한다.
 
 ## 기준선과 배포된 범위
 

@@ -83,7 +83,7 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
         {(query.search || query.status !== 'All') && <button type="button" onClick={reset}>검색 조건 초기화</button>}
       </div>}
       {data && <ul className="osan-dashboard-list" aria-label="프로젝트 진행 목록">{data.items.map(project => <li key={project.projectId}>
-        <button type="button" className="osan-dashboard-project" onClick={() => onOpen(project.projectId)} aria-label={`${project.title} 진행 상세 열기`}>
+        <button type="button" className="osan-dashboard-project" onClick={() => onOpen(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
           <span className="osan-dashboard-project-title" title={project.title}>{project.title}</span>
           {isHome && <span className="osan-home-deadline">납기 {project.deliveryDate} · {statuses.find(status => status.value === project.status)?.label}</span>}
           <span className="osan-dashboard-stages">{project.stages.map(stage => <span key={stage.sequenceNumber} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>

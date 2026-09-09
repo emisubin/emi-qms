@@ -48,6 +48,9 @@ public sealed class AuditInfrastructureTests
                 sales_billing_request_operations sales_monthly_billing_operations
                 sales_settlement_operations ul891_set_operations osan_project_create_operations
                 """),
+            ["AppendOnlyOsanProgressEvidence"] = ParseRelationNames("""
+                osan_progress_operations osan_progress_photos osan_progress_step_photos
+                """),
             ["SeedReferenceData"] = ParseRelationNames("""
                 permissions roles
                 """)
@@ -181,7 +184,7 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(96, trackedRelations.Count);
-        Assert.Equal(56, excludedRelations.Length);
+        Assert.Equal(59, excludedRelations.Length);
     }
 
     [Fact]

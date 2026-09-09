@@ -1,5 +1,7 @@
 # TASK-DESIGN-LOGIN-001 — Entra 로그인 공통 디자인 shell
 
+2026-09-09 현재 후속 작업은 [Change 011](design-login-001-change-011.md)의 지정 Figma 보정이다. 아래 Change 010 완료·운영 정보는 그때 배포한 범위의 이력이며 이번 보정의 완료를 뜻하지 않는다.
+
 ## 1. 상태와 승인 기준
 
 - Task 유형: `APPROVED_FEATURE_IMPLEMENTATION`

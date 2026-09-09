@@ -73,9 +73,8 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             return true;
         }
 
-        if (HttpMethods.IsGet(request.Method)
-            && path.StartsWithSegments("/api/osan/projects", out var osanProjectRemaining)
-            && Guid.TryParse(osanProjectRemaining.Value?.Trim('/'), out _))
+        if (path.StartsWithSegments("/api/osan/projects", out var osanProjectRemaining)
+            && IsAllowedOsanProjectPath(request.Method, osanProjectRemaining.Value))
         {
             return true;
         }
@@ -103,6 +102,33 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         }
 
         return Guid.TryParse(remaining.Value?.Trim('/'), out _);
+    }
+
+    private static bool IsAllowedOsanProjectPath(string method, string? remaining)
+    {
+        var segments = (remaining ?? string.Empty)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0 || !Guid.TryParse(segments[0], out _))
+        {
+            return false;
+        }
+
+        if (HttpMethods.IsGet(method))
+        {
+            return segments.Length == 1
+                || (segments.Length == 2
+                    && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase))
+                || (segments.Length == 4
+                    && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(segments[2], "photos", StringComparison.OrdinalIgnoreCase)
+                    && Guid.TryParse(segments[3], out _));
+        }
+
+        return HttpMethods.IsPost(method)
+            && segments.Length == 3
+            && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(segments[2], "start", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(segments[2], "completions", StringComparison.OrdinalIgnoreCase));
     }
 
     private static Task DenyAsync(HttpContext context, string errorCode)

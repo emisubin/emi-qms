@@ -13,6 +13,8 @@ import {
 import './styles.css';
 import './design-system/tokens.css';
 import './design-system/wireframe.css';
+import './osan-progress.css';
+import './auth-figma.css';
 
 const root = createRoot(document.getElementById('root')!);
 

@@ -20,6 +20,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -28,6 +30,7 @@ public sealed class BusinessUnitIsolationTests
 {
     private static readonly Guid AdminUserId = Guid.Parse("50000000-0000-0000-0000-000000000001");
     private static readonly Guid SalesUserId = Guid.Parse("50000000-0000-0000-0000-000000000002");
+    private static readonly Guid ManufacturingUserId = Guid.Parse("50000000-0000-0000-0000-000000000004");
     private static readonly Guid NoRoleUserId = Guid.Parse("50000000-0000-0000-0000-000000000008");
     private static readonly Guid CollisionUserId = Guid.Parse("50000000-0000-0000-0000-000000000005");
     private static readonly Guid ConflictingLocalUserId = Guid.Parse("72000000-0000-0000-0000-000000000002");
@@ -2580,6 +2583,181 @@ public sealed class BusinessUnitIsolationTests
         }
 
         await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into directory_identities (
+                user_id, auth_provider, external_subject, display_name, is_active)
+            values (
+                '{ManufacturingUserId:D}', 'Dev', 'dev-manufacturing',
+                'Dev Manufacturing User', true)
+            on conflict (user_id) do update set is_active = true;
+
+            insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
+            values ('{ManufacturingUserId:D}', 'OSAN', true)
+            on conflict (user_id, business_unit_code) do update set is_active = true;
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into user_project_access (user_id, project_id)
+            values ('{ManufacturingUserId:D}', '{osanProjectId:D}')
+            on conflict do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+
+        Guid[] progressTargetIds;
+        using (var getProgress = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/progress",
+                   "dev-manufacturing",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(getProgress, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var body = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            progressTargetIds = body.RootElement.GetProperty("targets")
+                .EnumerateArray()
+                .Select(target => target.GetProperty("targetId").GetGuid())
+                .ToArray();
+            Assert.Equal(2, progressTargetIds.Length);
+            Assert.All(body.RootElement.GetProperty("targets").EnumerateArray(), target =>
+            {
+                Assert.Equal(1, target.GetProperty("version").GetInt32());
+                Assert.True(target.GetProperty("canStart").GetBoolean());
+            });
+        }
+
+        using (var wrongBusinessUnitProgress = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/progress",
+                   "dev-admin",
+                   BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(
+                wrongBusinessUnitProgress,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        var progressStateBeforeForbiddenRequests = await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select concat_ws(':',
+                (select count(*) from osan_progress_operations where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_target_steps where project_id = '{osanProjectId:D}' and status = 'Completed'),
+                (select string_agg(status || '/' || version, ',' order by id) from osan_project_targets where project_id = '{osanProjectId:D}'));
+            """,
+            TestContext.Current.CancellationToken);
+        using (var unauthorizedStart = Request(
+                   HttpMethod.Post,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/start",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            unauthorizedStart.Content = JsonContent.Create(new
+            {
+                operationId = Guid.NewGuid(),
+                targets = progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })
+            });
+            var response = await client.SendAsync(unauthorizedStart, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using (var nullTargetCompletion = Request(
+                   HttpMethod.Post,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/completions",
+                   "dev-manufacturing",
+                   BusinessUnitCodes.Osan))
+        {
+            nullTargetCompletion.Content = CreateProgressCompletionContent(
+                Guid.NewGuid(),
+                "batch",
+                1,
+                "[null]",
+                null);
+            var response = await client.SendAsync(nullTargetCompletion, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+        Assert.Equal(progressStateBeforeForbiddenRequests, await databases.ReadScalarAsync<string>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select concat_ws(':',
+                (select count(*) from osan_progress_operations where project_id = '{osanProjectId:D}'),
+                (select count(*) from osan_project_target_steps where project_id = '{osanProjectId:D}' and status = 'Completed'),
+                (select string_agg(status || '/' || version, ',' order by id) from osan_project_targets where project_id = '{osanProjectId:D}'));
+            """,
+            TestContext.Current.CancellationToken));
+
+        using (var startProgress = Request(
+                   HttpMethod.Post,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/start",
+                   "dev-manufacturing",
+                   BusinessUnitCodes.Osan))
+        {
+            startProgress.Content = JsonContent.Create(new
+            {
+                operationId = Guid.NewGuid(),
+                targets = progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })
+            });
+            var response = await client.SendAsync(startProgress, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        var progressPhotoBytes = CreateValidPng();
+        Guid progressPhotoId;
+        using (var completeProgress = Request(
+                   HttpMethod.Post,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/completions",
+                   "dev-manufacturing",
+                   BusinessUnitCodes.Osan))
+        {
+            completeProgress.Content = CreateProgressCompletionContent(
+                Guid.NewGuid(),
+                "batch",
+                1,
+                JsonSerializer.Serialize(
+                    progressTargetIds.Select(targetId => new { targetId, expectedVersion = 2 })),
+                progressPhotoBytes);
+            var response = await client.SendAsync(completeProgress, TestContext.Current.CancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.True(
+                response.StatusCode == HttpStatusCode.OK,
+                $"Expected progress completion to return OK, got {response.StatusCode}. Body: {responseBody}");
+            using var body = JsonDocument.Parse(responseBody);
+            progressPhotoId = body.RootElement.GetProperty("project").GetProperty("targets")[0]
+                .GetProperty("steps")[0].GetProperty("photos")[0].GetProperty("photoId").GetGuid();
+        }
+        Assert.Equal(1L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select count(*) from osan_progress_photos where project_id = '{osanProjectId:D}';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"select count(*) from osan_progress_step_photos where project_id = '{osanProjectId:D}';",
+            TestContext.Current.CancellationToken));
+
+        using (var downloadPhoto = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/photos/{progressPhotoId:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(downloadPhoto, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(
+                progressPhotoBytes,
+                await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        }
+
+        await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
             $"""
@@ -2600,6 +2778,24 @@ public sealed class BusinessUnitIsolationTests
                    BusinessUnitCodes.Osan))
         {
             var response = await client.SendAsync(getRevokedOsanProject, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using (var getRevokedProgress = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/progress",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(getRevokedProgress, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using (var getRevokedPhoto = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/photos/{progressPhotoId:D}",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(getRevokedPhoto, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
 
@@ -2743,6 +2939,25 @@ public sealed class BusinessUnitIsolationTests
             update directory_business_unit_memberships
             set is_active = true
             where user_id = '{SalesUserId:D}' and business_unit_code = 'CHEONGJU';
+            """,
+            TestContext.Current.CancellationToken);
+
+        await databases.ExecuteAsync(
+            "DIRECTORY",
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from directory_business_unit_memberships
+            where user_id = '{ManufacturingUserId:D}' and business_unit_code = 'OSAN';
+            delete from directory_identities
+            where user_id = '{ManufacturingUserId:D}';
+            """,
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from user_project_access
+            where user_id = '{ManufacturingUserId:D}' and project_id = '{osanProjectId:D}';
             """,
             TestContext.Current.CancellationToken);
 
@@ -3907,6 +4122,35 @@ public sealed class BusinessUnitIsolationTests
             request.Headers.Add(BusinessUnitHeaderNames.Selection, businessUnit);
         }
         return request;
+    }
+
+    private static MultipartFormDataContent CreateProgressCompletionContent(
+        Guid operationId,
+        string completionMode,
+        int stageSequence,
+        string targets,
+        byte[]? photo)
+    {
+        var content = new MultipartFormDataContent();
+        content.Add(new StringContent(operationId.ToString("D")), "operationId");
+        content.Add(new StringContent(completionMode), "completionMode");
+        content.Add(new StringContent(stageSequence.ToString()), "stageSequence");
+        content.Add(new StringContent(targets), "targets");
+        if (photo is not null)
+        {
+            var photoContent = new ByteArrayContent(photo);
+            photoContent.Headers.ContentType = new("image/png");
+            content.Add(photoContent, "photos", "evidence.png");
+        }
+        return content;
+    }
+
+    private static byte[] CreateValidPng()
+    {
+        using var image = new Image<Rgba32>(1, 1);
+        using var stream = new MemoryStream();
+        image.SaveAsPng(stream);
+        return stream.ToArray();
     }
 
     private static string QuoteIdentifier(string value) =>

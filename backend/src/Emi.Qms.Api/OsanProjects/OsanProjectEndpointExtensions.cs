@@ -148,7 +148,7 @@ public static class OsanProjectEndpointExtensions
             BusinessUnitCodes.Osan,
             StringComparison.Ordinal);
 
-    private static bool CanAccessProject(ClaimsPrincipal user, string projectKey) =>
+    internal static bool CanAccessProject(ClaimsPrincipal user, string projectKey) =>
         ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ProjectReadAll)
         || user.FindAll(QmsClaimTypes.Project).Any(claim =>
             string.Equals(claim.Value, projectKey, StringComparison.Ordinal));

@@ -1,0 +1,235 @@
+@import "./figma-fonts.css";
+/* TASK-DESIGN-LOGIN-001: Figma 51:18, mobile source canvas 402 × 852.
+   The lower dotted-circle original remains pending; do not substitute an invented pattern. */
+.auth-login-composition { display: contents; }
+.auth-mobile-product-title { display: none; }
+.auth-microsoft-brand picture { display: block; width: 100%; height: 100%; }
+
+@media (max-width: 860px) {
+  .auth-gate[data-auth-layout='login'] {
+    --auth-brand: #da2127;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    overflow: auto;
+    background: #da2127 !important;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-login-canvas {
+    position: relative;
+    inset: auto;
+    display: block;
+    width: 100%;
+    height: max(100dvh, calc(852px * var(--auth-login-content-scale)));
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #da2127 !important;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-login-canvas::before { display: none; }
+  .auth-gate[data-auth-layout='login'] .auth-login-composition {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: block;
+    width: 402px;
+    height: 852px;
+    transform: translate(-50%, -50%) scale(var(--auth-login-content-scale));
+    transform-origin: center;
+    font-family: "Emi Figma Inter", sans-serif;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-brand-panel {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 402px;
+    height: 852px;
+    overflow: hidden;
+    background: #da2127 !important;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-brand-panel::before {
+    position: absolute;
+    display: block !important;
+    width: 573px;
+    height: 573px;
+    top: -183px;
+    left: -165px;
+    border-radius: 573px;
+    background: linear-gradient(218deg, #ff6969 22.06%, #da2127 73.95%);
+    filter: blur(12.975px);
+    box-shadow: none;
+    content: '';
+  }
+  .auth-gate[data-auth-layout='login'] .auth-brand-panel::after {
+    position: absolute;
+    display: block !important;
+    width: 150px;
+    height: 150px;
+    top: 735px;
+    left: 346px;
+    border-radius: 50%;
+    background: #fff;
+    filter: blur(112.5px);
+    content: '';
+  }
+  .auth-gate[data-auth-layout='login'] .auth-brand-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    background: rgb(255 255 255 / 10%);
+  }
+  .auth-gate[data-auth-layout='login'] .auth-brand-canvas,
+  .auth-gate[data-auth-layout='login'] .auth-brand-logo-canvas,
+  .auth-gate[data-auth-layout='login'] .auth-brand-pattern-canvas { display: none; }
+  .auth-gate[data-auth-layout='login'] .auth-gate-panel {
+    position: absolute;
+    top: 277px;
+    left: 50px;
+    display: block;
+    width: 301px;
+    height: 298px;
+    min-height: 0;
+    overflow: visible;
+    padding: 0;
+    border: 0 !important;
+    border-radius: 30px !important;
+    background: #fff !important;
+    box-shadow: -2px 1px 32.1px rgb(0 0 0 / 28%) !important;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-gate-canvas {
+    position: static;
+    display: block;
+    width: 301px;
+    height: 298px;
+    transform: none;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-gate-content { display: block; width: 301px; }
+  .auth-gate[data-auth-layout='login'] .auth-gate-content h1.auth-product-logo-heading {
+    position: absolute;
+    top: 29px;
+    left: -72px;
+    display: block;
+    width: 447px;
+    height: 28.5px;
+    margin: 0;
+    color: #282828 !important;
+    font-family: "Emi Figma Inter", sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 28.5px;
+    letter-spacing: normal;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-product-logo { display: none; }
+  .auth-gate[data-auth-layout='login'] .auth-mobile-product-title { display: inline; }
+  .auth-gate[data-auth-layout='login'] .auth-microsoft-brand {
+    position: absolute;
+    top: 62px;
+    left: 104px;
+    width: 94px;
+    height: 120px;
+    margin: 0;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-microsoft-brand img { filter: none !important; }
+  .auth-gate[data-auth-layout='login'] .auth-primary-button {
+    position: absolute;
+    top: 196px;
+    left: 69px;
+    width: 164px;
+    height: 33px;
+    min-height: 33px;
+    margin: 0;
+    padding: 0;
+    border: 0 !important;
+    border-radius: 23.25px !important;
+    background: #da2127 !important;
+    color: #fff !important;
+    box-shadow: none !important;
+    font-family: "Emi Figma Inter", sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-gate-extra {
+    position: absolute;
+    top: 234px;
+    left: 88px;
+    display: block;
+    width: 126px;
+    height: 30px;
+  }
+  .auth-gate[data-auth-layout='login'] .remember-session-option {
+    display: flex;
+    width: 126px;
+    height: 30px;
+    min-height: 0;
+    gap: 0;
+    justify-content: space-between;
+    color: #737373 !important;
+    font-family: "Emi Figma Inter", sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .auth-gate[data-auth-layout='login'] .remember-session-option input {
+    width: 18.75px;
+    height: 18.75px;
+    flex-basis: 18.75px;
+    border: .75px solid #737373;
+    border-radius: 3.75px !important;
+  }
+  .auth-gate[data-auth-layout='login'] .remember-session-option input:checked {
+    border-color: #da2127 !important;
+    background-color: #da2127 !important;
+  }
+  .auth-gate[data-auth-layout='login'] .remember-session-option span {
+    width: 102px;
+    height: 30px;
+    min-height: 0;
+    justify-content: center;
+    padding: 7.5px;
+    transform: none;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-install-button {
+    position: absolute;
+    top: 37px;
+    left: -40px;
+    width: 206px;
+    min-height: 44px;
+    color: #282828 !important;
+    text-align: center;
+    background: #fff !important;
+    border-radius: 15px !important;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-login-guidance,
+  .auth-gate[data-auth-layout='login'] .auth-security-notice,
+  .auth-gate[data-auth-layout='login'] .company-information-footer--auth {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0 !important;
+  }
+  .auth-gate[data-auth-state='loading'][data-auth-layout='login'] .auth-gate-extra {
+    position: absolute;
+    top: 196px;
+    left: 134px;
+    width: 33px;
+    height: 33px;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-loading-indicator { width: 33px; height: 33px; }
+  .auth-gate[data-auth-layout='login'] .auth-loading-indicator::before {
+    border-width: 3px;
+    border-color: #da2127 !important;
+    border-right-color: transparent !important;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-primary-button:focus-visible,
+  .auth-gate[data-auth-layout='login'] .remember-session-option input:focus-visible {
+    outline: 2px solid #282828 !important;
+    outline-offset: 3px;
+  }
+}

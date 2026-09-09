@@ -1,0 +1,102 @@
+@import "./figma-fonts.css";
+.osan-progress-page {
+  width: min(100%, 402px);
+  margin: 0 auto;
+  padding: 24px 24px 30px;
+  background: #fff;
+  color: #282828;
+  font-family: "Emi Figma Inter", sans-serif;
+}
+.osan-progress-page h1, .osan-progress-page h2, .osan-progress-page h3,
+.osan-progress-page p { margin: 0; }
+.osan-progress-page button, .osan-progress-selector button, .osan-progress-completion-modal button { min-height: 0; }
+.osan-progress-header { display: flex; align-items: center; gap: 8px; }
+.osan-progress-header h1 { font-size: 16px; }
+.osan-progress-header button { border: 0; background: transparent; padding: 0 8px; font-size: 24px; }
+.osan-progress-project { margin: 12px 0 20px; }
+.osan-progress-project h2 { font-size: 14px; overflow-wrap: anywhere; }
+.osan-progress-project p, .osan-progress-project > span { font-size: 11px; color: #898989; }
+.osan-progress-target-trigger { width: 229px; max-width: 100%; height: 34px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; background: #fff; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; }
+.osan-progress-stage-card { margin-top: 23px; min-height: 657px; border: 1px solid #eeeeeeee; border-radius: 8px; }
+.osan-progress-stages { height: 40px; display: flex; justify-content: space-between; align-items: center; background: #f5f5f5; border-radius: 8px; }
+.osan-progress-stages h2 { font-size: 12px; }
+.osan-progress-stages button { border: 0; background: transparent; padding: 0 16px; font-size: 20px; }
+.osan-progress-stage-index { text-align: center; font-size: 10px; color: #898989; height: 24px; line-height: 24px; }
+.osan-progress-guidance { width: min(100%, 290px); min-height: 473px; margin: 0 auto; border-radius: 8px; box-shadow: 0 0 1.4px 0 #00000040; overflow: hidden; display: flex; flex-direction: column; }
+.osan-progress-guidance-photo { height: 298px; display: grid; place-items: center; background: #d9d9d9; font-size: 11px; color: #666; }
+.osan-progress-guidance > p { padding: 20px 16px; font-size: 11px; }
+.osan-progress-actions { margin: 25px auto 0; text-align: center; }
+.osan-progress-actions > button, .osan-progress-submit { width: 83px; height: 24px; padding: 0; border: 0; border-radius: 10.5px; background: #da2127; color: #fff; font-size: 11px; font-weight: 600; }
+.osan-progress-actions p, .osan-progress-readonly { font-size: 11px; padding-top: 8px; }
+.osan-progress-page button:disabled { opacity: .5; cursor: not-allowed; }
+.osan-progress-histories { width: min(100%, 290px); margin: 0 auto; }
+.osan-progress-history:has(.osan-progress-not-completed) { margin-top: 8px; }
+.osan-progress-history:only-child:has(.osan-progress-not-completed) { display: none; }
+.osan-progress-not-completed { font-size: 10px; color: #898989; }
+.osan-progress-history h3 { font-size: 12px; margin: 16px 0 8px; }
+.osan-progress-completed-title { margin: 19px 0 17px !important; text-align: center; font-size: 14px; font-weight: 600; line-height: 8px; }
+.osan-progress-completed { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; font-size: 10px; font-weight: 500; }
+.osan-progress-photo-region { background: #ffc0c0; border-radius: 8px; padding: 10px; font-size: 11px; }
+.osan-progress-photo-region--empty { height: 222px; display: grid; place-items: center; }
+.osan-progress-show-photos { font-size: 11px; padding: 6px; margin: 0 0 8px; }
+.osan-progress-saved-photo { margin: 0 0 8px; }
+.osan-progress-saved-photo img { display: block; width: 100%; height: 202px; object-fit: contain; }
+.osan-progress-refresh { display: block; margin: 20px auto 0; border: 0; background: transparent; text-decoration: underline; color: #666; font-size: 11px; }
+.osan-progress-page [role=alert] { color: #a61b20; font-size: 12px; margin: 8px 0; }
+.osan-progress-page [role=status] { font-size: 12px; margin: 8px 0; }
+.osan-progress-selector { width: 229px; max-height: min(70vh, 420px); padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
+.osan-progress-selector h2 { font-size: 12px; margin: 0 0 12px; }
+.osan-progress-selector label { display: flex; gap: 8px; align-items: center; min-height: 28px; font-size: 11px; }
+.osan-progress-selector input { accent-color: #da2127; }
+.osan-progress-selector > button { margin-top: 10px; width: 100%; border: 0; border-radius: 8px; background: #da2127; color: white; padding: 6px; }
+.osan-progress-selector::backdrop, .osan-progress-completion-modal::backdrop { background: #0005; }
+.osan-progress-completion-modal { width: 278px; min-height: 329px; max-height: calc(100dvh - 32px); padding: 31px 37px 21px; border: 0; border-radius: 15px; background: #f8f8f8; box-shadow: 0 0 3.7px 0 #00000040; color: #282828; font: 11px "Emi Figma Inter", sans-serif; overflow-y: auto; }
+.osan-progress-completion-modal h2 { margin: 0 0 14px; text-align: center; font-size: 11px; font-weight: 600; line-height: 8px; white-space: nowrap; }
+.osan-progress-completion-modal > p { margin: 3px 0; font-size: 10px; line-height: 13px; }
+.osan-progress-photo-placeholder, .osan-progress-previews { width: 204px; min-height: 140px; border-radius: 8px; background: #fff; box-shadow: 0 0 4px 2px #0000000a; }
+.osan-progress-photo-placeholder { display: grid; place-items: center; }
+.osan-progress-photo-placeholder > span { width: 47px; height: 47px; display: grid; place-items: center; border: 1.5px dashed #da2127; border-radius: 12px; background: #ffeced; color: #da2127; font-size: 18px; }
+.osan-progress-photo-inputs { display: flex; justify-content: space-between; padding: 0 7px; margin: 16px 0 6px; }
+.osan-progress-photo-inputs button { width: 83px; height: 24px; border: 0; padding: 0; border-radius: 10.5px; background: #ddd; color: #282828; font-size: 11px; font-weight: 600; }
+.osan-progress-previews:empty { display: none; }
+.osan-progress-previews { height: 140px; overflow: auto; }
+.osan-progress-previews figure { margin: 0; padding: 6px; }
+.osan-progress-previews img { display: block; width: 100%; height: 88px; margin: auto; object-fit: contain; }
+.osan-progress-previews figcaption { overflow-wrap: anywhere; font-size: 10px; }
+.osan-progress-previews button { padding: 3px 6px; font-size: 10px; }
+.osan-progress-submit { display: block; margin: 0 auto; }
+.osan-progress-close { position: absolute; right: 14px; top: 13px; padding: 0; border: 0; background: transparent; color: #282828; font-size: 10px; }
+@media (max-width: 390px) {
+  .osan-progress-page { padding-left: 18px; padding-right: 18px; }
+}
+@media (max-width: 860px) {
+  html:has(.app-shell[data-layout-mode='mobile'][data-osan-progress='true']) { scrollbar-width: none; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] { padding: 0 !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .app-content { padding: 0; gap: 0; background: #fff; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-app-bar { width: 100%; display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; min-height: 52px; margin: 0 !important; padding: 12px 24px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-app-brand { flex: 1; min-width: 58px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-app-brand > span { display: none; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-app-brand .app-brand-logo { width: 58px; height: 21px; object-fit: contain; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-app-bar .business-unit-selector { min-width: 0; width: 90px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-account-trigger { min-width: 24px; width: 24px; height: 24px; min-height: 24px; padding: 0 !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-account-trigger .profile-avatar { width: 24px; height: 24px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .business-unit-selector select { min-height: 28px; height: 28px; padding: 2px 8px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-menu-trigger { width: 17px; min-width: 17px; height: 24px; min-height: 24px; padding: 0 !important; border: 0 !important; background: transparent !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .mobile-menu-trigger svg { width: 17px; height: 12px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .osan-progress-page { width: 100%; margin: 0; padding: 24px 24px 30px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .osan-progress-header { display: none; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .osan-progress-project { margin: 0 0 20px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .osan-progress-project > p,
+  .app-shell[data-layout-mode='mobile'][data-osan-progress='true'] .osan-progress-project > span { display: none; }
+  .app-shell[data-osan-progress='true'] .osan-progress-stages { background: #f5f5f5 !important; border-radius: 8px !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-stages button { background: transparent !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-target-trigger { height: 34px; min-height: 34px; padding: 0 12px !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-actions > button,
+  .app-shell[data-osan-progress='true'] .osan-progress-submit { height: 24px; min-height: 24px; padding: 0 !important; background: #da2127 !important; color: #fff !important; border: 0 !important; border-radius: 10.5px !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-photo-inputs > button { height: 24px; min-height: 24px; padding: 0 !important; background: #ddd !important; border: 0 !important; border-radius: 10.5px !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-completion-modal { background: #f8f8f8 !important; border: 0 !important; border-radius: 15px !important; box-shadow: 0 0 3.7px 0 #00000040 !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-photo-placeholder { background: #fff !important; border-radius: 8px !important; box-shadow: 0 0 4px 2px #0000000a !important; }
+  .app-shell[data-osan-progress='true'] .osan-progress-photo-placeholder > span { border: 1.5px dashed #da2127 !important; background: #ffeced !important; color: #da2127 !important; border-radius: 12px !important; }
+}
+
+.app-shell[data-osan-progress='true'] .osan-progress-close { width: 24px; min-width: 24px; height: 24px; min-height: 24px; padding: 0 !important; background: transparent !important; border: 0 !important; }

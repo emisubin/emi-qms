@@ -433,7 +433,7 @@ describe('business-unit access shell', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/'));
     const navigation = screen.getAllByRole('navigation', { name: '공통 메뉴' })[0];
     expect(within(navigation).getByRole('button', { name: '프로젝트' })).toBeInTheDocument();
-    expect(within(navigation).getByRole('button', { name: '진행 관리' })).toBeInTheDocument();
+    expect(within(navigation).getByRole('button', { name: '진행 현황' })).toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'Pending' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: 'G2' })).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', { name: '사용자 관리' })).not.toBeInTheDocument();

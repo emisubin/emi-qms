@@ -9,6 +9,7 @@ import { MobileSheet } from './MobileSheet';
 import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
+import { OsanProgressPage } from './OsanProgressPage';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -202,8 +203,10 @@ import { getSiteAccessBrowserClientId, type SiteAccessMenuCode } from './siteAcc
 import authEllipse66 from './assets/auth-ellipse-66.svg';
 import authEllipse67 from './assets/auth-ellipse-67.svg';
 import emiLoginLogo from './assets/emi-logo.png';
+import emiInternalLogo from './assets/emi-logo-internal.png';
 import emiPmsProductLogo from './assets/emi-pms-product-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
+import authMobileMicrosoft from './assets/auth-mobile-microsoft.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { NoticeBoardPage } from './NoticeBoardPage';
@@ -369,7 +372,7 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
-  | { kind: 'osan-progress' }
+  | { kind: 'osan-progress'; projectId?: string }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
@@ -812,7 +815,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/progress') {
-    return { kind: 'osan-progress' };
+    return { kind: 'osan-progress', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1433,7 +1436,7 @@ function pathForView(view: View) {
         level: view.level ?? undefined
       })}`;
     case 'osan-progress':
-      return '/progress';
+      return `/progress${queryString({ projectId: view.projectId })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}${view.section && view.section !== 'summary' ? `?tab=${view.section}` : ''}`;
     case 'list':
@@ -2331,7 +2334,7 @@ function QmsAppShellContent({
     ? [
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 관리', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
+        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
       ]
     : cheongjuNavigationItems;
 
@@ -2343,6 +2346,7 @@ function QmsAppShellContent({
       className="app-shell"
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
+      data-osan-progress={isOsan && view.kind === 'osan-progress' ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
 
@@ -2360,7 +2364,7 @@ function QmsAppShellContent({
               aria-label="EMI PMS 모바일 로고로 홈 이동"
               onClick={() => setView({ kind: 'home' })}
             >
-              <img className="app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
+              <img className="app-brand-logo" src={isOsan && view.kind === 'osan-progress' ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
             </button>
             <span>
               <small>EMI PROJECT</small>
@@ -2630,7 +2634,18 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && view.kind === 'osan-progress' ? (
-        <OsanAreaPlaceholder area="progress" />
+        view.projectId ? <OsanProgressPage
+          key={`${selectedBusinessUnit}:${view.projectId}`}
+          projectId={view.projectId}
+          developmentUserKey={developmentUserKey}
+          mutationAllowed={mutationEnabled && canUpdateManufacturing}
+          onBack={() => setView({ kind: 'osan-progress' })}
+        /> : <OsanProjectListPage
+          developmentUserKey={developmentUserKey}
+          canCreate={false}
+          onCreate={() => setView({ kind: 'create' })}
+          onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'pending-types' ? (
@@ -2706,6 +2721,7 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
           onBack={() => setView({ kind: 'list' })}
+          onOpenProgress={() => setView({ kind: 'osan-progress', projectId: view.projectId })}
         /> : <>
           {projectActionFeedback?.projectId === view.projectId ? (
             <section className="page-action-feedback route-action-feedback" aria-label="최근 저장 결과">
@@ -3808,6 +3824,8 @@ function authLoginCanvasScale() {
     return 1;
   }
 
+  if (window.innerWidth <= 860) return Math.min(1, window.innerWidth / 402);
+
   return Math.min(
     window.innerWidth / authLoginCanvasWidth,
     window.innerHeight / authLoginCanvasHeight
@@ -3836,7 +3854,7 @@ export function AuthInitializationScreen({ rememberSession = true }: { rememberS
   return <AuthLoginScreen loading rememberSession={rememberSession} />;
 }
 
-function AuthLoginScreen({
+export function AuthLoginScreen({
   loading = false,
   rememberSession,
   onRememberSessionChange,
@@ -3931,13 +3949,13 @@ function AuthGateMessage({
             {!showsProductTitle ? <p className="auth-product-name">EMI PMS</p> : null}
             <h1 id="auth-gate-title" className={showsProductTitle ? 'auth-product-logo-heading' : undefined}>
               {showsProductTitle ? (
-                <img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />
+                <><img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />{usesLoginLayout && <span className="auth-mobile-product-title">EMI 프로젝트 통합정보시스템</span>}</>
               ) : (
                 <span className="auth-gate-title-text">{title}</span>
               )}
             </h1>
             <div className="auth-microsoft-brand">
-              <img src={microsoftLogo} alt="Microsoft" />
+              <picture>{usesLoginLayout && <source media="(max-width: 860px)" srcSet={authMobileMicrosoft} />}<img src={microsoftLogo} alt="Microsoft" /></picture>
             </div>
             {message ? (
               <p className={usesLoginLayout ? 'auth-gate-message auth-login-guidance' : 'auth-gate-message'}>
@@ -3995,7 +4013,7 @@ function AuthGateMessage({
             '--auth-login-glass-blur': `${23.25 * loginCanvasScale}px`
           } as CSSProperties}
         >
-          {shell}
+          <div className="auth-login-composition">{shell}</div>
         </div>
       ) : shell}
     </main>
@@ -4662,11 +4680,13 @@ function OsanProjectField({
 function OsanProjectDetailPage({
   developmentUserKey,
   projectId,
-  onBack
+  onBack,
+  onOpenProgress
 }: {
   developmentUserKey: string;
   projectId: string;
   onBack: () => void;
+  onOpenProgress: () => void;
 }) {
   const isMobile = useIsMobileViewport();
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
@@ -4726,7 +4746,7 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} /> : null}
+      {state.kind === 'ready' ? <><button type="button" onClick={onOpenProgress}>진행 현황 열기</button><OsanProjectDetailContent project={state.data} /></> : null}
     </section>
   );
 }

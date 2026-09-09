@@ -132,6 +132,37 @@ describe('Osan project registration', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([true, false])('opens the progress deep link and enforces manufacturing mutation permission (%s)', async (allowed) => {
+    const project = projectDetail(1);
+    const progress = {
+      ...project,
+      completedStepCount: 0,
+      totalStepCount: 7,
+      targets: project.targets.map(target => ({
+        ...target, version: 1, canStart: true,
+        steps: target.steps.map(step => ({
+          ...step, canCompleteIndividual: false, canCompleteBatch: false,
+          completedAtUtc: null, completedByDisplayName: null, photos: []
+        }))
+      }))
+    };
+    window.history.replaceState(null, '', `/progress?projectId=${projectId}`);
+    const fetchMock = shellFetch((url) => {
+      if (url.pathname === '/api/me') return json(currentUser([
+        'projects.read', 'Project.Read.All', ...(allowed ? ['manufacturing.update'] : [])
+      ]));
+      if (url.pathname === `/api/osan/projects/${projectId}/progress`) return json(progress);
+      return undefined;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    const action = await screen.findByRole('button', { name: '작업 시작' });
+    await waitFor(() => allowed ? expect(action).toBeEnabled() : expect(action).toBeDisabled());
+    const progressRequest = fetchMock.mock.calls.find(([input]) => String(input).includes(`/projects/${projectId}/progress`));
+    expect(new Headers(progressRequest?.[1]?.headers).get('X-Qms-Business-Unit')).toBe('OSAN');
+    expect(screen.getByText('안내 사진이 들어갈 영역')).toBeVisible();
+  });
+
   it('renders each desktop project as one accessible table row', async () => {
     vi.stubGlobal('fetch', shellFetch((url, init) => {
       if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {

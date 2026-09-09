@@ -1,14 +1,16 @@
 # TASK-OSAN-PROGRESS-001 — 7단계 진행 기록과 프로젝트 자동 완료
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- status: `PLANNED`
+- status: `IMPLEMENTING`
 - parentTask: `TASK-OSAN-PILOT-001`
-- implementationApproved: false
+- implementationApproved: true
 - runtimeMutationApproved: false
 - gitPublicationApproved: false
 - 선행조건: TASK-OSAN-PROJECT-001 구현·품질 Gate 완료와 이 Task 구현 승인
 
 ## 목적과 계약
+
+2026-09-09 사용자 권장 사진 구현 승인에 따라 사진과 같은 트랜잭션으로 처리할 단계 완료·자동 완료 및 모바일 상세를 함께 구현한다. 현재 기록/작업공간은 [PHOTO-001](osan-photo-001.md)의 승인·기준선 절을 따른다. 진행 명칭은 `진행 현황`, 안내 사진·설명은 영역 표시만, 중단/펜딩 없음. 사진의 실제 저장·완료 후 조회까지 직접 검증하며 운영 변경·원격 반영은 승인 범위에 없다. 아래 과거 구현 미실행/모델 고정 절차는 당시 기록이며 현행 Root를 대체하지 않는다.
 
 기존 제조 기록 기능으로 오산의 개별·일괄 진행을 처리하고 전체 포장 시 프로젝트를 자동 완료한다.
 
@@ -16,7 +18,7 @@
 
 ## 포함 범위
 
-- 제조 엔진·component의 재사용 가능한 부분에 오산 업무 profile을 연결하고 사용자 문구를 진행 관리로 표시한다.
+- 제조 엔진·component의 재사용 가능한 부분에 오산 업무 profile을 연결하고 사용자 문구를 진행 현황으로 표시한다.
 - 입고검사·배치검사·배선검사·8계통·동작검사·출하검사·포장의 기록과 기존 작업 시작·선택 대상 일괄 기능을 제공한다.
 - 앞 6단계가 완료된 대상만 포장 완료가 가능하게 하고 개별·일괄·직접 호출에 동일한 검사를 적용한다.
 - 포장 저장·대상 완료·마지막 대상일 때 프로젝트 완료를 동일 transaction으로 처리하고 audit/outbox 중복을 차단한다.
@@ -48,3 +50,7 @@ Manufacturing·Workflow·Projects 완료 경계, Frontend ManufacturingPage 재�
 단계/프로젝트 완료 원본과 상태 계산 계약을 Task 5에 전달한다. 집계 전용 별도 상태 저장소를 만들지 않는다.
 
 실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. 현재는 구현/테스트 미실행, 사용자 검수 적용 전이다. Sol xhigh가 승인 범위의 구현·테스트·범위 내 보정을 맡고 parent 및 fresh GPT-6 High가 검토한다. 모든 품질·Git·운영 gate는 Root 지침을 따른다.
+
+## 2026-09-09 현재 구현 기록
+
+7단계 GET/시작/개별·일괄 완료와 마지막 포장 시 프로젝트 자동 완료를 오산 전용 저장 경계에 연결했다. 청주 제조 API를 오산에 개방하지 않는다. 완료 사진은 같은 트랜잭션에서 저장한다. 모바일 상세와 프로젝트 상세 진입 연결, 대상 선택·단계 이동·안내 영역 표시를 구현했다. 구체적인 변경·테스트·독립 검토와 미완료 시각 검수는 [PHOTO-001 현재 기록](osan-photo-001.md)에서 함께 관리한다. 위 최초 구현 미실행 문구와 모델 절차는 이 구현 전 이력이다. 전체 청주 회귀·사용자 검수·운영 적용은 아직 수행하지 않았다.

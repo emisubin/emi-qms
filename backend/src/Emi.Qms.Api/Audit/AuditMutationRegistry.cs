@@ -117,6 +117,8 @@ public static partial class AuditMutationRegistry
         POST /api/notifications/read-all
         POST /api/notifications/{notificationId:guid}/read
         POST /api/osan/projects/
+        POST /api/osan/projects/{projectId:guid}/progress/completions
+        POST /api/osan/projects/{projectId:guid}/progress/start
         POST /api/pending-types/
         POST /api/pending-types/{code}/activate
         POST /api/pending-types/{code}/deactivate

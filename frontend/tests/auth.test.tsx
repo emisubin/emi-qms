@@ -347,7 +347,7 @@ describe('authentication modes', () => {
       </PwaInstallProvider>
     );
 
-    expect(await screen.findByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /EMI PMS/ })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'login'));
     expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
     expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
@@ -375,7 +375,7 @@ describe('authentication modes', () => {
 
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'loading');
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
-    expect(screen.getByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /EMI PMS/ })).toBeInTheDocument();
     expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
     expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
     expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
@@ -384,6 +384,27 @@ describe('authentication modes', () => {
     expect(screen.getByRole('status', { name: '로그인 확인 중' })).toHaveClass('auth-loading-indicator');
     expect(screen.getByLabelText('정보 보안 안내')).toBeInTheDocument();
     expect(screen.getByLabelText('회사 정보')).toHaveTextContent('충북 청주시 청원구 오창읍 서오창산단3로 110');
+  });
+
+  it('keeps the mobile source canvas reachable at short heights and updates scale on resize', async () => {
+    vi.stubGlobal('innerWidth', 402);
+    vi.stubGlobal('innerHeight', 852);
+    const { AuthInitializationScreen } = await import('../src/App');
+    const { PwaInstallProvider } = await import('../src/PwaInstallExperience');
+    const { container } = render(<PwaInstallProvider><AuthInitializationScreen /></PwaInstallProvider>);
+    const canvas = container.querySelector('.auth-login-canvas');
+    expect(canvas).toHaveAttribute('data-auth-canvas-scale', '1.000000');
+    expect(screen.getByText('EMI 프로젝트 통합정보시스템')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: '로그인 확인 중' })).toBeInTheDocument();
+    vi.stubGlobal('innerHeight', 400);
+    fireEvent(window, new Event('resize'));
+    expect(canvas).toHaveAttribute('data-auth-canvas-scale', '1.000000');
+    vi.stubGlobal('innerWidth', 320);
+    fireEvent(window, new Event('resize'));
+    expect(canvas).toHaveAttribute('data-auth-canvas-scale', (320 / 402).toFixed(6));
+    vi.stubGlobal('innerWidth', 1440); vi.stubGlobal('innerHeight', 810);
+    fireEvent(window, new Event('resize'));
+    expect(canvas).toHaveAttribute('data-auth-canvas-scale', '1.000000');
   });
 
   it('renders the common branded shell when Microsoft configuration is missing', async () => {
@@ -425,7 +446,7 @@ describe('authentication modes', () => {
 
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'loading');
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
-    expect(screen.getByRole('heading', { name: 'EMI PMS' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /EMI PMS/ })).toBeInTheDocument();
     expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'LOGIN' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: '로그인 상태 유지' })).not.toBeInTheDocument();

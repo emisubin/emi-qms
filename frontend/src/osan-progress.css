@@ -114,3 +114,40 @@
 .app-shell[data-osan-progress='true'] .osan-progress-selector { border-radius: 0 0 6.8px 6.8px !important; border-color: #c7c7c7 !important; }
 .app-shell[data-osan-progress='true'] .osan-progress-selector input { border: 1px solid #bdbdbd !important; border-radius: 5px !important; }
 .app-shell[data-osan-progress='true'] .osan-progress-selector input:checked { background: #282828 !important; box-shadow: inset 0 0 0 2px white !important; }
+
+/* Desktop adaptation; keep all measured mobile dimensions unchanged. */
+@media (min-width: 861px) {
+  .app-shell .osan-progress-page { width: 100%; max-width: none; margin: 0; padding: 24px; }
+  .app-shell .osan-progress-header h1 { font-size: 18px; }
+  .app-shell .osan-progress-project h2 { font-size: 20px; line-height: 28px; }
+  .app-shell .osan-progress-project p,
+  .app-shell .osan-progress-project > span { font-size: 13px; }
+  .app-shell .osan-progress-stage-card { min-height: 400px; padding-bottom: 24px; }
+  .app-shell .osan-progress-stages { height: 48px; }
+  .app-shell .osan-progress-stages h2 { font-size: 16px; }
+  .app-shell .osan-progress-stage-index { font-size: 12px; height: 32px; }
+  .app-shell .osan-progress-guidance,
+  .app-shell .osan-progress-histories { width: calc(100% - 48px); max-width: none; }
+  .app-shell .osan-progress-guidance { min-height: 360px; }
+  .app-shell .osan-progress-guidance-photo { height: 280px; font-size: 14px; }
+  .app-shell .osan-progress-guidance > p { font-size: 14px; }
+  .app-shell .osan-progress-history h3 { font-size: 16px; }
+  .app-shell .osan-progress-completed-title { font-size: 16px; line-height: 22px; }
+  .app-shell .osan-progress-completed { font-size: 13px; gap: 12px; padding: 12px 0; }
+  .app-shell .osan-progress-photo-region { padding: 16px; }
+  .app-shell .osan-progress-saved-photo img {
+    width: auto !important; height: auto !important; max-width: 100% !important; max-height: none !important;
+    object-fit: contain; margin: 0 auto;
+  }
+  .app-shell .osan-progress-saved-photo figcaption { margin-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+  .app-shell .osan-progress-actions > button { width: 120px; height: 38px; min-height: 38px; font-size: 14px; }
+  .app-shell .osan-progress-refresh { font-size: 13px; }
+  .app-shell .osan-progress-completion-modal { width: min(560px, calc(100vw - 48px)); padding: 32px; font-size: 14px; }
+  .app-shell .osan-progress-completion-modal h2 { font-size: 16px; line-height: 22px; }
+  .app-shell .osan-progress-photo-placeholder,
+  .app-shell .osan-progress-previews { width: 100%; }
+  .app-shell .osan-progress-previews { height: auto; max-height: 50vh; }
+  .app-shell .osan-progress-previews img { width: auto; max-width: 100%; height: auto; }
+  .app-shell .osan-progress-photo-inputs button,
+  .app-shell .osan-progress-submit { height: 36px; min-height: 36px; font-size: 13px; }
+}

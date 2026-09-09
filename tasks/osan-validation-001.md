@@ -1,12 +1,32 @@
 # TASK-OSAN-VALIDATION-001 — 오산 격리 통합 검증과 운영 준비
 
 - taskType: `UAT_RUNTIME`
-- status: `PLANNED`
+- status: `IN_PROGRESS`
 - parentTask: `TASK-OSAN-PILOT-001`
-- implementationApproved: false
-- runtimeMutationApproved: false
+- implementationApproved: true — 현재 승인 제품의 회귀 검증·테스트 보정에 한정
+- runtimeMutationApproved: true — 기존 검수 API 갱신·전용 합성 테스트 환경에 한정, 운영 개통 제외
 - gitPublicationApproved: false
 - 선행조건: TASK-OSAN-ISOLATION/ACCESS/PROJECT/PROGRESS/DASHBOARD-001 각각 자동 검증 완료와 격리 검증 실행 승인
+
+## 2026-09-09 최종 후보 검증 — 현재 상태
+
+사용자가 최신 5186 화면·갱신된 5096 API의 최종 검수를 완료했다. 제품 기준선은 `98c435b`이며 이 절이 아래 최초 계획 당시의 구현·검수 미실행 상태를 대체한다. 기존 승인에 따른 격리 합성 환경 최종 코드 회귀를 완료했다. 최초 실패와 한정 재검증은 아래 결과에 구분한다. 기존 검수 데이터와 사용자 WIP는 보존하며 원격 반영·배포는 포함하지 않는다.
+
+Backend 전체(임시 PostgreSQL), Frontend unit·lint·build·mock E2E, 일반 full-stack과 사업부·오산 전용 suite, 변경 분류·CI gate·Azure artifact 정적 검증을 확인한다. 과거 홈 제목·탭·레이아웃을 기대한 E2E는 승인된 현재 UI 기준으로 보정한다. 제품 코드는 사용자 검수 후보를 유지한다. 운영 복구 rehearsal·실제 계정 smoke·개통 P2/P3는 이번 코드 회귀와 별도 추적한다.
+
+### 최종 후보 실행 결과
+
+- Frontend unit: 39개 파일, 331 tests PASS. lint 오류 0(기존 main·임시 login-review의 Fast Refresh 경고 2), TypeScript 포함 build PASS. 수정된 E2E 3개 파일의 집중 lint도 PASS.
+- Mock browser: 최초 13개 중 10 PASS, 3개는 이전 홈 제목·메뉴·삭제된 상세 탭 등 과거 UI 기대 때문에 실패. 현재 승인 계약으로 오산 기대만 보정한 뒤 해당 두 spec의 4개 tests PASS. 전체 13개 최종 통과 근거를 최초 성공분과 보정 재검증으로 연결한다. 등록값·사업부 전환·청주 구성·대상 이동·가로 넘침 검증은 유지했다.
+- 일반 full-stack: 64/64 PASS, 12.5분. 12면 혼합 자재·지연 입고·반복 Pending·18개 workflow의 최종 완료와 청주 주요 업무 포함. 해당 실행 임시 DB·Compose container/network 정리 확인.
+- 사업부 접근 전용 full-stack 1/1 PASS, 오산 등록 전용 full-stack 1/1 PASS. 각 실행의 3 DB·제한 역할·서버·Compose 정리 확인. 오산 생성 후 청주 프로젝트 수 불변 확인.
+- shell syntax, change-scope, main-PR-CI, CI-gate 및 Azure artifact static validation PASS. Bicep compile은 이번 정적 검사에 미포함이며 원격 required CI 결과는 아직 없다.
+- Backend 전체: 최초 sandbox 내부 pipe 실패 및 DB 설정 없는 실행은 유효 결과에서 제외하고 중단했다. 기존 e2e-safety를 사용한 전용 임시 PostgreSQL에서 전체 591개 중 589 PASS·2 FAIL·skip 0으로 종료했다(약 1시간 2분). 기본 logger 무출력 구간에 실제 runner의 CPU/JIT 활동을 확인했다. `PanelHistory_RequiresAuditReadAll(dev-production)`은 선행 프로젝트 생성 응답의 projectId 파싱, `DirectInput_PanelNameOnlyUpdate_DoesNotDriftCanonicalSizeOrAuditSize`는 임시 DB 정리 시 연결 timeout으로 실패했다. 호스트 load 및 DB 처리량 포화를 관측했지만 환경성 실패로 확정하지 않는다. 생성 상태/body를 확인하는 최소 테스트 진단을 추가하고 별도 빌드·임시 DB에서 실패 멤버 두 개(Theory 포함 7 cases)를 한정 재검증했다. 7/7 PASS·skip 0, 40초로 종료했고 임시 DB·Compose 정리도 확인했다. 최초 통과분과 실패 범위 재검증을 합쳐 591개 고유 테스트의 통과 근거를 확보했다. 첫 생성 응답의 실제 상태/body는 최초 로그에 없어 정확한 원인을 확정하지 않으며, 부하 관측과 재검증에서 재현되지 않은 사실을 함께 보존한다.
+- 독립 검토: 기존 DASH-R1/P1·HOME-R1/P2 해소 및 재검토 근거를 유지한다. reviewer가 최종 제품 `98c435b`와 CI/검증표를 대조해 추가 제품 P0–P2를 발견하지 않았고, 누락된 mock E2E 및 과거 계약 기대를 지적했다. UI 보정은 Frontend 테스트 3파일, 실패 진단은 Backend 테스트 1파일에 한정하며 parent가 diff와 실제 재검증을 확인했다. 제품 코드는 변경하지 않았다.
+- 검수 환경: 5186/5096 health 200. 사용자 최종 입력 후 샘플은 대상 2, 완료 14/14, 상태 Completed, 사진 14이며 마지막 완료는 2026-09-09 17:01:39 KST로 회귀 시작 전이다. API 재기동 직후 보존 hash 일치 기록과 이후 사용자 입력을 구분한다.
+- 증거: `/private/tmp/osan-final-*.log`, 이번 실행의 생성 화면·워크북 127개는 `/private/tmp/osan-final-artifacts`에 보존하고 기존 tracked 자료는 복원했다. 임시 로그인 검수 entry 등 기존 WIP는 변경·커밋하지 않는다.
+
+현재 사용자 검수와 이번 코드 회귀는 완료했다. Task status는 남은 운영 준비 범위 때문에 IN_PROGRESS로 유지한다. 사용자 검수 완료는 원격 push·PR·main 병합·Azure 배포 승인이 아니다. 코드 회귀가 통과해도 이 Task의 운영 복구 rehearsal, 기존 OSAN-003-RUNTIME-VALIDATION 및 실계정 개통 검증은 미완료로 별도 유지한다.
 
 ## 목적과 계약
 

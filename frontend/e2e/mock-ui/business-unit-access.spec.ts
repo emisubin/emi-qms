@@ -77,10 +77,10 @@ test('overall administrator switches units and designates another overall admini
   await expect(businessUnitSelector).toHaveValue('CHEONGJU');
   await businessUnitSelector.selectOption('OSAN');
 
-  await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '오산 홈' })).toBeVisible();
   const navigation = page.getByRole('navigation', { name: '공통 메뉴' });
   await expect(navigation.getByRole('button', { name: '프로젝트' })).toBeVisible();
-  await expect(navigation.getByRole('button', { name: '진행 관리' })).toBeVisible();
+  await expect(navigation.getByRole('button', { name: '진행 현황' })).toBeVisible();
   await expect(navigation.getByRole('button', { name: 'G2' })).toHaveCount(0);
   await expect(navigation.getByRole('button', { name: 'Pending' })).toHaveCount(0);
   await expect(navigation.getByRole('button', { name: '사용자 관리' })).toHaveCount(0);
@@ -141,7 +141,7 @@ test('overall administrator switches units and designates another overall admini
 
   await businessUnitSelector.selectOption('OSAN');
   await expect(page).toHaveURL('/');
-  await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '오산 홈' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '사용자 관리' })).toHaveCount(0);
 });
 
@@ -244,7 +244,7 @@ test('single-business overall administrator sees no selector on desktop or mobil
 
   localProfileReady = true;
   await page.reload();
-  await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '오산 홈' })).toBeVisible();
   await expect(page.getByLabel('사업부 선택')).toHaveCount(0);
   await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
   await page.screenshot({ path: testInfo.outputPath('single-membership-shell-mobile.png'), fullPage: true });
@@ -255,7 +255,7 @@ test('single-business overall administrator sees no selector on desktop or mobil
   await expect(navigation.getByRole('button', { name: '사용자 관리' })).toHaveCount(0);
   await page.goto('/admin/users');
   await expect(page).toHaveURL('/');
-  await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '오산 홈' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('single-membership-shell-desktop.png'), fullPage: true });
 });
 

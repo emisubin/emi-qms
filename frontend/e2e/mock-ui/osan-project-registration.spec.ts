@@ -8,7 +8,7 @@ const cheongjuPanelIds = [
 ];
 const stepNames = ['입고검사', '배치검사', '배선검사', '8계통', '동작검사', '출하검사', '포장'];
 
-test('Cheongju and Osan share responsive project presentations while Osan preserves its registration contract', async ({ page }, testInfo) => {
+test('Osan shares its page frame and preserves registration and target navigation while Cheongju keeps its presentations', async ({ page }, testInfo) => {
   const consoleErrors: string[] = [];
   const requestFailures: string[] = [];
   const postedBodies: Array<Record<string, unknown>> = [];
@@ -66,19 +66,16 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   });
   expect(postedBodies[0].operationId).toMatch(/^[0-9a-f-]{36}$/i);
 
-  const breadcrumbs = page.getByRole('navigation', { name: '현재 위치' });
-  await expect(breadcrumbs).toBeVisible();
-  const departmentTabs = page.getByRole('tablist', { name: '프로젝트 상세 섹션' });
-  await expect(departmentTabs.getByRole('tab')).toHaveCount(1);
-  const progressTab = departmentTabs.getByRole('tab', { name: '진행 관리' });
-  await expect(progressTab).toHaveAttribute('aria-selected', 'true');
-  await expect(progressTab).toHaveAttribute('aria-controls', 'osan-progress-panel');
-  const progressPanel = page.getByRole('tabpanel', { name: '진행 관리' });
+  const overview = page.getByRole('region', { name: '프로젝트 기본 정보' });
+  await expect(overview).toBeVisible();
+  await expect(overview.getByRole('table')).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: '프로젝트 상세 섹션' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '진행 현황 열기' })).toHaveCount(0);
+  const progressPanel = page.locator('#osan-progress-panel');
   await expect(progressPanel).toBeVisible();
   await expect(progressPanel).toHaveClass(/project-detail-tab-content/);
   await expect(progressPanel.locator('.project-department-section')).toHaveAttribute('data-department', 'manufacturing');
   await expect(progressPanel.locator('.project-department-metrics')).toBeVisible();
-  await expect(page.locator('[data-presentation-contract="project-summary-v1"]')).toHaveAttribute('data-presentation-layout', 'desktop');
   await expect(progressPanel.locator('[data-presentation-contract="project-status-board-v1"]')).toHaveAttribute('data-presentation-layout', 'desktop');
   const desktopTargetTable = progressPanel.getByRole('table', { name: '진행 관리 대상 현황' });
   await expect(desktopTargetTable).toBeVisible();
@@ -86,19 +83,12 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   const desktopTargetRows = desktopTargetTable.getByRole('row');
   await expect(desktopTargetRows).toHaveCount(3);
   await expect(desktopTargetRows.first().getByRole('columnheader')).toHaveCount(5);
-  await expect(desktopTargetTable.locator('button')).toHaveCount(0);
+  await expect(desktopTargetTable.locator('button')).toHaveCount(2);
   const osanDesktopTargetRow = desktopTargetRows.nth(1);
-  expect(await osanDesktopTargetRow.evaluate((element) => element.tagName)).toBe('DIV');
-  await expect(osanDesktopTargetRow).toHaveAttribute('data-interactive', 'false');
-  await expect(osanDesktopTargetRow).not.toHaveAttribute('tabindex');
-  expect(await osanDesktopTargetRow.evaluate((element) => getComputedStyle(element).cursor)).toBe('auto');
-  const osanDesktopRowBackground = await osanDesktopTargetRow.evaluate((element) => getComputedStyle(element).backgroundColor);
-  await osanDesktopTargetRow.hover();
-  expect(await osanDesktopTargetRow.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(osanDesktopRowBackground);
-  expect(await osanDesktopTargetRow.evaluate((element) => {
-    (element as HTMLElement).focus();
-    return document.activeElement === element;
-  })).toBe(false);
+  expect(await osanDesktopTargetRow.evaluate((element) => element.tagName)).toBe('BUTTON');
+  await expect(osanDesktopTargetRow).toHaveAttribute('data-interactive', 'true');
+  await expect(osanDesktopTargetRow).toHaveAttribute('type', 'button');
+  expect(await osanDesktopTargetRow.evaluate((element) => (element as HTMLElement).tabIndex)).toBe(0);
   for (let index = 1; index <= 2; index += 1) {
     await expect(desktopTargetRows.nth(index).getByRole('cell')).toHaveCount(5);
     await expect(desktopTargetRows.nth(index)).toContainText('시작 전');
@@ -110,61 +100,63 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   for (const forbiddenAction of ['Pending', '보류', '중단', '취소']) {
     await expect(page.getByRole('button', { name: forbiddenAction, exact: true })).toHaveCount(0);
   }
-  const osanDesktopSummaryDetails = page.locator('[data-presentation-contract="project-summary-v1"] details');
-  await osanDesktopSummaryDetails.locator('summary').click();
-  await expect(page.getByText('001-PO/+', { exact: true })).toBeVisible();
-  await expect(page.getByText('000-W/O', { exact: true })).toBeVisible();
-  const detailCode = page.locator('.project-summary-more dd.project-code-value');
+  await expect(overview.getByText('001-PO/+', { exact: true })).toBeVisible();
+  await expect(overview.getByText('000-W/O', { exact: true })).toBeVisible();
+  await expect(overview.getByText('거래처', { exact: true })).toHaveCount(2);
+  await expect(overview.getByText('제품 이름', { exact: true })).toBeVisible();
+  await expect(overview.getByText('2개', { exact: true })).toBeVisible();
+  await expect(overview.getByText('2026-12-31', { exact: true })).toBeVisible();
+  const detailCode = overview.locator('.project-code-value');
   expect(await detailCode.textContent()).toBe('AbC  001');
   expect(await detailCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
   expect(await detailCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
-  await expect(page.locator('.project-summary-primary .status-badge')).toHaveText('시작 전');
-  await osanDesktopSummaryDetails.locator('summary').click();
-  expect(await osanDesktopSummaryDetails.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(false);
-  const osanDesktopSummaryContract = await projectSummaryContract(page);
+  await expect(overview.locator('.osan-detail-status')).toHaveText('시작 전');
   const osanDesktopStatusContract = await projectStatusBoardContract(page);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-detail-desktop-1440.png'), fullPage: true });
 
+  await osanDesktopTargetRow.press('Enter');
+  await expect(page).toHaveURL(`/progress?projectId=${projectId}&targetId=${projectDetail().targets[0].targetId}`);
+  await expect(page.getByRole('region', { name: '오산 진행 상세' })).toBeVisible();
+  await expect(page.locator('.osan-progress-target-trigger')).toHaveText('제품 이름 1');
+  await page.goto(`/projects/${projectId}`);
+  await expect(overview).toBeVisible();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: '저장된 Title' })).toBeVisible();
-  await expect(breadcrumbs).toBeHidden();
-  await expect(page.getByRole('button', { name: '← 프로젝트' })).toBeVisible();
-  const mobileDetailCode = page.locator('.mobile-detail-hero .project-code-value');
+  await expect(page.getByRole('button', { name: '목록으로' })).toBeVisible();
+  const mobileDetailCode = overview.locator('.project-code-value');
   await expect(mobileDetailCode).toHaveText('AbC  001');
   expect(await mobileDetailCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
   expect(await mobileDetailCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
-  await expect(page.locator('.mobile-detail-hero .status-badge')).toHaveText('시작 전');
+  await expect(overview.locator('.osan-detail-status')).toHaveText('시작 전');
+  await expect(overview.getByText('001-PO/+', { exact: true })).toBeVisible();
+  await expect(overview.getByText('000-W/O', { exact: true })).toBeVisible();
   await expect(desktopTargetTable).toHaveCount(0);
   const mobileTargetCards = progressPanel.locator('.project-panel-status-cards');
   await expect(mobileTargetCards).toBeVisible();
   const mobileTargetItems = mobileTargetCards.locator('.project-panel-status-card');
   await expect(mobileTargetItems).toHaveCount(2);
-  await expect(mobileTargetCards.locator('button')).toHaveCount(0);
+  await expect(mobileTargetCards.locator('button')).toHaveCount(2);
   const osanMobileTarget = mobileTargetItems.first();
-  expect(await osanMobileTarget.evaluate((element) => element.tagName)).toBe('ARTICLE');
-  await expect(osanMobileTarget).toHaveAttribute('data-interactive', 'false');
-  await expect(osanMobileTarget).not.toHaveAttribute('tabindex');
-  expect(await osanMobileTarget.evaluate((element) => getComputedStyle(element).cursor)).toBe('auto');
-  const osanMobileCardBackground = await osanMobileTarget.evaluate((element) => getComputedStyle(element).backgroundColor);
-  await osanMobileTarget.hover();
-  expect(await osanMobileTarget.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(osanMobileCardBackground);
-  expect(await osanMobileTarget.evaluate((element) => {
-    (element as HTMLElement).focus();
-    return document.activeElement === element;
-  })).toBe(false);
+  expect(await osanMobileTarget.evaluate((element) => element.tagName)).toBe('BUTTON');
+  await expect(osanMobileTarget).toHaveAttribute('data-interactive', 'true');
+  expect(await osanMobileTarget.evaluate((element) => (element as HTMLElement).tabIndex)).toBe(0);
   await page.evaluate(() => window.scrollTo(0, 0));
   for (const target of await mobileTargetItems.all()) {
     await expect(target).toContainText('시작 전');
     await expect(target).toContainText('0/7단계 완료');
     await expect(target).toContainText('입고검사');
   }
-  const osanMobileSummaryContract = await projectSummaryContract(page);
   const osanMobileStatusContract = await projectStatusBoardContract(page);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-detail-mobile-390.png'), fullPage: true });
 
-  await page.getByRole('button', { name: '← 프로젝트' }).click();
+  await osanMobileTarget.click();
+  await expect(page).toHaveURL(`/progress?projectId=${projectId}&targetId=${projectDetail().targets[0].targetId}`);
+  await expect(page.locator('.osan-progress-target-trigger')).toHaveText('제품 이름 1');
+  await page.goto(`/projects/${projectId}`);
+  await page.getByRole('button', { name: '목록으로' }).click();
   const mobileList = page.getByTestId('osan-project-list-mobile');
   await expect(mobileList).toBeVisible();
   await expect(mobileList).toHaveClass(/project-list-cards/);
@@ -179,21 +171,29 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(mobileList.getByText('시작 전')).toBeVisible();
   await expect(mobileList.getByText('0%')).toBeVisible();
-  const osanMobilePage = page.locator('[data-presentation-contract="project-list-page-v1"]');
-  await expect(osanMobilePage).toHaveAttribute('data-presentation-layout', 'mobile');
-  await expect(osanMobilePage).toContainText('납기를 먼저 보고 필요한 프로젝트를 선택하세요.');
-  await expect(osanMobilePage).not.toContainText('병목');
-  await expect(osanMobilePage.getByRole('button', { name: '+ 프로젝트', exact: true })).toBeVisible();
-  await expect(osanMobilePage.locator(':scope > .mobile-filter-trigger')).toBeVisible();
-  await expect(osanMobilePage.locator(':scope > .project-kpi-grid .dashboard-kpi-card')).toHaveCount(3);
-  await expect(osanMobilePage.getByRole('tab')).toHaveCount(3);
-  await expect(osanMobilePage.getByRole('tab', { name: '시작 전' })).toBeVisible();
-  await expect(osanMobilePage.getByText('Excel')).toHaveCount(0);
-  await expect(osanMobilePage.getByText('Pending')).toHaveCount(0);
+  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['거래처', 'Code', '제품명', '수량', '납기일', '상태', '진행률']);
+  const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
+  await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
+  await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
+  await expect(osanMobilePage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
+  await expect(osanMobilePage.getByLabel('프로젝트 요약').locator(':scope > div')).toHaveText(['전체1', '시작 전1', '진행 중0', '완료0']);
+  await osanMobilePage.getByRole('button', { name: '필터', exact: true }).click();
+  await expect(osanMobilePage.getByRole('combobox', { name: '상태' })).toHaveValue('All');
+  await expect(osanMobilePage.getByLabel('시작일')).toBeVisible();
+  await expect(osanMobilePage.getByLabel('종료일')).toBeVisible();
+  await osanMobilePage.getByLabel('시작일').fill('2027-01-01');
+  await expect(page.getByText('조건에 맞는 프로젝트가 없습니다.')).toBeVisible();
+  await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
+  await expect(mobileList).toBeVisible();
+  await osanMobilePage.getByRole('combobox', { name: '상태' }).selectOption('Completed');
+  await expect(page.getByText('조건에 맞는 프로젝트가 없습니다.')).toBeVisible();
+  await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
+  await expect(mobileList).toBeVisible();
+  await osanMobilePage.getByRole('button', { name: '닫기', exact: true }).click();
+  for (const forbiddenText of ['Excel', 'Pending', '병목']) await expect(osanMobilePage.getByText(forbiddenText)).toHaveCount(0);
   await expect(osanMobilePage.getByRole('checkbox')).toHaveCount(0);
-  const osanMobilePageContract = await projectListPageContract(page);
-  expect(osanMobilePageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
-  expect(osanMobilePageContract.structure.commonOrderValid).toBe(true);
+  const osanMobilePageContract = await osanListFrameContract(page);
+  expect(osanMobilePageContract.order).toEqual(['title', 'description', 'kpi', 'filter', 'listHeading']);
   const osanMobileListContract = await projectListContract(page);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-mobile-390.png'), fullPage: true });
@@ -216,19 +216,24 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   expect(await desktopListCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(desktopProjectRow.getByText('시작 전')).toBeVisible();
   await expect(desktopProjectRow.getByText('0%')).toBeVisible();
-  const osanDesktopPage = page.locator('[data-presentation-contract="project-list-page-v1"]');
-  await expect(osanDesktopPage).toHaveAttribute('data-presentation-layout', 'desktop');
-  await expect(osanDesktopPage.locator(':scope > form.toolbar')).toBeVisible();
-  await expect(osanDesktopPage.locator(':scope > .project-kpi-grid .dashboard-kpi-card')).toHaveCount(3);
-  await expect(osanDesktopPage.getByRole('tab')).toHaveCount(3);
-  const osanDesktopPageContract = await projectListPageContract(page);
-  expect(osanDesktopPageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
-  expect(osanDesktopPageContract.structure.commonOrderValid).toBe(true);
+  const osanDesktopPage = page.locator('[data-presentation-contract="osan-list-frame"]');
+  await expect(osanDesktopPage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
+  await expect(osanDesktopPage.getByLabel('프로젝트 요약').locator(':scope > div')).toHaveCount(4);
+  const osanDesktopPageContract = await osanListFrameContract(page);
+  expect(osanDesktopPageContract.order).toEqual(osanMobilePageContract.order);
   const osanDesktopListContract = await projectListContract(page);
   expect(osanDesktopListContract.geometry.rowHeight).toBeGreaterThanOrEqual(60);
   expect(osanDesktopListContract.geometry.headerBodyAligned).toBe(true);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-desktop-1440.png'), fullPage: true });
+
+  for (const [path, title] of [['/', '오산 홈'], ['/progress', '진행 현황']] as const) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+    await expect(page.getByRole('list', { name: '프로젝트 진행 목록' })).toBeVisible();
+    expect(await osanListFrameContract(page)).toEqual(osanDesktopPageContract);
+    expect(await hasHorizontalOverflow(page)).toBe(false);
+  }
 
   await page.evaluate(() => window.sessionStorage.setItem('emi.qms.business-unit', 'CHEONGJU'));
   await page.goto('/projects');
@@ -245,10 +250,11 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   await expect(cheongjuDesktopPage.getByRole('button', { name: '선택 Excel 내보내기' })).toBeVisible();
   await expect(cheongjuDesktopPage.getByRole('tab', { name: '삭제 보관함' })).toBeVisible();
   const cheongjuDesktopPageContract = await projectListPageContract(page);
-  expect(cheongjuDesktopPageContract).toEqual(osanDesktopPageContract);
+  expect(cheongjuDesktopPageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
+  expect(cheongjuDesktopPageContract.structure.commonOrderValid).toBe(true);
   const cheongjuDesktopListContract = await projectListContract(page);
   expect(cheongjuDesktopListContract.geometry.headerBodyAligned).toBe(true);
-  expect(cheongjuDesktopListContract).toEqual(osanDesktopListContract);
+  expect(cheongjuDesktopListContract.structure).toEqual(osanDesktopListContract.structure);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-desktop-1440.png'), fullPage: true });
 
@@ -267,8 +273,8 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   await expect(cheongjuDesktopStatusRow.getByRole('cell').nth(1).locator('small')).toHaveText('P01');
   const cheongjuDesktopSummaryDetails = page.locator('[data-presentation-contract="project-summary-v1"] details');
   expect(await cheongjuDesktopSummaryDetails.evaluate((element) => (element as HTMLDetailsElement).open)).toBe(false);
-  expect(await projectSummaryContract(page)).toEqual(osanDesktopSummaryContract);
-  expect(await projectStatusBoardContract(page)).toEqual(osanDesktopStatusContract);
+  expect(await projectSummaryContract(page)).toMatchObject({ contract: 'project-summary-v1', layout: 'desktop', structure: { item: ['DIV', 'DT', 'DD'] } });
+  expect((await projectStatusBoardContract(page)).structure).toEqual(osanDesktopStatusContract.structure);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-detail-desktop-1440.png'), fullPage: true });
 
@@ -279,8 +285,8 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   expect(await cheongjuMobileStatusCard.evaluate((element) => element.tagName)).toBe('BUTTON');
   await expect(cheongjuMobileStatusCard).toHaveAttribute('data-interactive', 'true');
   await expect(cheongjuMobileStatusCard.locator('.project-panel-status-card-title strong')).toHaveText('패널명 미입력');
-  expect(await projectSummaryContract(page)).toEqual(osanMobileSummaryContract);
-  expect(await projectStatusBoardContract(page)).toEqual(osanMobileStatusContract);
+  expect(await projectSummaryContract(page)).toMatchObject({ contract: 'project-summary-v1', layout: 'mobile', structure: { item: ['DIV', 'DT', 'DD'] } });
+  expect((await projectStatusBoardContract(page)).structure).toEqual(osanMobileStatusContract.structure);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-detail-mobile-390.png'), fullPage: true });
 
@@ -293,8 +299,9 @@ test('Cheongju and Osan share responsive project presentations while Osan preser
   await expect(cheongjuMobilePage.getByRole('button', { name: '+ 프로젝트', exact: true })).toBeVisible();
   await expect(cheongjuMobilePage.locator(':scope > .mobile-filter-trigger')).toBeVisible();
   const cheongjuMobilePageContract = await projectListPageContract(page);
-  expect(cheongjuMobilePageContract).toEqual(osanMobilePageContract);
-  expect(await projectListContract(page)).toEqual(osanMobileListContract);
+  expect(cheongjuMobilePageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
+  expect(cheongjuMobilePageContract.structure.commonOrderValid).toBe(true);
+  expect((await projectListContract(page)).structure).toEqual(osanMobileListContract.structure);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-mobile-390.png'), fullPage: true });
 
@@ -398,6 +405,16 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
       const panelId = path.split('/').at(-1) ?? cheongjuPanelIds[0];
       return fulfillJson(route, cheongjuManufacturingDetail(panelId));
     }
+    if (path === '/api/osan/dashboard') {
+      return fulfillJson(route, {
+        summary: { totalCount: 1, notStartedCount: 1, inProgressCount: 0, completedCount: 0 },
+        items: [{ ...projectDetail(), progressPercent: 0, stages: stepNames.map((stepName, index) => ({
+          sequenceNumber: index + 1, stepCode: `STEP_${index + 1}`, stepName,
+          completedTargetCount: 0, totalTargetCount: 2
+        })) }],
+        totalCount: 1, page: 1, pageSize: 11
+      });
+    }
     if (path === '/api/osan/projects' && request.method() === 'GET') {
       return fulfillJson(route, { items: projectCreated ? [projectDetail()] : [] });
     }
@@ -411,6 +428,7 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
         project: projectDetail()
       }, 201);
     }
+    if (path === `/api/osan/projects/${projectId}/progress`) return fulfillJson(route, projectDetail());
     if (path === `/api/osan/projects/${projectId}`) return fulfillJson(route, projectDetail());
     unexpectedRequests.push(`${request.method()} ${path}`);
     return fulfillJson(route, { title: 'closed in synthetic scope' }, 404);
@@ -461,19 +479,26 @@ function projectDetail() {
     deliveryDate: '2026-12-31',
     productName: '제품  이름',
     quantity: 2,
-    status: 'Active',
+    status: 'NotStarted',
+    completedStepCount: 0,
+    totalStepCount: 14,
     createdAtUtc: '2026-09-07T00:00:00Z',
     targets: Array.from({ length: 2 }, (_, targetIndex) => ({
       targetId: `92000000-0000-0000-0000-${String(targetIndex + 1).padStart(12, '0')}`,
       sequenceNumber: targetIndex + 1,
       displayName: `제품  이름 ${targetIndex + 1}`,
       status: 'NotStarted',
+      version: 1,
+      startedAtUtc: null, startedByUserId: null, startedByDisplayName: null,
       steps: stepNames.map((stepName, stepIndex) => ({
         stepId: `${93000000 + targetIndex}-${String(stepIndex + 1).padStart(4, '0')}-0000-0000-000000000001`,
         sequenceNumber: stepIndex + 1,
         stepCode: `STEP_${stepIndex + 1}`,
         stepName,
-        status: 'NotStarted'
+        status: 'NotStarted',
+        startedAtUtc: null, completedAtUtc: null, completedByUserId: null, completedByDisplayName: null,
+        canCompleteIndividual: stepIndex < 6, canCompleteBatch: stepIndex < 6,
+        guidanceDescription: null, guidancePhotos: [], photos: []
       }))
     }))
   };
@@ -687,6 +712,22 @@ function projectListContract(page: Page) {
             ))
           : null
       }
+    };
+  });
+}
+
+function osanListFrameContract(page: Page) {
+  return page.locator('[data-presentation-contract="osan-list-frame"]').evaluate(root => {
+    const sections = new Map<string, string>([
+      ['h1', 'title'], ['.osan-dashboard-description', 'description'],
+      ['.osan-dashboard-summary', 'kpi'], ['.osan-dashboard-toolbar', 'filter'],
+      ['.osan-list-heading', 'listHeading']
+    ]);
+    const elements = [...sections].map(([selector]) => root.querySelector(`:scope > ${selector}`) as HTMLElement);
+    return {
+      order: Array.from(root.children).flatMap(element => [...sections].filter(([selector]) => element.matches(selector)).map(([, name]) => name)),
+      geometry: elements.map(element => ({ y: element.getBoundingClientRect().y, height: element.getBoundingClientRect().height })),
+      labels: Array.from(root.querySelectorAll('.osan-dashboard-summary > div > span')).map(element => element.textContent)
     };
   });
 }

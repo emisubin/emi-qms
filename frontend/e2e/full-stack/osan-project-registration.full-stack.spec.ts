@@ -45,7 +45,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect(rejectedCheongjuCreate.status()).toBe(403);
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '오산 사업부 홈' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '오산 홈' })).toBeVisible();
 
   await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '프로젝트' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
@@ -63,9 +63,10 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 
   await expect(page.getByRole('heading', { name: '오산 통합 프로젝트' })).toBeVisible();
-  const summary = page.locator('[data-presentation-contract="project-summary-v1"]');
+  const summary = page.getByRole('region', { name: '프로젝트 기본 정보' });
   await expect(summary).toBeVisible();
-  await summary.locator('details > summary').click();
+  await expect(summary.getByRole('table')).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: '프로젝트 상세 섹션' })).toHaveCount(0);
   await expect(summary.getByText('OSAN  001', { exact: true })).toBeVisible();
   await expect(page.getByText('001-PO/+', { exact: true })).toBeVisible();
   await expect(page.getByText('000-W/O', { exact: true })).toBeVisible();
@@ -77,7 +78,10 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
     await expect(target).toContainText('0/7단계 완료');
   }
 
-  await page.getByRole('navigation', { name: '현재 위치' }).getByRole('button', { name: '프로젝트' }).click();
+  await targetRows.nth(1).press('Enter');
+  await expect(page).toHaveURL(/\/progress\?projectId=[^&]+&targetId=/);
+  await expect(page.getByRole('navigation', { name: '진행 단계' })).toBeVisible();
+  await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '프로젝트' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
   const projectRow = page.getByTestId('osan-project-list-desktop').getByRole('row', { name: '오산 통합 프로젝트 상세 열기' });
   await expect(projectRow.locator('.project-code-value')).toHaveText('OSAN  001');

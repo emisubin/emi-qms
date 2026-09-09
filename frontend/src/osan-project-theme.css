@@ -1,0 +1,62 @@
+/* Cosmetic only: preserve the existing project tables, fields, sizing and layout. */
+.app-shell[data-osan-project-theme='true'] .page-surface {
+  color: #282828;
+  background: #fff !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface :is(h2, h3, strong, dt, dd) { color: #282828; }
+.app-shell[data-osan-project-theme='true'] .page-surface :is(.eyebrow, .subsection-header p, .dashboard-kpi-card small) { color: #898989; }
+.app-shell[data-osan-project-theme='true'] .page-surface :is(.page-header, .subsection-header, .project-department-tabs) {
+  border-color: #eee !important;
+  background: #fff !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface :is(.dashboard-kpi-card, .project-department-metrics > article) {
+  background: #fff !important;
+  border-color: #eee !important;
+  border-radius: 15px !important;
+  box-shadow: 0 0 4.7px 1px rgb(0 0 0 / 7%) !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface :is(.project-department-section, .project-panel-status-table, .project-list-table, .project-list-card, .project-panel-status-card, details) {
+  border-color: #eee !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface :is(input, select, .mobile-filter-trigger) {
+  border-color: #c7c7c7 !important;
+  border-radius: 6.8px !important;
+  background: #fff !important;
+  color: #282828 !important;
+  box-shadow: none !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface button {
+  border-color: #e3e3e3 !important;
+  border-radius: 6.8px !important;
+  box-shadow: none !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface button.primary-button {
+  background: #da2127 !important;
+  color: #fff !important;
+  border-color: #da2127 !important;
+  border-radius: 10.5px !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface button[aria-selected='true'] {
+  background: #282828 !important;
+  color: #fff !important;
+  border-color: #282828 !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface :is(th, .project-list-head, .project-panel-status-head) {
+  background: #f5f5f5 !important;
+  color: #282828 !important;
+  border-color: #eee !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface :is(td, [role='row']) { border-color: #eee !important; }
+.app-shell[data-osan-project-theme='true'] .project-progress-meter > i { background: #c7c7c7 !important; }
+.app-shell[data-osan-project-theme='true'] .project-progress-meter > i > b { background: #da2127 !important; }
+.app-shell[data-osan-project-theme='true'] .page-surface :is(button, input, select):focus-visible {
+  outline-color: #282828 !important;
+}
+.app-shell[data-osan-project-theme='true'] .page-surface .status-badge[data-tone='info'] {
+  color: #282828 !important;
+  background: #f5f5f5 !important;
+  border-color: #eee !important;
+}

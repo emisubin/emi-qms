@@ -56,3 +56,15 @@ Projects contracts/store/endpoints, common progress template adapter·snapshot/�
 프로젝트·대상·snapshot·profile 생성 계약을 Task 4에 전달한다. 이 Task 완료를 사용자 진행 기능 전체 완료로 표시하지 않는다.
 
 실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 [구현 보고](osan-project-001-implementation-report.md)에서 추적한다. Change 001의 Sol xhigh 구현과 parent 검토 뒤 fresh GPT-6 High 최종 검증이 반환한 제품 P2를 보정했고 전체 자동 검증을 통과했다. Change 002의 별도 오산 UI는 Change 003에서 제거했으며, Change 004에서 목록 행·카드와 상세 표시 영역을 공용화했다. 사용자 검수에서 목록 page 전체 구성이 다름을 확인한 뒤 Change 005로 제목, 검색·납기 filter, KPI, 상태 tab과 목록 순서까지 같은 composition으로 통합했다. 같은 run의 desktop/mobile paired screenshot 8개와 열린 local 화면을 눈으로 확인했고 fresh GPT-6 High가 `PASS / GO`, 최종 open P0/P1/P2/P3 `0/0/0/0`을 반환했다. 사용자는 2026-09-07 Change 005가 반영된 현재 Task 3 화면의 검수 완료를 명시했다. Push·PR·merge·Persistent UAT·provider·운영 적용은 별도 승인이다.
+
+## 2026-09-09 후속 change — 목록·상세 시각 스타일 통일
+
+사용자 승인: ‘표, 정보와 같은 모든 요소의 배치는 그대로 하되 디자인만 다른 화면과 맞추기’. 이 보정의 사용자 검수는 아직 대기이며 위 최초 구현의 검수 완료와 구분한다.
+
+- 오산 list/detail 경로에만 theme 표식을 두고 별도 `osan-project-theme.css`를 적용했다. 기존 공통 목록·정보·대상 표 컴포넌트와 모든 필드/이동/업무 동작은 그대로 사용한다. 청주·홈·진행 화면에는 적용하지 않는다.
+- #282828 텍스트, #DA2127 주요 버튼·진행 막대, 흰 배경·#EEE 테두리, 6.8/8/15px 모서리와 기존 오산 요약 카드 그림자로 맞췄다. 파란 진행 중 배지는 중립 색상으로 통일하되 상태 문구와 완료 의미는 보존한다.
+- display/grid/order/position/margin/padding/width/height 및 글꼴 크기·행간을 변경하지 않았다. 모바일 상단의 줄 배치와 기존 로고도 위치·정보 보존을 위해 유지한다.
+- PC1440에서 제목/검색3개/요약3개/상태탭의 수정 전후 좌표·크기·글꼴이 모두 같음을 실제 DOM으로 비교했다. PC 상세 표 및 모바일390 목록·상세를 눈으로 확인했고, 상세 진행 막대 rgb(218,33,39), 가로넘침없음, 상세→목록 복귀를 확인했다.
+- 프런트엔드만 변경하며 검수 Vite에 자동 반영된다. 홈 납기 조건 API 재시작 정책 차단은 별개로 남아 있고, 재시작·DB변경을 시도하지 않았다. 원격 반영·배포 없음.
+
+검증: 기존 프로젝트 등록·목록·상세·대상 연결 테스트12/12 통과, TypeScript 포함 build 및 최종 CSS bundle build 통과. 기존 bundle 크기 경고는 유지한다. 작은 가역 스타일 보정으로 직접 검증하며 별도 신규 테스트·전체 회귀는 추가하지 않았다. 해당 스타일·scope·기록만 로컬 커밋한다.

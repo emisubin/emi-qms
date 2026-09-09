@@ -11,6 +11,7 @@ import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanDashboardPage } from './OsanDashboardPage';
+import './osan-project-theme.css';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -2349,6 +2350,7 @@ function QmsAppShellContent({
       className="app-shell"
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
+      data-osan-project-theme={isOsan && (view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />

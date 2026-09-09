@@ -10,9 +10,7 @@ export function OsanListFrame({ title, description, counts, search, onSearchChan
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
   return <section className={`osan-dashboard osan-list-frame ${className}`} aria-labelledby="osan-dashboard-title" data-presentation-contract="osan-list-frame">
-    <h1 id="osan-dashboard-title">{title}</h1>
-    {actions && <div className="osan-list-actions">{actions}</div>}
-    <p className="osan-dashboard-description">{description}</p>
+    <OsanPageHeading title={title} description={description} actions={actions} />
     <div className="osan-dashboard-summary" aria-label="프로젝트 요약">
       {['전체', '시작 전', '진행 중', '완료'].map((label, i) => <div key={label}><span>{label}</span><strong>{counts ? counts[i].toLocaleString() : '—'}</strong></div>)}
     </div>
@@ -36,4 +34,13 @@ export function OsanListFrame({ title, description, counts, search, onSearchChan
     <h2 className="osan-list-heading">프로젝트 목록</h2>
     {children}
   </section>;
+}
+
+
+export function OsanPageHeading({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
+  return <>
+    <h1 id="osan-dashboard-title">{title}</h1>
+    {actions && <div className="osan-list-actions">{actions}</div>}
+    <p className="osan-dashboard-description">{description}</p>
+  </>;
 }

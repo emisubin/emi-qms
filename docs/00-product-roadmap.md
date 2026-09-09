@@ -4,12 +4,23 @@
 
 ## 현재 작업과 다음 제품 작업
 
+오산 후속 개발의 전체 실행 순서는 아래와 같다. 순서 번호는 실행 단계를 뜻하며 같은 Task를 검수·배포 단계마다 새 ID로 복제하지 않는다.
+
 | 순서 | 목적과 canonical Task | 선행조건·다음 행동 |
 | --- | --- | --- |
-| 제품 선행 | [TASK-OSAN-UX-001](../tasks/osan-ux-001.md) — Figma 기반 UI/UX·기능 범위 확정 | 사용자 지정 화면·동작을 기존 제품과 비교해 필요한 기능을 기존/신규 Task에 연결. Figma 지정 대기는 이 Task에서 추적 |
-| 제품 1 | [TASK-OSAN-PROGRESS-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-progress-001.md) — 진행 기록과 포장 후 자동 완료 | UX-001에서 해당 화면·기능 범위를 확인한 뒤 구현. 이미 배포한 접근/프로젝트 생성 계약과 최신 main·v2 작업 기준을 유지 |
-| 제품 2 | [TASK-OSAN-DASHBOARD-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-dashboard-001.md) — 전체 프로젝트 현황 | UX-001의 해당 화면과 진행 상태·집계 계약 확정 후 구현 |
-| 제품 3 | [TASK-OSAN-VALIDATION-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-validation-001.md) — 후속 진행·현황 통합 검증 | 해당 구현과 관련 검증을 모아 사용자 일괄 검수·최종 후보 회귀. 1차 배포 완료 범위를 다시 구현하지 않음 |
+| 준비 | 최신 제품 코드 + 하네스 v2의 작업 기준 준비 — 기존 GOV/UX 작업의 준비 범위 | 최신 main과 local commit·WIP·runtime source를 확인하고 안전하게 통합. 새 초기화·기존 WIP 정리·원격 merge를 자동 수행하지 않음. Figma 지정과 독립적으로 조사 가능 |
+| 1 | [TASK-OSAN-UX-001](../tasks/osan-ux-001.md) — Figma 기반 UI/UX·기능 범위 확정 | 사용자 지정 화면·동작을 현재 기능과 비교. 필요한 기능·API·데이터·권한·검증을 기존/신규 Task에 연결 |
+| 2 · 필요 시 | TASK-OSAN-PROJECT-001 후속 change — 기존 생성·목록·상세의 Figma 반영 | UX-001에서 변경 대상으로 정해진 화면만 수정. 이미 배포한 등록 기능과 입력 데이터를 보존. 해당 변경이 없으면 생략 |
+| 3 | [TASK-OSAN-PROGRESS-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-progress-001.md) — 진행 기록과 자동 완료 | 해당 Figma 화면·기능 계약에 맞춰 작업 시작·7단계 개별/일괄 처리·포장 선행조건·마지막 대상 포장과 프로젝트 완료 구현. 관련 실패/동시성 검증 포함 |
+| 4 | [TASK-OSAN-DASHBOARD-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-dashboard-001.md) — 전체 프로젝트 현황 | 진행 상태 원본을 바탕으로 Figma 화면·집계·검색·필터·정렬과 최신 반영 구현. 관련 권한/집계 검증 포함 |
+| 5 | [TASK-OSAN-VALIDATION-001](https://github.com/emisubin/emi-qms/blob/c3a3c79374babc840dca054bd1a05237a2c49685/tasks/osan-validation-001.md) — 통합 확인·일괄 사용자 검수 | 구현 Task의 직접 검증 증거를 재사용하고 필요한 API/분리 DB/화면 연결만 보충. Figma 화면, 실제 승인·사업부 전환·입력과 전체 업무 흐름을 사용자 검수 |
+| 6 | TASK-OSAN-VALIDATION-001의 최종 후보 회귀 단계 | 사용자 검수 보정 뒤 최종 후보에서 전체 회귀 책임 실행 1회. 청주 회귀·사업부 격리·해당 전용 suite·복구 준비와 required CI 확인. 바뀐 영향 범위만 재검증 |
+| 7 | 원격 main 병합 — 해당 제품 PR 및 기존 GOV 변경 통합 범위 | 자동 검증·사용자 검수 뒤 해당 병합의 명시 승인에 따라 수행. 완료 local commit과 원격 병합을 구분 |
+| 8 | TASK-AZURE-DEPLOY-001 후속 change — Azure 공개배포·배포 후 확인 | 별도 배포 승인 후 병합된 source·DB 호환성·migration 필요성·복구 경계를 확인해 적용하고 청주·오산 상태 및 실제 사용자 동작 확인 |
+
+Figma에서 독립적인 새 기능이 발견되면 UX-001에서 이름과 범위를 정한 뒤 **그 기능을 필요로 하는 단계 앞**에 Task를 끼워 넣는다. 미확정 Task ID를 미리 만들거나 모든 새 기능을 대시보드 뒤로 미루지 않는다. 진행·현황·기존 프로젝트 보정에 속하는 변경은 해당 Task/change로 처리한다.
+
+데이터 분리 `TASK-OSAN-ISOLATION-001`, 승인·접근 `TASK-OSAN-ACCESS-001`, 프로젝트 생성 `TASK-OSAN-PROJECT-001`의 1차 공개 범위는 아래 배포 근거로 보존한다. 위 순서는 그 범위의 재개발을 포함하지 않는다. 기존 접근 기능의 실제 계정 검수 잔여와 사용자가 직접 정리할 자원은 별도 추적 항목을 유지한다.
 
 2026-09-09 사용자 요청으로 Figma 기반 UX-001을 오산 후속 개발의 선행 범위로 추가했다. 지정된 오산 화면은 Figma가 이전 청주 동일 디자인 기준을 대체하며, 미지정 영역은 기존 구성을 유지한다. 디자인에서 드러난 새 업무 기능은 범위를 확인해 반영한다. 디자인에 의존하지 않는 조사·기준선 준비는 계속할 수 있다.
 

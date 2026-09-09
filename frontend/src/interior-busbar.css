@@ -217,11 +217,18 @@
 .busbar-shipping-summary dt { color: #475569; font-size: 13px; }
 .busbar-shipping-summary dd { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
 .busbar-shipping-summary .busbar-shippable { grid-column: 1 / -1; background: #eff6ff; color: #1d4ed8; }
-.busbar-plan-matrix th:first-child, .busbar-plan-matrix td:first-child { position: sticky; left: 0; background: #f8fafc; z-index: 1; max-width: 160px; white-space: normal; min-width: 100px; }
-.busbar-plan-cell { display: grid; gap: 6px; min-width: 102px; }
-.busbar-page .busbar-plan-open { display: grid; gap: 7px; text-align: left; padding: 12px; margin: 0; background: #eff6ff; color: #1e40af; }
-.busbar-plan-open strong { font-size: 18px; }
-.busbar-plan-open span { font-size: 12px; }
-.busbar-plan-cell small { white-space: normal; }
+/* Keep seven calendar columns together; only this table scrolls on phones. */
+.busbar-month-calendar table { table-layout: fixed; min-width: 840px; }
+.busbar-month-calendar th { text-align: center; }
+.busbar-page .busbar-month-calendar td { padding: 3px; vertical-align: top; white-space: normal; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day { display: flex; flex-direction: column; gap: 8px; width: 100%; min-height: 124px; margin: 0; padding: 10px; text-align: left; align-items: stretch; border: 1px solid transparent; border-radius: 8px; background: #fff; }
+.busbar-page .busbar-calendar-day[aria-pressed="true"] { border: 2px solid #2563eb; background: #eff6ff; }
+.busbar-calendar-date { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 700; }
+.busbar-calendar-date small { font-size: 11px; color: #2563eb; }
+.busbar-calendar-plan { display: grid; gap: 5px; padding-top: 6px; border-top: 1px solid #e2e8f0; line-height: 1.35; overflow-wrap: anywhere; }
+.busbar-calendar-plan strong { font-size: 12px; }
+.busbar-calendar-plan > span { font-size: 11px; }
+.busbar-calendar-empty, .busbar-calendar-outside { color: #94a3b8; font-size: 12px; }
+.busbar-calendar-outside { min-height: 124px; padding: 10px; background: #f8fafc; }
 @media(max-width: 800px) { .busbar-project-summary { grid-template-columns: 1fr; } }
 .busbar-project-anchor { scroll-margin-top: 100px; }

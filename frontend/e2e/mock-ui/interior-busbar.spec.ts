@@ -474,7 +474,8 @@ test("planned draft requires worker before uploads and shows permanent number on
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산계획", exact: true }).click();
-  await page.getByLabel("기준 날짜", { exact: true }).fill("2026-09-07");
+  await page.getByLabel("계획 월", { exact: true }).fill("2026-09");
+  await page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true }).click();
   const plannedRequest = page.waitForRequest(
     (request) =>
       request.url().includes("/workspace?") &&
@@ -549,7 +550,7 @@ test("planned draft requires worker before uploads and shows permanent number on
   });
 });
 
-test("plan create retry retains client ID and opens generated draft list", async ({
+test("calendar plan retry retains ID and saves without leaving selected date", async ({
   page,
 }) => {
   const data = fixture();
@@ -594,32 +595,26 @@ test("plan create retry retains client ID and opens generated draft list", async
   );
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산계획", exact: true }).click();
-  await page.getByLabel("기준 날짜", { exact: true }).fill("2026-09-07");
-  await page
-    .getByRole("button", { name: "생산계획 등록", exact: true })
-    .click();
-  await page
-    .getByRole("combobox", { name: "제품군", exact: true })
-    .selectOption(familyId);
-  await page.getByLabel("생산일", { exact: true }).fill("2026-09-11");
+  await page.getByLabel("계획 월", { exact: true }).fill("2026-09");
+  await page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true }).click();
+  await page.getByRole("button", { name: "2026-09-11 생산계획 선택", exact: true }).click();
+  await page.getByRole("button", { name: "합성 제품군 A 2026-09-11 계획 등록", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "제품군", exact: true })).toHaveValue(familyId);
+  await expect(page.getByRole("combobox", { name: "제품군", exact: true })).toBeDisabled();
+  await expect(page.getByLabel("생산일", { exact: true })).toHaveValue("2026-09-11");
+  await expect(page.getByLabel("생산일", { exact: true })).toBeDisabled();
   await page.getByLabel("목표 수량", { exact: true }).fill("1");
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(
     page.getByText("합성 일시적 오류", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(
-    page.getByRole("tab", { name: "생산·사진·QR", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
-  await expect(
-    page.getByText("2026-09-11 · 대기 1번", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("tab", { name: "생산계획", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "2026-09-11 생산계획 선택", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "2026-09-11 생산계획 선택", exact: true })).toContainText("계획 1개 · 완료 0개");
   expect(submitted).toHaveLength(2);
   expect(submitted[0].id).toMatch(/^[0-9a-f-]{36}$/);
   expect(submitted[1]).toEqual(submitted[0]);
-  await page
-    .getByRole("button", { name: "생산계획으로 이동", exact: true })
-    .click();
   await page
     .getByRole("button", { name: "합성 제품군 A 2026-09-11 계획 수정", exact: true })
     .click();
@@ -710,7 +705,9 @@ for (const navigation of ["filter", "plan row"] as const) {
       await page.getByLabel("계획 시작일", { exact: true }).fill("2026-09-12");
     } else {
       await page.getByRole("tab", { name: "생산계획", exact: true }).click();
-  await page.getByLabel("기준 날짜", { exact: true }).fill("2026-09-07");
+  await page.getByLabel("계획 월", { exact: true }).fill("2026-09");
+  await page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true }).click();
+      await page.getByRole("button", { name: "2026-09-12 생산계획 선택", exact: true }).click();
       await page
         .getByRole("button", { name: "합성 제품군 A 2026-09-12 제품 보기", exact: true })
         .click();
@@ -762,18 +759,18 @@ test("project row exposes family shipment context without aggregate KPI", async 
   }
 });
 
-test("weekly family matrix and photo filters send server-side conditions", async ({ page }) => {
+test("monthly calendar selection and photo filters send server-side conditions", async ({ page }) => {
   const data = fixture();
   data.productFamilies.push({ id: "family-b", name: "합성 제품군 B", code: "SYN-B", isActive: true });
   await mock(page, data);
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산계획", exact: true }).click();
-  await page.getByLabel("기준 날짜").fill("2026-09-09");
-  await expect(page.getByLabel("기준 날짜")).toHaveValue("2026-09-07");
-  await expect(page.getByRole("button", { name: "합성 제품군 A 2026-09-09 제품 보기" })).toContainText("59개 남음");
-  await page.getByRole("button", { name: "다음 주", exact: true }).click();
-  await expect(page.getByLabel("기준 날짜")).toHaveValue("2026-09-14");
-  await page.getByRole("button", { name: "이전 주", exact: true }).click();
+  await page.getByLabel("계획 월").fill("2026-09");
+  await expect(page.getByRole("button", { name: "2026-09-09 생산계획 선택" })).toContainText("계획 60개 · 완료 1개");
+  await page.getByRole("button", { name: "다음 달", exact: true }).click();
+  await expect(page.getByLabel("계획 월")).toHaveValue("2026-10");
+  await page.getByRole("button", { name: "이전 달", exact: true }).click();
+  await page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true }).click();
   await page.getByLabel("계획 제품군", { exact: true }).selectOption(familyId);
   await expect(page.getByRole("cell", { name: "합성 제품군 B", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "합성 제품군 A 2026-09-09 제품 보기" }).click();
@@ -811,4 +808,53 @@ test("completing a Draft-filtered product preserves its number after it leaves t
   await expect(page.getByLabel("생산 상태 필터", { exact: true })).toHaveValue("Draft");
   await expect(page.getByRole("button", { name: "사진 등록 계속하기", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "QR 인쇄 준비", exact: true })).toBeDisabled();
+});
+
+test("calendar month boundaries and new plans preserve selected family and date", async ({ page }) => {
+  const data = fixture();
+  await mock(page, data);
+  const submitted: Array<{ id: string; productFamilyId: string; planDate: string; quantity: number }> = [];
+  await page.route("http://localhost:5080/api/interior-busbar/plans", async (route) => {
+    const body = route.request().postDataJSON();
+    submitted.push(body);
+    const existing = data.plans.findIndex((plan) => plan.id === body.id);
+    if (existing >= 0) data.plans[existing] = { ...data.plans[existing], ...body };
+    else data.plans.push({ ...body, actualQuantity: 0 });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ id: body.id }) });
+  });
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab", { name: "생산계획", exact: true }).click();
+  await page.getByLabel("계획 월").fill("2026-12");
+  await page.getByRole("button", { name: "다음 달", exact: true }).click();
+  await expect(page.getByLabel("계획 월")).toHaveValue("2027-01");
+  await page.getByRole("button", { name: "이전 달", exact: true }).click();
+  await expect(page.getByLabel("계획 월")).toHaveValue("2026-12");
+  await page.getByLabel("계획 월").fill("2028-02");
+  await expect(page.getByRole("button", { name: /^2028-02-\d\d 생산계획 선택$/ })).toHaveCount(29);
+  await page.getByRole("button", { name: "2028-02-29 생산계획 선택", exact: true }).click();
+  await page.getByRole("button", { name: "합성 제품군 A 2028-02-29 계획 등록", exact: true }).click();
+  await expect(page.getByLabel("목표 수량", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("생산일", { exact: true })).toHaveValue("2028-02-29");
+  await expect(page.getByLabel("생산일", { exact: true })).toBeDisabled();
+  await page.getByLabel("목표 수량", { exact: true }).fill("25");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "생산계획", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "2028-02-29 생산계획 선택", exact: true })).toContainText("계획 25개 · 완료 0개");
+  await expect(page.getByRole("heading", { name: "2028-02-29 제품군별 생산계획", exact: true })).toBeFocused();
+  expect(submitted[0]).toMatchObject({ productFamilyId: familyId, planDate: "2028-02-29", quantity: 25 });
+  await page.getByRole("button", { name: "합성 제품군 A 2028-02-29 계획 수정", exact: true }).click();
+  await page.getByLabel("목표 수량", { exact: true }).fill("30");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByRole("button", { name: "2028-02-29 생산계획 선택", exact: true })).toContainText("계획 30개 · 완료 0개");
+  expect(submitted[1].id).toBe(submitted[0].id);
+  expect(data.plans.filter((plan) => plan.planDate === "2028-02-29")).toHaveLength(1);
+  await page.getByLabel("계획 월").fill("2027-02");
+  await expect(page.getByRole("button", { name: /^2027-02-\d\d 생산계획 선택$/ })).toHaveCount(28);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByLabel("계획 월").fill("2026-09");
+    await page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true }).click();
+    await page.screenshot({ path: `/private/tmp/emi-busbar-month-calendar-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  }
 });

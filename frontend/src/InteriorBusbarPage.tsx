@@ -69,7 +69,11 @@ const datePlus = (date: string, days: number) => {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 };
-const monday = (date: string) => datePlus(date, -((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7));
+const monthPlus = (month: string, count: number) => {
+  const value = new Date(`${month}-01T12:00:00Z`);
+  value.setUTCMonth(value.getUTCMonth() + count);
+  return value.toISOString().slice(0, 7);
+};
 const failure = (e: unknown) =>
   e instanceof Error ? e.message : "처리하지 못했습니다. 다시 시도해 주세요.";
 const statusLabel = (status?: string) =>
@@ -108,7 +112,8 @@ export function InteriorBusbarPage({
   const [editor, setEditor] = useState<EditorSpec | null>(null);
   const [editorKey, setEditorKey] = useState(0);
   const [filters, setFilters] = useState<BusbarProductFilters>({});
-  const [week, setWeek] = useState(() => monday(today()));
+  const [month, setMonth] = useState(() => today().slice(0, 7));
+  const [selectedPlanDate, setSelectedPlanDate] = useState(today);
   const [planFamily, setPlanFamily] = useState("");
   const [activeProduct, setActiveProduct] = useState("");
   const [productDetail, setProductDetail] = useState<BusbarProduct | null>(null);
@@ -120,6 +125,8 @@ export function InteriorBusbarPage({
     productId: string;
     revision: number;
   } | null>(null);
+  const calendarHeadingRef = useRef<HTMLHeadingElement>(null);
+  const planDateHeadingRef = useRef<HTMLHeadingElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
   const projectDetailRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (activeProject) projectDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [activeProject]);
@@ -328,8 +335,7 @@ export function InteriorBusbarPage({
     setTab("production");
     setEditor(null);
   }
-  function planEditor(id?: string) {
-    let savedFamily = "", savedDate = "";
+  function planEditor(productFamilyId: string, planDate: string, id?: string) {
     const row = data?.plans.find((x) => x.id === id);
     const planId = row?.id ?? crypto.randomUUID();
     open({
@@ -337,21 +343,17 @@ export function InteriorBusbarPage({
       path: "/plans",
       note: "목표 수량만큼 사진 등록 대기 항목을 만듭니다. 수량을 줄이면 작업자와 사진을 등록하지 않은 대기 항목만 취소합니다.",
       fields: [
-        { ...familyField(row?.productFamilyId), disabled: Boolean(row) },
+        { ...familyField(row?.productFamilyId ?? productFamilyId), disabled: true },
         {
           key: "planDate",
           label: "생산일",
           type: "date",
-          value: row?.planDate?.slice(0, 10) ?? today(),
-          disabled: Boolean(row),
+          value: row?.planDate?.slice(0, 10) ?? planDate,
+          disabled: true,
         },
         { ...quantityField("목표 수량", row?.quantity), min: 0, step: "1" },
       ],
-      makeBody: (v) => {
-        savedFamily = v.productFamilyId; savedDate = v.planDate;
-        return { ...v, id: planId, quantity: Number(v.quantity) };
-      },
-      after: () => openPlanProducts(savedFamily, savedDate),
+      makeBody: (v) => ({ ...v, id: planId, quantity: Number(v.quantity) }),
     });
   }
   function purchaseEditor(id?: string) {
@@ -455,7 +457,14 @@ export function InteriorBusbarPage({
   const selectedStock = data.productFamilies.find((x) => x.id === selectedProject?.productFamilyId)?.balance ?? 0;
   const selectedRemaining = selectedProject ? selectedProject.requestedQuantity - selectedProject.shippedQuantity : 0;
   const maxShipment = Math.max(0, Math.min(selectedStock, selectedRemaining));
-  const weekDates = Array.from({ length: 7 }, (_, i) => datePlus(week, i));
+  const monthFirst = `${month}-01`;
+  const monthLast = datePlus(`${monthPlus(month, 1)}-01`, -1);
+  const calendarStart = datePlus(monthFirst, -new Date(`${monthFirst}T12:00:00Z`).getUTCDay());
+  const calendarDays = Math.ceil((new Date(`${monthFirst}T12:00:00Z`).getUTCDay() + Number(monthLast.slice(8))) / 7) * 7;
+  const visiblePlanFamilies = data.productFamilies.filter((f) => !planFamily || f.id === planFamily);
+  function changeMonth(next: string) {
+    setMonth(next); setSelectedPlanDate(`${next}-01`); setEditor(null);
+  }
   function changeFilter(key: keyof BusbarProductFilters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
     setPage(1); setActiveProduct("");
@@ -553,7 +562,13 @@ export function InteriorBusbarPage({
               );
               editor.after?.(result);
             });
-            if (ok) setEditor(null);
+            if (ok) {
+              setEditor(null);
+              if (editor.path === "/plans") requestAnimationFrame(() => {
+                planDateHeadingRef.current?.focus({ preventScroll: true });
+                planDateHeadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }
           }}
         />
       )}
@@ -733,36 +748,67 @@ export function InteriorBusbarPage({
         </>
       )}
       {tab === "plans" && (
-        <DsSurface label="제품군별 주간 생산계획">
-          <DsToolbar>
-            <label>계획 제품군<select aria-label="계획 제품군" value={planFamily} onChange={(e) => setPlanFamily(e.target.value)}><option value="">전체 제품군</option>{data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
-            <label>기준 날짜<input type="date" value={week} onChange={(e) => { if (e.target.value) setWeek(monday(e.target.value)); }} /></label>
-            <button onClick={() => setWeek(datePlus(week, -7))}>이전 주</button>
-            <button onClick={() => setWeek(monday(today()))}>이번 주</button>
-            <button onClick={() => setWeek(datePlus(week, 7))}>다음 주</button>
-            {writeButton("생산계획 등록", () => planEditor())}
-          </DsToolbar>
-          <h3>{week} ~ {weekDates[6]}</h3>
-          <p className="busbar-note">각 칸은 완료 / 계획 수량입니다. 날짜 칸을 눌러 해당 제품의 작업자와 사진을 등록하세요.</p>
-          <div className="busbar-plan-matrix">
-            <Table headings={["제품군", ...weekDates.map((d, i) => `${d.slice(5)} (${"월화수목금토일"[i]})`)]}
-              rows={data.productFamilies.filter((f) => !planFamily || f.id === planFamily).map((f) => [f.name,
-                ...weekDates.map((date) => {
-                  const plan = data.plans.find((p) => p.productFamilyId === f.id && p.planDate.slice(0, 10) === date);
-                  if (!plan) return <span className="busbar-note">—</span>;
-                  const actual = plan.actualQuantity ?? 0, remaining = Math.max(0, plan.quantity - actual);
-                  return <div className="busbar-plan-cell">
-                    <button className="busbar-plan-open" aria-label={`${f.name} ${date} 제품 보기`} onClick={() => openPlanProducts(f.id, date)}>
-                      <strong>{n(actual)} / {n(plan.quantity)}</strong>
-                      <span>{remaining ? `${n(remaining)}개 남음` : actual > plan.quantity ? `${n(actual - plan.quantity)}개 초과` : "완료"}</span>
-                    </button>
-                    {canWrite && <button disabled={busy} aria-label={`${f.name} ${date} 계획 수정`} onClick={() => planEditor(plan.id)}>수정</button>}
-                    {plan.productsInitialized === false && <small>계획을 저장해 대기 제품을 준비하세요.</small>}
-                  </div>;
-                })])} />
-          </div>
-          <p className="busbar-note">계획을 저장하면 목표 수량만큼 사진 등록 대기 항목을 준비합니다. 생산을 더 진행하려면 계획 수량을 늘리세요.</p>
-        </DsSurface>
+        <>
+          <DsSurface label="제품군별 월간 생산계획">
+            <DsToolbar>
+              <label>
+                계획 제품군
+                <select aria-label="계획 제품군" value={planFamily} onChange={(e) => setPlanFamily(e.target.value)}>
+                  <option value="">전체 제품군</option>
+                  {data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </label>
+              <label>계획 월<input type="month" value={month} onChange={(e) => { if (e.target.value) changeMonth(e.target.value); }} /></label>
+              <button onClick={() => changeMonth(monthPlus(month, -1))}>이전 달</button>
+              <button onClick={() => { changeMonth(today().slice(0, 7)); setSelectedPlanDate(today()); }}>이번 달</button>
+              <button onClick={() => changeMonth(monthPlus(month, 1))}>다음 달</button>
+            </DsToolbar>
+            <h3 ref={calendarHeadingRef} tabIndex={-1}>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월 생산계획</h3>
+            <p className="busbar-note">날짜를 선택하면 아래에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
+            <div className="busbar-month-calendar">
+              <Table headings={["일", "월", "화", "수", "목", "금", "토"]}
+                rows={Array.from({ length: calendarDays / 7 }, (_, weekIndex) =>
+                  Array.from({ length: 7 }, (_, dayIndex) => {
+                    const date = datePlus(calendarStart, weekIndex * 7 + dayIndex);
+                    if (!date.startsWith(month)) return <div className="busbar-calendar-outside" aria-hidden="true">{Number(date.slice(8))}</div>;
+                    const plans = data.plans.filter((p) => p.planDate.slice(0, 10) === date && (!planFamily || p.productFamilyId === planFamily));
+                    return <button type="button" className="busbar-calendar-day" aria-label={`${date} 생산계획 선택`}
+                      aria-pressed={selectedPlanDate === date} aria-current={date === today() ? "date" : undefined}
+                      onClick={() => {
+                        setSelectedPlanDate(date); setEditor(null);
+                        requestAnimationFrame(() => {
+                          planDateHeadingRef.current?.focus({ preventScroll: true });
+                          planDateHeadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        });
+                      }}>
+                      <span className="busbar-calendar-date">{Number(date.slice(8))}{date === today() && <small>오늘</small>}</span>
+                      {plans.length ? plans.map((plan) => <span className="busbar-calendar-plan" key={plan.id}>
+                        <strong>{familyName(plan.productFamilyId)}</strong>
+                        <span>계획 {n(plan.quantity)}개 · 완료 {n(plan.actualQuantity)}개</span>
+                      </span>) : <span className="busbar-calendar-empty">계획 없음</span>}
+                    </button>;
+                  }))} />
+            </div>
+          </DsSurface>
+          <DsSurface label="선택 날짜 생산계획">
+            <DsToolbar>
+              <h3 ref={planDateHeadingRef} tabIndex={-1}>{selectedPlanDate} 제품군별 생산계획</h3>
+              <button onClick={() => { calendarHeadingRef.current?.focus({ preventScroll: true }); calendarHeadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>달력으로 돌아가기</button>
+            </DsToolbar>
+            <p className="busbar-note">제품군의 계획을 저장한 뒤 다른 제품군도 이어서 입력할 수 있습니다. 제품 보기에서 작업자와 사진을 등록하세요.</p>
+            <Table headings={["제품군", "계획 수량", "완료 수량", "미완료", "작업"]}
+              rows={visiblePlanFamilies.map((family) => {
+                const plan = data.plans.find((p) => p.productFamilyId === family.id && p.planDate.slice(0, 10) === selectedPlanDate);
+                return [family.name, plan ? `${n(plan.quantity)}개` : "미등록", plan ? `${n(plan.actualQuantity)}개` : "—",
+                  plan ? `${n(Math.max(0, plan.quantity - (plan.actualQuantity ?? 0)))}개` : "—",
+                  <>
+                    {canWrite && (family.isActive || plan) && <button disabled={busy} aria-label={`${family.name} ${selectedPlanDate} 계획 ${plan ? "수정" : "등록"}`} onClick={() => planEditor(family.id, selectedPlanDate, plan?.id)}>{plan ? "계획 수정" : "계획 등록"}</button>}
+                    {plan && <button aria-label={`${family.name} ${selectedPlanDate} 제품 보기`} onClick={() => openPlanProducts(family.id, selectedPlanDate)}>제품 보기</button>}
+                    {plan?.productsInitialized === false && <small className="busbar-note">계획을 저장해 대기 제품을 준비하세요.</small>}
+                  </>];
+              })} />
+          </DsSurface>
+        </>
       )}
       {tab === "production" && (
         <>
@@ -1322,7 +1368,8 @@ function Editor({
   const [values, setValues] = useState<Values>(() =>
     Object.fromEntries(spec.fields.map((f) => [f.key, f.value ?? ""])),
   );
-  const first = useRef<HTMLInputElement | null>(null);
+  const first = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const firstEditable = spec.fields.findIndex((field) => !field.disabled);
   useEffect(() => first.current?.focus(), []);
   return (
     <DsSurface className="busbar-editor" label={spec.title}>
@@ -1342,6 +1389,7 @@ function Editor({
                 {f.optional ? " (선택)" : ""}
                 {f.type === "select" ? (
                   <select
+                    ref={i === firstEditable ? (element) => { first.current = element; } : undefined}
                     required={!f.optional}
                     disabled={f.disabled}
                     value={values[f.key]}
@@ -1358,7 +1406,7 @@ function Editor({
                   </select>
                 ) : (
                   <input
-                    ref={i === 0 ? first : undefined}
+                    ref={i === firstEditable ? (element) => { first.current = element; } : undefined}
                     required={!f.optional}
                     disabled={f.disabled}
                     type={f.type ?? "text"}

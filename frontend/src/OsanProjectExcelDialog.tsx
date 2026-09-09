@@ -167,7 +167,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
                 <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}>{editingCell?.rowNumber === row.rowNumber && editingCell.key === key && !complete ? <input
                   ref={element => { element?.focus(); }}
                   onBlur={() => setEditingCell(null)}
-                  onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setEditingCell(null); } }}
+                  onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dialog.current?.focus(); setEditingCell(null); } }}
                   aria-label={`${row.rowNumber}행 ${label}`} aria-invalid={!complete && key !== 'poNumber' && key !== 'workOrderNumber' && !String(row[key] ?? '').trim()}
                   type={key === 'quantity' ? 'number' : 'text'} inputMode={key === 'quantity' ? 'numeric' : undefined}
                   min={key === 'quantity' ? 1 : undefined} max={key === 'quantity' ? 500 : undefined} step={key === 'quantity' ? 1 : undefined}

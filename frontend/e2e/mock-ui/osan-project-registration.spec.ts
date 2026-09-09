@@ -365,6 +365,10 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   await expect(dialog.getByLabel('2행 프로젝트명')).toBeEnabled();
   await dialog.getByLabel('2행 프로젝트명').click();
   await dialog.getByLabel('2행 프로젝트명').fill(projectDetail().title);
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('textbox')).toHaveCount(0);
+  await page.keyboard.press('Tab');
+  expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-excel-partial-mobile.png'), fullPage: true });

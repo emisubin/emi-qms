@@ -12,6 +12,7 @@ export const siteAccessMenuCodes = [
   'Procurement',
   'Materials',
   'Manufacturing',
+  'InteriorBusbar',
   'Quality',
   'Logistics',
   'Notifications',

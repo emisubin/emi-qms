@@ -1,3 +1,4 @@
+import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
@@ -339,6 +340,7 @@ type View =
   | { kind: 'sales-settlement'; projectId: string }
   | { kind: 'sales-kpi'; year?: number; currency?: string }
   | { kind: 'sales-billing' }
+  | { kind: 'interior-busbar' }
   | { kind: 'g2-home' }
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
@@ -385,6 +387,7 @@ type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
 
 function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
   switch (view.kind) {
+    case 'interior-busbar': return 'InteriorBusbar';
     case 'home': return 'Home';
     case 'privacy-notice': return 'PrivacyNotice';
     case 'notice-board': return 'NoticeBoard';
@@ -903,6 +906,8 @@ function initialViewFromLocation(): View {
     return { kind: 'operational-hub', area: 'materials' };
   }
 
+  if (window.location.pathname === '/interior-busbar') return { kind: 'interior-busbar' };
+
   if (window.location.pathname === '/manufacturing') {
     return { kind: 'manufacturing-work' };
   }
@@ -1315,6 +1320,8 @@ function pathForView(view: View) {
     }
     case 'sales-billing':
       return '/sales/billing-requests';
+    case 'interior-busbar':
+      return '/interior-busbar';
     case 'g2-home':
       return '/g2';
     case 'g2-operations':
@@ -2297,6 +2304,7 @@ function QmsAppShellContent({
     { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' }
   ];
   const departmentNavigationItems: NavigationItem[] = [
+    { label: '인테리어 부스바', view: { kind: 'interior-busbar' }, active: view.kind === 'interior-busbar' },
     { label: '생산관리', view: productionChildren[0].view, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production'), children: productionChildren },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     { label: '자재', view: materialsChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting', children: materialsChildren },
@@ -2925,6 +2933,10 @@ function QmsAppShellContent({
           onOpenProject={(projectId) => setView({ kind: 'materials-kitting', projectId })}
           onOpenReceipts={() => setView({ kind: 'materials-receipts' })}
         />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' ? (
+        <InteriorBusbarPage key={developmentUserKey} developmentUserKey={developmentUserKey} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'manufacturing-work' ? (

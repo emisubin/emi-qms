@@ -23,6 +23,7 @@ public static class SiteAccessMenuCodes
             ["Projects"] = "프로젝트",
             ["Sales"] = "영업",
             ["G2"] = "G2 운영",
+            ["InteriorBusbar"] = "인테리어 부스바",
             ["FormTemplates"] = "양식 관리",
             ["ProductionPlanning"] = "생산관리",
             ["Procurement"] = "구매",

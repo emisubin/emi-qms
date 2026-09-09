@@ -207,6 +207,8 @@ import emiInternalLogo from './assets/emi-logo-internal.png';
 import emiPmsProductLogo from './assets/emi-pms-product-logo.png';
 import microsoftLogo from './assets/microsoft-logo.png';
 import authMobileMicrosoft from './assets/auth-mobile-microsoft.png';
+import authDesktopEmi from './assets/auth-desktop-emi.png';
+import authDesktopMicrosoft from './assets/auth-desktop-microsoft.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { NoticeBoardPage } from './NoticeBoardPage';
@@ -3934,7 +3936,7 @@ function AuthGateMessage({
         </div>
         <span className="auth-brand-overlay" aria-hidden="true" />
         <div className="auth-brand-logo-canvas">
-          <img className="auth-brand-logo" src={emiLoginLogo} alt="EMI Electric Modular Innovation" />
+          <img className="auth-brand-logo" src={usesLoginLayout ? authDesktopEmi : emiLoginLogo} alt="EMI Electric Modular Innovation" />
         </div>
         <div className="auth-brand-pattern-canvas">
           <span className="auth-brand-dots" data-figma-node-id="1:181" aria-hidden="true" />
@@ -3950,13 +3952,19 @@ function AuthGateMessage({
             {!showsProductTitle ? <p className="auth-product-name">EMI PMS</p> : null}
             <h1 id="auth-gate-title" className={showsProductTitle ? 'auth-product-logo-heading' : undefined}>
               {showsProductTitle ? (
-                <><img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />{usesLoginLayout && <span className="auth-mobile-product-title">EMI 프로젝트 통합정보시스템</span>}</>
+                <>
+                  <img className="auth-product-logo" src={emiPmsProductLogo} alt="EMI PMS" />
+                  {usesLoginLayout && <>
+                    <span className="auth-desktop-product-title">EMI 프로젝트 통합관리시스템</span>
+                    <span className="auth-mobile-product-title">EMI 프로젝트 통합정보시스템</span>
+                  </>}
+                </>
               ) : (
                 <span className="auth-gate-title-text">{title}</span>
               )}
             </h1>
             <div className="auth-microsoft-brand">
-              <picture>{usesLoginLayout && <source media="(max-width: 860px)" srcSet={authMobileMicrosoft} />}<img src={microsoftLogo} alt="Microsoft" /></picture>
+              <picture>{usesLoginLayout && <source media="(max-width: 860px)" srcSet={authMobileMicrosoft} />}<img src={usesLoginLayout ? authDesktopMicrosoft : microsoftLogo} alt="Microsoft" /></picture>
             </div>
             {message ? (
               <p className={usesLoginLayout ? 'auth-gate-message auth-login-guidance' : 'auth-gate-message'}>

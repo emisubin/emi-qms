@@ -60,7 +60,7 @@ public static class InteriorBusbarEndpointExtensions
                , statusCode: 409);
             }
         });
-        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize) => s.Workspace((bool)h.Items["busbarCanWrite"]!, page ?? 1, pageSize ?? 100));
+        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId) => s.Workspace((bool)h.Items["busbarCanWrite"]!, page ?? 1, pageSize ?? 100, planId));
         foreach (var kind in new[] { "product-families", "materials", "workers" })
         {
             var captured = kind;
@@ -172,9 +172,16 @@ public static class InteriorBusbarEndpointExtensions
                     message = "올바른 사진 파일이 아닙니다."
                 });
             }
+            var workerValue = form["workerId"].FirstOrDefault();
+            Guid? selectedWorker = null;
+            if (!string.IsNullOrWhiteSpace(workerValue))
+            {
+                if (!Guid.TryParse(workerValue, out var parsedWorker)) return Results.BadRequest(new { message = "작업자 선택을 확인하세요." });
+                selectedWorker = parsedWorker;
+            }
             return Results.Ok(new
             {
-                id = await s.Photo(id, side, normalized, form["reason"].FirstOrDefault(), Actor(user))
+                id = await s.Photo(id, side, normalized, form["reason"].FirstOrDefault(), Actor(user), selectedWorker)
             });
         }
 ).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(11_000_000));

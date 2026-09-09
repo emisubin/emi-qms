@@ -119,17 +119,34 @@ public sealed class InteriorBusbarAuthorizationTests
         var material = await PostId("/materials", new BusbarMasterRequest(null, "M", "Material", "m", "도급"));
         var worker = await PostId("/workers", new BusbarMasterRequest(null, "W", "Worker"));
         await PostId("/boms", new BusbarBomRequest(family, [new(material, 2)]));
-        var product = await PostId("/products", new BusbarProductRequest(Guid.NewGuid(), family, worker));
+        var plan = await PostId("/plans", new BusbarPlanRequest(Guid.NewGuid(), family, DateOnly.FromDateTime(DateTime.UtcNow), 3));
+        Guid product;
+        await using (var connection = new Npgsql.NpgsqlConnection(f.Connection))
+        {
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await using var command = new Npgsql.NpgsqlCommand("select id from busbar_products where plan_id=@plan order by plan_sequence limit 1", connection);
+            command.Parameters.AddWithValue("plan", plan);
+            product = (Guid)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+        }
+        var prepared = await f.Store.GetProduct(product);
+        Assert.Null(prepared["workerId"]);
+        Assert.Null(prepared["workerName"]);
+        Assert.Null(prepared["number"]);
+        Assert.Equal(3L, await f.Scalar("select count(*) from busbar_products where status='Draft'"));
         using var image = new MagickImage(MagickColors.SteelBlue, 32, 32);
         var bytes = image.ToByteArray(MagickFormat.Png);
-        async Task<HttpResponseMessage> Photo(string side, byte[] content)
+        async Task<HttpResponseMessage> Photo(string side, byte[] content, bool selectWorker = true)
         {
             using var form = new MultipartFormDataContent();
             form.Add(new ByteArrayContent(content), "file", "synthetic.png");
+            if (selectWorker) form.Add(new StringContent(worker.ToString()), "workerId");
             return await client.PutAsync($"/api/interior-busbar/products/{product}/photos/{side}", form, TestContext.Current.CancellationToken);
         }
         using var invalid = await Photo("front", [1, 2, 3]);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        using var noWorker = await Photo("front", bytes, false);
+        Assert.Equal(HttpStatusCode.BadRequest, noWorker.StatusCode);
+        Assert.Equal(0L, await f.Scalar("select count(*) from busbar_photos"));
         using var first = await Photo("front", bytes);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal("Draft", (await f.Store.GetProduct(product))["status"]);

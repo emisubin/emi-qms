@@ -187,3 +187,24 @@
     flex: 1 0 auto;
   }
 }
+.busbar-completion {
+  border: 2px solid currentColor;
+  padding: 20px;
+  margin-block: 16px;
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+.busbar-completion strong {
+  font-size: clamp(24px, 5vw, 42px);
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.busbar-completion p {
+  margin: 0;
+  line-height: 1.6;
+}
+.busbar-page h3[tabindex="-1"],
+.busbar-completion {
+  scroll-margin-top: 88px;
+}

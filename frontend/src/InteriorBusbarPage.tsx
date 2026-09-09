@@ -38,6 +38,7 @@ type Field = {
   type?: "text" | "number" | "date" | "select";
   options?: { value: string; label: string }[];
   value?: string;
+  disabled?: boolean;
   min?: number;
   step?: string;
   optional?: boolean;
@@ -100,6 +101,7 @@ export function InteriorBusbarPage({
   const [feedbackError, setFeedbackError] = useState(false);
   const [editor, setEditor] = useState<EditorSpec | null>(null);
   const [editorKey, setEditorKey] = useState(0);
+  const [planFilter, setPlanFilter] = useState("");
   const [activeProduct, setActiveProduct] = useState("");
   const [activeProject, setActiveProject] = useState("");
   const [bomFamily, setBomFamily] = useState("");
@@ -109,12 +111,30 @@ export function InteriorBusbarPage({
     productId: string;
     revision: number;
   } | null>(null);
+  const completionRef = useRef<HTMLDivElement>(null);
+  const photoHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!activeProduct) return;
+    photoHeadingRef.current?.focus({ preventScroll: true });
+    photoHeadingRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
+  }, [activeProduct]);
+  const completedProductId = data?.products.find(
+    (product) => product.id === activeProduct && product.status === "Complete",
+  )?.id;
+  useEffect(() => {
+    if (!completedProductId) return;
+    completionRef.current?.focus({ preventScroll: true });
+    completionRef.current?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  }, [completedProductId]);
   const generation = useRef(0);
   const locked = useRef(false);
   const load = useCallback(async () => {
     const current = ++generation.current;
     try {
-      const next = await busbarApi.workspace(user, page);
+      const next = await busbarApi.workspace(user, page, planFilter);
       if (current !== generation.current) return;
       setData(next);
       setError("");
@@ -125,8 +145,10 @@ export function InteriorBusbarPage({
       setDenied(e instanceof ApiError && e.status === 403);
       if (e instanceof ApiError && [401, 403].includes(e.status)) setData(null);
     }
-  }, [user, page]);
+  }, [user, page, planFilter]);
+  const latestLoad = useRef(load);
   useEffect(() => {
+    latestLoad.current = load;
     void load();
     const invalidate = () => {
       generation.current++;
@@ -150,7 +172,8 @@ export function InteriorBusbarPage({
     setFeedbackError(false);
     try {
       await action();
-      await load();
+      // Uploads may finish after the user changes the visible plan or page.
+      await latestLoad.current();
       setFeedback(message);
       return true;
     } catch (e) {
@@ -277,26 +300,34 @@ export function InteriorBusbarPage({
       }),
     });
   }
+  function openPlanProducts(id: string) {
+    setPlanFilter(id);
+    setPage(1);
+    setActiveProduct("");
+    setQuery("");
+    setTab("production");
+    setEditor(null);
+  }
   function planEditor(id?: string) {
     const row = data?.plans.find((x) => x.id === id);
+    const planId = row?.id ?? crypto.randomUUID();
     open({
       title: row ? "생산계획 수정" : "생산계획 등록",
       path: "/plans",
+      note: "목표 수량만큼 사진 등록 대기 항목을 만듭니다. 수량을 줄이면 작업자와 사진을 등록하지 않은 대기 항목만 취소합니다.",
       fields: [
-        familyField(row?.productFamilyId),
+        { ...familyField(row?.productFamilyId), disabled: Boolean(row) },
         {
           key: "planDate",
           label: "생산일",
           type: "date",
           value: row?.planDate?.slice(0, 10) ?? today(),
+          disabled: Boolean(row),
         },
         { ...quantityField("목표 수량", row?.quantity), min: 0, step: "1" },
       ],
-      makeBody: (v) => ({
-        ...v,
-        id: row?.id ?? null,
-        quantity: Number(v.quantity),
-      }),
+      makeBody: (v) => ({ ...v, id: planId, quantity: Number(v.quantity) }),
+      after: () => openPlanProducts(planId),
     });
   }
   function purchaseEditor(id?: string) {
@@ -388,7 +419,14 @@ export function InteriorBusbarPage({
         />
       </div>
     );
-  const selectedProduct = data.products.find((x) => x.id === activeProduct);
+  const productLabel = (product: BusbarProduct) =>
+    product.number ??
+    (product.planId
+      ? `${data.plans.find((plan) => plan.id === product.planId)?.planDate.slice(0, 10) ?? "계획"} · 대기 ${product.planSequence ?? ""}번`
+      : "기존 사진 등록 대기");
+  const selectedProduct = data.products.find(
+    (x) => x.id === activeProduct && (!planFilter || x.planId === planFilter),
+  );
   const selectedProject = data.projects.find((x) => x.id === activeProject);
   const matches = (...values: unknown[]) =>
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -702,16 +740,33 @@ export function InteriorBusbarPage({
                 return [
                   p.planDate.slice(0, 10),
                   familyName(p.productFamilyId),
-                  n(p.quantity),
+                  <>
+                    {n(p.quantity)}
+                    {p.productsInitialized === false && (
+                      <small className="busbar-note">
+                        {" "}
+                        · 계획을 저장해 사진 대기 항목을 준비하세요
+                      </small>
+                    )}
+                  </>,
                   n(actual),
                   n(actual - p.quantity),
-                  writeButton("수정", () => planEditor(p.id)),
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openPlanProducts(p.id)}
+                    >
+                      제품 보기
+                    </button>
+                    {writeButton("수정", () => planEditor(p.id))}
+                  </>,
                 ];
               })}
           />
           <p className="busbar-note">
-            계획이 없어도 생산할 수 있습니다. 목표를 초과한 실적도 그대로
-            기록합니다.
+            계획을 저장하면 목표 수량만큼 사진 등록 대기 항목을 준비합니다. 제품
+            보기에서 작업자를 선택하고 앞·뒤 사진을 등록하세요. 생산을 더
+            진행하려면 계획 수량을 늘리세요.
           </p>
         </DsSurface>
       )}
@@ -720,32 +775,39 @@ export function InteriorBusbarPage({
           <DsSurface>
             <DsToolbar>
               <Search value={query} onChange={setQuery} />
-              {writeButton("새 제품 사진 등록", () => {
-                const requestId = crypto.randomUUID();
-                open({
-                  title: "새 제품 사진 등록",
-                  path: "/products",
-                  fields: [
-                    familyField(),
-                    {
-                      key: "workerId",
-                      label: "실제 제조 작업자",
-                      type: "select",
-                      options: options(data.workers),
-                    },
-                  ],
-                  note: "작업자는 외주 작업자 명단에서 선택합니다. 사진 등록자는 로그인한 담당자 계정으로 별도 기록합니다.",
-                  makeBody: (v) => ({ ...v, requestId }),
-                  after: (r) => {
-                    setActiveProduct(r.id);
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("plans");
+                  setQuery("");
+                  setEditor(null);
+                }}
+              >
+                생산계획으로 이동
+              </button>
+              <label>
+                생산계획 필터
+                <select
+                  value={planFilter}
+                  onChange={(event) => {
+                    setPlanFilter(event.target.value);
                     setPage(1);
-                  },
-                });
-              })}
+                    setActiveProduct("");
+                  }}
+                >
+                  <option value="">전체 계획</option>
+                  {data.plans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.planDate.slice(0, 10)} ·{" "}
+                      {familyName(plan.productFamilyId)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </DsToolbar>
             <Table
               headings={[
-                "제품번호",
+                "제품번호 / 등록 대기",
                 "제품군",
                 "실제 작업자",
                 "제조일시 (한국 시간)",
@@ -754,17 +816,18 @@ export function InteriorBusbarPage({
                 "작업",
               ]}
               rows={data.products
+                .filter((p) => !planFilter || p.planId === planFilter)
                 .filter((p) =>
                   matches(
-                    p.number,
+                    productLabel(p),
                     familyName(p.productFamilyId),
                     p.workerName,
                   ),
                 )
                 .map((p) => [
-                  p.number ?? "번호 발급 전",
+                  productLabel(p),
                   familyName(p.productFamilyId),
-                  p.workerName,
+                  p.workerName ?? "작업자 선택 전",
                   busbarDateTime(p.manufacturedAtUtc),
                   statusLabel(p.status),
                   <DsBadge
@@ -785,19 +848,21 @@ export function InteriorBusbarPage({
                       setFeedback("");
                     }}
                   >
-                    사진·QR 보기
+                    {p.status === "Draft"
+                      ? "사진 등록 계속하기"
+                      : "사진·QR 보기"}
                   </button>,
                 ])}
             />
           </DsSurface>
           {selectedProduct && (
             <DsSurface label="제품 사진과 QR">
-              <h3>
-                {selectedProduct.number ?? "새 제품"} ·{" "}
+              <h3 ref={photoHeadingRef} tabIndex={-1}>
+                {productLabel(selectedProduct)} ·{" "}
                 {familyName(selectedProduct.productFamilyId)}
               </h3>
               <p>
-                제조 작업자: {selectedProduct.workerName} ·{" "}
+                제조 작업자: {selectedProduct.workerName ?? "선택 전"} ·{" "}
                 {busbarDateTime(selectedProduct.manufacturedAtUtc)}
               </p>
               <p className="busbar-note">
@@ -810,10 +875,32 @@ export function InteriorBusbarPage({
                 제조일시는 두 번째 사진이 PMS에 등록된 시각이며 사진 파일의
                 촬영시간과 다를 수 있습니다.
               </p>
+              {selectedProduct.status === "Complete" && (
+                <div
+                  ref={completionRef}
+                  tabIndex={-1}
+                  className="busbar-completion"
+                  role="status"
+                >
+                  <span>생산 완료 · 제품번호</span>
+                  <strong>{selectedProduct.number}</strong>
+                  <p>
+                    이 번호를 임시 스티커에 표시하세요. QR은 외부 게시가 완료된
+                    뒤 같은 번호로 출력할 수 있습니다.
+                  </p>
+                </div>
+              )}
+              {selectedProduct.status === "Draft" && (
+                <p className="busbar-note">
+                  대기 순번은 촬영 항목을 구분하기 위한 임시 표시입니다. 정식
+                  제품번호는 앞·뒤 사진 등록 완료 시 발급합니다.
+                </p>
+              )}
               <PhotoWorkspace
                 key={selectedProduct.id}
                 user={user}
                 product={selectedProduct}
+                workers={data.workers}
                 canWrite={canWrite}
                 busy={busy}
                 run={run}
@@ -853,9 +940,9 @@ export function InteriorBusbarPage({
                             type: "select",
                             options: options(
                               data.workers,
-                              selectedProduct.workerId,
+                              selectedProduct.workerId ?? undefined,
                             ),
-                            value: selectedProduct.workerId,
+                            value: selectedProduct.workerId ?? undefined,
                           },
                           reasonField,
                         ],
@@ -1271,6 +1358,7 @@ function Editor({
                 {f.type === "select" ? (
                   <select
                     required={!f.optional}
+                    disabled={f.disabled}
                     value={values[f.key]}
                     onChange={(e) =>
                       setValues({ ...values, [f.key]: e.target.value })
@@ -1287,6 +1375,7 @@ function Editor({
                   <input
                     ref={i === 0 ? first : undefined}
                     required={!f.optional}
+                    disabled={f.disabled}
                     type={f.type ?? "text"}
                     value={values[f.key]}
                     min={f.min}
@@ -1320,19 +1409,55 @@ type Run = (
 function PhotoWorkspace({
   user,
   product,
+  workers,
   canWrite,
   busy,
   run,
 }: {
   user: string;
   product: BusbarProduct;
+  workers: BusbarMaster[];
   canWrite: boolean;
   busy: boolean;
   run: Run;
 }) {
   const [reason, setReason] = useState("");
+  const [workerId, setWorkerId] = useState(product.workerId ?? "");
+  useEffect(() => setWorkerId(product.workerId ?? ""), [product.workerId]);
+  const cannotUpload =
+    busy ||
+    (product.status === "Draft" && !workerId) ||
+    (product.status === "Complete" && !reason.trim());
   return (
     <>
+      {canWrite && product.status === "Draft" && (
+        <label>
+          촬영 제품의 실제 제조 작업자
+          <select
+            value={workerId}
+            disabled={busy}
+            onChange={(event) => setWorkerId(event.target.value)}
+          >
+            <option value="">작업자를 먼저 선택하세요</option>
+            {workers
+              .filter(
+                (worker) => worker.isActive || worker.id === product.workerId,
+              )
+              .map((worker) => (
+                <option key={worker.id} value={worker.id}>
+                  {worker.name}
+                  {worker.isActive ? "" : " · 사용 중지"}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+      {product.status === "Draft" && !workerId && (
+        <p className="busbar-note">
+          실제 제조 작업자를 선택하면 사진 촬영과 앨범 선택을 사용할 수
+          있습니다.
+        </p>
+      )}
       <div className="busbar-photogrid">
         {(["front", "back"] as const).map((side) => (
           <div className="busbar-photobox" key={side}>
@@ -1352,9 +1477,7 @@ function PhotoWorkspace({
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
                     capture="environment"
-                    disabled={
-                      busy || (product.status === "Complete" && !reason.trim())
-                    }
+                    disabled={cannotUpload}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file)
@@ -1366,6 +1489,7 @@ function PhotoWorkspace({
                               file,
                               reason,
                               "PUT",
+                              product.status === "Draft" ? workerId : undefined,
                             ),
                           "사진을 등록했습니다. 두 장이 모두 등록되면 자동으로 생산 완료됩니다.",
                         );
@@ -1378,9 +1502,7 @@ function PhotoWorkspace({
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
-                    disabled={
-                      busy || (product.status === "Complete" && !reason.trim())
-                    }
+                    disabled={cannotUpload}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file)
@@ -1392,6 +1514,7 @@ function PhotoWorkspace({
                               file,
                               reason,
                               "PUT",
+                              product.status === "Draft" ? workerId : undefined,
                             ),
                           "사진을 등록했습니다.",
                         );

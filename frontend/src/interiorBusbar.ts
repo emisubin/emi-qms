@@ -28,6 +28,7 @@ export type BusbarPlan = {
   planDate: string;
   quantity: number;
   actualQuantity?: number;
+  productsInitialized?: boolean;
 };
 export type BusbarPurchase = {
   id: string;
@@ -42,8 +43,10 @@ export type BusbarPurchase = {
 export type BusbarProduct = {
   id: string;
   productFamilyId: string;
-  workerId: string;
-  workerName: string;
+  planId?: string | null;
+  planSequence?: number | null;
+  workerId: string | null;
+  workerName: string | null;
   registeredByDisplayName?: string;
   number?: string;
   manufacturedAtUtc?: string;
@@ -114,9 +117,9 @@ export type BusbarImport = {
 };
 const root = "/api/interior-busbar";
 export const busbarApi = {
-  workspace: (user: string, page = 1) =>
+  workspace: (user: string, page = 1, planId = "") =>
     fetchJson<BusbarWorkspace>(
-      `${root}/workspace?page=${page}&pageSize=100`,
+      `${root}/workspace?page=${page}&pageSize=100${planId ? `&planId=${encodeURIComponent(planId)}` : ""}`,
       user,
     ),
   write: <T = { id: string }>(
@@ -135,10 +138,12 @@ export const busbarApi = {
     file: File,
     reason = "",
     method = "POST",
+    workerId?: string,
   ) => {
     const body = new FormData();
     body.append("file", file);
     if (reason) body.append("reason", reason);
+    if (workerId) body.append("workerId", workerId);
     return fetchJson<T>(`${root}${path}`, user, { method, body });
   },
   template: (user: string, kind: string) =>

@@ -88,10 +88,12 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
 
     private static async Task Audit(NpgsqlConnection c, string kind, Guid id, Guid actor, string reason, object before, object after) => await Exec(c, "insert into busbar_audit values(@id,@kind,@entity,@reason,@actor,now(),@before::jsonb,@after::jsonb)", ("id", Guid.NewGuid()), ("kind", kind), ("entity", id), ("reason", reason), ("actor", actor), ("before", JsonSerializer.Serialize(before)), ("after", JsonSerializer.Serialize(after)));
 
-    public Task<object> Workspace(bool canWrite, int page = 1, int pageSize = 100) => ReadSnapshot<object>(async c =>
+    public Task<object> Workspace(bool canWrite, int page = 1, int pageSize = 100, Guid? planId = null) => ReadSnapshot<object>(async c =>
     {
         Require(page > 0 && pageSize is > 0 and <= 200, "페이지 크기는 1~200이어야 합니다.");
         var offset = ((long)page - 1) * pageSize;
+        var productFilter = planId is null ? "" : $" where p.plan_id='{planId.Value:D}'::uuid";
+        var productOrder = planId is null ? "p.created_at_utc desc,p.id" : "p.plan_sequence,p.id";
         var result = new Dictionary<string, object?>
         {
             ["canWrite"] = canWrite,
@@ -102,9 +104,9 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
             ("productFamilies","select f.*,coalesce(s.balance,0) balance,(select count(*) from busbar_products p where p.product_family_id=f.id and p.status='Complete') produced_quantity,coalesce((select sum(quantity) from busbar_plans p where p.product_family_id=f.id),0) planned_quantity from busbar_product_families f left join busbar_stock s on s.stock_kind='Finished' and s.item_id=f.id order by f.code"),
             ("materials","select m.*,coalesce(s.balance,0) balance from busbar_materials m left join busbar_stock s on s.stock_kind='Material' and s.item_id=m.id order by m.code"),
             ("workers","select * from busbar_workers order by code"),("boms","select * from busbar_boms order by version desc"),("bomLines","select * from busbar_bom_lines"),
-            ("projects",ProjectQuery),("plans","select p.*,(select count(*) from busbar_products x where x.product_family_id=p.product_family_id and x.status='Complete' and (x.manufactured_at_utc at time zone 'Asia/Seoul')::date=p.plan_date) actual_quantity from busbar_plans p order by plan_date desc"),
+            ("projects",ProjectQuery),("plans","select p.*,(select count(*) from busbar_products x where x.plan_id=p.id and x.status='Complete') actual_quantity from busbar_plans p order by plan_date desc"),
             ("purchases","select p.*,coalesce((select sum(r.quantity) from busbar_receipts r where r.purchase_id=p.id and not exists(select 1 from busbar_operations o where o.reverses_id=r.id)),0) received_quantity from busbar_purchases p order by order_date desc"),
-            ("products","select p.*,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name, exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p order by created_at_utc desc,id limit "+pageSize+" offset "+offset),
+            ("products","select p.*,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name, exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p"+productFilter+" order by "+productOrder+" limit "+pageSize+" offset "+offset),
             ("ledger","select o.*,exists(select 1 from busbar_operations r where r.reverses_id=o.id) reversed from busbar_operations o order by created_at_utc desc,id limit "+pageSize+" offset "+offset),("ledgerLines","select l.* from busbar_ledger l where operation_id in (select id from busbar_operations order by created_at_utc desc,id limit "+pageSize+" offset "+offset+")"),("shipments","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_shipments s join busbar_operations o on o.id=s.id"),("receipts","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_receipts s join busbar_operations o on o.id=s.id"),("audit","select * from busbar_audit order by changed_at_utc desc limit 200")}
 ) result[key] = await Rows(c, sql);
         result["publicationOutstandingCount"] = (await Rows(c, "select count(*) total from busbar_products where status in ('Complete','Cancelled') and manufactured_at_utc is not null and (publication_state<>'Published' or revision<>published_revision)"))[0]["total"];
@@ -112,7 +114,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         {
             page,
             pageSize,
-            productCount = (await Rows(c, "select count(*) total from busbar_products"))[0]["total"],
+            productCount = (await Rows(c, "select count(*) total from busbar_products p"+productFilter))[0]["total"],
             ledgerCount = (await Rows(c, "select count(*) total from busbar_operations"))[0]["total"]
         }
 ;
@@ -215,8 +217,58 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         await Active(c, "busbar_product_families", r.ProductFamilyId);
         Require(r.Quantity >= 0, "목표 수량은 0 이상이어야 합니다.");
         var id = r.Id ?? Guid.NewGuid();
-        object before = r.Id is null ? new { } : await One(c, "busbar_plans", id);
-        await Exec(c, "insert into busbar_plans values(@id,@family,@date,@quantity) on conflict(id) do update set product_family_id=excluded.product_family_id,plan_date=excluded.plan_date,quantity=excluded.quantity", ("id", id), ("family", r.ProductFamilyId), ("date", r.PlanDate), ("quantity", r.Quantity));
+        Require(id != Guid.Empty, "계획 식별자가 필요합니다.");
+        var existing = await Rows(c, "select * from busbar_plans where id=@id", ("id", id));
+        object before = existing.Count == 0 ? new { } : existing[0];
+        var previousQuantity = 0;
+        if (existing.Count > 0)
+        {
+            var previous = existing[0];
+            Require(Id(previous, "productFamilyId") == r.ProductFamilyId &&
+                (previous["planDate"] is DateOnly date ? date : DateOnly.FromDateTime((DateTime)previous["planDate"]!)) == r.PlanDate,
+                "제품이 연결된 계획의 제품군과 날짜는 변경할 수 없습니다. 별도 계획을 등록하세요.");
+            previousQuantity = (bool)previous["productsInitialized"]! ? Convert.ToInt32(previous["quantity"]) : 0;
+        }
+        var difference = r.Quantity - previousQuantity;
+        var untouched = new List<Dictionary<string, object?>>();
+        if (difference < 0)
+        {
+            untouched = await Rows(c, """
+                select id,plan_sequence from busbar_products p
+                where plan_id=@plan and status='Draft' and worker_id is null
+                  and not exists(select 1 from busbar_photos f where f.product_id=p.id)
+                order by plan_sequence desc limit @quantity
+                """, ("plan", id), ("quantity", -difference));
+            Require(untouched.Count == -difference,
+                "작업자 지정·사진 등록·완료된 제품은 계획 수량 감소로 철회할 수 없습니다. 미착수 제품 수를 확인하세요.");
+        }
+        await Exec(c, """
+            insert into busbar_plans(id,product_family_id,plan_date,quantity,products_initialized)
+            values(@id,@family,@date,@quantity,true)
+            on conflict(id) do update set quantity=excluded.quantity,products_initialized=true
+            """, ("id", id), ("family", r.ProductFamilyId), ("date", r.PlanDate), ("quantity", r.Quantity));
+        if (difference > 0)
+        {
+            var sequence = Convert.ToInt32((await Rows(c,
+                "select coalesce(max(plan_sequence),0) value from busbar_products where plan_id=@id", ("id", id)))[0]["value"]);
+            for (var index = 0; index < difference; index++)
+            {
+                var productId = Guid.NewGuid();
+                await Exec(c, """
+                    insert into busbar_products(id,request_id,product_family_id,public_token,created_by,plan_id,plan_sequence)
+                    values(@id,@request,@family,@token,@actor,@plan,@sequence)
+                    """, ("id", productId), ("request", Guid.NewGuid()), ("family", r.ProductFamilyId),
+                    ("token", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant()),
+                    ("actor", actor), ("plan", id), ("sequence", ++sequence));
+            }
+        }
+        foreach (var product in untouched)
+        {
+            await Exec(c, "update busbar_products set status='Cancelled' where id=@id", ("id", Id(product)));
+            await Audit(c, "Product", Id(product), actor, "생산계획 수량 감소로 미착수 제품 철회",
+                new { status = "Draft", planId = id, planSequence = product["planSequence"] },
+                new { status = "Cancelled", planId = id, planSequence = product["planSequence"] });
+        }
         await Audit(c, "Plan", id, actor, "생산계획 저장", before, r);
         return id;
     });
@@ -352,12 +404,32 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         return id;
     });
 
-    public Task<Guid> Photo(Guid product, string side, byte[] content, string? reason, Guid actor) => Transaction(async c =>
+    public Task<Guid> Photo(Guid product, string side, byte[] content, string? reason, Guid actor, Guid? workerId = null) => Transaction(async c =>
     {
         Require(side is "front" or "back", "사진 위치를 확인하세요.");
         var p = await One(c, "busbar_products", product);
         Require((string)p["status"]! != "Cancelled", "취소된 제품입니다.");
-        if ((string)p["status"]! == "Complete") Text(reason, "사진 정정 사유");
+        if ((string)p["status"]! == "Draft")
+        {
+            var selectedWorkerId = workerId ?? (p["workerId"] as Guid?);
+            Require(selectedWorkerId is not null && selectedWorkerId != Guid.Empty, "실제 작업자를 선택한 뒤 사진을 등록하세요.");
+            await Active(c, "busbar_workers", selectedWorkerId!.Value);
+            var worker = await One(c, "busbar_workers", selectedWorkerId.Value);
+            await Exec(c, "update busbar_products set worker_id=@worker,worker_name=@name where id=@id",
+                ("worker", selectedWorkerId.Value), ("name", worker["name"]), ("id", product));
+            if (!Equals(p["workerId"], selectedWorkerId.Value) || !Equals(p["workerName"], worker["name"]))
+            {
+                await Audit(c, "ProductWorker", product, actor, "사진 등록 시 작업자 지정",
+                    new { workerId = p["workerId"], workerName = p["workerName"] },
+                    new { workerId = selectedWorkerId.Value, workerName = worker["name"] });
+            }
+        }
+        else
+        {
+            Text(reason, "사진 정정 사유");
+            Require(workerId is null || Equals(p["workerId"], workerId.Value),
+                "완료 제품의 작업자는 작업자 정정 기능에서 변경하세요.");
+        }
         var now = timeProvider.GetUtcNow();
         await Exec(c, "insert into busbar_photos(product_id,side,content,content_type,registered_at_utc,registered_by) values(@id,@side,@content,'image/jpeg',@now,@actor) on conflict(product_id,side) do update set content=excluded.content,registered_at_utc=excluded.registered_at_utc,registered_by=excluded.registered_by", ("id", product), ("side", side), ("content", content), ("now", now), ("actor", actor));
         await Exec(c, "insert into busbar_photo_history values(@history,@id,@side,@content,@now,@actor,@reason)",

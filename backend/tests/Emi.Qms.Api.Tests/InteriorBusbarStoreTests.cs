@@ -141,6 +141,90 @@ public sealed class InteriorBusbarStoreTests
         Assert.Equal(20, projects.Single()["remainingQuantity"]);
     }
 
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires explicitly configured disposable busbar database.")]
+    public async Task PlanPreparesEmptyProducts_ReplayAndGrowthDoNotDuplicate_WorkerAndNumberWaitForPhotos()
+    {
+        await using var f = await Fixture.Create();
+        var family = await f.Store.Master("product-families", new(null,"F","Family"), f.Actor);
+        var material = await f.Store.Master("materials", new(null,"M","Material","개","도급"), f.Actor);
+        var worker = await f.Store.Master("workers", new(null,"W","Worker"), f.Actor);
+        await f.Store.Bom(new(family,[new(material,3)]), f.Actor);
+        var request = new BusbarPlanRequest(Guid.NewGuid(), family, new(2026,10,1), 2);
+        await Task.WhenAll(f.Store.Plan(request,f.Actor), f.Store.Plan(request,f.Actor));
+        Assert.Equal(2L, await f.Scalar("select count(*) from busbar_products"));
+        var workspace = (Dictionary<string,object?>)await f.Store.Workspace(true,planId:request.Id);
+        var products = (List<Dictionary<string,object?>>)workspace["products"]!;
+        Assert.All(products,p => { Assert.Null(p["workerId"]); Assert.Null(p["workerName"]); Assert.Null(p["number"]); Assert.Null(p["manufacturedAtUtc"]); Assert.Equal("Draft",p["status"]); });
+        Assert.Equal(new[] {1,2}, products.Select(p => (int)p["planSequence"]!));
+        var first = (Guid)products[0]["id"]!;
+        await Assert.ThrowsAsync<BusbarException>(() => f.Store.Photo(first,"front",[1],null,f.Actor));
+        await f.Store.Photo(first,"front",[1],null,f.Actor,worker);
+        Assert.Null((await f.Store.GetProduct(first))["number"]);
+        Assert.Equal(0m,await f.Balance("Finished",family));
+        await f.Store.Photo(first,"back",[2],null,f.Actor);
+        Assert.NotNull((await f.Store.GetProduct(first))["number"]);
+        Assert.Equal(1m,await f.Balance("Finished",family));
+        Assert.Equal(-3m,await f.Balance("Material",material));
+        await f.Store.Plan(request with {Quantity=4},f.Actor);
+        await f.Store.Plan(request with {Quantity=4},f.Actor);
+        Assert.Equal(4L,await f.Scalar("select count(*) from busbar_products"));
+        workspace = (Dictionary<string,object?>)await f.Store.Workspace(true,planId:request.Id);
+        var plans = (List<Dictionary<string,object?>>)workspace["plans"]!;
+        Assert.Equal(1L,plans.Single()["actualQuantity"]);
+    }
+
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires explicitly configured disposable busbar database.")]
+    public async Task PlanReductionWithdrawsOnlyUntouchedDrafts_AndRejectsChangingDateOrFamily()
+    {
+        await using var f = await Fixture.Create();
+        var family = await f.Store.Master("product-families", new(null,"F","Family"), f.Actor);
+        var otherFamily = await f.Store.Master("product-families", new(null,"G","Other"), f.Actor);
+        var worker = await f.Store.Master("workers", new(null,"W","Worker"), f.Actor);
+        var request = new BusbarPlanRequest(Guid.NewGuid(),family,new(2026,10,1),3);
+        await f.Store.Plan(request,f.Actor);
+        var workspace = (Dictionary<string,object?>)await f.Store.Workspace(true,planId:request.Id);
+        var products = (List<Dictionary<string,object?>>)workspace["products"]!;
+        await f.Store.CorrectProduct((Guid)products[0]["id"]!,new(worker,"작업자 지정"),f.Actor);
+        await f.Store.Photo((Guid)products[1]["id"]!,"front",[1],null,f.Actor,worker);
+        await f.Store.Plan(request with {Quantity=2},f.Actor);
+        Assert.Equal("Cancelled",(await f.Store.GetProduct((Guid)products[2]["id"]!))["status"]);
+        await f.Store.Plan(request with {Quantity=2},f.Actor);
+        Assert.Equal(3L,await f.Scalar("select count(*) from busbar_products"));
+        await Assert.ThrowsAsync<BusbarException>(() => f.Store.Plan(request with {Quantity=1},f.Actor));
+        Assert.Equal(2L,await f.Scalar("select quantity::bigint from busbar_plans"));
+        await Assert.ThrowsAsync<BusbarException>(() => f.Store.Plan(request with {PlanDate=new(2026,10,2)},f.Actor));
+        await Assert.ThrowsAsync<BusbarException>(() => f.Store.Plan(request with {ProductFamilyId=otherFamily},f.Actor));
+        await f.Store.Plan(request with {Quantity=3},f.Actor);
+        Assert.Equal(4L,await f.Scalar("select max(plan_sequence)::bigint from busbar_products"));
+        Assert.Equal(1L,await f.Scalar("select count(*) from busbar_audit where reason='생산계획 수량 감소로 미착수 제품 철회'"));
+    }
+
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires explicitly configured disposable busbar database.")]
+    public async Task PlanFilterPaginatesOnlyLinkedProducts_AndInitializesLegacyPlanOnce()
+    {
+        await using var f = await Fixture.Create();
+        var family = await f.Store.Master("product-families", new(null,"F","Family"), f.Actor);
+        var worker = await f.Store.Master("workers",new(null,"W","Worker"),f.Actor);
+        var legacyProduct = await f.Store.Product(new(Guid.NewGuid(),family,worker),f.Actor);
+        var legacyPlan = Guid.NewGuid();
+        await using(var c = new NpgsqlConnection(f.Connection))
+        {
+            await c.OpenAsync(TestContext.Current.CancellationToken);
+            await using var cmd = new NpgsqlCommand("insert into busbar_plans(id,product_family_id,plan_date,quantity) values(@id,@family,'2026-10-01',3)",c);
+            cmd.Parameters.AddWithValue("id",legacyPlan);cmd.Parameters.AddWithValue("family",family);
+            await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+        var request = new BusbarPlanRequest(legacyPlan,family,new(2026,10,1),3);
+        await f.Store.Plan(request,f.Actor);
+        await f.Store.Plan(request,f.Actor);
+        await f.Store.Plan(new(Guid.NewGuid(),family,new(2026,10,2),5),f.Actor);
+        var workspace = (Dictionary<string,object?>)await f.Store.Workspace(true,2,2,legacyPlan);
+        var products = (List<Dictionary<string,object?>>)workspace["products"]!;
+        Assert.Single(products);Assert.Equal(3,products[0]["planSequence"]);
+        Assert.Null((await f.Store.GetProduct(legacyProduct))["planId"]);
+        Assert.Equal(9L,await f.Scalar("select count(*) from busbar_products"));
+    }
+
     internal sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now = new(2026, 9, 9, 1, 0, 0, TimeSpan.Zero);
@@ -188,7 +272,7 @@ public sealed class InteriorBusbarStoreTests
             var schema = "busbar_" + Guid.NewGuid().ToString("N");
             await using (var c = new NpgsqlConnection(baseConnection))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 await new NpgsqlCommand($"create schema {schema}", c).ExecuteNonQueryAsync();
             }
             builder.SearchPath = schema;
@@ -209,21 +293,22 @@ public sealed class InteriorBusbarStoreTests
 ;
             await using (var c = new NpgsqlConnection(f.Connection))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 await new NpgsqlCommand("create table roles(id uuid primary key,code text unique,name text);create table qms_users(id uuid primary key,display_name text default 'Synthetic manager');", c).ExecuteNonQueryAsync();
                 var root = AppContext.BaseDirectory;
                 while (!Directory.Exists(Path.Combine(root, "database", "migrations"))) root = Directory.GetParent(root)!.FullName;
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0090_interior_busbar.sql")), c).ExecuteNonQueryAsync();
+                await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0091_interior_busbar_planned_products.sql")), c).ExecuteNonQueryAsync();
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
-                await cmd.ExecuteNonQueryAsync();
+                await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
             return f;
         }
         public async Task<decimal> Balance(string kind, Guid item)
         {
             await using var c = new NpgsqlConnection(Connection);
-            await c.OpenAsync();
+            await c.OpenAsync(TestContext.Current.CancellationToken);
             await using var cmd = new NpgsqlCommand("select coalesce((select balance from busbar_stock where stock_kind=@kind and item_id=@id),0)", c);
             cmd.Parameters.AddWithValue("kind", kind);
             cmd.Parameters.AddWithValue("id", item);
@@ -232,13 +317,13 @@ public sealed class InteriorBusbarStoreTests
         public async Task<long> Scalar(string sql)
         {
             await using var c = new NpgsqlConnection(Connection);
-            await c.OpenAsync();
+            await c.OpenAsync(TestContext.Current.CancellationToken);
             return Convert.ToInt64(await new NpgsqlCommand(sql, c).ExecuteScalarAsync());
         }
         public async ValueTask DisposeAsync()
         {
             await using var c = new NpgsqlConnection(BaseConnection);
-            await c.OpenAsync();
+            await c.OpenAsync(TestContext.Current.CancellationToken);
             await new NpgsqlCommand($"drop schema {Schema} cascade", c).ExecuteNonQueryAsync();
         }
     }

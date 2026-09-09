@@ -115,13 +115,15 @@ export type BusbarImport = {
   rows: Array<Record<string, unknown>>;
   errors: unknown[];
 };
+export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
 const root = "/api/interior-busbar";
 export const busbarApi = {
-  workspace: (user: string, page = 1, planId = "") =>
-    fetchJson<BusbarWorkspace>(
-      `${root}/workspace?page=${page}&pageSize=100${planId ? `&planId=${encodeURIComponent(planId)}` : ""}`,
-      user,
-    ),
+  workspace: (user: string, page = 1, filters: BusbarProductFilters = {}) => {
+    const query = new URLSearchParams({ page: String(page), pageSize: "100" });
+    Object.entries(filters).forEach(([key, value]) => { if (value) query.set(key, value); });
+    return fetchJson<BusbarWorkspace>(`${root}/workspace?${query}`, user);
+  },
+  product: (user: string, id: string) => fetchJson<BusbarProduct>(`${root}/products/${id}`, user),
   write: <T = { id: string }>(
     user: string,
     path: string,

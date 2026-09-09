@@ -51,6 +51,7 @@ public sealed class InteriorBusbarAuthorizationTests
 
     [Theory]
     [InlineData("GET", "/api/interior-busbar/workspace")]
+    [InlineData("GET", "/api/interior-busbar/products/00000000-0000-0000-0000-000000000001")]
     [InlineData("POST", "/api/interior-busbar/workers")]
     public async Task TrustedOsanContextCannotReadOrWriteCheongjuModule(string method, string path)
     {
@@ -156,6 +157,12 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
         var completed = await f.Store.GetProduct(product);
         Assert.Equal("Complete", completed["status"]);
+        using var detail = await client.GetAsync($"/api/interior-busbar/products/{product}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var detailJson = await detail.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(TestContext.Current.CancellationToken);
+        Assert.True(detailJson.GetProperty("hasFront").GetBoolean());
+        Assert.True(detailJson.GetProperty("hasBack").GetBoolean());
+        Assert.Equal((string)completed["number"]!, detailJson.GetProperty("number").GetString());
         Assert.InRange(new DateTimeOffset((DateTime)completed["manufacturedAtUtc"]!), before.AddSeconds(-1), DateTimeOffset.UtcNow.AddSeconds(1));
         Assert.Equal(f.Actor, completed["photoRegisteredBy"]);
         Assert.Equal(1m, await f.Balance("Finished", family));

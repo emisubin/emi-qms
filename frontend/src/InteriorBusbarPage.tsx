@@ -10,8 +10,6 @@ import { ApiError } from "./api";
 import {
   DsActionFeedback,
   DsBadge,
-  DsKpiCard,
-  DsKpiGrid,
   DsPageHeader,
   DsReadOnlyBanner,
   DsStatePanel,
@@ -28,6 +26,7 @@ import {
   type BusbarMaster,
   type BusbarProduct,
   type BusbarWorkspace,
+  type BusbarProductFilters,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
 
@@ -40,6 +39,7 @@ type Field = {
   value?: string;
   disabled?: boolean;
   min?: number;
+  max?: number;
   step?: string;
   optional?: boolean;
 };
@@ -64,6 +64,12 @@ const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(
     new Date(),
   );
+const datePlus = (date: string, days: number) => {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+};
+const monday = (date: string) => datePlus(date, -((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7));
 const failure = (e: unknown) =>
   e instanceof Error ? e.message : "처리하지 못했습니다. 다시 시도해 주세요.";
 const statusLabel = (status?: string) =>
@@ -101,8 +107,11 @@ export function InteriorBusbarPage({
   const [feedbackError, setFeedbackError] = useState(false);
   const [editor, setEditor] = useState<EditorSpec | null>(null);
   const [editorKey, setEditorKey] = useState(0);
-  const [planFilter, setPlanFilter] = useState("");
+  const [filters, setFilters] = useState<BusbarProductFilters>({});
+  const [week, setWeek] = useState(() => monday(today()));
+  const [planFamily, setPlanFamily] = useState("");
   const [activeProduct, setActiveProduct] = useState("");
+  const [productDetail, setProductDetail] = useState<BusbarProduct | null>(null);
   const [activeProject, setActiveProject] = useState("");
   const [bomFamily, setBomFamily] = useState("");
   const [qr, setQr] = useState<{
@@ -112,15 +121,26 @@ export function InteriorBusbarPage({
     revision: number;
   } | null>(null);
   const completionRef = useRef<HTMLDivElement>(null);
+  const projectDetailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (activeProject) projectDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [activeProject]);
   const photoHeadingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!activeProduct) return;
     photoHeadingRef.current?.focus({ preventScroll: true });
     photoHeadingRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
   }, [activeProduct]);
-  const completedProductId = data?.products.find(
-    (product) => product.id === activeProduct && product.status === "Complete",
-  )?.id;
+  useEffect(() => {
+    let current = true;
+    if (!activeProduct) { setProductDetail(null); return; }
+    void busbarApi.product(user, activeProduct).then((product) => {
+      if (current) setProductDetail(product);
+    }).catch((e) => { if (current) { setProductDetail(null); setError(failure(e)); } });
+    return () => { current = false; };
+  }, [user, activeProduct, data]);
+  const selectedProduct = productDetail?.id === activeProduct
+    ? productDetail
+    : data?.products.find((product) => product.id === activeProduct);
+  const completedProductId = selectedProduct?.status === "Complete" ? selectedProduct.id : undefined;
   useEffect(() => {
     if (!completedProductId) return;
     completionRef.current?.focus({ preventScroll: true });
@@ -134,7 +154,7 @@ export function InteriorBusbarPage({
   const load = useCallback(async () => {
     const current = ++generation.current;
     try {
-      const next = await busbarApi.workspace(user, page, planFilter);
+      const next = await busbarApi.workspace(user, page, filters);
       if (current !== generation.current) return;
       setData(next);
       setError("");
@@ -145,7 +165,7 @@ export function InteriorBusbarPage({
       setDenied(e instanceof ApiError && e.status === 403);
       if (e instanceof ApiError && [401, 403].includes(e.status)) setData(null);
     }
-  }, [user, page, planFilter]);
+  }, [user, page, filters]);
   const latestLoad = useRef(load);
   useEffect(() => {
     latestLoad.current = load;
@@ -300,8 +320,8 @@ export function InteriorBusbarPage({
       }),
     });
   }
-  function openPlanProducts(id: string) {
-    setPlanFilter(id);
+  function openPlanProducts(productFamilyId: string, planDate: string) {
+    setFilters({ productFamilyId, planDateFrom: planDate, planDateTo: planDate });
     setPage(1);
     setActiveProduct("");
     setQuery("");
@@ -309,6 +329,7 @@ export function InteriorBusbarPage({
     setEditor(null);
   }
   function planEditor(id?: string) {
+    let savedFamily = "", savedDate = "";
     const row = data?.plans.find((x) => x.id === id);
     const planId = row?.id ?? crypto.randomUUID();
     open({
@@ -326,8 +347,11 @@ export function InteriorBusbarPage({
         },
         { ...quantityField("목표 수량", row?.quantity), min: 0, step: "1" },
       ],
-      makeBody: (v) => ({ ...v, id: planId, quantity: Number(v.quantity) }),
-      after: () => openPlanProducts(planId),
+      makeBody: (v) => {
+        savedFamily = v.productFamilyId; savedDate = v.planDate;
+        return { ...v, id: planId, quantity: Number(v.quantity) };
+      },
+      after: () => openPlanProducts(savedFamily, savedDate),
     });
   }
   function purchaseEditor(id?: string) {
@@ -424,12 +448,18 @@ export function InteriorBusbarPage({
     (product.planId
       ? `${data.plans.find((plan) => plan.id === product.planId)?.planDate.slice(0, 10) ?? "계획"} · 대기 ${product.planSequence ?? ""}번`
       : "기존 사진 등록 대기");
-  const selectedProduct = data.products.find(
-    (x) => x.id === activeProduct && (!planFilter || x.planId === planFilter),
-  );
   const selectedProject = data.projects.find((x) => x.id === activeProject);
   const matches = (...values: unknown[]) =>
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)));
+  const selectedStock = data.productFamilies.find((x) => x.id === selectedProject?.productFamilyId)?.balance ?? 0;
+  const selectedRemaining = selectedProject ? selectedProject.requestedQuantity - selectedProject.shippedQuantity : 0;
+  const maxShipment = Math.max(0, Math.min(selectedStock, selectedRemaining));
+  const weekDates = Array.from({ length: 7 }, (_, i) => datePlus(week, i));
+  function changeFilter(key: keyof BusbarProductFilters, value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
+    setPage(1); setActiveProduct("");
+  }
   const stock = (item?: BusbarMaster) => item?.balance ?? 0;
   const canWrite = data.canWrite;
   const writeButton = (label: string, action: () => void) =>
@@ -529,30 +559,6 @@ export function InteriorBusbarPage({
       )}
       {tab === "overview" && (
         <>
-          <DsKpiGrid label="부스바 업무 요약">
-            <DsKpiCard
-              label="완제품 공용 재고"
-              value={n(data.productFamilies.reduce((a, x) => a + stock(x), 0))}
-            />
-            <DsKpiCard
-              label="납품 잔여"
-              value={n(
-                data.projects.reduce(
-                  (a, x) => a + x.requestedQuantity - x.shippedQuantity,
-                  0,
-                ),
-              )}
-            />
-            <DsKpiCard
-              label="부족 자재"
-              value={`${data.materials.filter((x) => stock(x) < 0).length}종`}
-              tone="danger"
-            />
-            <DsKpiCard
-              label="게시 대기·실패"
-              value={data.publicationOutstandingCount ?? 0}
-            />
-          </DsKpiGrid>
           <DsSurface label="제품군별 현황">
             <h3>제품군별 생산·납품 현황</h3>
             <Table
@@ -619,17 +625,9 @@ export function InteriorBusbarPage({
                 "상태",
                 "작업",
               ]}
-              rows={data.projects
-                .filter((p) =>
-                  matches(
-                    p.name,
-                    p.customerJobNumber,
-                    p.destination,
-                    familyName(p.productFamilyId),
-                  ),
-                )
-                .map((p) => [
-                  <button type="button" onClick={() => setActiveProject(p.id)}>
+              rowActions={visibleProjects.map((p) => ({ expanded: activeProject === p.id, toggle: () => setActiveProject(activeProject === p.id ? "" : p.id) }))}
+              rows={visibleProjects.map((p) => [
+                  <button type="button" aria-expanded={activeProject === p.id} onClick={() => setActiveProject(activeProject === p.id ? "" : p.id)}>
                     {p.name}
                   </button>,
                   p.customerJobNumber,
@@ -656,6 +654,7 @@ export function InteriorBusbarPage({
           </DsSurface>
           {selectedProject && (
             <DsSurface label="선택 프로젝트 상세">
+              <div ref={projectDetailRef} className="busbar-project-anchor" />
               <DsToolbar>
                 <h3>{selectedProject.name}</h3>
                 {writeButton("분할 출하", () => {
@@ -664,9 +663,9 @@ export function InteriorBusbarPage({
                     title: "분할 출하",
                     path: "/shipments",
                     fields: [
-                      { ...quantityField("이번 출하 수량"), min: 1, step: "1" },
+                      { ...quantityField("이번 출하 수량"), min: 1, max: maxShipment, step: "1" },
                     ],
-                    note: `납품 잔여 ${n(selectedProject.requestedQuantity - selectedProject.shippedQuantity)}개 · 공용 현재고 ${n(stock(data.productFamilies.find((x) => x.id === selectedProject.productFamilyId)!))}개`,
+                    note: `납품 잔여 ${n(selectedRemaining)}개 · 공용 현재고 ${n(selectedStock)}개 · 현재 최대 출하 가능 ${n(maxShipment)}개`,
                     makeBody: (v) => ({
                       requestId,
                       projectId: selectedProject.id,
@@ -680,15 +679,23 @@ export function InteriorBusbarPage({
                 {familyName(selectedProject.productFamilyId)} · 제품번호를 출하
                 수량에 임의 연결하지 않습니다.
               </p>
-              <Table
-                headings={["예정일", "생산계획 수량"]}
-                rows={data.plans
-                  .filter(
-                    (p) =>
-                      p.productFamilyId === selectedProject.productFamilyId,
-                  )
-                  .map((p) => [p.planDate.slice(0, 10), n(p.quantity)])}
-              />
+              <div className="busbar-project-summary">
+                <dl className="busbar-shipping-summary">
+                  <div><dt>제품군 공용 재고</dt><dd>{n(selectedStock)}개</dd></div>
+                  <div><dt>요청 수량</dt><dd>{n(selectedProject.requestedQuantity)}개</dd></div>
+                  <div><dt>누적 출하</dt><dd>{n(selectedProject.shippedQuantity)}개</dd></div>
+                  <div><dt>납품 잔여</dt><dd>{n(selectedRemaining)}개</dd></div>
+                  <div className="busbar-shippable"><dt>현재 최대 출하 가능</dt><dd>{n(maxShipment)}개</dd></div>
+                </dl>
+                <div>
+                  <h4>해당 제품군 날짜별 생산계획</h4>
+                  <Table headings={["생산일", "계획", "완료", "미완료"]}
+                    rows={data.plans.filter((p) => p.productFamilyId === selectedProject.productFamilyId)
+                      .sort((a, b) => a.planDate.localeCompare(b.planDate))
+                      .map((p) => [p.planDate.slice(0, 10), `${n(p.quantity)}개`, `${n(p.actualQuantity)}개`, `${n(Math.max(0, p.quantity - (p.actualQuantity ?? 0)))}개`])} />
+                </div>
+              </div>
+              <p className="busbar-note">공용 재고는 이 프로젝트에 예약된 수량이 아닙니다. 생산 예정 수량은 현재 출하 가능 수량에 포함하지 않습니다.</p>
               <h3>출하 이력</h3>
               <Table
                 headings={["처리 시각", "출하 수량", "상태", "작업"]}
@@ -726,48 +733,35 @@ export function InteriorBusbarPage({
         </>
       )}
       {tab === "plans" && (
-        <DsSurface>
+        <DsSurface label="제품군별 주간 생산계획">
           <DsToolbar>
-            <Search value={query} onChange={setQuery} />
+            <label>계획 제품군<select aria-label="계획 제품군" value={planFamily} onChange={(e) => setPlanFamily(e.target.value)}><option value="">전체 제품군</option>{data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
+            <label>기준 날짜<input type="date" value={week} onChange={(e) => { if (e.target.value) setWeek(monday(e.target.value)); }} /></label>
+            <button onClick={() => setWeek(datePlus(week, -7))}>이전 주</button>
+            <button onClick={() => setWeek(monday(today()))}>이번 주</button>
+            <button onClick={() => setWeek(datePlus(week, 7))}>다음 주</button>
             {writeButton("생산계획 등록", () => planEditor())}
           </DsToolbar>
-          <Table
-            headings={["생산일", "제품군", "목표 수량", "실적", "차이", "작업"]}
-            rows={data.plans
-              .filter((p) => matches(p.planDate, familyName(p.productFamilyId)))
-              .map((p) => {
-                const actual = p.actualQuantity ?? 0;
-                return [
-                  p.planDate.slice(0, 10),
-                  familyName(p.productFamilyId),
-                  <>
-                    {n(p.quantity)}
-                    {p.productsInitialized === false && (
-                      <small className="busbar-note">
-                        {" "}
-                        · 계획을 저장해 사진 대기 항목을 준비하세요
-                      </small>
-                    )}
-                  </>,
-                  n(actual),
-                  n(actual - p.quantity),
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openPlanProducts(p.id)}
-                    >
-                      제품 보기
+          <h3>{week} ~ {weekDates[6]}</h3>
+          <p className="busbar-note">각 칸은 완료 / 계획 수량입니다. 날짜 칸을 눌러 해당 제품의 작업자와 사진을 등록하세요.</p>
+          <div className="busbar-plan-matrix">
+            <Table headings={["제품군", ...weekDates.map((d, i) => `${d.slice(5)} (${"월화수목금토일"[i]})`)]}
+              rows={data.productFamilies.filter((f) => !planFamily || f.id === planFamily).map((f) => [f.name,
+                ...weekDates.map((date) => {
+                  const plan = data.plans.find((p) => p.productFamilyId === f.id && p.planDate.slice(0, 10) === date);
+                  if (!plan) return <span className="busbar-note">—</span>;
+                  const actual = plan.actualQuantity ?? 0, remaining = Math.max(0, plan.quantity - actual);
+                  return <div className="busbar-plan-cell">
+                    <button className="busbar-plan-open" aria-label={`${f.name} ${date} 제품 보기`} onClick={() => openPlanProducts(f.id, date)}>
+                      <strong>{n(actual)} / {n(plan.quantity)}</strong>
+                      <span>{remaining ? `${n(remaining)}개 남음` : actual > plan.quantity ? `${n(actual - plan.quantity)}개 초과` : "완료"}</span>
                     </button>
-                    {writeButton("수정", () => planEditor(p.id))}
-                  </>,
-                ];
-              })}
-          />
-          <p className="busbar-note">
-            계획을 저장하면 목표 수량만큼 사진 등록 대기 항목을 준비합니다. 제품
-            보기에서 작업자를 선택하고 앞·뒤 사진을 등록하세요. 생산을 더
-            진행하려면 계획 수량을 늘리세요.
-          </p>
+                    {canWrite && <button disabled={busy} aria-label={`${f.name} ${date} 계획 수정`} onClick={() => planEditor(plan.id)}>수정</button>}
+                    {plan.productsInitialized === false && <small>계획을 저장해 대기 제품을 준비하세요.</small>}
+                  </div>;
+                })])} />
+          </div>
+          <p className="busbar-note">계획을 저장하면 목표 수량만큼 사진 등록 대기 항목을 준비합니다. 생산을 더 진행하려면 계획 수량을 늘리세요.</p>
         </DsSurface>
       )}
       {tab === "production" && (
@@ -785,25 +779,11 @@ export function InteriorBusbarPage({
               >
                 생산계획으로 이동
               </button>
-              <label>
-                생산계획 필터
-                <select
-                  value={planFilter}
-                  onChange={(event) => {
-                    setPlanFilter(event.target.value);
-                    setPage(1);
-                    setActiveProduct("");
-                  }}
-                >
-                  <option value="">전체 계획</option>
-                  {data.plans.map((plan) => (
-                    <option key={plan.id} value={plan.id}>
-                      {plan.planDate.slice(0, 10)} ·{" "}
-                      {familyName(plan.productFamilyId)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <label>제품군 필터<select aria-label="제품군 필터" value={filters.productFamilyId ?? ""} onChange={(e) => changeFilter("productFamilyId", e.target.value)}><option value="">전체 제품군</option>{data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
+              <label>계획 시작일<input type="date" value={filters.planDateFrom ?? ""} max={filters.planDateTo || undefined} onChange={(e) => changeFilter("planDateFrom", e.target.value)} /></label>
+              <label>계획 종료일<input type="date" value={filters.planDateTo ?? ""} min={filters.planDateFrom || undefined} onChange={(e) => changeFilter("planDateTo", e.target.value)} /></label>
+              <label>생산 상태 필터<select aria-label="생산 상태 필터" value={filters.status ?? ""} onChange={(e) => changeFilter("status", e.target.value)}><option value="">전체 상태</option><option value="Draft">미완료</option><option value="Complete">생산 완료</option><option value="Cancelled">취소</option></select></label>
+              <button onClick={() => { setFilters({}); setPage(1); setActiveProduct(""); setQuery(""); }}>필터 초기화</button>
             </DsToolbar>
             <Table
               headings={[
@@ -816,7 +796,6 @@ export function InteriorBusbarPage({
                 "작업",
               ]}
               rows={data.products
-                .filter((p) => !planFilter || p.planId === planFilter)
                 .filter((p) =>
                   matches(
                     productLabel(p),
@@ -1264,9 +1243,11 @@ export function InteriorBusbarPage({
 function Table({
   headings,
   rows,
+  rowActions,
 }: {
   headings: string[];
   rows: ReactNode[][];
+  rowActions?: { expanded: boolean; toggle: () => void }[];
 }) {
   return rows.length ? (
     <div
@@ -1287,7 +1268,11 @@ function Table({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i}>
+            <tr key={i} className={rowActions ? "busbar-clickable-row" : undefined}
+              tabIndex={rowActions ? 0 : undefined} aria-expanded={rowActions?.[i].expanded}
+              onClick={(event) => { if (!(event.target as HTMLElement).closest("button, a, input, select")) rowActions?.[i].toggle(); }}
+              onKeyDown={(event) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key) && rowActions) { event.preventDefault(); rowActions[i].toggle(); } }}>
+
               {row.map((cell, j) => (
                 <td key={j}>{cell}</td>
               ))}
@@ -1379,6 +1364,7 @@ function Editor({
                     type={f.type ?? "text"}
                     value={values[f.key]}
                     min={f.min}
+                    max={f.max}
                     step={f.step}
                     onChange={(e) =>
                       setValues({ ...values, [f.key]: e.target.value })

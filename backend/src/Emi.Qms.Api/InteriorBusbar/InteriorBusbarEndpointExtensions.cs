@@ -60,7 +60,7 @@ public static class InteriorBusbarEndpointExtensions
                , statusCode: 409);
             }
         });
-        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId) => s.Workspace((bool)h.Items["busbarCanWrite"]!, page ?? 1, pageSize ?? 100, planId));
+        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId, Guid? productFamilyId, DateOnly? planDateFrom, DateOnly? planDateTo, string? status) => s.Workspace((bool)h.Items["busbarCanWrite"]!, page ?? 1, pageSize ?? 100, planId, productFamilyId, planDateFrom, planDateTo, status));
         foreach (var kind in new[] { "product-families", "materials", "workers" })
         {
             var captured = kind;
@@ -109,6 +109,7 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.Product(r, Actor(u))
         }));
+        api.MapGet("/products/{id:guid}", (Guid id, InteriorBusbarStore s) => s.GetProduct(id));
         api.MapPatch("/products/{id:guid}", async (Guid id, BusbarProductCorrectionRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
         {
             id = await s.CorrectProduct(id, r, Actor(u))

@@ -208,3 +208,20 @@
 .busbar-completion {
   scroll-margin-top: 88px;
 }
+.busbar-page .busbar-clickable-row { cursor: pointer; }
+.busbar-page .busbar-clickable-row:hover, .busbar-page .busbar-clickable-row[aria-expanded="true"] { background: #eff6ff; }
+.busbar-page .busbar-clickable-row:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+.busbar-project-summary { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); gap: 24px; margin-block: 16px; }
+.busbar-shipping-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; }
+.busbar-shipping-summary > div { padding: 12px; background: #f8fafc; border-radius: 8px; }
+.busbar-shipping-summary dt { color: #475569; font-size: 13px; }
+.busbar-shipping-summary dd { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
+.busbar-shipping-summary .busbar-shippable { grid-column: 1 / -1; background: #eff6ff; color: #1d4ed8; }
+.busbar-plan-matrix th:first-child, .busbar-plan-matrix td:first-child { position: sticky; left: 0; background: #f8fafc; z-index: 1; max-width: 160px; white-space: normal; min-width: 100px; }
+.busbar-plan-cell { display: grid; gap: 6px; min-width: 102px; }
+.busbar-page .busbar-plan-open { display: grid; gap: 7px; text-align: left; padding: 12px; margin: 0; background: #eff6ff; color: #1e40af; }
+.busbar-plan-open strong { font-size: 18px; }
+.busbar-plan-open span { font-size: 12px; }
+.busbar-plan-cell small { white-space: normal; }
+@media(max-width: 800px) { .busbar-project-summary { grid-template-columns: 1fr; } }
+.busbar-project-anchor { scroll-margin-top: 100px; }

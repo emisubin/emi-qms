@@ -88,12 +88,31 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
 
     private static async Task Audit(NpgsqlConnection c, string kind, Guid id, Guid actor, string reason, object before, object after) => await Exec(c, "insert into busbar_audit values(@id,@kind,@entity,@reason,@actor,now(),@before::jsonb,@after::jsonb)", ("id", Guid.NewGuid()), ("kind", kind), ("entity", id), ("reason", reason), ("actor", actor), ("before", JsonSerializer.Serialize(before)), ("after", JsonSerializer.Serialize(after)));
 
-    public Task<object> Workspace(bool canWrite, int page = 1, int pageSize = 100, Guid? planId = null) => ReadSnapshot<object>(async c =>
+    public Task<object> Workspace(bool canWrite, int page = 1, int pageSize = 100, Guid? planId = null, Guid? productFamilyId = null, DateOnly? planDateFrom = null, DateOnly? planDateTo = null, string? status = null) => ReadSnapshot<object>(async c =>
     {
         Require(page > 0 && pageSize is > 0 and <= 200, "페이지 크기는 1~200이어야 합니다.");
         var offset = ((long)page - 1) * pageSize;
-        var productFilter = planId is null ? "" : $" where p.plan_id='{planId.Value:D}'::uuid";
-        var productOrder = planId is null ? "p.created_at_utc desc,p.id" : "p.plan_sequence,p.id";
+        Require(planDateFrom is null || planDateTo is null || planDateFrom <= planDateTo, "조회 시작일은 종료일보다 늦을 수 없습니다.");
+        Require(status is null or "Draft" or "Complete" or "Cancelled", "생산 상태를 확인하세요.");
+        var predicates = new List<string>();
+        var filterArgs = new List<(string, object?)>();
+        if (planId is not null) { predicates.Add("p.plan_id=@plan"); filterArgs.Add(("plan", planId.Value)); }
+        if (productFamilyId is not null) { predicates.Add("p.product_family_id=@family"); filterArgs.Add(("family", productFamilyId.Value)); }
+        if (status is not null) { predicates.Add("p.status=@status"); filterArgs.Add(("status", status)); }
+        if (planDateFrom is not null) {
+            predicates.Add("exists(select 1 from busbar_plans fp where fp.id=p.plan_id and fp.plan_date>=@dateFrom)");
+            filterArgs.Add(("dateFrom", planDateFrom.Value));
+        }
+        if (planDateTo is not null) {
+            predicates.Add("exists(select 1 from busbar_plans fp where fp.id=p.plan_id and fp.plan_date<=@dateTo)");
+            filterArgs.Add(("dateTo", planDateTo.Value));
+        }
+        var productFilter = predicates.Count == 0 ? "" : " where " + string.Join(" and ", predicates);
+        var parameters = filterArgs.ToArray();
+        var productOrder = planId is not null ? "p.plan_sequence,p.id"
+            : productFamilyId is not null || planDateFrom is not null || planDateTo is not null
+                ? "(select fp.plan_date from busbar_plans fp where fp.id=p.plan_id) desc nulls last,p.product_family_id,p.plan_sequence,p.id"
+                : "p.created_at_utc desc,p.id";
         var result = new Dictionary<string, object?>
         {
             ["canWrite"] = canWrite,
@@ -108,13 +127,13 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
             ("purchases","select p.*,coalesce((select sum(r.quantity) from busbar_receipts r where r.purchase_id=p.id and not exists(select 1 from busbar_operations o where o.reverses_id=r.id)),0) received_quantity from busbar_purchases p order by order_date desc"),
             ("products","select p.*,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name, exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p"+productFilter+" order by "+productOrder+" limit "+pageSize+" offset "+offset),
             ("ledger","select o.*,exists(select 1 from busbar_operations r where r.reverses_id=o.id) reversed from busbar_operations o order by created_at_utc desc,id limit "+pageSize+" offset "+offset),("ledgerLines","select l.* from busbar_ledger l where operation_id in (select id from busbar_operations order by created_at_utc desc,id limit "+pageSize+" offset "+offset+")"),("shipments","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_shipments s join busbar_operations o on o.id=s.id"),("receipts","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_receipts s join busbar_operations o on o.id=s.id"),("audit","select * from busbar_audit order by changed_at_utc desc limit 200")}
-) result[key] = await Rows(c, sql);
+) result[key] = await Rows(c, sql, key == "products" ? parameters : []);
         result["publicationOutstandingCount"] = (await Rows(c, "select count(*) total from busbar_products where status in ('Complete','Cancelled') and manufactured_at_utc is not null and (publication_state<>'Published' or revision<>published_revision)"))[0]["total"];
         result["pagination"] = new
         {
             page,
             pageSize,
-            productCount = (await Rows(c, "select count(*) total from busbar_products p"+productFilter))[0]["total"],
+            productCount = (await Rows(c, "select count(*) total from busbar_products p"+productFilter, parameters))[0]["total"],
             ledgerCount = (await Rows(c, "select count(*) total from busbar_operations"))[0]["total"]
         }
 ;
@@ -497,7 +516,11 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         return id;
     });
 
-    public Task<Dictionary<string, object?>> GetProduct(Guid id) => ReadSnapshot(c => One(c, "busbar_products", id));
+    public Task<Dictionary<string, object?>> GetProduct(Guid id) => ReadSnapshot(async c =>
+    {
+        var rows = await Rows(c, "select p.*,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name,exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p where p.id=@id", ("id", id));
+        return rows.Count > 0 ? rows[0] : throw new BusbarException("not_found", "제품을 찾을 수 없습니다.", 404);
+    });
 
     public Task<byte[]> GetPhoto(Guid id, string side) => ReadSnapshot(async c =>
     {

@@ -225,6 +225,46 @@ public sealed class InteriorBusbarStoreTests
         Assert.Equal(9L,await f.Scalar("select count(*) from busbar_products"));
     }
 
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task FamilyDateAndStatusFiltersApplyBeforePaginationAndCount()
+    {
+        await using var f = await Fixture.Create();
+        var family = await f.Store.Master("product-families", new(null,"A","Family A"),f.Actor);
+        var other = await f.Store.Master("product-families", new(null,"B","Family B"),f.Actor);
+        var worker = await f.Store.Master("workers",new(null,"W","Worker"),f.Actor);
+        var material = await f.Store.Master("materials",new(null,"M","Material","m","도급"),f.Actor);
+        await f.Store.Bom(new(family,[new(material,1)]),f.Actor);
+        var plan = await f.Store.Plan(new(Guid.NewGuid(),family,new(2026,9,10),4),f.Actor);
+        await f.Store.Plan(new(Guid.NewGuid(),family,new(2026,9,11),2),f.Actor);
+        await f.Store.Plan(new(Guid.NewGuid(),other,new(2026,9,10),7),f.Actor);
+        await f.Store.Product(new(Guid.NewGuid(),family,worker),f.Actor);
+        var first = (Dictionary<string,object?>)await f.Store.Workspace(true,1,100,plan);
+        var firstProducts = (List<Dictionary<string,object?>>)first["products"]!;
+        var completed = (Guid)firstProducts[0]["id"]!;
+        await f.Store.Photo(completed,"front",[1],null,f.Actor,worker);
+        await f.Store.Photo(completed,"back",[2],null,f.Actor,worker);
+        await f.Store.CancelProduct((Guid)firstProducts[1]["id"]!,new(Guid.NewGuid(),"test cancellation"),f.Actor);
+        var filtered = (Dictionary<string,object?>)await f.Store.Workspace(true,2,1,null,family,new(2026,9,10),new(2026,9,10),"Draft");
+        var rows = (List<Dictionary<string,object?>>)filtered["products"]!;
+        Assert.Single(rows);
+        Assert.Equal(family,rows[0]["productFamilyId"]);
+        Assert.Equal(plan,rows[0]["planId"]);
+        Assert.Equal("Draft",rows[0]["status"]);
+        Assert.Equal(4,rows[0]["planSequence"]);
+        var firstPage = (Dictionary<string,object?>)await f.Store.Workspace(true,1,1,null,family,new(2026,9,10),new(2026,9,10),"Draft");
+        Assert.Equal(3,Assert.Single((List<Dictionary<string,object?>>)firstPage["products"]!)["planSequence"]);
+        var json = System.Text.Json.JsonSerializer.SerializeToElement(filtered["pagination"]);
+        Assert.Equal(2,json.GetProperty("productCount").GetInt32());
+        var complete = (Dictionary<string,object?>)await f.Store.Workspace(true,1,100,null,family,new(2026,9,10),new(2026,9,10),"Complete");
+        Assert.Equal(completed,Assert.Single((List<Dictionary<string,object?>>)complete["products"]!)["id"]);
+        var inclusive = (Dictionary<string,object?>)await f.Store.Workspace(true,1,100,null,family,new(2026,9,10),new(2026,9,11),"Draft");
+        Assert.Equal(4,((List<Dictionary<string,object?>>)inclusive["products"]!).Count);
+        var noDate = (Dictionary<string,object?>)await f.Store.Workspace(true,1,100,null,family,status:"Draft");
+        Assert.Equal(5,((List<Dictionary<string,object?>>)noDate["products"]!).Count);
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.Workspace(true,productFamilyId:family,planDateFrom:new(2026,9,11),planDateTo:new(2026,9,10)));
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.Workspace(true,status:"not-a-status"));
+    }
+
     internal sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now = new(2026, 9, 9, 1, 0, 0, TimeSpan.Zero);

@@ -1,6 +1,6 @@
 # TASK-GOV-CODEX-002 — PMS 하네스
 
-현재 범위·승인·진행·검증·남은 일의 소유 기록은 [Change 024](gov-codex-002-change-024.md)다. 다른 문서에 현재 상태를 복사하지 않는다.
+현재 범위·승인·진행·검증·남은 일의 소유 기록은 [Change 025](gov-codex-002-change-025.md)다. 전면 재구축 결과는 [Change 024](gov-codex-002-change-024.md)에 보존한다. 다른 문서에 현재 상태를 복사하지 않는다.
 
 - 활성 실행 지침: [Root AGENTS](../AGENTS.md)
 - 사용자 시작 안내: [START_HERE](../START_HERE.md)

@@ -1,10 +1,10 @@
 # TASK-OSAN-DASHBOARD-001 — 전체 프로젝트 진행현황 대시보드
 
 - taskType: `APPROVED_FEATURE_IMPLEMENTATION`
-- status: `PLANNED`
+- status: `IMPLEMENTED_AWAITING_FINAL_VALIDATION`
 - parentTask: `TASK-OSAN-PILOT-001`
-- implementationApproved: false
-- runtimeMutationApproved: false
+- implementationApproved: true — 2026-09-09 실행 큐의 다음 작업 구현 요청
+- runtimeMutationApproved: true — 기존 격리 검수 runtime 코드 갱신에 한정, 기존 데이터 보존
 - gitPublicationApproved: false
 - 선행조건: TASK-OSAN-PROGRESS-001 완료와 이 Task 구현 승인
 
@@ -29,7 +29,7 @@
 
 실행 시 최신 instruction chain·Task identity·Roadmap·branch/runtime 상태를 읽고 exact 파일 allowlist와 검증 명령을 고정한다. 기존 WIP가 남은 현 branch에서 제품 개발을 자동 시작하거나 사용자의 WIP를 정리하지 않는다.
 
-## 완료 기준
+## 최초 등록 당시 완료 기준 (현행 계약과 아래 검증 기록으로 갱신)
 
 - [ ] 1개·여러 대상·여러 페이지·검색 결과에서 단계별 분자/분모와 카드 수 일치.
 - [ ] 시작 버튼 직후 진행 중/0%, 마지막 포장 직전 미완료/최대99%, 최종 완료100%.
@@ -37,8 +37,47 @@
 - [ ] loading/empty/error/retry·지연 응답·전환 cache·keyboard·390px 페이지 가로 넘침 0.
 - [ ] 실제 단계 mutation은 진행 관리에만 있고 현황판에 중단·펜딩·별도 완료 버튼 없음.
 
-## 다음 Task에 전달할 내용
+## 최초 등록 당시 다음 Task 전달 계획
 
 Synthetic 데이터의 기대 집계와 사용자 화면 checklist를 Task 6에 전달한다.
 
 실제 구현 결과·SOP·사용자 안내·검수 checklist·Roadmap 상태는 이 Task의 구현 보고에서 추적한다. 현재는 구현/테스트 미실행, 사용자 검수 적용 전이다. Sol xhigh가 승인 범위의 구현·테스트·범위 내 보정을 맡고 parent 및 fresh GPT-6 High가 검토한다. 모든 품질·Git·운영 gate는 Root 지침을 따른다.
+
+
+## 2026-09-09 현행 구현 계약
+
+사용자의 ‘다음 작업 시작해’로 실행 큐 순서 5를 진행한다. 기준은 `da0bec3`, `codex/osan-progress-photo`, 격리 worktree `/private/tmp/emi-osan-progress-photo`다. 기존 로그인 검수용 임시 entry와 다른 checkout WIP·5186/5096 검수 데이터는 보존한다. 동일 preview의 코드 갱신은 기존 승인 범위이며 원격 게시·배포는 미포함이다.
+
+지정 Figma `55:38`을 오산 진행 현황 경로에 적용한다. ‘제조’는 ‘진행 현황’으로 바꾸고 중단·펜딩 집계와 미승인 알림 기능을 제외한다. 기존 프로젝트 목록·생성은 재설계하지 않는다. 위 최초 완료 기준의 ‘시작 버튼 직후’는 폐기된 업무 이력이며 현재는 1개 단계 완료 시 진행 중, 앞 6단계 완료 후 포장, 모든 대상 포장 완료 시 프로젝트 완료를 따른다.
+
+서버의 권한 범위와 검색 기준 요약 집계, 상태 필터·페이지별 목록·7단계 완료 수를 연결한다. 초기 상태·오류·재시도·늦은 응답 및 페이지 이동을 검증하고 실제 PC·390px 화면과 원본 402px를 직접 확인한다. 서버 계약 변경은 구현과 분리한 reviewer가 확인한다. 과거 문서의 모델 고정·추가 고정 산출물/절차는 현행 Root v2를 대체하지 않는다.
+
+
+### 현재 화면 적용 경계
+
+기존 기획의 오산 로그인 후 기본 대시보드 계약에 따라 오산 홈에도 같은 진행 현황 컴포넌트를 연결한다. 모바일 요약/펼침이라는 최초 일반 디자인 요구는 최신 지정 Figma `55:38`의 행 선택→진행 상세 흐름과 100% 동일 구현 지시로 대체한다. 원본에 없는 펼침 버튼을 추가하지 않는다. 코드·거래처·제품명·수량·납기일·상태는 PC 현황과 기존 프로젝트 상세에 보존하며, 모바일 행에서는 프로젝트명·7단계 완료 수·진행률을 표시한다. 이력의 중단 집계는 제외하고 승인된 전체/시작 전/진행 중/완료 4종을 표시한다. 원본 OS 시계·상태바는 기기 영역이므로 웹 페이지에 가짜로 그리지 않는다.
+
+### 원본 대조·구현
+
+Figma `55:38`은 402×874다. 기기 상태바 48px를 제외한 웹 viewport 402×826에서 비교한다. 요약 영역 x21/y145·359×68 안의 85×52 카드와 radius15/shadow(0 0 4.7px 1px/7%), 검색 x24/y247·271×26/r6.8, 필터 x307/y247·49×26/r6.75, 목록 x24/y286·354×519, 행354×39/r8/border#EEE 및 간격9, 페이지 버튼34×15/r3.75를 실제 Dev Mode에서 확인했다. 11행 밀도에 맞춰 UI pageSize11을 요청하며 API 기본10/최대100은 유지한다.
+
+`OsanDashboardPage`를 홈·진행 현황에 연결하고 기존 프로젝트 목록/생성은 유지했다. 프로젝트 선택은 기존 진행 상세로 이어지며 복귀 시 최신 집계를 읽는다. 제목/검색/필터/페이지에 접근 가능한 이름을 두고 loading·empty·error·403·재시도와 요청 취소/사용자 전환을 분리했다. 사용자가 입력한 검색은 제출 시 적용한다. 카드 집계에는 상태 필터를 적용하지 않으며 입력된 검색 조건과 권한 범위는 적용한다.
+
+필터·이전·다음 PNG는 Figma 이미지 export ZIP과 bytes가 동일하다. 기존 EMI 내부 로고도 해당 Figma source PNG와 일치해 재사용했다. 원본 색상·글꼴·둥근 모서리·그림자를 덮던 공통 모바일 스타일은 이 현황 컴포넌트 범위에서 보정했다.
+
+### 독립 검토와 직접 검증
+
+작성과 분리한 `dashboard_review`에 신규 API·middleware·UI·테스트·현행 계약을 검토받았다(요청 GPT-6 High, tool의 실제 모델 별도 보고 없음). DASH-R1/P1: 새 경로가 Osan capability 목록에 없어 실제 요청을 403으로 막는 문제를 발견해 exact GET/trailing slash만 허용하도록 수정했다. Home 기본 대시보드 연결과 해당 소비자 fixture도 보정했다. 수정분 검토에서 신규 P0–P2 없음, 계약/구현 품질 코드 GO를 받았다.
+
+Frontend dashboard6·사업부 접근20·프로젝트 등록12(합계38) 통과, 진행/사진14 통과. 최초 함께 실행한 사진 테스트는 cleanup effect 전에 URL revoke를 확인해 실패했고 정리를 await하는 assertion으로 보정 후 통과했다. 신규 테스트의 불필요한 Testing Library 옵션 타입 오류를 수정했으며 최종 TypeScript 포함 build와 변경 파일 ESLint가 통과했다. 기존 대형 bundle 경고는 남는다. 전체 제품 회귀·required CI·원격 반영은 별도이며 실행했다고 판정하지 않는다.
+
+
+### 최종 검증·검수 서버와 다음 단계
+
+Backend 고유 테스트 4개가 skip 없이 통과했다: Dashboard query/store 2개, endpoint catalog 1개, 실제 3DB HTTP isolation 1개. 검색·정렬·상태 필터·페이지·단계 집계·부분/최종 완료와 권한 밖/빈 범위/청주 제외를 확인했다. HTTP 정상 GET 및 trailing slash는 200, 잘못된 사업부·projects.read 없음·POST·인접 경로는 403이다. 초기 stale testhost와 테스트 권한 코드 오기를 보정해 최종 재실행했으며 Debug test/Release API build는 경고·오류 0개다. 전용 합성 DB로 실행했고 preview DB는 테스트 대상이 아니다.
+
+실제 402×826·390×844 모바일과 1440×900 PC를 직접 확인했다. 요약 1/0/1/0, 입고검사 1/2·배치검사 2/2와 진행률 21%가 기존 데이터와 일치했다. 완료 필터의 빈 목록에서도 전체 요약 유지, 검색 결과 없음, 초기화, 행→진행 상세→복귀, 기존 사진·작업자·완료 일시, 오산 홈 연결을 확인했다. 모바일 가로 넘침이 없고 진행 막대는 원본 빨강으로 표시된다. PC 보조 정보의 공통 글꼴 크기 오염을 현황 CSS 안에서 보정했다. 브라우저 오류 로그는 마지막 확인 시 없었다.
+
+검수 주소는 http://127.0.0.1:5186/progress 이다. source는 본 worktree, frontend PID 52129/5186, backend PID 77619/5096다. 기존 승인된 preview 코드 갱신으로 API만 최신 Release로 재기동했으며 seed/migration 자동 실행은 끈 상태다. 재기동 직전·직후 기존 진행 이력과 사진 메타데이터 응답의 SHA-256 동일성을 확인했다. 데이터 초기화·migration·실제 provider 실행은 하지 않았다.
+
+이 범위만 로컬 커밋하며 기존 login-review 임시 entry는 제외한다. 다음 작업은 TASK-OSAN-VALIDATION-001의 로그인·진행·사진·현황 통합 및 동일 폭/상태 Figma 최종 대조다. 개별 화면 직접 확인을 전체 Figma 100% 동일성 완료로 표현하지 않는다. 실기기 확인·최종 일괄 사용자 검수와 검수 후 후보 전체 회귀, required CI는 남아 있다. push·PR·main 병합·배포는 수행하지 않았다.

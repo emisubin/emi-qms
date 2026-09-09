@@ -2572,6 +2572,97 @@ public sealed class BusinessUnitIsolationTests
                 StringComparison.Ordinal);
         }
 
+        using (var dashboard = Request(
+                   HttpMethod.Get,
+                   "/api/osan/dashboard?page=1&pageSize=10",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(dashboard, TestContext.Current.CancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.True(
+                response.StatusCode == HttpStatusCode.OK,
+                $"Expected Osan dashboard to return OK, got {response.StatusCode}. Body: {responseBody}");
+            Assert.Contains("OSAN-ROUTED-001", responseBody, StringComparison.Ordinal);
+        }
+
+        using (var dashboardTrailingSlash = Request(
+                   HttpMethod.Get,
+                   "/api/osan/dashboard/",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(
+                dashboardTrailingSlash,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using (var dashboardPost = Request(
+                   HttpMethod.Post,
+                   "/api/osan/dashboard",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(dashboardPost, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        using (var adjacentDashboardPath = Request(
+                   HttpMethod.Get,
+                   "/api/osan/dashboard/export",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(adjacentDashboardPath, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        using (var wrongBusinessUnitDashboard = Request(
+                   HttpMethod.Get,
+                   "/api/osan/dashboard",
+                   "dev-admin",
+                   BusinessUnitCodes.Cheongju))
+        {
+            var response = await client.SendAsync(
+                wrongBusinessUnitDashboard,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            delete from role_permissions
+            where role_id = (select id from roles where code = 'sales')
+              and permission_id = (select id from permissions where code = 'projects.read');
+            """,
+            TestContext.Current.CancellationToken);
+        using (var missingReadPermissionDashboard = Request(
+                   HttpMethod.Get,
+                   "/api/osan/dashboard",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            var response = await client.SendAsync(
+                missingReadPermissionDashboard,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            insert into role_permissions (role_id, permission_id)
+            select role.id, permission.id
+            from roles role
+            cross join permissions permission
+            where role.code = 'sales' and permission.code = 'projects.read'
+            on conflict do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+
         using (var getOsanProject = Request(
                    HttpMethod.Get,
                    $"/api/osan/projects/{osanProjectId:D}",

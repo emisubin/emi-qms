@@ -1,0 +1,59 @@
+/* Figma 55:38: 402px canvas; OS status bar belongs to the device, not the page. */
+.app-shell .osan-dashboard { color: #282828; background: #fff; font-family: "Emi Figma Inter", sans-serif; padding: 24px; }
+.app-shell .osan-dashboard h1, .app-shell .osan-dashboard h2, .app-shell .osan-dashboard p { margin: 0; }
+.app-shell .osan-dashboard h1, .app-shell .osan-dashboard h2 { font-size: 15px; font-weight: 600; line-height: 7.5px; height: 8px; }
+.app-shell .osan-dashboard .osan-dashboard-description { margin-top: 11px; font-size: 7px; line-height: 8px; color: #898989; }
+.app-shell .osan-dashboard-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 11px -2px 31px -3px; }
+.app-shell .osan-dashboard-summary > div { height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border-radius: 15px !important; box-shadow: 0 0 4.7px 1px rgb(0 0 0 / 7%) !important; }
+.app-shell .osan-dashboard-summary span { font-size: 8px; line-height: 8px; }
+.app-shell .osan-dashboard-summary strong { font-size: 16px; line-height: 19px; font-weight: 400; }
+.app-shell .osan-dashboard-toolbar { display: flex; gap: 12px; margin-top: 11px; margin-bottom: 13px; }
+.app-shell .osan-dashboard-search { width: 271px; max-width: calc(100% - 61px); height: 26px; position: relative; }
+.app-shell .osan-dashboard-search input { width: 100%; min-height: 26px !important; height: 26px; border: .75px solid #c7c7c7 !important; border-radius: 6.8px !important; padding: 0 48px 0 12px !important; font-size: 8px !important; background: #fff !important; color: #282828; }
+.app-shell .osan-dashboard button { color: #282828; font-family: inherit; cursor: pointer; box-shadow: none; }
+.app-shell .osan-dashboard-search button { position: absolute; right: 11px; top: 5px; width: 30px; min-width: 0 !important; min-height: 16px !important; height: 16px; padding: 4px 8px !important; border: 0 !important; border-radius: 4px !important; background: #e4e4e4 !important; font-size: 7px !important; line-height: 8px; }
+.app-shell .osan-dashboard-filter { position: relative; display: flex; align-items: center; justify-content: center; gap: 3px; width: 49px; height: 26px; min-height: 26px !important; padding: 0 !important; border: .75px solid #282828 !important; border-radius: 6.75px !important; background: #fff !important; font-size: 9px !important; }
+.app-shell .osan-dashboard-filter img { width: 15px; height: 14px; filter: none; }
+.app-shell .osan-dashboard-filter-active { position: absolute; right: 2px; top: 2px; width: 4px; height: 4px; border-radius: 50%; background: #da2127; }
+.app-shell .osan-dashboard-filter-options { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 0; font-size: 12px; }
+.app-shell .osan-dashboard-filter-options label { display: flex; align-items: center; gap: 8px; }
+.app-shell .osan-dashboard-filter-options select { width: auto; }
+.app-shell .osan-dashboard-results { min-height: 519px; }
+.app-shell .osan-dashboard-results > [role] { padding: 20px 0; font-size: 12px; }
+.app-shell .osan-dashboard-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 9px; }
+.app-shell .osan-dashboard-list > li { min-width: 0; }
+.app-shell .osan-dashboard-project { position: relative; width: 100%; height: 39px; min-height: 39px !important; padding: 0 !important; display: block; background: #fff !important; border: 1px solid #eee !important; border-radius: 8px !important; text-align: left; }
+.app-shell .osan-dashboard-project-title { position: absolute; top: 11px; left: 10px; width: 82px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 10px; font-weight: 500; }
+.app-shell .osan-dashboard-stages { position: absolute; top: 6px; left: 100px; right: 10px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.app-shell .osan-dashboard-stages > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: center; font-size: 7px; line-height: 8px; white-space: nowrap; }
+.app-shell .osan-dashboard-bar { position: absolute; height: 1px; background: #c7c7c7 !important; left: 10px; right: 30px; bottom: 9px; }
+.app-shell .osan-dashboard-bar > span { display: block; height: 100%; background: #da2127 !important; }
+.app-shell .osan-dashboard-percent { position: absolute; right: 5px; bottom: 5px; font-size: 7px; line-height: 7.5px; }
+.app-shell .osan-dashboard-project-meta { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 10px; font-size: 11px; }
+.app-shell .osan-dashboard-project-meta > div { display: flex; gap: 6px; }
+.app-shell .osan-dashboard-project-meta dt { color: #737373; }
+.app-shell .osan-dashboard-project-meta dd { margin: 0; overflow-wrap: anywhere; }
+.app-shell .osan-dashboard-pagination { display: flex; justify-content: center; align-items: center; gap: 24px; margin-top: 17px; font-size: 10px; }
+.app-shell .osan-dashboard-pagination button { width: 34px; min-width: 34px !important; min-height: 15px !important; height: 15px; padding: 0 !important; display: grid; place-items: center; background: #fff !important; border: .75px solid #e3e3e3 !important; border-radius: 3.75px !important; }
+.app-shell .osan-dashboard-pagination img { width: 13px; height: 11px; filter: none; }
+.app-shell .osan-dashboard button:disabled { cursor: default; opacity: .45; }
+.app-shell .osan-dashboard button:focus-visible, .app-shell .osan-dashboard input:focus-visible, .app-shell .osan-dashboard select:focus-visible { outline: 2px solid #282828 !important; outline-offset: 2px; }
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'] .osan-dashboard { width: 100%; min-width: 0; padding: 7px 24px 37px; }
+  .app-shell .osan-dashboard h1 { margin-left: 4px; }
+  .app-shell .osan-dashboard-project-meta { display: none; }
+}
+
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile']:has(.osan-dashboard) .mobile-app-bar { border: 0 !important; }
+  .app-shell[data-layout-mode='mobile']:has(.osan-dashboard) .mobile-app-brand { padding: 0 !important; min-height: 21px; height: 21px; }
+}
+
+@media (min-width: 861px) {
+  .app-shell .osan-dashboard-project { height: 52px; }
+  .app-shell .osan-dashboard-project-title { width: 180px; font-size: 13px; line-height: 16px; }
+  .app-shell .osan-dashboard-stages { left: 210px; }
+  .app-shell .osan-dashboard-stages > span { font-size: 11px; line-height: 13px; }
+  .app-shell .osan-dashboard-project-meta dt,
+  .app-shell .osan-dashboard-project-meta dd { font-size: 11px !important; font-weight: 400 !important; line-height: 16px; }
+}

@@ -10,6 +10,7 @@ import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
 import { OsanProgressPage } from './OsanProgressPage';
+import { OsanDashboardPage } from './OsanDashboardPage';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -2348,7 +2349,7 @@ function QmsAppShellContent({
       className="app-shell"
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
-      data-osan-progress={isOsan && view.kind === 'osan-progress' ? 'true' : undefined}
+      data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
 
@@ -2366,7 +2367,7 @@ function QmsAppShellContent({
               aria-label="EMI PMS 모바일 로고로 홈 이동"
               onClick={() => setView({ kind: 'home' })}
             >
-              <img className="app-brand-logo" src={isOsan && view.kind === 'osan-progress' ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
+              <img className="app-brand-logo" src={isOsan && (view.kind === 'osan-progress' || view.kind === 'home') ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
             </button>
             <span>
               <small>EMI PROJECT</small>
@@ -2547,7 +2548,7 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        isOsan ? <OsanAreaPlaceholder area="home" /> : <HomePage
+        isOsan ? <OsanDashboardPage developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })} /> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
@@ -2643,10 +2644,8 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           mutationAllowed={mutationEnabled && canUpdateManufacturing}
           onBack={() => setView({ kind: 'osan-progress' })}
-        /> : <OsanProjectListPage
+        /> : <OsanDashboardPage
           developmentUserKey={developmentUserKey}
-          canCreate={false}
-          onCreate={() => setView({ kind: 'create' })}
           onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })}
         />
       ) : null}
@@ -4865,19 +4864,6 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
         />
       </div>
     </>
-  );
-}
-
-function OsanAreaPlaceholder({ area }: { area: 'home' | 'progress' }) {
-  const content = area === 'home'
-    ? ['오산 사업부 홈', '프로젝트와 진행 관리 메뉴에서 오산 사업부의 준비된 업무 범위를 확인할 수 있습니다.']
-    : ['오산 진행 관리', '오산에서는 G2, Pending, 보류와 취소를 사용하지 않습니다. 승인된 7단계 진행 화면은 후속 진행 Task에서 열립니다.'];
-
-  return (
-    <section className="panel-section osan-area-placeholder">
-      <DsPageHeader className="page-header" eyebrow="OSAN" title={content[0]} />
-      <DsEmptyState title="준비 중인 업무입니다." description={content[1]} />
-    </section>
   );
 }
 

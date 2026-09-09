@@ -104,7 +104,7 @@ describe('오산 진행 상세', () => {
     await screen.findByText('선택한 대상의 단계 완료와 사진 저장을 확인했습니다.');
     expect(vi.mocked(api.completeOsanProgress).mock.calls[1][1].operationId).not.toBe(first.operationId);
     expect(vi.mocked(api.completeOsanProgress).mock.calls[1][1].photos[0].name).toBe('new.png');
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview'));
   });
   it('프로젝트를 떠난 뒤 도착한 저장 응답을 새 프로젝트에 적용하지 않는다', async () => {
     let resolveSave!: (value: api.OsanProgressMutation) => void;

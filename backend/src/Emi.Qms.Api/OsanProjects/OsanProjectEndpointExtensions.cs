@@ -10,6 +10,37 @@ public static class OsanProjectEndpointExtensions
 {
     public static IEndpointRouteBuilder MapOsanProjectEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/osan/dashboard", async (
+            HttpRequest request,
+            DatabaseConnectionStringProvider connectionStringProvider,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            if (!IsSelectedOsan(connectionStringProvider))
+            {
+                return BusinessUnitDenied();
+            }
+
+            if (!ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ProjectRead))
+            {
+                return Results.Forbid();
+            }
+
+            var (query, errors) = ParseDashboardQuery(request.Query);
+            if (query is null)
+            {
+                return Results.ValidationProblem(errors);
+            }
+
+            var response = await new OsanDashboardStore(connectionStringProvider).GetAsync(
+                query,
+                ProjectEndpointExtensions.GetProjectAccessScope(user),
+                cancellationToken);
+            return Results.Ok(response);
+        })
+        .RequireAuthorization()
+        .WithName("GetOsanDashboard");
+
         var api = app.MapGroup("/api/osan/projects");
 
         api.MapGet("", async (
@@ -140,6 +171,56 @@ public static class OsanProjectEndpointExtensions
         .WithName("CreateOsanProject");
 
         return app;
+    }
+
+    internal static (OsanDashboardQuery? Query, Dictionary<string, string[]> Errors) ParseDashboardQuery(
+        IQueryCollection values)
+    {
+        var errors = new Dictionary<string, string[]>();
+        var search = values["search"].ToString().Trim();
+        if (search.Length > 200)
+        {
+            errors["search"] = ["검색어는 200자 이하여야 합니다."];
+        }
+
+        var status = values["status"].ToString().Trim();
+        if (status.Length == 0)
+        {
+            status = OsanDashboardStatuses.All;
+        }
+        else if (!OsanDashboardStatuses.IsValid(status))
+        {
+            errors["status"] = ["상태 필터가 올바르지 않습니다."];
+        }
+
+        var page = ParsePositiveInteger(values["page"].ToString(), 1, "page", errors);
+        var pageSize = ParsePositiveInteger(values["pageSize"].ToString(), 10, "pageSize", errors);
+        if (pageSize > 100)
+        {
+            errors["pageSize"] = ["페이지 크기는 100 이하여야 합니다."];
+        }
+
+        return errors.Count == 0
+            ? (new OsanDashboardQuery(search, status, page, pageSize), errors)
+            : (null, errors);
+    }
+
+    private static int ParsePositiveInteger(
+        string raw,
+        int defaultValue,
+        string field,
+        IDictionary<string, string[]> errors)
+    {
+        if (raw.Length == 0)
+        {
+            return defaultValue;
+        }
+        if (!int.TryParse(raw, out var value) || value < 1)
+        {
+            errors[field] = ["1 이상의 정수를 입력해 주세요."];
+            return defaultValue;
+        }
+        return value;
     }
 
     private static bool IsSelectedOsan(DatabaseConnectionStringProvider connectionStringProvider) =>

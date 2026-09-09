@@ -66,6 +66,13 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
     private static bool IsOsanAllowedRequest(HttpRequest request)
     {
         var path = request.Path;
+        if (HttpMethods.IsGet(request.Method)
+            && (path.Equals("/api/osan/dashboard", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/osan/dashboard/", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
         if ((HttpMethods.IsGet(request.Method) || HttpMethods.IsPost(request.Method))
             && (path.Equals("/api/osan/projects", StringComparison.OrdinalIgnoreCase)
                 || path.Equals("/api/osan/projects/", StringComparison.OrdinalIgnoreCase)))

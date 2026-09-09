@@ -69,6 +69,45 @@ public sealed class OsanProjectRegistrationApiTests
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);
+
+        var dashboard = Assert.Single(factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>(), endpoint =>
+                endpoint.RoutePattern.RawText == "/api/osan/dashboard"
+                && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                    HttpMethods.Get,
+                    StringComparer.OrdinalIgnoreCase) == true);
+        Assert.NotEmpty(dashboard.Metadata.GetOrderedMetadata<IAuthorizeData>());
+    }
+
+    [Fact]
+    public void DashboardQuery_DefaultsAndRejectsInvalidValues()
+    {
+        var validValues = new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+        {
+            ["search"] = "  panel  ",
+            ["status"] = OsanDashboardStatuses.InProgress,
+            ["page"] = "2",
+            ["pageSize"] = "11"
+        });
+        var (query, errors) = OsanProjectEndpointExtensions.ParseDashboardQuery(validValues);
+        Assert.Empty(errors);
+        Assert.Equal(new OsanDashboardQuery("panel", OsanDashboardStatuses.InProgress, 2, 11), query);
+
+        var (defaults, defaultErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
+            new QueryCollection());
+        Assert.Empty(defaultErrors);
+        Assert.Equal(new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10), defaults);
+
+        var (invalid, invalidErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
+            new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
+            {
+                ["search"] = new string('a', 201),
+                ["status"] = "Paused",
+                ["page"] = "0",
+                ["pageSize"] = "101"
+            }));
+        Assert.Null(invalid);
+        Assert.Equal(["search", "status", "page", "pageSize"], invalidErrors.Keys);
     }
 
     [Fact]
@@ -436,6 +475,195 @@ public sealed class OsanProjectRegistrationApiTests
             """,
             TestContext.Current.CancellationToken,
             ("target_id", targetId)));
+    }
+
+    [Fact]
+    public async Task DashboardStore_AggregatesOnlyScopedSearchAndStatusAcrossPages()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await database.ExecuteAsync($"""
+            insert into departments (id, code, name, is_active, sort_order)
+            values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values ('{UserId:D}', 'osan-dashboard-test', 'Osan Dashboard Test',
+                    '89000000-0000-0000-0000-000000000010', true);
+            """, TestContext.Current.CancellationToken);
+
+        var projectStore = new OsanProjectStore(provider);
+        var notStarted = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Not started panel",
+                projectCode: "DASH-002",
+                customerName: "Alpha Customer",
+                deliveryDate: new DateOnly(2026, 10, 2))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var partial = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Partial panel",
+                projectCode: "DASH-001",
+                customerName: "Beta Customer",
+                poNumber: "PO-FIND-ME",
+                quantity: 2,
+                deliveryDate: new DateOnly(2026, 10, 1))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var completed = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "Completed panel",
+                projectCode: "DASH-003",
+                workOrderNumber: "WO-COMPLETE",
+                deliveryDate: new DateOnly(2026, 9, 1))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var hidden = await projectStore.CreateAsync(
+            Normalize(ValidRequest(
+                title: "LEAKTOKEN hidden",
+                projectCode: "DASH-HIDDEN",
+                poNumber: "LEAKTOKEN",
+                deliveryDate: new DateOnly(2026, 8, 1))),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var cheongjuId = Guid.NewGuid();
+        await database.ExecuteAsync(
+            """
+            insert into projects (
+                id, project_key, project_number, name, customer_name, item, project_code,
+                project_title, delivery_date, status, created_by_user_id, updated_at_utc,
+                project_profile)
+            values (
+                @project_id, @project_key, @project_number, 'MIXEDPROFILE project',
+                'Cheongju Customer', '', @project_code, 'MIXEDPROFILE project',
+                '2026-07-01', 'Active', @user_id, now(), 'Cheongju');
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", cheongjuId),
+            ("project_key", $"cheongju-{cheongjuId:N}"),
+            ("project_number", $"CJ-{cheongjuId:N}"),
+            ("project_code", $"CJ-{cheongjuId:N}"),
+            ("user_id", UserId));
+
+        var progressStore = new OsanProgressStore(provider);
+        var partialTargets = partial.Value!.Project.Targets.Select(target => target.TargetId).ToArray();
+        var partialResult = await progressStore.CompleteAsync(
+            partial.Value.Project.ProjectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Batch,
+                4,
+                partialTargets.Select(id => new OsanProgressTargetRequest(id, 1)).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, partialResult.Status);
+
+        var completedTarget = Assert.Single(completed.Value!.Project.Targets).TargetId;
+        var version = 1;
+        foreach (var stage in new[] { 6, 2, 5, 1, 4, 3, 7 })
+        {
+            var result = await progressStore.CompleteAsync(
+                completed.Value.Project.ProjectId,
+                new CompleteOsanProgressInput(
+                    Guid.NewGuid(),
+                    OsanCompletionModes.Individual,
+                    stage,
+                    [new OsanProgressTargetRequest(completedTarget, version)],
+                    []),
+                UserId,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
+            version += 1;
+        }
+
+        var visibleIds = new[]
+        {
+            notStarted.Value!.Project.ProjectId,
+            partial.Value.Project.ProjectId,
+            completed.Value.Project.ProjectId
+        };
+        var scope = new ProjectAccessScope(
+            false,
+            visibleIds.Select(id => $"osan-{id:N}").ToArray());
+        var store = new OsanDashboardStore(provider);
+
+        var firstPage = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 2),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
+        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Equal(2, firstPage.Items.Count);
+        Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
+            firstPage.Items.Select(item => item.ProjectId));
+        var partialItem = firstPage.Items[0];
+        Assert.Equal(2, partialItem.CompletedStepCount);
+        Assert.Equal(14, partialItem.TotalStepCount);
+        Assert.Equal(14, partialItem.ProgressPercent);
+        Assert.Equal(7, partialItem.Stages.Count);
+        var partialStage = Assert.Single(partialItem.Stages, stage => stage.SequenceNumber == 4);
+        Assert.Equal(2, partialStage.CompletedTargetCount);
+        Assert.Equal(2, partialStage.TotalTargetCount);
+
+        var secondPage = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 2, 2),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(firstPage.Summary, secondPage.Summary);
+        Assert.Equal(3, secondPage.TotalCount);
+        var completedItem = Assert.Single(secondPage.Items);
+        Assert.Equal(completed.Value.Project.ProjectId, completedItem.ProjectId);
+        Assert.Equal(7, completedItem.CompletedStepCount);
+        Assert.Equal(7, completedItem.TotalStepCount);
+        Assert.Equal(100, completedItem.ProgressPercent);
+        Assert.All(completedItem.Stages, stage =>
+        {
+            Assert.Equal(1, stage.CompletedTargetCount);
+            Assert.Equal(1, stage.TotalTargetCount);
+        });
+
+        var filtered = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.InProgress, 1, 10),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(firstPage.Summary, filtered.Summary);
+        Assert.Equal(1, filtered.TotalCount);
+        Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(filtered.Items).ProjectId);
+
+        var searched = await store.GetAsync(
+            new OsanDashboardQuery("PO-FIND-ME", OsanDashboardStatuses.All, 1, 10),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(1, 0, 1, 0), searched.Summary);
+        Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(searched.Items).ProjectId);
+
+        var noLeak = await store.GetAsync(
+            new OsanDashboardQuery("LEAKTOKEN", OsanDashboardStatuses.All, 1, 10),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(0, 0, 0, 0), noLeak.Summary);
+        Assert.Equal(0, noLeak.TotalCount);
+        Assert.Empty(noLeak.Items);
+        Assert.NotEqual(hidden.Value!.Project.ProjectId, partial.Value.Project.ProjectId);
+
+        var noCheongjuLeak = await store.GetAsync(
+            new OsanDashboardQuery("MIXEDPROFILE", OsanDashboardStatuses.All, 1, 10),
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, noCheongjuLeak.Summary.TotalCount);
+        Assert.Equal(0, noCheongjuLeak.TotalCount);
+        Assert.Empty(noCheongjuLeak.Items);
+
+        var emptyScope = await store.GetAsync(
+            new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10),
+            new ProjectAccessScope(false, []),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, emptyScope.Summary.TotalCount);
+        Assert.Equal(0, emptyScope.TotalCount);
+        Assert.Empty(emptyScope.Items);
     }
 
     [Fact]
@@ -914,15 +1142,17 @@ public sealed class OsanProjectRegistrationApiTests
         string? poNumber = null,
         string? workOrderNumber = null,
         int? quantity = 1,
-        Guid? operationId = null) =>
+        Guid? operationId = null,
+        DateOnly? deliveryDate = null,
+        string productName = "Product") =>
         new(
             title,
             projectCode,
             customerName,
             poNumber,
             workOrderNumber,
-            new DateOnly(2026, 12, 31),
-            "Product",
+            deliveryDate ?? new DateOnly(2026, 12, 31),
+            productName,
             quantity,
             operationId ?? Guid.NewGuid());
 

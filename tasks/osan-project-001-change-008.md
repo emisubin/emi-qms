@@ -88,3 +88,11 @@ CI34484013281에서 Frontend397개 단위테스트·lint/type/build 통과, mock
 최종 CI34484850268: Frontend397개·mock UI16개·일반 Full-stack64개·사업부 접근1개·오산1개 통과. Backend619개 중617통과/2실패(고객사 옵션 정렬의 DB locale 차이, migration0094 신규관계 감사분류 누락)로 Gate 미통과이며 아직 병합·배포하지 않았다. 고객사 옵션은 Ordinal정렬 후 동일 집합을 검증하도록 보정했고 격리DB 집중 테스트1개 통과했다. 독립 검토에서 사진승인 요청 테이블은 가변 업무상태여서 단순 감사제외가 P2임을 확인했다. 신규0095에서 공통 감사 trigger를 추가하고, 관리이력/바이너리증빙만 기존 원장/append-only 증빙으로 분류한다. 관련 성공감사·동일저장 재시도 검증 후 CI를 재실행한다. 이 보정은 기존 감사 계약 누락을 복구하며 사진 바이너리를 공통 감사에 복제하지 않는다.
 
 0095 보정 검증 완료: Debug API/tests 빌드 경고0오류0, 감사DB1개·실제3DB HTTP1개(27초)·AuditInfrastructure12개 통과. 실제 신청/승인/저장을 각각2회 호출해 성공 감사 action별1개/총3개를 확인했다. 신규trigger98개 및 migration최신0095 확인, 기존업무호환0086은보존. 독립 reviewer 최종 P0–P2없음, 감사누락P2 해소. 바이너리증빙은 공통감사복제없음·fingerprint원문은MetadataOnly로보존하지 않음. 최종CI는 이보정후 후보로 갱신한다.
+
+### 최종 병합·공개배포 완료 (2026-09-11)
+
+PR136 최종 head e6ece3e8205e097bbe6cb4afc7271f0d95ccefe3의 CI34489631395가 전부 통과했다. Backend619/619·Frontend397·mock UI16·일반 Full-stack64·사업부1·오산1 및 Workflow Validation/CI Gate 성공. 사용자 검수·공개배포 승인에 따라 main2a1e8dfd6cd846ee18c8e5f214aa807d6da1ffc9로 정상 merge했으며 head/main tree동일, main CI34493977084도 성공했다. 보호규칙 예외·우회 없음.
+
+기존 Azure workflow34494010353로 exact main 배포 성공. migration0094/0095를 포함한 migration·Backend·Frontend·public security PASS. 기존bootstrap/backfill/provider설정변경 없음. Backend48/image sha256:c30beed5979cd8485909642cdd7105df50784097b8dcd6c2998447fe4211b41a, Frontend36/image sha256:a2d26f4ef312264af07ff1db52fb7e7d36615c4502944445d0a495d713364626. 두 앱 latest=ready, workflow Healthy/Running 확인. 공개 https://pms.emiinc.co.kr health200·익명API401 확인.
+
+로그인된 공개사이트에서 D-day·상세 QR/관리자버튼, 패널1개→용지1장과30/50mm선택·QR이미지정상로드, 해당패널 QR직접경로의7단계·설명·작업자/완료일시·기존컬러사진로드(filter none)를 확인했다. 배포직후 기존세션의 상세조회401은 해당페이지새로고침의로그인확인후정상화됐고이후QR/사진조회성공. 검증용운영쓰기·사진교체·실물인쇄는 하지않았다. 실제프린터는 승인된용지크기/100%설정을따른다. 구현·자동검증·사용자검수·원격main·공개배포 완료. 이종료기록은 로컬문서커밋으로남긴다.

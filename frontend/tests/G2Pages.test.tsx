@@ -598,7 +598,7 @@ describe('G2 charts and daily management', () => {
       const url = new URL(String(input));
       if (url.pathname === '/api/system/holidays') return json([]);
       if (url.pathname === '/api/g2/home') return json({ today: date, year: 2026, month: 9, hasInventoryBaseline: true, days: [
-        { ...day(date), inventory: 100, defectInventory: count?.quantity ?? 3, defectInventoryCount: count }, day('2026-09-11', true)
+        { ...day(date), inventory: 100, physicalCount: { ...metric(100), quantity: 100, version: 7 }, defectInventory: count?.quantity ?? 3, defectInventoryCount: count }, day('2026-09-11', true)
       ] });
       writes.push({ path: url.pathname, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null, query: url.search });
       if (conflict) return json({ title: '다른 사용자가 변경했습니다. 다시 조회해 주세요.' }, 409);
@@ -607,7 +607,9 @@ describe('G2 charts and daily management', () => {
       return json({ saved: true });
     }));
     render(<G2HomePage developmentUserKey="dev-sales" canManageInventory canManageTargets={false} mutationEnabled />);
-    fireEvent.click(await screen.findByRole('button', { name: '불량재고 실사 입력' }));
+    fireEvent.click(await screen.findByRole('button', { name: '실사 입력' }));
+    expect(screen.getByLabelText('실사 구분')).toHaveValue('available');
+    fireEvent.change(screen.getByLabelText('실사 구분'), { target: { value: 'defect' } });
     let dialog = screen.getByRole('dialog', { name: '불량재고 실사 입력' });
     expect(within(dialog).getByLabelText('실사 날짜')).toHaveAttribute('max', date);
     expect(within(dialog).getByRole('button', { name: '저장' })).toBeDisabled();
@@ -621,6 +623,11 @@ describe('G2 charts and daily management', () => {
     expect(within(table).getByRole('rowheader', { name: '재고' }).closest('tr')).toHaveTextContent('100');
     fireEvent.click(screen.getByRole('button', { name: '10일 불량 실사 0대 · 수정' }));
     dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByLabelText('실사 수량')).toHaveValue(0);
+    fireEvent.change(within(dialog).getByLabelText('실사 구분'), { target: { value: 'available' } });
+    expect(within(dialog).getByLabelText('실사 수량')).toHaveValue(100);
+    fireEvent.change(within(dialog).getByLabelText('실사 수량'), { target: { value: '99' } });
+    fireEvent.change(within(dialog).getByLabelText('실사 구분'), { target: { value: 'defect' } });
     expect(within(dialog).getByLabelText('실사 수량')).toHaveValue(0);
     fireEvent.change(within(dialog).getByLabelText('실사 수량'), { target: { value: '2' } });
     conflict = true;
@@ -643,9 +650,37 @@ describe('G2 charts and daily management', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => json(String(input).includes('/holidays') ? [] : { today: '2026-09-10', year: 2026, month: 9, hasInventoryBaseline: false, days: [day('2026-09-10')] })));
     const view = render(<G2HomePage developmentUserKey="dev-viewer" canManageInventory={false} canManageTargets={false} mutationEnabled />);
     await screen.findByRole('table', { name: '생산 현황' });
-    expect(screen.queryByRole('button', { name: '불량재고 실사 입력' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '실사 입력' })).toBeNull();
     view.rerender(<G2HomePage developmentUserKey="dev-viewer" canManageInventory canManageTargets={false} mutationEnabled={false} />);
-    expect(screen.getByRole('button', { name: '불량재고 실사 입력' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '실사 입력' })).toBeDisabled();
+  });
+
+  it('uses one graph entry and saves the selected available count with its own version after switching kinds', async () => {
+    const date = '2026-09-10';
+    const writes: Array<{ path: string; body: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (init?.method === 'PUT') { writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) }); return json({ saved: true }); }
+      return json(url.pathname.includes('/holidays') ? [] : { today: date, year: 2026, month: 9, hasInventoryBaseline: true, days: [
+        { ...day(date), inventory: 10, physicalCount: { ...metric(10), quantity: 10, version: 8 }, defectInventory: 0, defectInventoryCount: { ...metric(0), quantity: 0, version: 3 } }
+      ] });
+    }));
+    render(<G2HomePage developmentUserKey="dev-sales" canManageInventory canManageTargets={false} mutationEnabled />);
+    const entry = await screen.findByRole('button', { name: '실사 입력' });
+    expect(screen.queryByRole('button', { name: '불량재고 실사 입력' })).toBeNull();
+    expect(entry.closest('article')).toHaveClass('g2-chart-card');
+    expect(screen.getByRole('table', { name: '생산 현황' }).closest('article')).not.toContainElement(entry);
+    expect(screen.getByRole('button', { name: '10일 불량 실사 0대 · 수정' }).closest('article')).toBe(entry.closest('article'));
+    fireEvent.click(entry);
+    fireEvent.change(screen.getByLabelText('실사 구분'), { target: { value: 'defect' } });
+    expect(screen.getByLabelText('실사 수량')).toHaveValue(0);
+    fireEvent.change(screen.getByLabelText('실사 수량'), { target: { value: '88' } });
+    fireEvent.change(screen.getByLabelText('실사 구분'), { target: { value: 'available' } });
+    expect(screen.getByLabelText('실사 수량')).toHaveValue(10);
+    fireEvent.change(screen.getByLabelText('실사 수량'), { target: { value: '12' } });
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(writes).toEqual([{ path: `/api/g2/inventory-counts/${date}`, body: { quantity: 12, expectedVersion: 8 } }]);
   });
 
   it('reuses the loaded month for same-month dates and fetches another month only once', async () => {

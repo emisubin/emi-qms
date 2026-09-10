@@ -308,7 +308,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
     headers: devHeaders('dev-sales'), data: { quantity: 0, expectedVersion: null }
   }), 400);
   await page.goto('/g2');
-  await page.getByRole('button', { name: '불량재고 실사 입력', exact: true }).click();
+  await page.getByRole('button', { name: '실사 입력', exact: true }).click();
+  await page.getByLabel('실사 구분').selectOption('defect');
   const countDialog = page.getByRole('dialog', { name: '불량재고 실사 입력' });
   await expect(countDialog.getByLabel('실사 날짜')).toHaveValue(today);
   await expect(countDialog.getByRole('button', { name: '저장', exact: true })).toBeDisabled();

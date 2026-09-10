@@ -1,6 +1,6 @@
 # G2 Change 005 — 수리량과 불량재고, 홈 합계 펼치기
 
-- 상태: 구현·집중 검증·독립 검토 완료 / 사용자 검수 대기 / 원격 미게시
+- 상태: 구현·사용자 검수·전체 회귀·원격 main 병합·Azure 공개배포 완료
 - 승인: 2026-09-10 사용자가 신규 불량의 1회 차감 수식을 확인하고 구현·검수 화면 제공을 요청했다.
 - 기준: origin/main `0a12b819cc7622b8afc55ae485c420f8f01b2ad9`, branch `codex/g2-repair-inventory`
 - 작업공간: `/private/tmp/emi-qms-g2-repair-20260910`. 기존 clone의 WIP와 실행환경을 보존하고 별도 검수 runtime을 제공하기 위한 임시 격리. 검수 종료 후 정리는 별도 요청 시 수행.
@@ -57,3 +57,11 @@
 - 입력 화면 보정 후 사용자가 `원격메인에 병합하고 공개배포까지 완료해`라고 요청했다. 현재 G2 수리·불량재고 및 월간 표/입력 배치 결과의 사용자 검수 수락과 해당 main 병합·Azure 공개배포 실행 승인으로 기록한다.
 - 게시 후보는 `06d2aab`, `8edc6a0` 및 이 승인 기록이다. 원격 main 기준 `0a12b819cc7622b8afc55ae485c420f8f01b2ad9` 이후 타 변경이 없음을 fetch로 확인했다. PR의 required CI가 Backend/Frontend/일반 및 사업부 전용 full-stack 전체 회귀를 책임 실행한다.
 - 운영 변경은 기존 Azure 수동 release workflow의 exact main SHA, additive migration `0091`, Backend/Frontend 이미지 교체와 기존 보안/인증/provider 설정 보존으로 제한한다. DB reset·bootstrap·membership backfill·시험 알림 발송은 승인 범위에 포함하지 않는다.
+
+## 게시·배포 결과 — 2026-09-10
+
+- PR #131: https://github.com/emisubin/emi-qms/pull/131, squash main `977fb35301446813394dccda8421c3e998fe0d8b`, merged `2026-09-10T01:34:35Z`.
+- PR CI `34423812056`: 모든 필수 항목 PASS. Backend 602/602, Frontend 41개 test file, mock browser 14/14, 일반 full-stack 64/64, 사업부 접근 1/1, 오산 등록 1/1 통과. Main CI `34426028588`도 성공했다.
+- Azure manual release `34426075806`: https://github.com/emisubin/emi-qms/actions/runs/34426075806. Exact source는 위 merge SHA. Migration/Backend/Frontend/PublicSecurity 모두 PASS (`2026-09-10T01:43:50Z`). DB bootstrap/membership backfill/inspection은 모두 SKIPPED이며 실제 실행하지 않았다.
+- 배포 후 공개 HTTP 직접 확인: `/health/live` 200, 익명 `/` 401, 익명 `/api/me` 401. 기존 인증 경계를 유지했다. 이번 turn에서는 인증된 운영 계정의 G2 입력/수정 smoke는 하지 않아 운영 업무 데이터 mutation이 없다.
+- 운영 배포 결과는 PR #131 댓글에도 남긴다. 이 사후 결과 기록은 local branch commit으로 보존하며 제품 source 추가 변경·추가 배포는 없다. 검수용 5178/5088과 합성 DB는 기존 상태로 유지한다.

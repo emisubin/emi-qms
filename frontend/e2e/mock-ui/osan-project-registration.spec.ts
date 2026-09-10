@@ -196,7 +196,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(mobileList).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '닫기', exact: true }).click();
   for (const forbiddenText of ['Excel', 'Pending', '병목']) await expect(osanMobilePage.getByText(forbiddenText)).toHaveCount(0);
-  await expect(osanMobilePage.getByRole('checkbox')).toHaveCount(0);
+  await expect(osanMobilePage.getByRole('checkbox', { name: '저장된 Title QR 선택' })).toBeVisible();
   const osanMobilePageContract = await osanListFrameContract(page);
   expect(osanMobilePageContract.order).toEqual(['title', 'description', 'kpi', 'filter', 'listHeading']);
   const osanMobileListContract = await projectListContract(page);
@@ -210,11 +210,11 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(desktopList).toHaveClass(/project-list-desktop/);
   await expect(mobileList).toBeHidden();
   await expect(desktopList.getByRole('row')).toHaveCount(2);
-  await expect(desktopList.getByRole('columnheader')).toHaveCount(8);
+  await expect(desktopList.getByRole('columnheader')).toHaveCount(9);
   const desktopProjectRow = desktopList.getByRole('row', { name: '저장된 Title 상세 열기' });
   await expect(desktopProjectRow).toHaveClass(/project-list-row/);
-  await expect(desktopProjectRow.getByRole('cell')).toHaveCount(8);
-  await expect(desktopProjectRow.locator(':scope > .project-selection-cell')).toHaveCount(0);
+  await expect(desktopProjectRow.getByRole('cell')).toHaveCount(9);
+  await expect(desktopProjectRow.getByRole('checkbox', { name: '저장된 Title QR 선택' })).toBeVisible();
   const desktopListCode = desktopProjectRow.locator('.project-code-value');
   expect(await desktopListCode.textContent()).toBe('AbC  001');
   expect(await desktopListCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
@@ -259,9 +259,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(cheongjuDesktopPageContract.structure.commonOrderValid).toBe(true);
   const cheongjuDesktopListContract = await projectListContract(page);
   expect(cheongjuDesktopListContract.geometry.headerBodyAligned).toBe(true);
-  // 오산은 승인된 part 분류/고객사/Code 순서를 사용하며 공용 행 구조는 유지한다.
+  // 오산 QR 선택 열을 제외하고 승인된 part 분류/고객사/Code 순서의 공용 데이터 셀을 비교한다.
   expect(cheongjuDesktopListContract.structure).toEqual({ ...osanDesktopListContract.structure,
-    commonCells: [0, 2, 3, 1, 4, 5, 6, 7].map(index => osanDesktopListContract.structure.commonCells[index]) });
+    commonCells: [1, 3, 4, 2, 5, 6, 7, 8].map(index => osanDesktopListContract.structure.commonCells[index]) });
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-desktop-1440.png'), fullPage: true });
 

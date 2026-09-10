@@ -7,6 +7,7 @@ namespace Emi.Qms.Api.G2;
 public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectionStringProvider, TimeProvider timeProvider)
 {
     private const int AdvisoryLockNamespace = 0x4732;
+    private const int MetricsWriteLockKey = int.MinValue;
     private static readonly TimeZoneInfo SeoulTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
 
     public async Task<G2HomeResponse> GetHomeAsync(int? requestedYear, int? requestedMonth, CancellationToken token)
@@ -43,6 +44,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
         await ExpireForecastMetricsAsync(connection, transaction, today, token);
         foreach (var change in changes.OrderBy(change => change.MetricCode, StringComparer.Ordinal))
         {
@@ -65,6 +67,8 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
             command.Parameters.AddWithValue("id", current?.Id ?? Guid.Empty);
             await command.ExecuteNonQueryAsync(token);
         }
+        if (changes.Any(IsDefectInventoryChange))
+            await EnsureNonNegativeDefectInventoryAsync(connection, transaction, token);
         await transaction.CommitAsync(token);
     }
 
@@ -76,6 +80,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
         await AcquireLockAsync(connection, transaction, InventoryLockKey(date), token);
         var current = await LockInventoryAsync(connection, transaction, date, token);
         EnsureVersion(current?.Version, request.ExpectedVersion, "재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
@@ -102,6 +107,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
         await AcquireLockAsync(connection, transaction, InventoryLockKey(date), token);
         var current = await LockInventoryAsync(connection, transaction, date, token);
         EnsureVersion(current?.Version, expectedVersion, "재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
@@ -149,34 +155,45 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         var today = Today();
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
-        await ExpireForecastMetricsAsync(connection, null, today, token);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
+        await ExpireForecastMetricsAsync(connection, transaction, today, token);
         var metricsFrom = from >= G2InventoryCalculator.AvailableInventoryStartDate ? from.AddDays(-1) : from;
         var metrics = await ReadMetricsAsync(connection, metricsFrom, to, token);
         var counts = await ReadCountsAsync(connection, from, to, token);
         var targets = await ReadTargetsAsync(connection, from, to, token);
         var balanceBefore = await ReadBalanceBeforeAsync(connection, from, token);
         var production = new Dictionary<DateOnly, long>();
+        var repairs = new Dictionary<DateOnly, long>();
         var delivery = new Dictionary<DateOnly, long>();
         var defects = new Dictionary<DateOnly, long>();
         for (var date = metricsFrom; date <= to; date = date.AddDays(1))
         {
             production[date] = (long)(Metric(metrics, date, G2MetricCodes.MorningProduction)?.Quantity ?? 0) + (Metric(metrics, date, G2MetricCodes.AfternoonProduction)?.Quantity ?? 0);
+            repairs[date] = (long)(Metric(metrics, date, G2MetricCodes.MorningRepair)?.Quantity ?? 0) + (Metric(metrics, date, G2MetricCodes.AfternoonRepair)?.Quantity ?? 0);
             delivery[date] = Metric(metrics, date, G2MetricCodes.Delivery)?.Quantity ?? 0;
             defects[date] = Metric(metrics, date, G2MetricCodes.Defect)?.Quantity ?? 0;
         }
-        var inventory = G2InventoryCalculator.Calculate(from, to, balanceBefore, counts.ToDictionary(row => row.Key, row => row.Value.Quantity), production, delivery, defects);
+        var inventory = G2InventoryCalculator.Calculate(from, to, balanceBefore, counts.ToDictionary(row => row.Key, row => row.Value.Quantity), production, delivery, defects, repairs);
+        var defectInventory = await ReadDefectInventoryBeforeAsync(connection, from, token);
         var dailyTargets = ExpandTargets(from, to, targets);
         var days = new List<G2DayResponse>();
         for (var date = from; date <= to; date = date.AddDays(1))
         {
             var mp = Metric(metrics, date, G2MetricCodes.MorningProduction);
             var ap = Metric(metrics, date, G2MetricCodes.AfternoonProduction);
+            var mr = Metric(metrics, date, G2MetricCodes.MorningRepair);
+            var ar = Metric(metrics, date, G2MetricCodes.AfternoonRepair);
             var me = Metric(metrics, date, G2MetricCodes.MorningEmiAttendance);
             var mc = Metric(metrics, date, G2MetricCodes.MorningContractorAttendance);
             var ae = Metric(metrics, date, G2MetricCodes.AfternoonEmiAttendance);
             var ac = Metric(metrics, date, G2MetricCodes.AfternoonContractorAttendance);
             var morningTotal = Sum(me?.Quantity, mc?.Quantity);
             var afternoonTotal = Sum(ae?.Quantity, ac?.Quantity);
+            var repairTotal = Sum(mr?.Quantity, ar?.Quantity);
+            defectInventory += (long)(Metric(metrics, date, G2MetricCodes.Defect)?.Quantity ?? 0)
+                - (mr?.Quantity ?? 0)
+                - (ar?.Quantity ?? 0);
             dailyTargets.TryGetValue((date, G2TargetTypes.DailyProduction), out var productionTarget);
             dailyTargets.TryGetValue((date, G2TargetTypes.Delivery), out var deliveryTarget);
             dailyTargets.TryGetValue((date, G2TargetTypes.Inventory), out var inventoryTarget);
@@ -185,8 +202,10 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
                 ToResponse(Metric(metrics, date, G2MetricCodes.Defect)), ToResponse(me), ToResponse(mc), ToResponse(ae), ToResponse(ac), Sum(mp?.Quantity, ap?.Quantity),
                 morningTotal, afternoonTotal, Sum(morningTotal, afternoonTotal), inventory.GetValueOrDefault(date),
                 counts.TryGetValue(date, out var count) ? ToResponse(count) : null,
-                productionTarget is null ? null : ToResponse(productionTarget), deliveryTarget is null ? null : ToResponse(deliveryTarget), inventoryTarget is null ? null : ToResponse(inventoryTarget)));
+                productionTarget is null ? null : ToResponse(productionTarget), deliveryTarget is null ? null : ToResponse(deliveryTarget), inventoryTarget is null ? null : ToResponse(inventoryTarget),
+                ToResponse(mr), ToResponse(ar), repairTotal, defectInventory));
         }
+        await transaction.CommitAsync(token);
         return new(today, from, to, days);
     }
 
@@ -260,6 +279,8 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
               select case metric_code
                 when 'MorningProduction' then coalesce(quantity,0)
                 when 'AfternoonProduction' then coalesce(quantity,0)
+                when 'MorningRepair' then coalesce(quantity,0)
+                when 'AfternoonRepair' then coalesce(quantity,0)
                 when 'Delivery' then -coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
@@ -271,6 +292,8 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
               select case metric_code
                 when 'MorningProduction' then coalesce(quantity,0)
                 when 'AfternoonProduction' then coalesce(quantity,0)
+                when 'MorningRepair' then coalesce(quantity,0)
+                when 'AfternoonRepair' then coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
               from g2_daily_metrics
@@ -292,6 +315,45 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         sum.Parameters.AddWithValue("available_inventory_previous", G2InventoryCalculator.AvailableInventoryStartDate.AddDays(-1));
         sum.Parameters.AddWithValue("from_previous", from.AddDays(-1));
         return checked(balance + (long)(await sum.ExecuteScalarAsync(token) ?? 0L));
+    }
+
+    private static async Task<long> ReadDefectInventoryBeforeAsync(NpgsqlConnection connection, DateOnly from, CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select coalesce(sum(case metric_code
+                when 'Defect' then coalesce(quantity,0)
+                when 'MorningRepair' then -coalesce(quantity,0)
+                when 'AfternoonRepair' then -coalesce(quantity,0)
+                else 0 end),0)::bigint
+            from g2_daily_metrics
+            where work_date < @from
+              and metric_code in ('Defect','MorningRepair','AfternoonRepair');
+            """;
+        command.Parameters.AddWithValue("from", from);
+        return (long)(await command.ExecuteScalarAsync(token) ?? 0L);
+    }
+
+    private static async Task EnsureNonNegativeDefectInventoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            select coalesce(min(defect_inventory),0)::bigint
+            from (
+              select sum(sum(case metric_code
+                  when 'Defect' then coalesce(quantity,0)
+                  when 'MorningRepair' then -coalesce(quantity,0)
+                  when 'AfternoonRepair' then -coalesce(quantity,0)
+                  else 0 end)) over (order by work_date) as defect_inventory
+              from g2_daily_metrics
+              where metric_code in ('Defect','MorningRepair','AfternoonRepair')
+              group by work_date
+            ) daily_balances;
+            """;
+        var minimum = (long)(await command.ExecuteScalarAsync(token) ?? 0L);
+        if (minimum < 0)
+            throw new ArgumentException("수리 완료량은 해당 날짜까지 누적된 불량 수량을 초과할 수 없습니다.", "repairs");
     }
 
     private static Dictionary<(DateOnly, string), TargetRow?> ExpandTargets(DateOnly from, DateOnly to, IReadOnlyList<TargetRow> targets)
@@ -360,6 +422,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
     private static G2InventoryCountResponse ToResponse(InventoryRow row) => new(row.Quantity, row.Version, row.UpdatedAt, row.UpdatedBy);
     private static G2TargetResponse ToResponse(TargetRow row) => new(row.Type, row.Date, row.Quantity, row.Version, row.UpdatedAt, row.UpdatedBy);
     private static MetricRow? Metric(IReadOnlyDictionary<(DateOnly, string), MetricRow> metrics, DateOnly date, string code) => metrics.GetValueOrDefault((date, code));
+    private static bool IsDefectInventoryChange(G2MetricChange change) => change.MetricCode is G2MetricCodes.Defect or G2MetricCodes.MorningRepair or G2MetricCodes.AfternoonRepair;
     private static long? Sum(int? left, int? right) => left.HasValue || right.HasValue ? (long)(left ?? 0) + (right ?? 0) : null;
     private static long? Sum(long? left, long? right) => left.HasValue || right.HasValue ? (left ?? 0) + (right ?? 0) : null;
     private DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), SeoulTimeZone).DateTime);
@@ -368,7 +431,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
     private static void ValidateDate(DateOnly date) { if (date.Year < 2000) throw new ArgumentOutOfRangeException(nameof(date), "날짜는 2000년 이후로 선택해 주세요."); }
     private static void ValidateRange(DateOnly from, DateOnly to) { ValidateDate(from); ValidateDate(to); if (to < from) throw new ArgumentException("종료일은 시작일보다 빠를 수 없습니다.", nameof(to)); if (to.DayNumber - from.DayNumber > 365) throw new ArgumentException("조회 기간은 최대 366일입니다.", nameof(to)); }
     private static void ValidateYearMonth(int year, int month) { if (year is < 2000 or > 9999) throw new ArgumentOutOfRangeException(nameof(year), "연도는 2000년 이후로 선택해 주세요."); if (month is < 1 or > 12) throw new ArgumentOutOfRangeException(nameof(month), "월은 1월부터 12월까지 선택해 주세요."); }
-    private static int MetricLockKey(DateOnly date, string code) => checked(date.DayNumber * 16 + code switch { G2MetricCodes.MorningProduction => 0, G2MetricCodes.AfternoonProduction => 1, G2MetricCodes.Delivery => 2, G2MetricCodes.MorningEmiAttendance => 3, G2MetricCodes.MorningContractorAttendance => 4, G2MetricCodes.AfternoonEmiAttendance => 5, G2MetricCodes.AfternoonContractorAttendance => 6, G2MetricCodes.Defect => 7, _ => throw new ArgumentOutOfRangeException(nameof(code)) });
+    private static int MetricLockKey(DateOnly date, string code) => checked(date.DayNumber * 16 + code switch { G2MetricCodes.MorningProduction => 0, G2MetricCodes.AfternoonProduction => 1, G2MetricCodes.Delivery => 2, G2MetricCodes.MorningEmiAttendance => 3, G2MetricCodes.MorningContractorAttendance => 4, G2MetricCodes.AfternoonEmiAttendance => 5, G2MetricCodes.AfternoonContractorAttendance => 6, G2MetricCodes.Defect => 7, G2MetricCodes.MorningRepair => 12, G2MetricCodes.AfternoonRepair => 13, _ => throw new ArgumentOutOfRangeException(nameof(code)) });
     private static int InventoryLockKey(DateOnly date) => checked(date.DayNumber * 16 + 8);
     private static int TargetLockKey(DateOnly date, string type) => checked(date.DayNumber * 16 + type switch { G2TargetTypes.DailyProduction => 9, G2TargetTypes.Inventory => 10, G2TargetTypes.Delivery => 11, _ => throw new ArgumentOutOfRangeException(nameof(type)) });
     private NpgsqlDataSource CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); return string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException("QMS database connection is not configured.") : NpgsqlDataSource.Create(value); }

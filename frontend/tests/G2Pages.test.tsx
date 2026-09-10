@@ -12,6 +12,7 @@ function day(date = todaySeoul(), forecast = false): G2Day {
   return {
     date, isForecast: forecast,
     morningProduction: null, afternoonProduction: null, delivery: null, defect: null,
+    morningRepair: null, afternoonRepair: null, repairTotal: null, defectInventory: 0,
     morningEmiAttendance: null, morningContractorAttendance: null,
     afternoonEmiAttendance: null, afternoonContractorAttendance: null,
     productionTotal: null, morningAttendanceTotal: null, afternoonAttendanceTotal: null, attendanceTotal: null,
@@ -202,7 +203,8 @@ describe('G2 charts and daily management', () => {
 
     render(<G2HomePage developmentUserKey="dev-sales" canManageInventory={false} canManageTargets={false} mutationEnabled />);
     const productionTable = await screen.findByRole('table', { name: '생산 현황' });
-    fireEvent.change(within(productionTable).getByLabelText('8월 2일 불량 임시 예상값'), { target: { value: '3' } });
+    fireEvent.click(within(productionTable).getByRole('button', { name: '불량 상세 보기' }));
+    fireEvent.change(within(productionTable).getByLabelText('8월 2일 신규 불량 임시 예상값'), { target: { value: '3' } });
 
     const inventoryRow = within(productionTable).getByRole('rowheader', { name: '재고' }).closest('tr');
     expect(inventoryRow).not.toBeNull();
@@ -216,6 +218,91 @@ describe('G2 charts and daily management', () => {
 
   it('uses the Seoul calendar date even when UTC is still on the previous month', () => {
     expect(todaySeoul(new Date('2026-08-31T15:05:00Z'))).toBe('2026-09-01');
+  });
+
+  it('returns repairs to next-day available stock once while defective stock crosses physical counts', () => {
+    const days = [
+      { ...day('2026-09-01'), inventory: 100, morningProduction: metric(20), productionTotal: 20, defect: metric(4), morningRepair: metric(2), repairTotal: 2, defectInventory: 12 },
+      { ...day('2026-09-02'), inventory: 113, delivery: metric(5), defectInventory: 12 },
+      { ...day('2026-09-03'), inventory: 50, physicalCount: { ...metric(50), quantity: 50 }, defectInventory: 12 },
+      { ...day('2026-09-04'), inventory: 50, defectInventory: 12 }
+    ];
+    const result = applyG2HomePreview(days, { '2026-09-01': { afternoonRepair: '3' } });
+    expect(result.map(item => item.inventory)).toEqual([100, 116, 50, 50]);
+    expect(result.map(item => item.defectInventory)).toEqual([9, 9, 9, 9]);
+    expect(result[0].repairTotal).toBe(5);
+    expect(days[0].afternoonRepair).toBeNull();
+    expect(days[0].defectInventory).toBe(12);
+    const partial = applyG2HomePreview(days.slice(1), { '2026-09-02': { morningRepair: '2', defect: '1' } });
+    expect(partial.map(item => item.defectInventory)).toEqual([11, 11, 11]);
+    expect(partial.map(item => item.inventory)).toEqual([113, 50, 50]);
+  });
+
+  it('expands each home summary from its header or number and previews repairs without saving', async () => {
+    const methods: string[] = [];
+    const days = [
+      { ...day('2026-09-01'), inventory: 10, morningProduction: metric(7), afternoonProduction: metric(3), productionTotal: 10, defect: metric(2), defectInventory: 5, morningRepair: metric(1), repairTotal: 1 },
+      { ...day('2026-09-02'), inventory: 15, delivery: metric(4), defectInventory: 5 }
+    ];
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(init?.method ?? 'GET');
+      return json(String(url).includes('/holidays') ? [] : { today: '2026-09-02', year: 2026, month: 9, hasInventoryBaseline: true, days });
+    }));
+    render(<G2HomePage developmentUserKey="dev-sales" canManageInventory={false} canManageTargets={false} mutationEnabled />);
+    const table = await screen.findByRole('table', { name: '생산 현황' });
+    expect(within(table).getAllByRole('row')).toHaveLength(6);
+    expect(within(table).queryByRole('spinbutton')).toBeNull();
+    fireEvent.click(within(table).getByRole('button', { name: '9월 1일 생산 10대 상세 보기' }));
+    expect(within(table).getByLabelText('9월 1일 오전 생산 임시 예상값')).toHaveValue(7);
+    fireEvent.click(within(table).getByRole('button', { name: '생산 상세 접기' }));
+    expect(within(table).queryByLabelText('9월 1일 오전 생산 임시 예상값')).toBeNull();
+    fireEvent.click(within(table).getByRole('button', { name: '수리 상세 보기' }));
+    fireEvent.change(within(table).getByLabelText('9월 1일 오후 수리 임시 예상값'), { target: { value: '2' } });
+    expect(within(table).getByRole('button', { name: '9월 1일 수리 3대 상세 접기' })).toBeInTheDocument();
+    const inventory = within(table).getByRole('rowheader', { name: '재고' }).closest('tr')!;
+    expect(within(inventory).getByText('17')).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: '납품 상세 보기' }));
+    expect(within(table).getByRole('rowheader', { name: '납품 목표' })).toBeInTheDocument();
+    expect(within(table).getByLabelText('9월 2일 일일 납품 임시 예상값')).toHaveValue(4);
+    fireEvent.click(within(table).getByRole('button', { name: '불량 상세 보기' }));
+    const stock = within(table).getByRole('rowheader', { name: '불량재고' }).closest('tr')!;
+    expect(within(stock).getAllByText('3')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: '임시값 초기화' }));
+    expect(within(inventory).getByText('15')).toBeInTheDocument();
+    expect(within(stock).getAllByText('5')).toHaveLength(2);
+    for (let repeat = 0; repeat < 3; repeat += 1) {
+      fireEvent.click(within(table).getByRole('button', { name: '수리 상세 접기' }));
+      expect(within(table).getAllByRole('row')).toHaveLength(10);
+      expect(within(table).getAllByRole('button', { name: '불량 상세 접기' })).toHaveLength(1);
+      expect(within(table).getAllByRole('button', { name: '납품 상세 접기' })).toHaveLength(1);
+      fireEvent.click(within(table).getByRole('button', { name: '불량 상세 접기' }));
+      fireEvent.click(within(table).getByRole('button', { name: '납품 상세 접기' }));
+      expect(within(table).getAllByRole('row')).toHaveLength(6);
+      fireEvent.click(within(table).getByRole('button', { name: '납품 상세 보기' }));
+      fireEvent.click(within(table).getByRole('button', { name: '불량 상세 보기' }));
+      fireEvent.click(within(table).getByRole('button', { name: '수리 상세 보기' }));
+      expect(within(table).getAllByRole('row')).toHaveLength(12);
+    }
+    expect(methods.every(method => method === 'GET')).toBe(true);
+  });
+
+  it('saves repair shifts independently with their own versions and restricts logistics input', async () => {
+    const today = todaySeoul();
+    const saved: unknown[] = [];
+    const selected = { ...day(today), morningRepair: metric(2), afternoonRepair: metric(1), repairTotal: 3, defectInventory: 8 };
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PUT') { saved.push(JSON.parse(String(init.body))); return json({ saved: true }); }
+      return json(String(url).includes('/holidays') ? [] : { today, from: today, to: today, days: [selected] });
+    }));
+    const view = render(<G2OperationsPage developmentUserKey="dev-manufacturing" canEditProduction canEditDelivery={false} mutationEnabled />);
+    fireEvent.change(await screen.findByLabelText(/^오후 수리량/u), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경한 값 저장' }));
+    await waitFor(() => expect(saved).toEqual([{ afternoonRepair: { quantity: 4, expectedVersion: 1 } }]));
+    await screen.findByText('생산·납품 수량을 저장했습니다.');
+    view.rerender(<G2OperationsPage developmentUserKey="dev-manufacturing" canEditProduction={false} canEditDelivery mutationEnabled />);
+    expect(screen.getByLabelText(/^오전 수리량/u)).toBeDisabled();
+    expect(screen.getByLabelText(/^오후 수리량/u)).toBeDisabled();
+    expect(screen.getByLabelText(/^일일 납품량/u)).toBeEnabled();
   });
 
   it('keeps both axes fixed around a five-day mobile data window and scrolls only the inner dates', () => {
@@ -270,7 +357,8 @@ describe('G2 charts and daily management', () => {
     }));
 
     render(<G2OperationsPage developmentUserKey="dev-manufacturing" canEditProduction canEditDelivery={false} mutationEnabled />);
-    fireEvent.change(await screen.findByLabelText(/^불량 수량/u), { target: { value: '2' } });
+    fireEvent.change(await screen.findByLabelText(/^일일 불량 수량/u), { target: { value: '2' } });
+    expect(Array.from(document.querySelectorAll('.g2-entry-field > span')).map(element => element.textContent)).toEqual(['오전 생산량', '오전 수리량', '오후 생산량', '오후 수리량', '일일 납품량', '일일 불량 수량']);
     fireEvent.click(screen.getByRole('button', { name: '변경한 값 저장' }));
 
     await waitFor(() => expect(savedBody).toEqual({ defect: { quantity: 2, expectedVersion: null } }));
@@ -281,7 +369,20 @@ describe('G2 charts and daily management', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json(response)));
     render(<G2OperationsPage developmentUserKey="dev-sales" canEditProduction canEditDelivery mutationEnabled />);
     const table = await screen.findByRole('table', { name: '생산·납품·재고 월간 입력 현황' });
+    expect(within(table).getAllByRole('row')).toHaveLength(6);
+    expect(within(table).queryByRole('rowheader', { name: '오전 생산' })).toBeNull();
+    fireEvent.click(within(table).getByRole('button', { name: '생산 상세 보기' }));
     expect(within(table).getByRole('rowheader', { name: '오전 생산' })).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: '12월 29일 수리 미입력 상세 보기' }));
+    expect(within(table).getByRole('rowheader', { name: '오후 수리' })).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: '납품 상세 보기' }));
+    fireEvent.click(within(table).getByRole('button', { name: '불량 상세 보기' }));
+    expect(within(table).getByRole('rowheader', { name: '납품 목표' })).toBeInTheDocument();
+    expect(within(table).getByRole('rowheader', { name: '일일 불량 수량' })).toBeInTheDocument();
+    expect(within(table).getByRole('rowheader', { name: '불량재고' })).toBeInTheDocument();
+    expect(within(table).queryByRole('spinbutton')).toBeNull();
+    for (const group of ['생산', '수리', '납품', '불량']) fireEvent.click(within(table).getByRole('button', { name: `${group} 상세 접기` }));
+    expect(within(table).getAllByRole('row')).toHaveLength(6);
     expect(within(table).queryByRole('rowheader', { name: '구분' })).toBeNull();
     expect(within(table).getAllByText('예상')).toHaveLength(3);
     expect(within(table).getByText('12월 29일')).toBeInTheDocument();
@@ -361,10 +462,11 @@ describe('G2 charts and daily management', () => {
     expect(within(shiftKpis).getByText('오전조 일일 생산 평균').closest('.g2-chart-kpi')).toHaveTextContent('15대');
     expect(within(shiftKpis).getByText('오후조 일일 생산 평균').closest('.g2-chart-kpi')).toHaveTextContent('25대');
     expect(within(flowTable).getByText('2026-08-17')).toBeInTheDocument();
-    expect(within(productionTable).getByRole('rowheader', { name: '생산 합계' })).toBeInTheDocument();
-    expect(within(productionTable).getByRole('rowheader', { name: '납품 목표' })).toBeInTheDocument();
-    expect(within(productionTable).getByRole('rowheader', { name: '납품' })).toBeInTheDocument();
-    expect(within(productionTable).getByRole('rowheader', { name: '불량' })).toBeInTheDocument();
+    expect(within(productionTable).getByRole('button', { name: '생산 상세 보기' })).toBeInTheDocument();
+    expect(within(productionTable).getByRole('button', { name: '수리 상세 보기' })).toBeInTheDocument();
+    expect(within(productionTable).queryByRole('rowheader', { name: '납품 목표' })).toBeNull();
+    expect(within(productionTable).getByRole('button', { name: '납품 상세 보기' })).toBeInTheDocument();
+    expect(within(productionTable).getByRole('button', { name: '불량 상세 보기' })).toBeInTheDocument();
     expect(within(productionTable).getByRole('rowheader', { name: '재고' })).toBeInTheDocument();
     expect(within(productionTable).getByRole('rowheader', { name: '재고' }).closest('tr')).toHaveClass('g2-inventory-row');
     expect(within(productionTable).queryByRole('rowheader', { name: '일 생산목표' })).toBeNull();
@@ -372,7 +474,7 @@ describe('G2 charts and daily management', () => {
     expect(within(attendanceTable).getByText('8월 17일')).toBeInTheDocument();
     await waitFor(() => expect(within(productionTable).getByText('8월 17일').closest('th')).toHaveClass('g2-red-day'));
     expect(within(attendanceTable).getByText('8월 17일').closest('th')).toHaveClass('g2-red-day');
-    expect(within(productionTable).getByRole('rowheader', { name: '생산 합계' }).closest('tr')?.children[1]).toHaveClass('g2-red-day-column');
+    expect(within(productionTable).getByRole('button', { name: '생산 상세 보기' }).closest('tr')?.children[1]).toHaveClass('g2-red-day-column');
     expect(within(attendanceTable).getByRole('button', { name: '8월 17일 오전 합계 미입력 세부 인원 보기' }).closest('td')).toHaveClass('g2-red-day-column');
     expect(container.querySelectorAll('.g2-axis-label.g2-red-day')).toHaveLength(2);
     expect(within(productionTable).queryByText('실적')).toBeNull();
@@ -516,6 +618,7 @@ describe('G2 charts and daily management', () => {
       days: [{ ...day(today), morningProduction: metric(22), productionTotal: 22 }]
     })));
     const productionTable = await screen.findByRole('table', { name: '생산 현황' });
+    fireEvent.click(within(productionTable).getByRole('button', { name: '생산 상세 보기' }));
     expect(within(productionTable).getByLabelText(`${Number(today.slice(5, 7))}월 ${Number(today.slice(8, 10))}일 오전 생산 임시 예상값`)).toHaveValue(22);
 
     await act(async () => resolveOlder(json({

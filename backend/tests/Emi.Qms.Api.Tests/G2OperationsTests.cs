@@ -98,6 +98,57 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
         Assert.Equal(50, result[from.AddDays(1)]);
     }
 
+    [Fact]
+    public void InventoryCalculator_AddsPreviousDayRepairsWithoutDeductingCumulativeDefectInventoryAgain()
+    {
+        var from = G2InventoryCalculator.AvailableInventoryStartDate;
+        var result = G2InventoryCalculator.Calculate(
+            from,
+            from.AddDays(2),
+            20,
+            new Dictionary<DateOnly, int>(),
+            new Dictionary<DateOnly, long>
+            {
+                [from.AddDays(-1)] = 5,
+                [from] = 4,
+                [from.AddDays(1)] = 3
+            },
+            new Dictionary<DateOnly, long>(),
+            new Dictionary<DateOnly, long>
+            {
+                [from.AddDays(-1)] = 4,
+                [from] = 1
+            },
+            new Dictionary<DateOnly, long>
+            {
+                [from.AddDays(-1)] = 1,
+                [from] = 1
+            });
+
+        Assert.Equal(22, result[from]);
+        Assert.Equal(26, result[from.AddDays(1)]);
+        Assert.Equal(29, result[from.AddDays(2)]);
+    }
+
+    [Fact]
+    public void InventoryCalculator_UsesSameDayRepairsBeforeCutoverAndPreservesPhysicalOverrides()
+    {
+        var from = G2InventoryCalculator.AvailableInventoryStartDate.AddDays(-2);
+        var result = G2InventoryCalculator.Calculate(
+            from,
+            from.AddDays(2),
+            10,
+            new Dictionary<DateOnly, int> { [from.AddDays(1)] = 30 },
+            new Dictionary<DateOnly, long> { [from] = 2, [from.AddDays(1)] = 5 },
+            new Dictionary<DateOnly, long>(),
+            new Dictionary<DateOnly, long> { [from] = 3, [from.AddDays(1)] = 4 },
+            new Dictionary<DateOnly, long> { [from] = 1, [from.AddDays(1)] = 2 });
+
+        Assert.Equal(10, result[from]);
+        Assert.Equal(30, result[from.AddDays(1)]);
+        Assert.Equal(33, result[from.AddDays(2)]);
+    }
+
     [Theory]
     [InlineData("dev-admin", true, true, true, true, true)]
     [InlineData("dev-sales", true, true, true, true, true)]
@@ -158,6 +209,19 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
         using var response = await client.PutAsJsonAsync(
             "/api/g2/operations/2026-08-18",
             new { defect = new { quantity = 2, expectedVersion = (int?)null } },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task OperationsEndpoint_RejectsRepairsForLogisticsRole()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-logistics");
+        using var response = await client.PutAsJsonAsync(
+            "/api/g2/operations/2026-08-18",
+            new { morningRepair = new { quantity = 1, expectedVersion = (int?)null } },
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);

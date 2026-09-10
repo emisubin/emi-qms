@@ -785,6 +785,7 @@
 
 .g2-entry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .g2-entry-grid-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.g2-entry-grid-repairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g2-inline-form label,
 .g2-entry-field,
 .g2-date-picker,
@@ -979,7 +980,8 @@
   .g2-month-controls { width: 100%; justify-content: space-between; }
   .g2-inline-form,
   .g2-entry-grid,
-  .g2-entry-grid-four { grid-template-columns: 1fr; }
+  .g2-entry-grid-four,
+  .g2-entry-grid-repairs { grid-template-columns: 1fr; }
   .g2-inline-form > button,
   .g2-entry-card > .primary-button { width: 100%; justify-self: stretch; }
   .g2-chart-wrap { border-radius: 14px; padding: 8px; }

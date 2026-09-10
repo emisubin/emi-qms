@@ -4,6 +4,7 @@ import { G2ProductionDeliveryInventoryChart, G2ShiftProductionChart } from './G2
 import { G2DateRangeFilter, G2HorizontalTable, type G2HorizontalRow } from './G2DataViews';
 import { formatG2Date, formatG2Modified, todaySeoul, type G2Day, type G2HomeResponse, type G2Target } from './g2';
 import { applyG2HomePreview, type G2PreviewField, type G2PreviewInputs } from './G2HomePreview';
+import { G2ProductionSummaryTable } from './G2ProductionSummaryTable';
 import { useG2DateRange } from './useG2DateRange';
 import { useG2Holidays, type G2HolidayMap } from './useG2Holidays';
 
@@ -249,15 +250,7 @@ export function G2HomePage({
       {canManageInventory ? <div className="g2-marker-actions" aria-label="재고 실사 날짜별 수정">{visibleDays.filter(day => day.physicalCount).map(day => <button key={day.date} type="button" disabled={!mutationEnabled} onClick={() => openCount(day.date)}><b>{Number(day.date.slice(-2))}일 실사</b><span>{day.physicalCount?.quantity}대 · 수정</span></button>)}<button type="button" disabled={!mutationEnabled || !countDateMaximum} onClick={() => countDateMaximum && openCount(countDateMaximum)}>실사 입력</button></div> : null}
     </article>
 
-    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">표의 생산·납품·불량 숫자는 조회용 임시 예상값입니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p><G2HorizontalTable days={visibleDays} caption="생산 현황" rows={[
-      { label: '오전 생산', value: day => previewInput(day, 'morningProduction', '오전 생산') },
-      { label: '오후 생산', value: day => previewInput(day, 'afternoonProduction', '오후 생산') },
-      { label: '생산 합계', value: day => <strong>{day.productionTotal ?? '—'}</strong> },
-      { label: '납품 목표', value: day => day.deliveryTarget?.quantity ?? '—' },
-      { label: '납품', value: day => previewInput(day, 'delivery', '납품') },
-      { label: '불량', value: day => previewInput(day, 'defect', '불량') },
-      { label: '재고', rowClassName: 'g2-inventory-row', value: day => day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
-    ]} holidays={holidays} /></article>
+    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">상세의 생산·수리·납품·불량 입력은 조회용 임시 예상값입니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p><G2ProductionSummaryTable days={visibleDays} holidays={holidays} input={previewInput} /></article>
 
     {canManageTargets ? <article className="g2-card g2-target-card"><header><div><p className="eyebrow">목표 관리</p><h3>적용 시작일별 목표</h3></div></header><div className="g2-inline-form"><label>목표 종류<select value={targetType} disabled={!mutationEnabled || busy} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}><option value="DailyProduction">일 생산목표</option><option value="Delivery">납품 목표</option><option value="Inventory">재고목표</option></select></label><label className="g2-target-date-field">적용 시작일<input type="date" min={targetDateMinimum} max={targetDateMaximum} value={targetDate} disabled={!mutationEnabled || busy} required onChange={event => { setTargetDate(event.target.value); setTargetValue(''); }} /></label><label>목표 수량<input type="number" min="0" step="1" value={targetValue} disabled={!mutationEnabled || busy} required onChange={event => setTargetValue(event.target.value)} /></label><button className="primary-button" type="button" disabled={!mutationEnabled || busy || !targetDate || targetValue.trim() === ''} onClick={() => void saveTarget()}>목표 저장</button></div><small>같은 적용일을 다시 저장하면 기존 목표를 수정합니다. 이전·다음 달로 이동해 과거와 미래 목표를 관리할 수 있습니다.</small></article> : null}
 

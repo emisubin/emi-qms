@@ -115,7 +115,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.run_backend == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     env:
       DATABASE_HOST: localhost
       DATABASE_PORT: 5432
@@ -150,7 +150,9 @@ jobs:
       - name: Build
         run: dotnet build backend/Emi.Qms.sln --configuration Release --no-restore
       - name: Test
-        run: dotnet test backend/Emi.Qms.sln --configuration Release --no-build
+        run: >-
+          dotnet test backend/Emi.Qms.sln --configuration Release --no-build
+          --logger "console;verbosity=normal"
 
   frontend:
     name: Frontend

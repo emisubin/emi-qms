@@ -15,3 +15,5 @@ PR133의 exact head `e96d0aa9e74729e6a1a1f87976de38692aed207e`를 main `edd27639
 선배포 workflow 성공. Backend revision46/image `sha256:1027d2eaa8f0ba8862fee07ea734d17565df11fd8954c26f21e092661362115d`, Frontend revision34/image `sha256:6f4c5b5ecbcecc2b5ef98795beb41705c8bb5e7918cc83ef6555ef4599d29544`로 교체했다. 두 앱 latest=ready, Healthy/active 확인. 공개 health200·익명 API401, 로그인된 공개 사이트에서 새 사진 CSS `filter:none` 적용을 확인했다. ScannerHost=clamav, 검사 활성·fail-closed를 유지했다. 운영 프로젝트·사진 기록을 검증용으로 새로 생성하지 않았다.
 
 2026-09-10 후속 확인: PR CI34448818679 Backend가 설정된 35분 한도를 넘겨 GitHub에 의해 취소되고 CI Gate가 실패했다. main CI34449665561의 Backend는 진행 중이며, 두 실행의 Frontend·Workflow Validation·Full-Stack E2E는 성공했다. 시간 초과 자체를 제품 결함이나 전체 테스트 통과로 해석하지 않는다. 새 운영 장애 근거는 확인되지 않아 선배포 버전을 유지하고 main 검증을 계속 확인한다. 사용자에게 이 상태를 통지했으며 같은 상태를 반복 통지하지 않는다.
+
+2026-09-10 추가 결과: 배포 main의 Backend 최종 테스트 로그는 610/610 PASS(실패0·skip0)이나 job 전체 시간 제한으로 cancelled다. 사용자는 사진 수정 완료를 확인했고 공개 오산 실제 저장 사진의 이미지·상위 요소 filter=none을 확인했다. 제품 이미지 재배포는 필요하지 않다. PHOTO Change001의 CI 시간 제한 보정과 정상 gate 확인을 이어간다.

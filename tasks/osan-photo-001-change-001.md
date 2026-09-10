@@ -23,3 +23,5 @@
 후속 순서 변경: 사용자가 선배포 후 전체 CI 지속과 임시 main 보호 예외·즉시 원복을 명시 승인했다. PR133/main edd2763 병합 및 보호 규칙 원복 완료. 원격 CI·선배포의 현재 상태는 Azure Change035에 기록한다. 커밋된 최종 e96d0aa 소스로 Linux 이미지를 다시 빌드하고 사진 4종 validator PASS를 확인했다.
 
 2026-09-10 후속 확인: PR CI34448818679 Backend는 GitHub annotation `The job has exceeded the maximum execution time of 35m0s`로 취소되어 CI Gate가 실패했다. Frontend·Workflow Validation·Full-Stack E2E는 성공했다. main CI34449665561도 같은 세 항목은 성공했으며 Backend는 아직 진행 중이다. 확인된 실패 원인은 job 시간 제한이며 사진 기능의 assertion 실패는 이번 출력에서 확인되지 않았다. 검증을 재실행·취소하거나 운영을 롤백하지 않았고, 사용자에게 시간 초과와 전체 검증 미완료를 알렸다. main 결과를 계속 확인한다.
+
+2026-09-10 재확인: 사용자가 업로드 미리보기와 결과의 흑백을 재신고했으나, 공개 오산 저장 사진의 실제 DOM에서 이미지 및 모든 상위 요소 filter=none을 확인한 뒤 사용자가 수정 완료를 확인했다. 추가 제품 변경은 하지 않는다. main CI34449665561의 최종 로그는 Backend 610/610 PASS, 실패0·skip0(33분47초)를 증명하지만 job 전체는 35분 제한으로 cancelled다. 다른 제품 검증 job도 PASS이며 최종 CI Gate 완료는 별도로 남아 있다. Backend 한도만 50분으로 보정하고 전체 테스트 명령에 normal 로그를 추가한다. 테스트 대상·실패 판정·required gate는 유지한다. actionlint·분류/main CI 계약·workflow 테스트 PASS, 독립 reviewer GO. 보정된 CI 정상 완료 후 마감한다.

@@ -5,11 +5,13 @@ import {
   useState,
   type ReactNode,
   type FormEvent,
+  type RefObject,
 } from "react";
 import { ApiError } from "./api";
 import {
   DsActionFeedback,
   DsBadge,
+  DsDialog,
   DsPageHeader,
   DsReadOnlyBanner,
   DsStatePanel,
@@ -114,6 +116,7 @@ export function InteriorBusbarPage({
   const [filters, setFilters] = useState<BusbarProductFilters>({});
   const [month, setMonth] = useState(() => today().slice(0, 7));
   const [selectedPlanDate, setSelectedPlanDate] = useState(today);
+  const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [planFamily, setPlanFamily] = useState("");
   const [activeProduct, setActiveProduct] = useState("");
   const [productDetail, setProductDetail] = useState<BusbarProduct | null>(null);
@@ -125,8 +128,8 @@ export function InteriorBusbarPage({
     productId: string;
     revision: number;
   } | null>(null);
+  const planHeadingRef = useRef<HTMLHeadingElement>(null);
   const calendarHeadingRef = useRef<HTMLHeadingElement>(null);
-  const planDateHeadingRef = useRef<HTMLHeadingElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
   const projectDetailRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (activeProject) projectDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [activeProject]);
@@ -328,6 +331,7 @@ export function InteriorBusbarPage({
     });
   }
   function openPlanProducts(productFamilyId: string, planDate: string) {
+    setPlanDialogOpen(false);
     setFilters({ productFamilyId, planDateFrom: planDate, planDateTo: planDate });
     setPage(1);
     setActiveProduct("");
@@ -453,6 +457,8 @@ export function InteriorBusbarPage({
   const selectedProject = data.projects.find((x) => x.id === activeProject);
   const matches = (...values: unknown[]) =>
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  const pendingProjects = data.projects.filter((project) => project.requestedQuantity > project.shippedQuantity)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)));
   const selectedStock = data.productFamilies.find((x) => x.id === selectedProject?.productFamilyId)?.balance ?? 0;
   const selectedRemaining = selectedProject ? selectedProject.requestedQuantity - selectedProject.shippedQuantity : 0;
@@ -539,14 +545,14 @@ export function InteriorBusbarPage({
           </button>
         </DsToolbar>
       )}
-      {feedback && (
+      {feedback && !planDialogOpen && (
         <DsActionFeedback
           message={feedback}
           tone={feedbackError ? "error" : "success"}
           focusOnAttention
         />
       )}
-      {editor && canWrite && (
+      {editor && canWrite && !planDialogOpen && (
         <Editor
           key={editorKey}
           spec={editor}
@@ -562,18 +568,18 @@ export function InteriorBusbarPage({
               );
               editor.after?.(result);
             });
-            if (ok) {
-              setEditor(null);
-              if (editor.path === "/plans") requestAnimationFrame(() => {
-                planDateHeadingRef.current?.focus({ preventScroll: true });
-                planDateHeadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              });
-            }
+            if (ok) setEditor(null);
           }}
         />
       )}
       {tab === "overview" && (
         <>
+          <DsSurface label="진행 중 납품 프로젝트">
+            <h3>진행 중 납품 프로젝트 · 납기순</h3>
+            <Table headings={["프로젝트명", "제품군", "납품예정일", "요청", "누적 출하", "잔여"]}
+              rowActions={pendingProjects.map((project) => ({ expanded: false, toggle: () => { setActiveProject(project.id); setTab("projects"); setQuery(""); setEditor(null); } }))}
+              rows={pendingProjects.map((project) => [project.name, familyName(project.productFamilyId), project.dueDate.slice(0, 10), n(project.requestedQuantity), n(project.shippedQuantity), n(project.requestedQuantity - project.shippedQuantity)])} />
+          </DsSurface>
           <DsSurface label="제품군별 현황">
             <h3>제품군별 생산·납품 현황</h3>
             <Table
@@ -764,37 +770,37 @@ export function InteriorBusbarPage({
               <button onClick={() => changeMonth(monthPlus(month, 1))}>다음 달</button>
             </DsToolbar>
             <h3 ref={calendarHeadingRef} tabIndex={-1}>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월 생산계획</h3>
-            <p className="busbar-note">날짜를 선택하면 아래에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
-            <div className="busbar-month-calendar">
-              <Table headings={["일", "월", "화", "수", "목", "금", "토"]}
-                rows={Array.from({ length: calendarDays / 7 }, (_, weekIndex) =>
-                  Array.from({ length: 7 }, (_, dayIndex) => {
-                    const date = datePlus(calendarStart, weekIndex * 7 + dayIndex);
-                    if (!date.startsWith(month)) return <div className="busbar-calendar-outside" aria-hidden="true">{Number(date.slice(8))}</div>;
-                    const plans = data.plans.filter((p) => p.planDate.slice(0, 10) === date && (!planFamily || p.productFamilyId === planFamily));
-                    return <button type="button" className="busbar-calendar-day" aria-label={`${date} 생산계획 선택`}
-                      aria-pressed={selectedPlanDate === date} aria-current={date === today() ? "date" : undefined}
-                      onClick={() => {
-                        setSelectedPlanDate(date); setEditor(null);
-                        requestAnimationFrame(() => {
-                          planDateHeadingRef.current?.focus({ preventScroll: true });
-                          planDateHeadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                        });
-                      }}>
-                      <span className="busbar-calendar-date">{Number(date.slice(8))}{date === today() && <small>오늘</small>}</span>
-                      {plans.length ? plans.map((plan) => <span className="busbar-calendar-plan" key={plan.id}>
-                        <strong>{familyName(plan.productFamilyId)}</strong>
-                        <span>계획 {n(plan.quantity)}개 · 완료 {n(plan.actualQuantity)}개</span>
-                      </span>) : <span className="busbar-calendar-empty">계획 없음</span>}
-                    </button>;
-                  }))} />
+            <p className="busbar-note">날짜를 선택하면 팝업에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
+            <div className="busbar-month-calendar" role="region" aria-label="월간 생산계획 달력" tabIndex={0}>
+              <div className="busbar-calendar-weekdays" aria-hidden="true">{["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}</div>
+              <div className="busbar-calendar-grid">
+                {Array.from({ length: calendarDays }, (_, index) => {
+                  const date = datePlus(calendarStart, index);
+                  if (!date.startsWith(month)) return <div key={date} className="busbar-calendar-outside" aria-hidden="true">{Number(date.slice(8))}</div>;
+                  const plans = data.plans.filter((p) => p.planDate.slice(0, 10) === date && (!planFamily || p.productFamilyId === planFamily));
+                  return <button key={date} type="button" className="busbar-calendar-day" aria-label={`${date} 생산계획 선택`}
+                    aria-pressed={selectedPlanDate === date} aria-current={date === today() ? "date" : undefined}
+                    onClick={() => { setSelectedPlanDate(date); setEditor(null); setFeedback(""); setPlanDialogOpen(true); }}>
+                    <span className="busbar-calendar-date">{Number(date.slice(8))}{date === today() && <small>오늘</small>}</span>
+                    {plans.length ? plans.map((plan) => <span className="busbar-calendar-plan" key={plan.id}>
+                      <strong>{familyName(plan.productFamilyId)}</strong>
+                      <span>계획 {n(plan.quantity)}개 · 완료 {n(plan.actualQuantity)}개</span>
+                    </span>) : <span className="busbar-calendar-empty">계획 없음</span>}
+                  </button>;
+                })}
+              </div>
             </div>
           </DsSurface>
-          <DsSurface label="선택 날짜 생산계획">
-            <DsToolbar>
-              <h3 ref={planDateHeadingRef} tabIndex={-1}>{selectedPlanDate} 제품군별 생산계획</h3>
-              <button onClick={() => { calendarHeadingRef.current?.focus({ preventScroll: true }); calendarHeadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>달력으로 돌아가기</button>
-            </DsToolbar>
+          {planDialogOpen && <PlanDialog label={`${selectedPlanDate} 제품군별 생산계획`} busy={busy} heading={planHeadingRef}
+            onClose={() => { if (!busy) { setPlanDialogOpen(false); setEditor(null); setFeedback(""); } }}>
+            {feedback && <DsActionFeedback message={feedback} tone={feedbackError ? "error" : "success"} focusOnAttention />}
+            {error && <DsActionFeedback message={error} tone="error" />}
+            {editor?.path === "/plans" && canWrite && <Editor key={editorKey} spec={editor} busy={busy}
+              onClose={() => { if (!busy) setEditor(null); }}
+              onSave={async (values) => {
+                const ok = await run(() => busbarApi.write(user, editor.path, editor.makeBody(values), editor.method));
+                if (ok) { setEditor(null); requestAnimationFrame(() => planHeadingRef.current?.focus()); }
+              }} />}
             <p className="busbar-note">제품군의 계획을 저장한 뒤 다른 제품군도 이어서 입력할 수 있습니다. 제품 보기에서 작업자와 사진을 등록하세요.</p>
             <Table headings={["제품군", "계획 수량", "완료 수량", "미완료", "작업"]}
               rows={visiblePlanFamilies.map((family) => {
@@ -803,11 +809,11 @@ export function InteriorBusbarPage({
                   plan ? `${n(Math.max(0, plan.quantity - (plan.actualQuantity ?? 0)))}개` : "—",
                   <>
                     {canWrite && (family.isActive || plan) && <button disabled={busy} aria-label={`${family.name} ${selectedPlanDate} 계획 ${plan ? "수정" : "등록"}`} onClick={() => planEditor(family.id, selectedPlanDate, plan?.id)}>{plan ? "계획 수정" : "계획 등록"}</button>}
-                    {plan && <button aria-label={`${family.name} ${selectedPlanDate} 제품 보기`} onClick={() => openPlanProducts(family.id, selectedPlanDate)}>제품 보기</button>}
+                    {plan && <button disabled={busy} aria-label={`${family.name} ${selectedPlanDate} 제품 보기`} onClick={() => openPlanProducts(family.id, selectedPlanDate)}>제품 보기</button>}
                     {plan?.productsInitialized === false && <small className="busbar-note">계획을 저장해 대기 제품을 준비하세요.</small>}
                   </>];
               })} />
-          </DsSurface>
+          </PlanDialog>}
         </>
       )}
       {tab === "production" && (
@@ -1353,6 +1359,29 @@ function Search({
       />
     </label>
   );
+}
+function PlanDialog({ label, busy, onClose, children, heading }: { label: string; busy: boolean; onClose: () => void; children: ReactNode; heading: RefObject<HTMLHeadingElement | null> }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const original = document.activeElement as HTMLElement | null;
+    heading.current?.focus();
+    return () => { if (original?.isConnected) original.focus({ preventScroll: true }); };
+  }, [heading]);
+  return <DsDialog label={label} onClose={onClose} closeDisabled={busy} className="busbar-plan-dialog">
+    <div className="dialog" ref={panel} onKeyDown={(event) => {
+      if (event.key === "Escape") { event.preventDefault(); if (!busy) onClose(); }
+      if (event.key === "Tab") {
+        const controls = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]') ?? []).filter((element) => element.getClientRects().length > 0);
+        const first = controls[0], last = controls.at(-1);
+        if (!first) { event.preventDefault(); heading.current?.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === heading.current)) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    }}>
+      <DsToolbar><h3 ref={heading} tabIndex={-1}>{label}</h3><button disabled={busy} onClick={onClose} aria-label="생산계획 팝업 닫기">닫기</button></DsToolbar>
+      {children}
+    </div>
+  </DsDialog>;
 }
 function Editor({
   spec,

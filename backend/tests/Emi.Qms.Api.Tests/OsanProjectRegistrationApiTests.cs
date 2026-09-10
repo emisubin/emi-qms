@@ -1483,6 +1483,111 @@ public sealed class OsanProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task ProgressPhotoValidator_StripsSensitiveMetadataWithoutReencodingPixelsOrColor()
+    {
+        var jpegBase = CreateColorJpeg();
+        var exif = CreateExifWithOrientationAndSensitiveMetadata(6);
+        var jpegWithMetadata = InsertJpegApp1(jpegBase, exif);
+
+        var (jpegPhoto, jpegError) = await ValidatePhotoAsync(
+            "camera.jpg", "image/jpeg", jpegWithMetadata);
+
+        Assert.Null(jpegError);
+        Assert.NotNull(jpegPhoto);
+        Assert.Equal((ushort)6, OsanProgressPhotoMetadataSanitizer.ReadOrientation(
+            jpegPhoto.Content, "image/jpeg"));
+        Assert.DoesNotContain("SyntheticCamera", Encoding.ASCII.GetString(jpegPhoto.Content));
+        Assert.Equal(ReadJpegScanBytes(jpegBase), ReadJpegScanBytes(jpegPhoto.Content));
+        Assert.NotEmpty(ReadJpegSegments(jpegBase, 0xe2));
+        Assert.Equal(ReadJpegSegments(jpegBase, 0xe2), ReadJpegSegments(jpegPhoto.Content, 0xe2));
+        Assert.True(jpegPhoto.Content.Length <= jpegWithMetadata.Length);
+        var alternateMetadata = jpegWithMetadata.ToArray();
+        var cameraOffset = alternateMetadata.AsSpan().IndexOf("SyntheticCamera"u8);
+        Assert.True(cameraOffset >= 0);
+        "AlternateCamera"u8.CopyTo(alternateMetadata.AsSpan(cameraOffset));
+        var alternatePhoto = (await ValidatePhotoAsync(
+            "alternate.jpg", "image/jpeg", alternateMetadata)).Photo;
+        Assert.NotNull(alternatePhoto);
+        Assert.Equal(jpegPhoto.Content, alternatePhoto.Content);
+        Assert.Equal(jpegPhoto.Sha256, alternatePhoto.Sha256);
+
+        var pngBase = CreateColorPng();
+        var gamma = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(gamma, 45455);
+        var pngWithColor = InsertPngChunkBefore(pngBase, "sRGB"u8, [0]);
+        pngWithColor = InsertPngChunkBefore(pngWithColor, "gAMA"u8, gamma);
+        var pngWithExif = InsertPngChunkBefore(pngWithColor, "eXIf"u8, exif.AsSpan(6));
+        var pngWithMetadata = InsertPngChunkBefore(
+            pngWithExif, "tEXt"u8, "Device\0SyntheticCamera"u8);
+        var originalIdat = ReadPngChunks(pngWithMetadata, "IDAT");
+
+        var (pngPhoto, pngError) = await ValidatePhotoAsync(
+            "camera.png", "image/png", pngWithMetadata);
+
+        Assert.Null(pngError);
+        Assert.NotNull(pngPhoto);
+        Assert.Equal((ushort)6, OsanProgressPhotoMetadataSanitizer.ReadOrientation(
+            pngPhoto.Content, "image/png"));
+        Assert.DoesNotContain("SyntheticCamera", Encoding.ASCII.GetString(pngPhoto.Content));
+        Assert.Equal(originalIdat, ReadPngChunks(pngPhoto.Content, "IDAT"));
+        Assert.Equal(ReadPngChunks(pngWithMetadata, "sRGB"), ReadPngChunks(pngPhoto.Content, "sRGB"));
+        Assert.Equal(ReadPngChunks(pngWithMetadata, "gAMA"), ReadPngChunks(pngPhoto.Content, "gAMA"));
+
+        var malformedExif = InsertJpegApp1(jpegBase, "Exif\0\0II*\0"u8.ToArray());
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "malformed-exif.jpg", "image/jpeg", malformedExif)).Error,
+            StringComparison.Ordinal);
+        var zeroRootTiff = new byte[14];
+        zeroRootTiff[0] = (byte)'I';
+        zeroRootTiff[1] = (byte)'I';
+        BinaryPrimitives.WriteUInt16LittleEndian(zeroRootTiff.AsSpan(2, 2), 42);
+        var zeroRootIfd = new byte[6 + zeroRootTiff.Length];
+        "Exif\0\0"u8.CopyTo(zeroRootIfd);
+        zeroRootTiff.CopyTo(zeroRootIfd, 6);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "zero-root-ifd.jpg", "image/jpeg", InsertJpegApp1(jpegBase, zeroRootIfd))).Error,
+            StringComparison.Ordinal);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "zero-root-ifd.png",
+            "image/png",
+            InsertPngChunkBefore(pngBase, "eXIf"u8, zeroRootIfd.AsSpan(6)))).Error,
+            StringComparison.Ordinal);
+
+        var invalidOrientationCount = exif.ToArray();
+        BinaryPrimitives.WriteUInt32LittleEndian(invalidOrientationCount.AsSpan(20, 4), 3);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "invalid-orientation-count.jpg",
+            "image/jpeg",
+            InsertJpegApp1(jpegBase, invalidOrientationCount))).Error,
+            StringComparison.Ordinal);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "invalid-orientation-count.png",
+            "image/png",
+            InsertPngChunkBefore(pngBase, "eXIf"u8, invalidOrientationCount.AsSpan(6)))).Error,
+            StringComparison.Ordinal);
+
+        var zeroGpsPointer = exif.ToArray();
+        BinaryPrimitives.WriteUInt32LittleEndian(zeroGpsPointer.AsSpan(48, 4), 0);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "zero-gps-pointer.png",
+            "image/png",
+            InsertPngChunkBefore(pngBase, "eXIf"u8, zeroGpsPointer.AsSpan(6)))).Error,
+            StringComparison.Ordinal);
+
+        var duplicateExif = InsertJpegApp1(InsertJpegApp1(jpegBase, exif), exif);
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "duplicate-exif.jpg", "image/jpeg", duplicateExif)).Error,
+            StringComparison.Ordinal);
+        var duplicatePngExif = InsertPngChunkBefore(
+            InsertPngChunkBefore(pngBase, "eXIf"u8, exif.AsSpan(6)),
+            "eXIf"u8,
+            exif.AsSpan(6));
+        Assert.Contains("올바른", (await ValidatePhotoAsync(
+            "duplicate-exif.png", "image/png", duplicatePngExif)).Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProgressStore_RejectsNullTargetElementsBeforeDatabaseAccess()
     {
         var provider = new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build());
@@ -1602,6 +1707,146 @@ public sealed class OsanProjectRegistrationApiTests
         using var stream = new MemoryStream();
         image.SaveAsJpeg(stream);
         return stream.ToArray();
+    }
+
+    private static byte[] CreateColorJpeg()
+    {
+        using var image = new MagickImage(MagickColors.Red, 2, 1);
+        image.SetProfile(ColorProfiles.SRGB);
+        return image.ToByteArray(MagickFormat.Jpeg);
+    }
+
+    private static byte[] CreateColorPng()
+    {
+        using var image = new Image<Rgba32>(2, 1);
+        image[0, 0] = new Rgba32(255, 0, 0);
+        image[1, 0] = new Rgba32(0, 128, 255);
+        using var stream = new MemoryStream();
+        image.SaveAsPng(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateExifWithOrientationAndSensitiveMetadata(ushort orientation)
+    {
+        var make = "SyntheticCamera\0"u8.ToArray();
+        const int ifdOffset = 8;
+        const int ifdSize = 2 + (3 * 12) + 4;
+        var makeOffset = ifdOffset + ifdSize;
+        var gpsOffset = makeOffset + make.Length;
+        var tiff = new byte[gpsOffset + 18];
+        tiff[0] = (byte)'I';
+        tiff[1] = (byte)'I';
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(2, 2), 42);
+        BinaryPrimitives.WriteUInt32LittleEndian(tiff.AsSpan(4, 4), ifdOffset);
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(ifdOffset, 2), 3);
+        WriteTiffEntry(tiff, 10, 0x0112, 3, 1, orientation);
+        WriteTiffEntry(tiff, 22, 0x010f, 2, (uint)make.Length, (uint)makeOffset);
+        WriteTiffEntry(tiff, 34, 0x8825, 4, 1, (uint)gpsOffset);
+        make.CopyTo(tiff, makeOffset);
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(gpsOffset, 2), 1);
+        WriteTiffEntry(tiff, gpsOffset + 2, 0x0001, 2, 2, (uint)'N');
+        return [.. "Exif\0\0"u8, .. tiff];
+    }
+
+    private static void WriteTiffEntry(
+        byte[] tiff, int offset, ushort tag, ushort type, uint count, uint value)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(offset, 2), tag);
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(offset + 2, 2), type);
+        BinaryPrimitives.WriteUInt32LittleEndian(tiff.AsSpan(offset + 4, 4), count);
+        BinaryPrimitives.WriteUInt32LittleEndian(tiff.AsSpan(offset + 8, 4), value);
+    }
+
+    private static byte[] InsertJpegApp1(byte[] source, byte[] payload)
+    {
+        var result = new byte[source.Length + payload.Length + 4];
+        source.AsSpan(0, 2).CopyTo(result);
+        result[2] = 0xff;
+        result[3] = 0xe1;
+        BinaryPrimitives.WriteUInt16BigEndian(
+            result.AsSpan(4, 2), checked((ushort)(payload.Length + 2)));
+        payload.CopyTo(result, 6);
+        source.AsSpan(2).CopyTo(result.AsSpan(payload.Length + 6));
+        return result;
+    }
+
+    private static byte[] ReadJpegScanBytes(byte[] source)
+    {
+        var start = source.AsSpan().IndexOf(new byte[] { 0xff, 0xda });
+        Assert.True(start >= 0);
+        return source.AsSpan(start).ToArray();
+    }
+
+    private static byte[] ReadJpegSegments(byte[] source, byte requestedMarker)
+    {
+        using var output = new MemoryStream();
+        var offset = 2;
+        while (offset < source.Length - 1 && source[offset] == 0xff)
+        {
+            var marker = source[offset + 1];
+            if (marker is 0xda or 0xd9)
+            {
+                break;
+            }
+            var length = BinaryPrimitives.ReadUInt16BigEndian(source.AsSpan(offset + 2, 2));
+            var end = offset + 2 + length;
+            if (marker == requestedMarker)
+            {
+                output.Write(source, offset, end - offset);
+            }
+            offset = end;
+        }
+        return output.ToArray();
+    }
+
+    private static byte[] InsertPngChunkBefore(
+        byte[] source, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
+    {
+        var offset = 8;
+        while (offset <= source.Length - 12)
+        {
+            var length = BinaryPrimitives.ReadInt32BigEndian(source.AsSpan(offset, 4));
+            if (length < 0 || (long)offset + length + 12 > source.Length)
+            {
+                throw new InvalidOperationException("Invalid source PNG fixture.");
+            }
+            if (source.AsSpan(offset + 4, 4).SequenceEqual("IDAT"u8))
+            {
+                var chunkLength = data.Length + 12;
+                var result = new byte[source.Length + chunkLength];
+                source.AsSpan(0, offset).CopyTo(result);
+                BinaryPrimitives.WriteInt32BigEndian(result.AsSpan(offset, 4), data.Length);
+                type.CopyTo(result.AsSpan(offset + 4, 4));
+                data.CopyTo(result.AsSpan(offset + 8));
+                BinaryPrimitives.WriteUInt32BigEndian(
+                    result.AsSpan(offset + 8 + data.Length, 4),
+                    ComputePngCrc(type, data));
+                source.AsSpan(offset).CopyTo(result.AsSpan(offset + chunkLength));
+                return result;
+            }
+            offset += length + 12;
+        }
+        throw new InvalidOperationException("PNG fixture IDAT chunk was not found.");
+    }
+
+    private static byte[] ReadPngChunks(byte[] source, string type)
+    {
+        using var output = new MemoryStream();
+        var offset = 8;
+        while (offset <= source.Length - 12)
+        {
+            var length = BinaryPrimitives.ReadInt32BigEndian(source.AsSpan(offset, 4));
+            if (length < 0 || (long)offset + length + 12 > source.Length)
+            {
+                throw new InvalidOperationException("Invalid source PNG fixture.");
+            }
+            if (Encoding.ASCII.GetString(source, offset + 4, 4) == type)
+            {
+                output.Write(source, offset + 8, length);
+            }
+            offset += length + 12;
+        }
+        return output.ToArray();
     }
 
     private static byte[] RemoveJpegEntropy(byte[] source, bool keepOneByte)

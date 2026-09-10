@@ -36,6 +36,14 @@ public interface IUploadMalwareScanner
         CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Allows a narrowly-scoped endpoint to sanitize image metadata after the original
+/// upload has passed malware scanning. Other multipart endpoints keep the global
+/// metadata rejection policy.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class SanitizeImageMetadataAfterScanAttribute : Attribute;
+
 public sealed class ClamAvUploadMalwareScanner(
     IOptions<UploadSecurityOptions> options,
     ILogger<ClamAvUploadMalwareScanner> logger) : IUploadMalwareScanner
@@ -117,6 +125,8 @@ public sealed class UploadSecurityMiddleware(
     public async Task InvokeAsync(HttpContext context)
     {
         var configuration = options.Value;
+        var sanitizesImageMetadata = context.GetEndpoint()?.Metadata
+            .GetMetadata<SanitizeImageMetadataAfterScanAttribute>() is not null;
         if (!configuration.Enabled
             || !context.Request.HasFormContentType
             || context.Request.ContentType?.StartsWith(
@@ -169,6 +179,7 @@ public sealed class UploadSecurityMiddleware(
             }
 
             if (configuration.RejectImageMetadata
+                && !sanitizesImageMetadata
                 && await ImageMetadataInspector.ContainsMetadataAsync(
                     file,
                     context.RequestAborted))

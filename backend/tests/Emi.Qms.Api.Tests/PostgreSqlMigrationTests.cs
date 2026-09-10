@@ -4194,9 +4194,14 @@ public sealed class PostgreSqlMigrationTests
                 permissions,
                 department == "administration",
                 scope,
+                7,
                 TestContext.Current.CancellationToken);
 
             Assert.Equal(3, response.Metrics.Count);
+            if (department == "administration")
+            {
+                Assert.Equal(7, Assert.Single(response.Metrics, metric => metric.Id == "admin-approval").Count);
+            }
             Assert.All(response.Metrics, metric => Assert.True(metric.Count >= 0));
             if (department == "materials")
             {

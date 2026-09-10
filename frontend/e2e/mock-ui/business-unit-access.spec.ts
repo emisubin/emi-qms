@@ -259,6 +259,57 @@ test('single-business overall administrator sees no selector on desktop or mobil
   await page.screenshot({ path: testInfo.outputPath('single-membership-shell-desktop.png'), fullPage: true });
 });
 
+test('integrated approval-pending filter shows its matching title, rows, and empty state', async ({ page }, testInfo) => {
+  let hasPendingUser = true;
+
+  await page.route('http://localhost:5080/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/health/ready') {
+      return fulfillJson(route, { status: 'ready', database: { reason: 'reachable' } });
+    }
+    if (path === '/api/runtime-mode') {
+      return fulfillJson(route, {
+        mode: 'Development',
+        reviewSafe: false,
+        mutationAllowed: true,
+        databaseReadOnly: false,
+        ready: true,
+        reason: 'development'
+      });
+    }
+    if (path === '/api/me') {
+      return fulfillJson(route, currentUser('CHEONGJU'));
+    }
+    if (path === '/api/admin/user-access/users') {
+      return fulfillJson(route, membershipSnapshot(hasPendingUser ? [] : ['CHEONGJU']));
+    }
+    return fulfillJson(route, { title: 'closed in synthetic business-unit scope' }, 404);
+  });
+
+  await page.goto('/admin/users?filter=approval-pending');
+  await expect(page.getByRole('heading', { name: '승인 대기 사용자' })).toBeVisible();
+  await expect(page.getByText('Synthetic New User')).toBeVisible();
+  await expect(page.getByRole('table').getByText('Synthetic Overall Admin')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('approval-pending-list-desktop.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+  await expect(page.locator('.business-unit-access-table-scroll')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('approval-pending-list-mobile.png'), fullPage: true });
+
+  hasPendingUser = false;
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '승인 대기 사용자' })).toBeVisible();
+  await expect(page.getByText('현재 승인 대기 중인 사용자가 없습니다.')).toBeVisible();
+  await expect(page.getByText('승인 준비가 필요한 사용자가 생기면 여기에 표시됩니다.')).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveJSProperty('scrollWidth', 390);
+  await page.screenshot({ path: testInfo.outputPath('approval-pending-empty-mobile.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('approval-pending-empty-desktop.png'), fullPage: true });
+});
+
 function currentUser(
   selectedBusinessUnit: 'CHEONGJU' | 'OSAN',
   allowedBusinessUnits: Array<'CHEONGJU' | 'OSAN'> = ['CHEONGJU', 'OSAN']

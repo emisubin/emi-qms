@@ -180,6 +180,7 @@ builder.Services.AddSingleton<BusinessCalendarStore>();
 builder.Services.AddSingleton<AdminCalendarHolidayStore>();
 builder.Services.AddSingleton<CalendarHolidayExcelParser>();
 builder.Services.AddSingleton<AdminMasterDataStore>();
+builder.Services.AddSingleton<ApprovalPendingUserCountService>();
 builder.Services.AddSingleton<FormTemplateStore>();
 builder.Services.AddSingleton<MaterialCategoryStore>();
 builder.Services.AddSingleton<MaterialCategoryIqcStore>();

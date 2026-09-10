@@ -1521,6 +1521,21 @@ public sealed class BusinessUnitIsolationTests
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, exception.SqlState);
     }
 
+    private static async Task AssertApprovalKpisMatchAsync(HttpClient client, int expectedCount)
+    {
+        using var dashboardRequest = Request(HttpMethod.Get, "/api/admin/dashboard", "dev-admin", BusinessUnitCodes.Cheongju);
+        using var dashboardResponse = await client.SendAsync(dashboardRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, dashboardResponse.StatusCode);
+        using var dashboard = JsonDocument.Parse(await dashboardResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(expectedCount, dashboard.RootElement.GetProperty("pendingUserCount").GetInt32());
+        using var homeRequest = Request(HttpMethod.Get, "/api/home/department-metrics", "dev-admin", BusinessUnitCodes.Cheongju);
+        using var homeResponse = await client.SendAsync(homeRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, homeResponse.StatusCode);
+        using var home = JsonDocument.Parse(await homeResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(expectedCount, Assert.Single(home.RootElement.GetProperty("metrics").EnumerateArray(),
+            metric => metric.GetProperty("id").GetString() == "admin-approval").GetProperty("count").GetInt32());
+    }
+
     private static async Task PrepareDirectoryAndBusinessFixturesAsync(IsolationDatabaseSet databases)
     {
         await databases.ExecuteAsync(
@@ -1770,6 +1785,15 @@ public sealed class BusinessUnitIsolationTests
                 systemAdministratorOnly,
                 TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            using var localListRequest = Request(HttpMethod.Get, "/api/admin/users?filter=approval-pending",
+                "dev-admin", BusinessUnitCodes.Cheongju);
+            using var localListResponse = await client.SendAsync(localListRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, localListResponse.StatusCode);
+            using var localList = JsonDocument.Parse(await localListResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            var pendingUsers = localList.RootElement.GetProperty("users").EnumerateArray().ToArray();
+            Assert.Contains(pendingUsers, user => user.GetProperty("userId").GetGuid() == LocalProfileUserId);
+            Assert.DoesNotContain(pendingUsers, user => user.GetProperty("userId").GetGuid() == NoMembershipUserId);
+            await AssertApprovalKpisMatchAsync(client, pendingUsers.Length);
         }
         finally
         {
@@ -2091,6 +2115,8 @@ public sealed class BusinessUnitIsolationTests
                 StringComparison.Ordinal);
             Assert.Equal([BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan], body.AvailableBusinessUnits);
             Assert.All(body.BusinessUnits, unit => Assert.True(unit.CanManage));
+            Assert.Contains(body.Users, user => user.UserId == NoMembershipUserId && user.ApprovalPending);
+            await AssertApprovalKpisMatchAsync(client, body.Users.Count(user => user.ApprovalPending));
         }
 
         using (var denied = Request(
@@ -2127,6 +2153,7 @@ public sealed class BusinessUnitIsolationTests
         Assert.Contains(grant.Snapshot.Users, user => user.UserId == NoMembershipUserId
             && user.Memberships.SequenceEqual([BusinessUnitCodes.Cheongju])
             && !user.ApprovalPending);
+        await AssertApprovalKpisMatchAsync(client, grant.Snapshot.Users.Count(user => user.ApprovalPending));
         Assert.Equal(
             1L,
             await databases.ReadScalarAsync<long>(

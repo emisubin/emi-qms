@@ -13,12 +13,13 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
         IReadOnlySet<string> permissions,
         bool isSystemAdministrator,
         ProjectAccessScope accessScope,
+        int pendingUserCount,
         CancellationToken cancellationToken)
     {
         if (isSystemAdministrator || string.Equals(departmentCode, "administration", StringComparison.Ordinal))
         {
             return new HomeMetricsResponse(departmentCode, departmentName,
-                await ReadAdministrationAsync(cancellationToken));
+                await ReadAdministrationAsync(pendingUserCount, cancellationToken));
         }
 
         var metrics = departmentCode switch
@@ -45,12 +46,10 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
         return new HomeMetricsResponse(departmentCode, departmentName, metrics);
     }
 
-    private async Task<IReadOnlyList<HomeMetricResponse>> ReadAdministrationAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<HomeMetricResponse>> ReadAdministrationAsync(int pendingUserCount, CancellationToken cancellationToken)
     {
         const string sql = """
             select
-                (select count(*)::int from qms_users u where u.auth_provider='EntraId' and u.is_active
-                    and not exists(select 1 from user_roles ur where ur.user_id=u.id)),
                 (select count(*)::int from notification_deliveries where status='Failed'
                     and coalesce(admin_handling_status,'Open')='Open'),
                 (select count(*)::int from work_item_escalations where status='Active');
@@ -58,9 +57,9 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
         var counts = await ReadCountsAsync(sql, null, null, cancellationToken);
         return
         [
-            Metric("admin-approval", "사용자 승인 대기", counts[0], "warning", "admin-users", "사용자 관리 열기"),
-            Metric("admin-delivery-failed", "알림 발송 실패", counts[1], "danger", "admin-deliveries", "발송 관리 열기"),
-            Metric("admin-escalation", "활성 에스컬레이션", counts[2], "danger", "admin-dashboard", "운영 현황 열기")
+            Metric("admin-approval", "사용자 승인 대기", pendingUserCount, "warning", "admin-users", "사용자 관리 열기"),
+            Metric("admin-delivery-failed", "알림 발송 실패", counts[0], "danger", "admin-deliveries", "발송 관리 열기"),
+            Metric("admin-escalation", "활성 에스컬레이션", counts[1], "danger", "admin-dashboard", "운영 현황 열기")
         ];
     }
 
@@ -320,8 +319,12 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
         }
         if (userId is not null) command.Parameters.AddWithValue("user_id", userId.Value);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken)) return [0, 0, 0];
-        return [reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2)];
+        var counts = new int[reader.FieldCount];
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            for (var index = 0; index < counts.Length; index++) counts[index] = reader.GetInt32(index);
+        }
+        return counts;
     }
 
     private static bool Has(IReadOnlySet<string> permissions, string permission)

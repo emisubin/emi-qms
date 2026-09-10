@@ -855,13 +855,14 @@ public sealed partial class ProjectRegistrationApiTests
     }
 
     [Fact]
-    public async Task AdminUsers_ApprovalPendingFilterReturnsOnlyActiveEntraUsersWithoutRoles()
+    public async Task AdminApprovalKpis_MatchLocalReadinessIncludingRolesWithoutDepartment()
     {
         await using var context = await ProjectApiTestContext.CreateAsync();
         using var adminClient = context.CreateClient("dev-admin");
         var pendingUserId = Guid.NewGuid();
         var approvedUserId = Guid.NewGuid();
         var inactiveUserId = Guid.NewGuid();
+        var incompleteUserId = Guid.NewGuid();
 
         await context.ExecuteSqlAsync($"""
             insert into qms_users (
@@ -873,7 +874,12 @@ public sealed partial class ProjectRegistrationApiTests
                 ('{approvedUserId}', 'approval-filter-approved', 'Approval Filter Approved', true, 'EntraId',
                  'approval-filter-approved', 'approval-filter-approved@example.invalid'),
                 ('{inactiveUserId}', 'approval-filter-inactive', 'Approval Filter Inactive', false, 'EntraId',
-                 'approval-filter-inactive', 'approval-filter-inactive@example.invalid');
+                 'approval-filter-inactive', 'approval-filter-inactive@example.invalid'),
+                ('{incompleteUserId}', 'approval-filter-incomplete', 'Approval Filter Incomplete', true, 'EntraId',
+                 'approval-filter-incomplete', 'approval-filter-incomplete@example.invalid');
+
+            insert into user_roles (user_id, role_id)
+            select '{incompleteUserId}', id from roles where code = 'sales';
 
             insert into user_roles (user_id, role_id)
             select '{approvedUserId}', id
@@ -897,6 +903,15 @@ public sealed partial class ProjectRegistrationApiTests
         Assert.DoesNotContain(users, item => item.GetProperty("userId").GetGuid() == approvedUserId);
         Assert.DoesNotContain(users, item => item.GetProperty("userId").GetGuid() == inactiveUserId);
         Assert.All(users, item => Assert.True(item.GetProperty("approvalPending").GetBoolean()));
+        Assert.Contains(users, item => item.GetProperty("userId").GetGuid() == incompleteUserId);
+        Assert.Equal(2, users.Length);
+        using var dashboard = await ReadJsonAsync(await adminClient.GetAsync(
+            "/api/admin/dashboard", TestContext.Current.CancellationToken));
+        Assert.Equal(2, dashboard.RootElement.GetProperty("pendingUserCount").GetInt32());
+        using var home = await ReadJsonAsync(await adminClient.GetAsync(
+            "/api/home/department-metrics", TestContext.Current.CancellationToken));
+        Assert.Equal(2, Assert.Single(home.RootElement.GetProperty("metrics").EnumerateArray(),
+            metric => metric.GetProperty("id").GetString() == "admin-approval").GetProperty("count").GetInt32());
     }
 
     [Fact]

@@ -229,3 +229,10 @@ FE 구현·관련 검증 완료, 기존 5197 서버에 반영. 공용 팝업 안
 사용자 “하나만 테스트로 하자”로 단일 테스트 지시. Pending Complete 중 최초 완료 제품 IB-00000001(id88a740bc-1bdd-4faf-ab09-d8fdca72e4db, revision2)을 선정. singleID FORUPDATE/sharedlock→실 renderer/sink→공개본문 해시→해당행만 게시상태 갱신→타제품/원장/사진 해시 보존→PMS QR 해독 검증 도구를 /private/tmp/emi-busbar-one-product에 준비했다. 독립 /root/azure_qr_review(기존 reviewer 맥락 재사용)는 차단finding없음, 외부게시 뒤 후속단계 실패 시 동일대상 상태확인 경계를 확인했다.
 
 실제 실행 요청은 자동 승인 검토가 거부: 특정 실제 제품 및 정확한 사진·제조정보·작업자명 공개 payload의 명시 승인이 부족하다는 이유. 우회 실행하지 않았고 실제 제품은 게시하지 않았다. 5097 worker는 false 유지. 허용된 읽기 전용 DB/로컬 renderer로 /private/tmp/emi-busbar-local-preview/product.html(0600)을 준비, 해당 건 Pending 확인. 공개예정 HTML SHA256 4B5355208B518934EA779BC115FE6279DFC661BEF886199F825D1F4F0DA47A26. 이름·실사진은 Task에 복제하지 않았다. 127.0.0.1:56318/product.html 한 경로만 제공하는 로컬 미리보기(session37240)를 열어 사용자가 정확한 payload를 확인할 수 있도록 했다. 특정 제품·정확한 내용에 대한 공개 승인 대기. 다른 실제 제품 변경 및 외부 전송 없음.
+
+
+## Change 016 — 승인된 실제 제품 한 건 게시
+
+사용자가 정확한 로컬 미리보기·대상 IB-00000001·앞뒤 사진·제조일시·작업자명 공개 내용을 확인한 뒤 “굿! 승인”으로 명시 승인했다. 이전 자동 승인 거부 사유인 특정 대상/payload 승인을 충족한다. 실행 도구에 승인 id88a740bc-1bdd-4faf-ab09-d8fdca72e4db/rev2 및 HTML SHA256 4B5355208B518934EA779BC115FE6279DFC661BEF886199F825D1F4F0DA47A26 일치 조건을 추가했다. 다른 제품과 자동게시 활성화는 범위 밖이며 비활성을 유지한다.
+
+게시 실행 성공. 승인된 HTML 해시 일치 확인 후 해당 1행만 Published/revision2 반영, 타제품·원장·사진 해시 불변 통과. 인증된 PMS QR GET 성공 및 ZXing 해독 URL 정확히 일치. 공개 URL https://emipmsbusbarqr.z12.web.core.windows.net/p/dd1b60c6a00a443ad50b162c703fe8284022316fbec649f902f312c8d3f94643.html . API 재조회 Complete/Published/revision=publishedRevision=2/qrReady=true, 다른 완료 Pending1건 유지, 자동worker=false 확인. 출력 QR /private/tmp/emi-busbar-one-product-qr.png. 실제 페이지 PC/390 이미지2개 정상/번호미표시/overflow0/HTTP1/PMS0 검증, 실사진 screenshot은 추가 보관하지 않음. 사용자 실제 휴대폰 스캔·물리 프린터 출력 검수 대기. 운영 앱 배포·다른 제품 게시 없음.

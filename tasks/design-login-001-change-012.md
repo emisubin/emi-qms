@@ -19,3 +19,11 @@
 - 독립 검토 `/root/login_flow_review`: GPT-6-astra/high 요청, 실제 모델 metadata **NOT_REPORTED**. 이전 읽기 전용 설계 검토자에게 전체 누적 WIP 재검토 요청(구현 참여 없음). 계약·구현 품질 **GO**, 차단 Finding 없음. 실제 Backend pending 응답/관리자 복구 경계 및 desktop1440 pending/iPhone390 error PNG 대조. 제품 hash prefix App.tsx `d1415281`, auth.ts `8dc44d00`, auth-figma.css `5442c393`.
 - 서버 권한·DB·provider 변경 없음. 기존 bearer와 /api/me 권한 분기를 그대로 사용하며 실제 Microsoft 왕복 인증은 미실행. 사용자 동작 검수·원격 push/PR/merge·공개배포는 미실행. 실제 계정 자동 복귀 및 운영 화면 확인을 완료로 표현하지 않는다.
 - 로컬 시안 서버5193은 동일 작업공간의 실제 공용 화면을 렌더링하도록 갱신했고, 기존 시안 경로는 유지한다. 제품 배포 번들에는 시안/테스트 entry가 포함되지 않는다.
+
+## 공개배포 진행과 CI 테스트 보정
+
+- 사용자 ‘좋아. 공개배포해.’ 승인 후 PR #137 생성. 첫 CI `34537674348`에서 Frontend 성공, 일반 Full-Stack 64개 중 2개 실패. 로그인 제품 변경과 무관한 기존 검사의 날짜·완료 대기 결함을 확인했다.
+- G2: backend 업무날짜의 다음날(2026-09-12 토요일)을 항상 파랑으로 기대하던 두 assertion을 주말/합성 system holiday가 빨강 우선이라는 기존 계약에 맞췄다. 실제 제품 CSS는 변경하지 않는다.
+- Panel Excel: 저장 전부터 배경에 보이는 업로드 버튼으로 완료를 판단해 DB를 너무 일찍 읽었다. 정확한 프로젝트 apply POST 성공, dialog 닫힘 및 설계 상세 table 복귀를 기다린 후 기존 DB/audit 값을 검사한다. 제품 구현은 변경하지 않는다.
+- 독립 reviewer가 두 보정의 원인과 diff 확인, 차단 Finding 없음. 첫 local 실행은 Release executable 부재로 assertion 미실행 후 전용 자원 정리. 서버 build(오류/경고0) 후 G2 focused PASS, Excel은 obsolete 업로드 버튼 대신 실제 상세 table로 보정 후 단독 PASS(13.4s). 모두 임시 DB/container, 종료 후 소유 자원만 정리. 제품 hash는 이전 검토와 동일하다.
+- 테스트 보정을 PR에 추가하고 required CI를 다시 검증한다. 첫 실패 run을 성공으로 처리하거나 검증을 생략하지 않는다.

@@ -36,6 +36,12 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const initialHome = await getJson<{ today: string }>(request, '/api/g2/home', 'dev-sales');
   const today = initialHome.today;
   const tomorrow = addDays(today, 1);
+  const tomorrowHolidays = await getJson<Array<{ holidayDate: string }>>(request,
+    `/api/system/holidays?countryCode=KR&dateFrom=${tomorrow}&dateTo=${tomorrow}`, 'dev-sales');
+  const tomorrowWeekday = new Date(`${tomorrow}T00:00:00Z`).getUTCDay();
+  const tomorrowIsHoliday = tomorrowWeekday === 0 || tomorrowWeekday === 6
+    || tomorrowHolidays.some(holiday => holiday.holidayDate === tomorrow);
+  const tomorrowForecastColor = tomorrowIsHoliday ? 'rgb(220, 38, 38)' : 'rgb(37, 99, 235)';
   const dayAfterTomorrow = addDays(today, 2);
   const farFuture = '2200-01-02';
 
@@ -279,7 +285,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expectInputWidth(homeRange.getByLabel('종료일'), 120);
   await expectInputWidth(page.getByLabel('적용 시작일'), 136);
   await expect(page.getByLabel(previewLabel).locator('..')).toHaveClass(/g2-forecast-column/u);
-  await expect(page.getByLabel(previewLabel)).toHaveCSS('color', 'rgb(37, 99, 235)');
+  await expect(page.getByLabel(previewLabel)).toHaveCSS('color', tomorrowForecastColor);
   await expect(page.getByLabel(`${koreanDate(firstWeekendInMonth(today))} 신규 불량 임시 예상값`)).toHaveCSS('color', 'rgb(220, 38, 38)');
   await page.getByRole('button', { name: '수리 상세 보기', exact: true }).focus();
   await page.keyboard.press('Enter');
@@ -296,7 +302,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const attendanceRange = page.getByRole('group', { name: '출근 현황 표시 기간' });
   await expectInputWidth(attendanceRange.getByLabel('시작일'), 120);
   await expectInputWidth(attendanceRange.getByLabel('종료일'), 120);
-  await expect(page.getByRole('button', { name: `${koreanDate(tomorrow)} 오전 합계 7명 세부 인원 보기` })).toHaveCSS('color', 'rgb(37, 99, 235)');
+  await expect(page.getByRole('button', { name: `${koreanDate(tomorrow)} 오전 합계 7명 세부 인원 보기` })).toHaveCSS('color', tomorrowForecastColor);
   await assertNoPageOverflow(page);
   await capture(page, '04-g2-attendance-mobile-390.png');
 

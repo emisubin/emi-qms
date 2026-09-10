@@ -30,6 +30,7 @@ public sealed class InteriorBusbarPublicationTests
         var html = Encoding.UTF8.GetString(InteriorBusbarPublicPage.Render(Product()));
         if (Environment.GetEnvironmentVariable("BUSBAR_PUBLIC_PAGE_EVIDENCE_PATH") is { } path)
             File.WriteAllText(path, html);
+        Assert.DoesNotContain("IB-001", html);
         Assert.Contains("2026-09-09", html);
         Assert.Contains("09:12:34", html);
         Assert.Contains("&lt;script&gt;alert(1)&lt;/script&gt;", html);

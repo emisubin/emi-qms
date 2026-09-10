@@ -71,7 +71,7 @@ public static class InteriorBusbarPublicPage
         static string H(string value) => WebUtility.HtmlEncode(value);
         var local = TimeZoneInfo.ConvertTime(product.ManufacturedAtUtc, TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul"));
         var body = product.Cancelled ? "<h1>제품 정보 제공이 중지되었습니다.</h1>" :
-            $"<h1>제품 정보</h1><p class=number>{H(product.Number)}</p><dl><dt>제조일</dt><dd>{local:yyyy-MM-dd}</dd><dt>제조시간</dt><dd>{local:HH:mm:ss} (한국 시간)</dd><dt>작업자</dt><dd>{H(product.WorkerName)}</dd></dl>";
+            $"<h1>제품 정보</h1><dl><dt>제조일</dt><dd>{local:yyyy-MM-dd}</dd><dt>제조시간</dt><dd>{local:HH:mm:ss} (한국 시간)</dd><dt>작업자</dt><dd>{H(product.WorkerName)}</dd></dl>";
         if (!product.Cancelled)
         {
             foreach (var side in new[] { "front", "back" })
@@ -83,7 +83,7 @@ public static class InteriorBusbarPublicPage
                 body += $"<figure><figcaption>{label}</figcaption><img alt=\"{label} 사진\" src=\"data:{photo.ContentType};base64,{Convert.ToBase64String(photo.Content)}\"></figure>";
             }
         }
-        return Encoding.UTF8.GetBytes("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta name=robots content=\"noindex,nofollow,noarchive\"><meta name=referrer content=no-referrer><meta http-equiv=Content-Security-Policy content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\"><title>제품 정보</title><style>body{font:16px system-ui,sans-serif;color:#172334;background:#f3f5f8;margin:0;padding:24px}main{max-width:760px;margin:auto;background:white;padding:24px;border-radius:12px}h1{font-size:24px}.number{font-weight:700}dl{display:grid;grid-template-columns:100px 1fr;gap:12px}dt{color:#526070}dd{margin:0;overflow-wrap:anywhere}figure{margin:24px 0 0}figcaption{font-weight:600;margin-bottom:10px}img{display:block;width:100%;height:auto;border-radius:6px}@media(max-width:420px){body{padding:12px}main{padding:16px}}</style><main>" + body + "</main></html>");
+        return Encoding.UTF8.GetBytes("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta name=robots content=\"noindex,nofollow,noarchive\"><meta name=referrer content=no-referrer><meta http-equiv=Content-Security-Policy content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\"><title>제품 정보</title><style>body{font:16px system-ui,sans-serif;color:#172334;background:#f3f5f8;margin:0;padding:24px}main{max-width:760px;margin:auto;background:white;padding:24px;border-radius:12px}h1{font-size:24px}dl{display:grid;grid-template-columns:100px 1fr;gap:12px}dt{color:#526070}dd{margin:0;overflow-wrap:anywhere}figure{margin:24px 0 0}figcaption{font-weight:600;margin-bottom:10px}img{display:block;width:100%;height:auto;border-radius:6px}@media(max-width:420px){body{padding:12px}main{padding:16px}}</style><main>" + body + "</main></html>");
     }
 }
 

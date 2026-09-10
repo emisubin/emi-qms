@@ -184,7 +184,8 @@ describe('Osan project registration', () => {
     await waitFor(() => allowed ? expect(action).toBeEnabled() : expect(action).toBeDisabled());
     const progressRequest = fetchMock.mock.calls.find(([input]) => String(input).includes(`/projects/${projectId}/progress`));
     expect(new Headers(progressRequest?.[1]?.headers).get('X-Qms-Business-Unit')).toBe('OSAN');
-    expect(screen.getByText('안내 사진이 들어갈 영역')).toBeVisible();
+    expect(screen.queryByText('안내 사진이 들어갈 영역')).not.toBeInTheDocument();
+    expect(screen.getByText(/외관 \/ 구조 \/ 도장 \/ 색차 검사를 시행한다/)).toBeVisible();
   });
 
   it('renders each desktop project as one accessible table row', async () => {
@@ -212,14 +213,14 @@ describe('Osan project registration', () => {
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveClass('project-list-head');
-    expect(within(rows[0]).getAllByRole('columnheader').map(el => el.textContent)).toEqual(['장비명', 'part 분류', '고객사', 'Code', '수량', '납기일', '상태', '진행률']);
+    expect(within(rows[0]).getAllByRole('columnheader').map(el => el.textContent)).toEqual(['선택', '장비명', 'part 분류', '고객사', 'Code', '수량', '납기일', '상태', '진행률']);
     expect(within(rows[0]).getByRole('columnheader', { name: '장비명' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '상태' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '진행률' })).toBeInTheDocument();
 
     const projectRow = within(table).getByRole('row', { name: '저장된 Title 상세 열기' });
     expect(projectRow).toHaveClass('project-list-row');
-    expect(within(projectRow).getAllByRole('cell')).toHaveLength(8);
+    expect(within(projectRow).getAllByRole('cell')).toHaveLength(9);
     expect(projectRow).toHaveAttribute('data-presentation-row', 'project');
     const listCode = projectRow.querySelector('.project-code-value');
     expect(listCode).toHaveTextContent('AbC  001', { normalizeWhitespace: false });
@@ -278,7 +279,8 @@ describe('Osan project registration', () => {
     const pageQueries = within(page as HTMLElement);
     fireEvent.click(pageQueries.getByRole('button', { name: '필터' }));
     expect(pageQueries.getByRole('combobox', { name: '상태별' })).toHaveValue('All');
-    expect(pageQueries.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(pageQueries.getByRole('checkbox', { name: '현재 목록 전체 선택' })).toBeInTheDocument();
+    expect(pageQueries.queryByRole('checkbox', { name: '완료 프로젝트 제외' })).not.toBeInTheDocument();
     expect(page).not.toHaveTextContent('Excel');
     expect(page).not.toHaveTextContent('Pending');
     expect(page).not.toHaveTextContent('병목');

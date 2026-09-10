@@ -36,7 +36,7 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
     await fetchJson(`${path}/${active.requestId}/save`,userKey,{method:'POST',body});
    }else await fetchJson(kind==='request'?path:`${path}/${active!.requestId}/approve`,userKey,{method:'POST',
     body:JSON.stringify(kind==='request'?{requestId:requestId.current,targetId:target.targetId,stageSequence:stage}:{})});
-   if(alive.current){setEpoch(e=>e+1);setEditing(false);setFiles([]);setSubmitted(false);uncertainSave.current=false;requestId.current=crypto.randomUUID();if(kind==='save')onSaved();}
+   if(alive.current){setState(undefined);setEpoch(e=>e+1);setEditing(false);setFiles([]);setSubmitted(false);uncertainSave.current=false;requestId.current=crypto.randomUUID();if(kind==='save')onSaved();}
   }catch(e){if(alive.current){setError(e instanceof Error?e.message:'요청을 완료하지 못했습니다. 다시 시도해 주세요.');
    if(kind==='save'){if(e instanceof ApiError&&[400,403,413,422].includes(e.status)){if(!uncertainSave.current)setSubmitted(false);}else uncertainSave.current=true;}}}
   finally{if(alive.current)setBusy(false);}

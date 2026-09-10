@@ -55,6 +55,8 @@ export type BusbarProduct = {
   hasBack: boolean;
   publicationState?: "Pending" | "Published" | "Failed";
   revision: number;
+  publishedRevision?: number;
+  qrState?: "Ready" | "ConfigurationPending" | "AwaitingCompletion";
 };
 export type BusbarLedger = {
   id: string;

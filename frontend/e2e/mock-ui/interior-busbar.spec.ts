@@ -10,6 +10,7 @@ const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII=",
   "base64",
 );
+const qrPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAcgAAAHIAQAAAADi2kdHAAADFklEQVR4nO1Y0W4CMQy7//9pJtrYccqhSTwZYZAGV+pOchPHyfX49HUFGYYSCcmVaEJU87erw7Vf6/H53l+eC+vjWmv9tHYGacxQXe3eW3vqjLW2wHXCAAXpyRBve+3rW6+r32v1h7ESpDlDO2V3qte+HQ0MgyC/i6Gdx6rKTPcZM0FaM4S/Uoip03sZMXGv8UFaMcS9/77feLAgnRhi8zJMMW6+yjFlHJuDtGVISitbHvY41fGUdZ72OEhLhmB79RieUgYZAi7qHaQpQ+15yzeptRpf1FQFacsQFvkLMpt7O+XVGQfpyFDXV/lgPs/W9vBgQRoyJBFBG4Xyi3a2j5iVN0g/huiIRy3GxsryjofRuQbpx1DdeV12pS/7VBkjsvsJ0pohqrNKN26/2x9qdZDeDPXu+tqDfS5XVut/C9KTIV6wuN+KBaQ3vsNFB2nMEDcTIqZ4xEp7qiB9GeL9i1cCipOJM7WDNGaoMxyThpcZIbtZUfYgLRmCKstOrvSYkKOmQ6mDtGNIVJkDJNhjrrShGn4qSEOG+HsV2D6DHWyNEe8m+UG6McRIUJfUBZcqzkocpDNDVGH1wpBqmixK9Y3GB2nEEIcOZ6HFE9IdIh6kNUNYnIOGqrO4/VGNg3RmCOmKUBA/VYWW5x3OOEhLhnDz9WslMrayiWULFKQ1Q7C+UnyxkxZKGp1TqYM0Y6hhyGFOHuCJu8mZ7jlIQ4Z6O/OYsg2TVcLNQAjSmiFkMVQbNpjpjfNn5Q3SkaFheXucdPyEcJmaEKQfQ9rSSM1Fe8MfMYcI0pwhpmzbJLhl7sahhwcL0pIhXDcrrdhi9jiQ8hEJQRoy1NvxJJOIHSI9fjp6pCDdGBoltyOCvY/44ruZVJBmDOHVhXWMJCDOOEdjKEhDhsQk4QAItDzu5z4nSFuG4J7aHHdWa0cEzQ7SnCHeO1R6djf0VEjrIL+IIbgqWZEDRucapDND/YF+BlW2y+19ZgfpxZAo9d6PLoezX0bHi3YHaceQanAPCsVRIS5KyIO0ZuijV5BhKJGQXIkmRDUfP1sd/gAjti4sTxln8gAAAABJRU5ErkJggg==", "base64");
 function fixture(canWrite = true): BusbarWorkspace {
   return {
     canWrite,
@@ -155,7 +156,7 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
         : json(data);
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
       return json(data.products.find((p) => p.id === path.split("/").at(-1)));
-    if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: png });
+    if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: qrPng });
     if (path.includes("/photos/") && req.method() === "GET")
       return route.fulfill({ contentType: "image/png", body: png });
     if (path.startsWith("/api/interior-busbar/") && req.method() !== "GET") {
@@ -281,7 +282,7 @@ test("two photos auto complete with server time and block QR until publication",
     writes = await mock(page, data);
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산·사진·QR" }).click();
-  await page.getByRole("button", { name: "사진 등록 계속하기" }).click();
+  await page.getByRole("button", { name: "사진등록" }).click();
   await page
     .getByLabel("앨범에서 앞면 선택")
     .setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
@@ -295,10 +296,8 @@ test("two photos auto complete with server time and block QR until publication",
   expect(writes.filter((x) => x.path.includes("/photos/"))).toHaveLength(2);
   await expect(
     page.getByRole("button", { name: "QR 인쇄 준비" }),
-  ).toBeDisabled();
-  await expect(page.getByLabel("카메라로 앞면 촬영")).toBeDisabled();
-  await page.getByLabel("사진 정정 사유").fill("합성 사진 정정");
-  await expect(page.getByLabel("카메라로 앞면 촬영")).toBeEnabled();
+  ).toHaveCount(0);
+  await expect(page.getByLabel("카메라로 앞면 촬영")).toHaveCount(0);
   await page.screenshot({
     path: "/private/tmp/emi-busbar-photo-complete.png",
     fullPage: true,
@@ -405,7 +404,7 @@ test("draft products allow reasoned worker correction and cancellation without s
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
   await page
-    .getByRole("button", { name: "사진 등록 계속하기", exact: true })
+    .getByRole("button", { name: /제품 관리$/ })
     .click();
   await expect(
     page.getByRole("button", { name: "작업자 정정", exact: true }),
@@ -499,7 +498,7 @@ test("planned draft requires worker before uploads and shows permanent number on
     page.getByText("2026-09-09 · 대기 1번", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "사진 등록 계속하기", exact: true })
+    .getByRole("button", { name: "사진등록", exact: true })
     .click();
   await expect(page.getByLabel("앨범에서 앞면 선택")).toBeDisabled();
   await expect(page.getByLabel("카메라로 뒷면 촬영")).toBeDisabled();
@@ -537,7 +536,7 @@ test("planned draft requires worker before uploads and shows permanent number on
   );
   await expect(
     page.getByRole("button", { name: "QR 인쇄 준비", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect(
     page.getByText("이 번호를 임시 스티커에 표시하세요.", { exact: false }),
   ).toBeVisible();
@@ -695,10 +694,10 @@ for (const navigation of ["filter", "plan row"] as const) {
     await page.getByLabel("계획 시작일", { exact: true }).fill("2026-09-09");
     await page.getByLabel("계획 종료일", { exact: true }).fill("2026-09-09");
     await expect(
-      page.getByRole("button", { name: "사진 등록 계속하기", exact: true }),
+      page.getByRole("button", { name: "사진등록", exact: true }),
     ).toHaveCount(1);
     await page
-      .getByRole("button", { name: "사진 등록 계속하기", exact: true })
+      .getByRole("button", { name: "사진등록", exact: true })
       .click();
     const started = page.waitForRequest(
       (request) =>
@@ -817,15 +816,15 @@ test("completing a Draft-filtered product preserves its number after it leaves t
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
   await page.getByLabel("생산 상태 필터", { exact: true }).selectOption("Draft");
-  await page.getByRole("button", { name: "사진 등록 계속하기", exact: true }).click();
+  await page.getByRole("button", { name: "사진등록", exact: true }).click();
   await page.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
   await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
   await page.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
   await expect(page.getByRole("dialog").locator(".busbar-completion strong")).toHaveText("IB-00000001");
   await expect(page.locator(".busbar-completion")).toBeFocused();
   await expect(page.getByLabel("생산 상태 필터", { exact: true })).toHaveValue("Draft");
-  await expect(page.getByRole("button", { name: "사진 등록 계속하기", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "QR 인쇄 준비", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "사진등록", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "QR 인쇄 준비", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "사진 팝업 닫기" }).click();
   await expect(page.getByRole("heading", { name: "생산 제품 목록", exact: true })).toBeFocused();
 
@@ -962,37 +961,81 @@ test("overview excludes completed projects and orders pending projects by due da
   await expect(rows.nth(2)).not.toHaveAttribute("aria-expanded");
 });
 
-test("photo action is first column and popup supports completion, QR preview and print", async ({ page }) => {
+test("photo popup contains registration only and table follows production order", async ({ page }) => {
   const data = fixture(); await mock(page, data);
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
-  const table = page.getByRole("region", { name: "사진·QR 목록", exact: true });
-  await expect(table.getByRole("columnheader").first()).toHaveText("사진·QR");
-  await expect(table.getByRole("row").nth(1).getByRole("cell").first().getByRole("button", { name: "사진 등록 계속하기" })).toBeVisible();
-  await table.getByRole("button", { name: "사진 등록 계속하기" }).click();
+  const table = page.getByRole("region", { name: "선택 목록", exact: true });
+  await expect(table.getByRole("columnheader")).toHaveText(["선택", "사진등록", "제품군", "작업자", "생산일시", "생산 상태", "제품번호", "외부게시"]);
+  await expect(table.getByRole("cell", { name: "사진 등록 전", exact: true })).toBeVisible();
+  await table.getByRole("button", { name: "사진등록" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByLabel("앨범에서 앞면 선택")).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: `/private/tmp/emi-busbar-photo-popup-${width}.png` });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
+  await expect(dialog.getByRole("button", { name: "생산 취소" })).toHaveCount(0);
   await dialog.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
-  await expect(dialog.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
+  await expect(table.getByRole("cell", { name: "1차 사진 등록 완료", exact: true })).toBeVisible();
   await dialog.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
   await expect(dialog.locator(".busbar-completion strong")).toHaveText("IB-00000001");
-  data.products[0].publicationState = "Published";
-  await dialog.getByRole("button", { name: "게시 다시 요청" }).click();
-  await dialog.getByRole("button", { name: "QR 인쇄 준비" }).click();
-  await expect(dialog.getByRole("img", { name: "IB-00000001 QR", exact: true })).toBeVisible();
-  await page.emulateMedia({ media: "print" });
-  await expect(page.locator(".busbar-qr-print")).toBeVisible();
-  await expect(page.locator(".busbar-qr-print p")).toHaveText("IB-00000001");
-  await page.screenshot({ path: "/private/tmp/emi-busbar-photo-popup-print.png" });
-  await page.emulateMedia({ media: "screen" });
+  await expect(dialog.getByRole("button", { name: /QR|작업자 정정/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "사진 팝업 닫기" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(table.getByRole("button", { name: "사진·QR 보기" })).toBeFocused();
+  await expect(table.getByRole("button", { name: "사진보기" })).toBeFocused();
+});
+
+function publishedFixture() {
+  const data = fixture(); const draft = data.products[0];
+  data.products = [1, 2].map((n) => ({ ...draft, id: `published-${n}`, number: `IB-0000000${n}`, status: "Complete", hasFront: true, hasBack: true, revision: 2, publishedRevision: 2, publicationState: "Published" }));
+  data.products.push(draft, { ...draft, id: "stale", status: "Complete", number: "IB-STALE", revision: 3, publishedRevision: 2, publicationState: "Published" });
+  return data;
+}
+test("bulk QR prepares all eligible labels and prints separate cards", async ({ page }) => {
+  const data = publishedFixture(); await mock(page, data);
+  await page.goto("/interior-busbar"); await page.getByRole("tab", { name: "생산·사진·QR" }).click();
+  await expect(page.getByLabel("IB-STALE QR 선택")).toBeDisabled();
+  await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
+  await expect(page.getByText("2개 선택", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator(".busbar-qr-preview img")).toHaveCount(2);
+  await expect(dialog.getByRole("button", { name: "인쇄", exact: true })).toBeEnabled();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: `/private/tmp/emi-busbar-bulk-qr-${width}.png` });
+  }
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
+  await expect(dialog).toBeHidden();
+  await page.emulateMedia({ media: "screen" });
+  await page.evaluate(() => { window.print = () => {
+    const sheet = document.querySelector(".busbar-print-sheet")!;
+    document.body.dataset.printEvidence = JSON.stringify({ display: getComputedStyle(sheet).display, numbers: [...sheet.querySelectorAll("p")].map((p) => p.textContent), images: [...sheet.querySelectorAll("img")].every((img) => img.complete && img.naturalWidth > 0) });
+  }; });
+  await dialog.getByRole("button", { name: "인쇄", exact: true }).click();
+  await expect(page.locator("body")).toHaveAttribute("data-print-evidence", JSON.stringify({ display: "none", numbers: ["IB-00000001", "IB-00000002"], images: true }));
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".busbar-print-sheet")).toBeVisible();
+  await page.screenshot({ path: "/private/tmp/emi-busbar-bulk-print.png" });
+  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+  await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
+  await page.emulateMedia({ media: "screen" });
+  data.products[0].status = "Cancelled";
+  await dialog.getByRole("button", { name: "인쇄", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.locator(".busbar-qr-preview img")).toHaveCount(0);
+});
+test("one failed QR request never offers partial labels", async ({ page }) => {
+  const data = publishedFixture(); await mock(page, data);
+  await page.route("**/products/published-2/qr", (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ message: "QR 준비 실패" }) }));
+  await page.goto("/interior-busbar"); await page.getByRole("tab", { name: "생산·사진·QR" }).click();
+  await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
+  await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("alert")).toContainText("QR 준비 실패");
+  await expect(dialog.locator(".busbar-qr-preview img")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "인쇄", exact: true })).toHaveCount(0);
 });
 
 test("project status filter combines with text search", async ({ page }) => {
@@ -1030,13 +1073,44 @@ test("late product detail response cannot replace a different photo popup", asyn
   await page.goto("/interior-busbar");
   await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
   const firstResponse = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/interior-busbar/products/${productId}`);
-  await page.getByRole("button", { name: "사진 등록 계속하기", exact: true }).first().click();
+  await page.getByRole("button", { name: "사진등록", exact: true }).first().click();
   await page.getByRole("button", { name: "사진 팝업 닫기" }).click();
-  await page.getByRole("button", { name: "사진 등록 계속하기", exact: true }).nth(1).click();
+  await page.getByRole("button", { name: "사진등록", exact: true }).nth(1).click();
   await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", "2026-09-09 · 대기 2번 · 합성 제품군 A");
   release();
   await firstResponse;
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   await expect(page.getByRole("dialog")).toContainText("합성 두번째 작업자");
   await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", "2026-09-09 · 대기 2번 · 합성 제품군 A");
+});
+
+
+test("QR changed during preparation cannot create a printable preview", async ({ page }) => {
+  const data = publishedFixture(); await mock(page, data);
+  await page.route("**/products/published-2/qr", async (route) => {
+    data.products[0].revision++;
+    await route.fulfill({ contentType: "image/png", body: qrPng });
+  });
+  await page.goto("/interior-busbar"); await page.getByRole("tab", { name: "생산·사진·QR" }).click();
+  await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
+  await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("게시 상태가 변경됐습니다");
+  await expect(page.locator(".busbar-qr-preview img")).toHaveCount(0);
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
+  await expect(page.locator(".busbar-print-dialog")).toBeHidden();
+});
+
+test("calendar today stays pastel red when selected", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-10T06:00:00Z"));
+  await mock(page, fixture()); await page.goto("/interior-busbar");
+  await page.getByRole("tab", { name: "생산계획", exact: true }).click();
+  const day = page.getByRole("button", { name: "2026-09-10 생산계획 선택", exact: true });
+  await expect(day).toHaveAttribute("aria-current", "date");
+  await expect(day).toHaveCSS("background-color", "rgb(254, 226, 226)");
+  await day.click(); await page.getByRole("button", { name: "생산계획 팝업 닫기" }).click();
+  await expect(day).toHaveAttribute("aria-pressed", "true");
+  await expect(day).toHaveCSS("background-color", "rgb(254, 226, 226)");
+  await expect(day).toHaveCSS("outline-color", "rgb(37, 99, 235)");
+  await page.screenshot({ path: "/private/tmp/emi-busbar-calendar-today.png", fullPage: true });
 });

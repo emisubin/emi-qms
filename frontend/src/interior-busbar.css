@@ -136,9 +136,6 @@
   text-align: center;
   color: #64748b;
 }
-.busbar-qr-print {
-  display: none;
-}
 @media (max-width: 600px) {
   .busbar-page .ds-surface {
     padding: 14px;
@@ -153,28 +150,6 @@
   .busbar-page .ds-page-header {
     flex-direction: column;
     align-items: stretch;
-  }
-}
-@media print {
-  body:has(.busbar-qr-print) > * {
-    visibility: hidden;
-  }
-  .busbar-qr-print,
-  .busbar-qr-print * {
-    visibility: visible;
-  }
-  .busbar-qr-print {
-    display: block;
-    position: fixed;
-    left: 0;
-    top: 0;
-    background: white;
-    padding: 16px;
-    text-align: center;
-  }
-  .busbar-qr-print img {
-    width: 180px;
-    height: 180px;
   }
 }
 .app-shell .busbar-page .ds-tabs button {
@@ -281,4 +256,24 @@
   .app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: minmax(0, 1fr); padding: 12px; }
   .busbar-filter-actions { justify-content: flex-start; }
   .busbar-filter-actions button { flex: 1 1 auto; }
+}
+
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] {
+  background: #fee2e2 !important; color: #7f1d1d !important;
+}
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] * { color: inherit !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] { outline: 2px solid #2563eb; outline-offset: -2px; }
+.busbar-page .busbar-check-label { display: flex; align-items: center; gap: 8px; }
+.busbar-qr-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-block: 16px; }
+.busbar-qr-label { display: grid; justify-items: center; gap: 8px; padding: 12px; text-align: center; break-inside: avoid; }
+.busbar-qr-label img { width: 180px; height: 180px; object-fit: contain; }
+.busbar-print-buffer { display: none !important; }
+.busbar-print-sheet { display: none; }
+@media print {
+  .busbar-print-dialog { display: none !important; }
+  body:has(.busbar-print-sheet) > *:not(.busbar-print-sheet) { display: none !important; }
+  .busbar-print-sheet, .busbar-print-sheet * { visibility: visible !important; }
+  .busbar-print-sheet { display: block; background: white; color: black; }
+  .busbar-print-sheet .busbar-qr-label { display: inline-block; width: 58mm; padding: 4mm; vertical-align: top; break-inside: avoid; }
+  .busbar-print-sheet .busbar-qr-label img { display: block; width: 44mm; height: 44mm; margin: auto; }
 }

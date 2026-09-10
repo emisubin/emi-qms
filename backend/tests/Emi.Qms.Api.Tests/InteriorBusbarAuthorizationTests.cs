@@ -174,6 +174,45 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(HttpStatusCode.Conflict, qr.StatusCode);
     }
 
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task ReviewSafeQrGetDoesNotBackfillPublishedProduct_AndCanReadExistingArtifact()
+    {
+        var options = new InteriorBusbarPublicationOptions(false,new Uri("https://busbar.example.test/"),null,"");
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create(options);
+        var family = await f.Store.Master("product-families",new(null,"F","Family"),f.Actor);
+        var material = await f.Store.Master("materials",new(null,"M","Material","개","도급"),f.Actor);
+        var worker = await f.Store.Master("workers",new(null,"W","Worker"),f.Actor);
+        await f.Store.Bom(new(family,[new(material,1)]),f.Actor);
+        var product = await f.Store.Product(new(Guid.NewGuid(),family,worker),f.Actor);
+        await f.Store.Photo(product,"front",[1],null,f.Actor);
+        await f.Store.Photo(product,"back",[2],null,f.Actor);
+        await using (var c = new Npgsql.NpgsqlConnection(f.Connection))
+        {
+            await c.OpenAsync(TestContext.Current.CancellationToken);
+            await using var cmd = new Npgsql.NpgsqlCommand("update busbar_products set publication_state='Published',published_revision=revision;delete from busbar_product_qr",c);
+            await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+        using var factory = QmsWebApplicationFactory.Create("Development", new Dictionary<string,string?>
+        {
+            ["ReviewSafe:Enabled"]="true",["DevAuthentication:Enabled"]="true",
+            ["Database:ApplyMigrationsOnStartup"]="false",["DevelopmentData:SeedEnabled"]="false",
+            ["ConnectionStrings:QmsDatabase"]=f.Connection,
+            ["InteriorBusbar:Publication:Enabled"]="false",
+            ["InteriorBusbar:Publication:PublicBaseUrl"]="https://busbar.example.test/"
+        },identityStore:new MutableIdentity(f.Actor));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader,"busbar-fixture");
+        var blocked = await client.GetAsync($"/api/interior-busbar/products/{product}/qr",TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Conflict,blocked.StatusCode);
+        Assert.Contains("qr_generation_pending",await blocked.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0L,await f.Scalar("select count(*) from busbar_product_qr"));
+        var persisted = await f.Store.GetPrintableQr(product);
+        var available = await client.GetAsync($"/api/interior-busbar/products/{product}/qr",TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK,available.StatusCode);
+        Assert.Equal(persisted,await available.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1L,await f.Scalar("select count(*) from busbar_product_qr"));
+    }
+
     private sealed class OsanAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {

@@ -2,9 +2,9 @@ using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.ReviewSafe;
 using ImageMagick;
 using ClosedXML.Excel;
-using QRCoder;
 namespace Emi.Qms.Api.InteriorBusbar;
 
 public static class InteriorBusbarEndpointExtensions
@@ -187,30 +187,8 @@ public static class InteriorBusbarEndpointExtensions
         }
 ).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(11_000_000));
         api.MapGet("/products/{id:guid}/photos/{side}", async (Guid id, string side, InteriorBusbarStore s) => Results.File(await s.GetPhoto(id, side), "image/jpeg"));
-        api.MapGet("/products/{id:guid}/qr", async (Guid id, InteriorBusbarStore s, InteriorBusbarPublicationOptions options) =>
-        {
-            var p = await s.GetProduct(id);
-            if ((string)p["status"]! != "Complete" || (string)p["publicationState"]! != "Published" || Convert.ToInt32(p["revision"]) != Convert.ToInt32(p["publishedRevision"])) return Results.Conflict(new
-            {
-                message = "최신 제품 정보의 게시가 완료된 뒤 출력하세요."
-            });
-            string url;
-            try
-            {
-                url = options.GetPublicUrl((string)p["publicToken"]!);
-            }
-            catch (InvalidOperationException)
-            {
-                return Results.Conflict(new
-                {
-                    message = "외부 게시 주소가 설정되지 않았습니다."
-                });
-            }
-            using var generator = new QRCodeGenerator();
-            using var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q);
-            using var png = new PngByteQRCode(data);
-            return Results.File(png.GetGraphic(8), "image/png");
-        });
+        api.MapGet("/products/{id:guid}/qr", async (Guid id, InteriorBusbarStore s, IConfiguration configuration) =>
+            Results.File(await s.GetPrintableQr(id, allowPersist: !ReviewSafeMode.IsEnabled(configuration)), "image/png"));
         api.MapPost("/projects/import/preview", (HttpRequest r, InteriorBusbarStore s) => Preview(r, false, s));
         api.MapPost("/purchases/import/preview", (HttpRequest r, InteriorBusbarStore s) => Preview(r, true, s));
         api.MapPost("/projects/import/apply", (BusbarImportApplyRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => s.ApplyProjects(r.Rows, Actor(u)));

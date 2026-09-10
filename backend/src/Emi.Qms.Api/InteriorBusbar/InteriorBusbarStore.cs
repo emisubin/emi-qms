@@ -1,9 +1,10 @@
 using System.Text.Json;
 using System.Security.Cryptography;
 using Npgsql;
+using QRCoder;
 namespace Emi.Qms.Api.InteriorBusbar;
 
-public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider)
+public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null)
 {
     // The same transaction lock fences inventory mutations and bounded external publication.
     // Checks, immutable ledger deltas and derived balances must commit together.
@@ -99,11 +100,13 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         if (planId is not null) { predicates.Add("p.plan_id=@plan"); filterArgs.Add(("plan", planId.Value)); }
         if (productFamilyId is not null) { predicates.Add("p.product_family_id=@family"); filterArgs.Add(("family", productFamilyId.Value)); }
         if (status is not null) { predicates.Add("p.status=@status"); filterArgs.Add(("status", status)); }
-        if (planDateFrom is not null) {
+        if (planDateFrom is not null)
+        {
             predicates.Add("exists(select 1 from busbar_plans fp where fp.id=p.plan_id and fp.plan_date>=@dateFrom)");
             filterArgs.Add(("dateFrom", planDateFrom.Value));
         }
-        if (planDateTo is not null) {
+        if (planDateTo is not null)
+        {
             predicates.Add("exists(select 1 from busbar_plans fp where fp.id=p.plan_id and fp.plan_date<=@dateTo)");
             filterArgs.Add(("dateTo", planDateTo.Value));
         }
@@ -125,15 +128,16 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
             ("workers","select * from busbar_workers order by code"),("boms","select * from busbar_boms order by version desc"),("bomLines","select * from busbar_bom_lines"),
             ("projects",ProjectQuery),("plans","select p.*,(select count(*) from busbar_products x where x.plan_id=p.id and x.status='Complete') actual_quantity from busbar_plans p order by plan_date desc"),
             ("purchases","select p.*,coalesce((select sum(r.quantity) from busbar_receipts r where r.purchase_id=p.id and not exists(select 1 from busbar_operations o where o.reverses_id=r.id)),0) received_quantity from busbar_purchases p order by order_date desc"),
-            ("products","select p.*,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name, exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p"+productFilter+" order by "+productOrder+" limit "+pageSize+" offset "+offset),
+            ("products","select p.*,exists(select 1 from busbar_product_qr qr where qr.product_id=p.id) qr_ready,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name, exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p"+productFilter+" order by "+productOrder+" limit "+pageSize+" offset "+offset),
             ("ledger","select o.*,exists(select 1 from busbar_operations r where r.reverses_id=o.id) reversed from busbar_operations o order by created_at_utc desc,id limit "+pageSize+" offset "+offset),("ledgerLines","select l.* from busbar_ledger l where operation_id in (select id from busbar_operations order by created_at_utc desc,id limit "+pageSize+" offset "+offset+")"),("shipments","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_shipments s join busbar_operations o on o.id=s.id"),("receipts","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_receipts s join busbar_operations o on o.id=s.id"),("audit","select * from busbar_audit order by changed_at_utc desc limit 200")}
 ) result[key] = await Rows(c, sql, key == "products" ? parameters : []);
+        foreach (var product in (List<Dictionary<string, object?>>)result["products"]!) SetQrState(product);
         result["publicationOutstandingCount"] = (await Rows(c, "select count(*) total from busbar_products where status in ('Complete','Cancelled') and manufactured_at_utc is not null and (publication_state<>'Published' or revision<>published_revision)"))[0]["total"];
         result["pagination"] = new
         {
             page,
             pageSize,
-            productCount = (await Rows(c, "select count(*) total from busbar_products p"+productFilter, parameters))[0]["total"],
+            productCount = (await Rows(c, "select count(*) total from busbar_products p" + productFilter, parameters))[0]["total"],
             ledgerCount = (await Rows(c, "select count(*) total from busbar_operations"))[0]["total"]
         }
 ;
@@ -464,6 +468,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
             await Delta(c, operation, "Finished", Id(p, "productFamilyId"), 1);
             foreach (var l in await Rows(c, "select * from busbar_bom_lines where bom_id=@id", ("id", bom))) await Delta(c, operation, "Material", Id(l, "materialId"), -Num(l, "quantity"));
             await Exec(c, "update busbar_products set status='Complete',number='IB-'||lpad(nextval('busbar_product_number_seq')::text,8,'0'),manufactured_at_utc=@now,photo_registered_by=@actor,bom_id=@bom,revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("now", now), ("bom", bom), ("id", product), ("actor", actor));
+            await EnsureQr(c, product, (string)p["publicToken"]!);
         }
         else if ((string)p["status"]! == "Complete") await Exec(c, "update busbar_products set revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("id", product));
         else await Exec(c, "update busbar_products set revision=revision+1 where id=@id", ("id", product));
@@ -518,9 +523,57 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
 
     public Task<Dictionary<string, object?>> GetProduct(Guid id) => ReadSnapshot(async c =>
     {
-        var rows = await Rows(c, "select p.*,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name,exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p where p.id=@id", ("id", id));
-        return rows.Count > 0 ? rows[0] : throw new BusbarException("not_found", "제품을 찾을 수 없습니다.", 404);
+        var rows = await Rows(c, "select p.*,exists(select 1 from busbar_product_qr qr where qr.product_id=p.id) qr_ready,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name,exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p where p.id=@id", ("id", id));
+        if (rows.Count == 0) throw new BusbarException("not_found", "제품을 찾을 수 없습니다.", 404);
+        SetQrState(rows[0]);
+        return rows[0];
     });
+
+    private void SetQrState(Dictionary<string, object?> product)
+    {
+        product["qrState"] = (string)product["status"]! == "Cancelled" ? "Cancelled"
+            : (bool)product["qrReady"]! ? "Ready"
+            : product["manufacturedAtUtc"] is null ? "AwaitingCompletion"
+            : publicationOptions?.PublicBaseUrl is null ? "ConfigurationPending" : "PendingGeneration";
+    }
+
+    private async Task<byte[]?> EnsureQr(NpgsqlConnection c, Guid product, string token)
+    {
+        var existing = await Rows(c, "select png from busbar_product_qr where product_id=@id", ("id", product));
+        if (existing.Count > 0) return (byte[])existing[0]["png"]!;
+        // Manufacturing must remain available before a public website has been configured.
+        if (publicationOptions?.PublicBaseUrl is null) return null;
+        var url = publicationOptions.GetPublicUrl(token);
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q);
+        using var image = new PngByteQRCode(data);
+        var png = image.GetGraphic(8);
+        await Exec(c, "insert into busbar_product_qr(product_id,url,png,created_at_utc) values(@id,@url,@png,@now)",
+            ("id", product), ("url", url), ("png", png), ("now", timeProvider.GetUtcNow()));
+        return png;
+    }
+
+    public Task<byte[]> GetPrintableQr(Guid id, bool allowPersist = true) => allowPersist
+        ? Transaction(c => ReadPrintableQr(c, id, true))
+        : ReadSnapshot(c => ReadPrintableQr(c, id, false));
+
+    private async Task<byte[]> ReadPrintableQr(NpgsqlConnection c, Guid id, bool allowPersist)
+    {
+        var product = await One(c, "busbar_products", id);
+        if ((string)product["status"]! != "Complete" || (string)product["publicationState"]! != "Published"
+            || Convert.ToInt32(product["revision"]) != Convert.ToInt32(product["publishedRevision"]))
+            throw new BusbarException("publication_not_ready", "최신 제품 정보의 게시가 완료된 뒤 출력하세요.", 409);
+        var stored = await Rows(c, "select url,png from busbar_product_qr where product_id=@id", ("id", id));
+        if (stored.Count > 0 && publicationOptions?.PublicBaseUrl is not null &&
+            !string.Equals((string)stored[0]["url"]!, publicationOptions.GetPublicUrl((string)product["publicToken"]!), StringComparison.Ordinal))
+            throw new BusbarException("qr_public_url_changed", "저장된 QR 주소와 현재 공개 주소가 다릅니다. 공개 사이트 설정을 확인하세요.", 409);
+        if (stored.Count > 0) return (byte[])stored[0]["png"]!;
+        if (!allowPersist)
+            throw new BusbarException("qr_generation_pending", "QR 생성이 대기 중입니다. 읽기 전용 검수 모드에서는 새 QR을 생성하지 않습니다.", 409);
+        // Backfill previously completed products under the same lock as production and corrections.
+        var png = await EnsureQr(c, id, (string)product["publicToken"]!);
+        return png ?? throw new BusbarException("qr_configuration_pending", "외부 게시 주소가 설정되지 않았습니다.", 409);
+    }
 
     public Task<byte[]> GetPhoto(Guid id, string side) => ReadSnapshot(async c =>
     {

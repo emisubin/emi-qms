@@ -331,6 +331,13 @@ test('Osan home and progress keep D-day beside the equipment name across widths 
       await expect(title.locator('.osan-dashboard-dday')).toHaveText('D-1');
       await expect(title.locator('.osan-dashboard-project-name')).toHaveText('저장된 Title');
       expect(await title.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await title.locator('.osan-dashboard-dday').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const text = range.getBoundingClientRect();
+        const box = element.parentElement!.getBoundingClientRect();
+        return text.top >= box.top && text.bottom <= box.bottom && text.left >= box.left && text.right <= box.right;
+      })).toBe(true);
       expect(await hasHorizontalOverflow(page)).toBe(false);
       await page.screenshot({ path: testInfo.outputPath(`osan-${route === '/' ? 'home' : 'progress'}-dday-${width}.png`), fullPage: true });
       await page.clock.setFixedTime(new Date('2026-12-30T15:00:00Z'));

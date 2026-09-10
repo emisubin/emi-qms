@@ -520,6 +520,51 @@ describe('business-unit access shell', () => {
     });
   });
 
+  it('shows the integrated approval-pending title and an explicit empty state when the filter has no matches', async () => {
+    selectBusinessUnit('CHEONGJU');
+    window.history.replaceState(null, '', '/admin/users?filter=approval-pending');
+    vi.stubGlobal('fetch', shellFetch(selectedUser({
+      status: 'selected',
+      selectedBusinessUnit: 'CHEONGJU',
+      allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+      isOverallAdministrator: true,
+      errorCode: null
+    })));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '승인 대기 사용자' })).toBeInTheDocument();
+    expect(await screen.findByText('현재 승인 대기 중인 사용자가 없습니다.')).toBeInTheDocument();
+    expect(screen.getByText('승인 준비가 필요한 사용자가 생기면 여기에 표시됩니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('shows only approval-pending users in the integrated filtered list', async () => {
+    selectBusinessUnit('CHEONGJU');
+    window.history.replaceState(null, '', '/admin/users?filter=approval-pending');
+    const snapshot = membershipAdministrationResponse([]);
+    const fallbackFetch = shellFetch(selectedUser({
+      status: 'selected',
+      selectedBusinessUnit: 'CHEONGJU',
+      allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+      isOverallAdministrator: true,
+      errorCode: null
+    }));
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/admin/user-access/users') {
+        return json(snapshot);
+      }
+      return fallbackFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '승인 대기 사용자' })).toBeInTheDocument();
+    expect(await screen.findByText('Synthetic New User')).toBeInTheDocument();
+    expect(screen.queryByText('Synthetic Overall Admin')).not.toBeInTheDocument();
+    expect(screen.queryByText('현재 승인 대기 중인 사용자가 없습니다.')).not.toBeInTheDocument();
+  });
+
   it('auto-fills a department role while preserving special roles', async () => {
     selectBusinessUnit('CHEONGJU');
     window.history.replaceState(null, '', '/admin/users');

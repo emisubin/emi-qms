@@ -234,3 +234,51 @@
 .busbar-plan-dialog .dialog > .ds-toolbar { position: sticky; top: -20px; background: white; z-index: 1; padding-block: 12px; }
 @media(max-width: 800px) { .busbar-project-summary { grid-template-columns: 1fr; } }
 .busbar-project-anchor { scroll-margin-top: 100px; }
+/* Filter controls share sizing without affecting dialog forms or action toolbars. */
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(180px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  padding: 16px;
+}
+.app-shell .busbar-page .busbar-filterbar > label,
+.app-shell .busbar-page .busbar-filter-date-range > label {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+  font-size: 13px;
+  line-height: 20px;
+}
+.app-shell .busbar-page .busbar-filterbar input,
+.app-shell .busbar-page .busbar-filterbar select,
+.app-shell .busbar-page .busbar-filterbar button {
+  box-sizing: border-box;
+  min-height: 44px;
+  height: 44px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.app-shell .busbar-page .busbar-filterbar input,
+.app-shell .busbar-page .busbar-filterbar select { width: 100%; max-width: none; min-width: 0; padding: 10px 12px; }
+.busbar-filter-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 12px; min-width: 0; }
+.busbar-filter-actions button { white-space: nowrap; }
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar--single { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); }
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(320px, 2fr) minmax(140px, 0.9fr); }
+.busbar-filter-date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.busbar-filterbar--production > .busbar-filter-actions { grid-column: 1 / -1; }
+@media (max-width: 1280px) {
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .busbar-filterbar--production > .busbar-filter-date-range { grid-column: 1 / -1; }
+  .busbar-filterbar--production > .busbar-filter-actions { grid-column: auto; }
+}
+@media (max-width: 700px) {
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar,
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar--single,
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .busbar-filter-actions { justify-content: flex-start; }
+  .busbar-filter-actions button { flex: 1 1 auto; }
+}

@@ -626,10 +626,10 @@ export function InteriorBusbarPage({
       {tab === "projects" && (
         <>
           <DsSurface>
-            <DsToolbar label="납품 프로젝트 도구">
+            <DsToolbar label="납품 프로젝트 도구" className="busbar-filterbar">
               <Search value={query} onChange={setQuery} />
               <label>프로젝트 상태<select aria-label="프로젝트 상태" value={projectStatus} onChange={(event) => { setProjectStatus(event.target.value); setActiveProject(""); }}><option value="">전체</option><option value="InProgress">진행 중</option><option value="Complete">완료</option></select></label>
-              {writeButton("프로젝트 등록", () => projectEditor())}
+              <div className="busbar-filter-actions">{writeButton("프로젝트 등록", () => projectEditor())}</div>
             </DsToolbar>
             <Table
               headings={[
@@ -754,7 +754,7 @@ export function InteriorBusbarPage({
       {tab === "plans" && (
         <>
           <DsSurface label="제품군별 월간 생산계획">
-            <DsToolbar>
+            <DsToolbar className="busbar-filterbar" label="생산계획 필터">
               <label>
                 계획 제품군
                 <select aria-label="계획 제품군" value={planFamily} onChange={(e) => setPlanFamily(e.target.value)}>
@@ -763,9 +763,11 @@ export function InteriorBusbarPage({
                 </select>
               </label>
               <label>계획 월<input type="month" value={month} onChange={(e) => { if (e.target.value) changeMonth(e.target.value); }} /></label>
-              <button onClick={() => changeMonth(monthPlus(month, -1))}>이전 달</button>
-              <button onClick={() => { changeMonth(today().slice(0, 7)); setSelectedPlanDate(today()); }}>이번 달</button>
-              <button onClick={() => changeMonth(monthPlus(month, 1))}>다음 달</button>
+              <div className="busbar-filter-actions">
+                <button onClick={() => changeMonth(monthPlus(month, -1))}>이전 달</button>
+                <button onClick={() => { changeMonth(today().slice(0, 7)); setSelectedPlanDate(today()); }}>이번 달</button>
+                <button onClick={() => changeMonth(monthPlus(month, 1))}>다음 달</button>
+              </div>
             </DsToolbar>
             <h3 ref={calendarHeadingRef} tabIndex={-1}>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월 생산계획</h3>
             <p className="busbar-note">날짜를 선택하면 팝업에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
@@ -818,23 +820,28 @@ export function InteriorBusbarPage({
         <>
           <DsSurface>
             <h3 ref={productionHeadingRef} tabIndex={-1}>생산 제품 목록</h3>
-            <DsToolbar>
+            <DsToolbar className="busbar-filterbar busbar-filterbar--production" label="생산 사진 필터">
               <Search value={query} onChange={setQuery} />
-              <button
-                type="button"
-                onClick={() => {
-                  setTab("plans");
-                  setQuery("");
-                  setEditor(null);
-                }}
-              >
-                생산계획으로 이동
-              </button>
               <label>제품군 필터<select aria-label="제품군 필터" value={filters.productFamilyId ?? ""} onChange={(e) => changeFilter("productFamilyId", e.target.value)}><option value="">전체 제품군</option>{data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
-              <label>계획 시작일<input type="date" value={filters.planDateFrom ?? ""} max={filters.planDateTo || undefined} onChange={(e) => changeFilter("planDateFrom", e.target.value)} /></label>
-              <label>계획 종료일<input type="date" value={filters.planDateTo ?? ""} min={filters.planDateFrom || undefined} onChange={(e) => changeFilter("planDateTo", e.target.value)} /></label>
+              <div className="busbar-filter-date-range">
+                <label>계획 시작일<input type="date" value={filters.planDateFrom ?? ""} max={filters.planDateTo || undefined} onChange={(e) => changeFilter("planDateFrom", e.target.value)} /></label>
+                <label>계획 종료일<input type="date" value={filters.planDateTo ?? ""} min={filters.planDateFrom || undefined} onChange={(e) => changeFilter("planDateTo", e.target.value)} /></label>
+              </div>
               <label>생산 상태 필터<select aria-label="생산 상태 필터" value={filters.status ?? ""} onChange={(e) => changeFilter("status", e.target.value)}><option value="">전체 상태</option><option value="Draft">미완료</option><option value="Complete">생산 완료</option><option value="Cancelled">취소</option></select></label>
-              <button onClick={() => { setFilters({}); setPage(1); setActiveProduct(""); setQuery(""); }}>필터 초기화</button>
+              <div className="busbar-filter-actions">
+                <button onClick={() => { setFilters({}); setPage(1); setActiveProduct(""); setQuery(""); }}>필터 초기화</button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab("plans");
+                    setQuery("");
+                    setEditor(null);
+                  }}
+                >
+                  생산계획으로 이동
+                </button>
+              </div>
             </DsToolbar>
             <Table
               headings={[
@@ -1058,9 +1065,9 @@ export function InteriorBusbarPage({
             message="이카운트 자동 연동은 아직 준비되지 않았습니다. 현재는 발주를 직접 등록하거나 엑셀로 가져와 주세요."
           />
           <DsSurface>
-            <DsToolbar>
+            <DsToolbar className="busbar-filterbar busbar-filterbar--single" label="발주 검색">
               <Search value={query} onChange={setQuery} />
-              {writeButton("발주 등록", () => purchaseEditor())}
+              <div className="busbar-filter-actions">{writeButton("발주 등록", () => purchaseEditor())}</div>
             </DsToolbar>
             <Table
               headings={[
@@ -1250,20 +1257,22 @@ export function InteriorBusbarPage({
               수정하면 새 버전을 만듭니다. 과거 생산에는 생산 당시의 소요량을
               보존합니다.
             </p>
-            <label>
-              소요량을 관리할 제품군
-              <select
-                value={bomFamily}
-                onChange={(e) => setBomFamily(e.target.value)}
-              >
-                <option value="">제품군 선택</option>
-                {data.productFamilies.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <DsToolbar className="busbar-filterbar busbar-filterbar--single" label="소요량 제품군 선택">
+              <label>
+                소요량을 관리할 제품군
+                <select
+                  value={bomFamily}
+                  onChange={(e) => setBomFamily(e.target.value)}
+                >
+                  <option value="">제품군 선택</option>
+                  {data.productFamilies.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </DsToolbar>
             {bomFamily && (
               <BomEditor
                 key={`${bomFamily}:${data.boms

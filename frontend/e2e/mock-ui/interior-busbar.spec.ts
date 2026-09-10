@@ -247,7 +247,7 @@ test("six workspaces desktop and 390px without horizontal page overflow", async 
   await expect(
     page.getByRole("heading", { name: "인테리어 부스바", exact: true }),
   ).toBeVisible();
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 1200, 1101, 390]) {
     await page.setViewportSize({ width, height: 900 });
     for (const label of [
       "종합 현황",

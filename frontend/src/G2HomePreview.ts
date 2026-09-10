@@ -1,6 +1,6 @@
 import type { G2Day, G2MetricValue } from './g2';
 
-export type G2PreviewField = 'morningProduction' | 'afternoonProduction' | 'delivery' | 'defect';
+export type G2PreviewField = 'morningProduction' | 'afternoonProduction' | 'morningRepair' | 'afternoonRepair' | 'delivery' | 'defect';
 export type G2PreviewInputs = Record<string, Partial<Record<G2PreviewField, string>>>;
 
 const availableInventoryStartDate = '2026-08-28';
@@ -27,37 +27,45 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
   const first = days[0];
   let balance: number | null = first.physicalCount === null && first.inventory !== null
     ? first.date < availableInventoryStartDate
-      ? first.inventory - (first.productionTotal ?? 0) + (first.delivery?.quantity ?? 0) + (first.defect?.quantity ?? 0)
+      ? first.inventory - (first.productionTotal ?? 0) - (first.repairTotal ?? 0) + (first.delivery?.quantity ?? 0) + (first.defect?.quantity ?? 0)
       : first.inventory + (first.delivery?.quantity ?? 0)
     : null;
-  let previousMovement: { production: number; delivery: number; defect: number } | null = null;
+  let previousMovement: { production: number; repair: number; delivery: number; defect: number } | null = null;
+  let defectInventory = first.defectInventory - (first.defect?.quantity ?? 0) + (first.repairTotal ?? 0);
 
   return days.map((day, index) => {
     const edit = inputs[day.date] ?? {};
     const morningProduction = previewMetric(day.morningProduction, edit.morningProduction);
     const afternoonProduction = previewMetric(day.afternoonProduction, edit.afternoonProduction);
+    const morningRepair = previewMetric(day.morningRepair, edit.morningRepair);
+    const afternoonRepair = previewMetric(day.afternoonRepair, edit.afternoonRepair);
     const delivery = previewMetric(day.delivery, edit.delivery);
     const defect = previewMetric(day.defect, edit.defect);
     const morning = morningProduction?.quantity ?? null;
     const afternoon = afternoonProduction?.quantity ?? null;
     const productionTotal = morning !== null || afternoon !== null ? (morning ?? 0) + (afternoon ?? 0) : null;
+    const repairMorning = morningRepair?.quantity ?? null;
+    const repairAfternoon = afternoonRepair?.quantity ?? null;
+    const repairTotal = repairMorning !== null || repairAfternoon !== null ? (repairMorning ?? 0) + (repairAfternoon ?? 0) : null;
     const currentMovement = {
       production: productionTotal ?? 0,
+      repair: repairTotal ?? 0,
       delivery: delivery?.quantity ?? 0,
       defect: defect?.quantity ?? 0
     };
 
     if (day.physicalCount !== null) balance = day.physicalCount.quantity;
     else if (balance !== null && day.date < availableInventoryStartDate) {
-      balance += currentMovement.production - currentMovement.delivery - currentMovement.defect;
+      balance += currentMovement.production + currentMovement.repair - currentMovement.delivery - currentMovement.defect;
     } else if (balance !== null && day.date >= availableInventoryStartDate) {
       if (index > 0 && previousMovement !== null) {
-        balance += previousMovement.production - previousMovement.defect;
+        balance += previousMovement.production + previousMovement.repair - previousMovement.defect;
       }
       balance -= currentMovement.delivery;
     }
 
     previousMovement = currentMovement;
-    return { ...day, morningProduction, afternoonProduction, delivery, defect, productionTotal, inventory: balance };
+    defectInventory += currentMovement.defect - currentMovement.repair;
+    return { ...day, morningProduction, afternoonProduction, morningRepair, afternoonRepair, delivery, defect, productionTotal, repairTotal, defectInventory, inventory: balance };
   });
 }

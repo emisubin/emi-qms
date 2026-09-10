@@ -4,13 +4,15 @@ public static class G2MetricCodes
 {
     public const string MorningProduction = "MorningProduction";
     public const string AfternoonProduction = "AfternoonProduction";
+    public const string MorningRepair = "MorningRepair";
+    public const string AfternoonRepair = "AfternoonRepair";
     public const string Delivery = "Delivery";
     public const string Defect = "Defect";
     public const string MorningEmiAttendance = "MorningEmiAttendance";
     public const string MorningContractorAttendance = "MorningContractorAttendance";
     public const string AfternoonEmiAttendance = "AfternoonEmiAttendance";
     public const string AfternoonContractorAttendance = "AfternoonContractorAttendance";
-    public static readonly IReadOnlyList<string> All = [MorningProduction, AfternoonProduction, Delivery, Defect, MorningEmiAttendance, MorningContractorAttendance, AfternoonEmiAttendance, AfternoonContractorAttendance];
+    public static readonly IReadOnlyList<string> All = [MorningProduction, AfternoonProduction, MorningRepair, AfternoonRepair, Delivery, Defect, MorningEmiAttendance, MorningContractorAttendance, AfternoonEmiAttendance, AfternoonContractorAttendance];
 }
 
 public static class G2TargetTypes
@@ -43,11 +45,21 @@ public sealed record G2DayResponse(
     G2InventoryCountResponse? PhysicalCount,
     G2TargetResponse? DailyProductionTarget,
     G2TargetResponse? DeliveryTarget,
-    G2TargetResponse? InventoryTarget);
+    G2TargetResponse? InventoryTarget,
+    G2MetricValueResponse? MorningRepair = null,
+    G2MetricValueResponse? AfternoonRepair = null,
+    long? RepairTotal = null,
+    long DefectInventory = 0);
 public sealed record G2RangeResponse(DateOnly Today, DateOnly From, DateOnly To, IReadOnlyList<G2DayResponse> Days);
 public sealed record G2HomeResponse(DateOnly Today, int Year, int Month, bool HasInventoryBaseline, IReadOnlyList<G2DayResponse> Days);
 public sealed record G2MetricChangeRequest(int? Quantity, int? ExpectedVersion);
-public sealed record SaveG2OperationsRequest(G2MetricChangeRequest? MorningProduction, G2MetricChangeRequest? AfternoonProduction, G2MetricChangeRequest? Delivery, G2MetricChangeRequest? Defect);
+public sealed record SaveG2OperationsRequest(
+    G2MetricChangeRequest? MorningProduction,
+    G2MetricChangeRequest? AfternoonProduction,
+    G2MetricChangeRequest? Delivery,
+    G2MetricChangeRequest? Defect,
+    G2MetricChangeRequest? MorningRepair = null,
+    G2MetricChangeRequest? AfternoonRepair = null);
 public sealed record SaveG2AttendanceRequest(G2MetricChangeRequest? MorningEmiAttendance, G2MetricChangeRequest? MorningContractorAttendance, G2MetricChangeRequest? AfternoonEmiAttendance, G2MetricChangeRequest? AfternoonContractorAttendance);
 public sealed record SaveG2InventoryCountRequest(int Quantity, int? ExpectedVersion);
 public sealed record SaveG2TargetRequest(int Quantity, int? ExpectedVersion);

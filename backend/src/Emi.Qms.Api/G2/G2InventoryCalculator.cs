@@ -14,7 +14,8 @@ public static class G2InventoryCalculator
         IReadOnlyDictionary<DateOnly, int> physicalCounts,
         IReadOnlyDictionary<DateOnly, long> production,
         IReadOnlyDictionary<DateOnly, long> delivery,
-        IReadOnlyDictionary<DateOnly, long> defects)
+        IReadOnlyDictionary<DateOnly, long> defects,
+        IReadOnlyDictionary<DateOnly, long>? repairs = null)
     {
         var result = new Dictionary<DateOnly, long?>();
         long? balance = balanceBeforeFrom;
@@ -25,6 +26,7 @@ public static class G2InventoryCalculator
             {
                 var productionDate = ProductionDateFor(date);
                 balance += production.GetValueOrDefault(productionDate)
+                    + (repairs?.GetValueOrDefault(productionDate) ?? 0)
                     - defects.GetValueOrDefault(productionDate)
                     - delivery.GetValueOrDefault(date);
             }

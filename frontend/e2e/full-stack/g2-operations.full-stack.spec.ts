@@ -3,7 +3,7 @@ import path from 'node:path';
 import { expect, test, type APIRequestContext, type APIResponse, type Locator, type Page } from '@playwright/test';
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
-const screenshotDirectory = path.resolve(process.cwd(), '../tasks/g2-operations-002-screenshots');
+const screenshotDirectory = path.resolve(process.cwd(), 'test-results/g2-operations');
 
 type MetricPayload = { quantity: number; version: number } | null;
 type G2DayPayload = {
@@ -12,6 +12,10 @@ type G2DayPayload = {
   afternoonProduction: MetricPayload;
   delivery: MetricPayload;
   defect: MetricPayload;
+  morningRepair: MetricPayload;
+  afternoonRepair: MetricPayload;
+  repairTotal: number | null;
+  defectInventory: number;
   productionTotal: number | null;
   morningAttendanceTotal: number | null;
   afternoonAttendanceTotal: number | null;
@@ -24,6 +28,8 @@ type G2DayPayload = {
 
 test('G2 permissions, concurrent inputs, inventory calculation, and responsive UI use the isolated stack', async ({ page, request }) => {
   test.setTimeout(180_000);
+  const consoleErrors: string[] = [];
+  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
   await fs.mkdir(screenshotDirectory, { recursive: true });
 
   const initialHome = await getJson<{ today: string }>(request, '/api/g2/home', 'dev-sales');
@@ -188,7 +194,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(page.getByRole('dialog').getByRole('button', { name: '저장' })).toBeEnabled();
   await page.getByRole('dialog').getByRole('button', { name: '닫기' }).click();
 
-  const previewLabel = `${koreanDate(tomorrow)} 불량 임시 예상값`;
+  const previewLabel = `${koreanDate(tomorrow)} 신규 불량 임시 예상값`;
+  await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   const previewBefore = await getDay(request, tomorrow, 'dev-sales');
   const centeredPreviewInput = page.getByLabel(previewLabel);
   await expect(centeredPreviewInput).toHaveCSS('appearance', 'textfield');
@@ -212,6 +219,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(inventoryRow.locator('td').nth(dayAfterTomorrowColumn - 1)).toHaveText('29');
   expect((await getDay(request, tomorrow, 'dev-sales')).defect!.quantity).toBe(previewBefore.defect!.quantity);
   await page.reload();
+  await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   await expect(page.getByLabel(previewLabel)).toHaveValue('2');
   expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(29);
   expect((await getDay(request, dayAfterTomorrow, 'dev-sales')).inventory).toBe(32);
@@ -228,12 +236,31 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(page.getByText('생산·납품 수량을 저장했습니다.')).toBeVisible();
   expect((await getDay(request, tomorrow, 'dev-sales')).delivery!.quantity).toBe(0);
   expect((await getDay(request, tomorrow, 'dev-sales')).defect!.quantity).toBe(3);
+  const beforeRepair = await getDay(request, tomorrow, 'dev-sales');
+  const nextBeforeRepair = await getDay(request, dayAfterTomorrow, 'dev-sales');
+  await page.getByLabel('오전 수리량').fill('1');
+  await page.getByLabel('오후 수리량').fill('1');
+  const repairSave = page.waitForResponse(response => response.url().includes(`/api/g2/operations/${tomorrow}`) && response.request().method() === 'PUT');
+  await page.getByRole('button', { name: '변경한 값 저장' }).click();
+  expect((await repairSave).ok()).toBeTruthy();
+  await expect(page.getByText('생산·납품 수량을 저장했습니다.')).toBeVisible();
+  const afterRepair = await getDay(request, tomorrow, 'dev-sales');
+  expect(afterRepair.repairTotal).toBe(2);
+  expect(afterRepair.inventory).toBe(beforeRepair.inventory);
+  expect(afterRepair.defectInventory).toBe(beforeRepair.defectInventory - 2);
+  expect((await getDay(request, dayAfterTomorrow, 'dev-sales')).inventory).toBe(nextBeforeRepair.inventory! + 2);
+  await page.reload();
+  await page.getByLabel('입력 날짜').fill(tomorrow);
+  await expect(page.getByLabel('오전 수리량')).toHaveValue('1');
+  await expect(page.getByLabel('오후 수리량')).toHaveValue('1');
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await page.goto('/g2/operations');
   await expect(page.getByLabel('오전 생산량')).toBeEnabled();
   await expect(page.getByLabel('일일 납품량')).toBeDisabled();
   await expect(page.getByLabel('불량 수량')).toBeEnabled();
+  await expect(page.getByLabel('오전 수리량')).toBeEnabled();
+  await expect(page.getByLabel('오후 수리량')).toBeEnabled();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: '생산/출하 관리' })).toBeVisible();
@@ -246,12 +273,20 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.goto('/g2');
   await expect(page.getByRole('heading', { name: 'G2 홈' })).toBeVisible();
   const homeRange = page.getByRole('group', { name: '홈 표시 기간' });
+  await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   await expectInputWidth(homeRange.getByLabel('시작일'), 120);
   await expectInputWidth(homeRange.getByLabel('종료일'), 120);
   await expectInputWidth(page.getByLabel('적용 시작일'), 136);
   await expect(page.getByLabel(previewLabel).locator('..')).toHaveClass(/g2-forecast-column/u);
   await expect(page.getByLabel(previewLabel)).toHaveCSS('color', 'rgb(37, 99, 235)');
-  await expect(page.getByLabel(`${koreanDate(firstWeekendInMonth(today))} 불량 임시 예상값`)).toHaveCSS('color', 'rgb(220, 38, 38)');
+  await expect(page.getByLabel(`${koreanDate(firstWeekendInMonth(today))} 신규 불량 임시 예상값`)).toHaveCSS('color', 'rgb(220, 38, 38)');
+  await page.getByRole('button', { name: '수리 상세 보기', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel(`${koreanDate(tomorrow)} 오전 수리 임시 예상값`)).toHaveValue('1');
+  await page.getByLabel(`${koreanDate(tomorrow)} 오전 수리 임시 예상값`).fill('2');
+  expect((await getDay(request, tomorrow, 'dev-sales')).morningRepair!.quantity).toBe(1);
+  await page.getByRole('button', { name: `${koreanDate(tomorrow)} 수리 3대 상세 접기`, exact: true }).click();
+  await expect(page.getByLabel(`${koreanDate(tomorrow)} 오전 수리 임시 예상값`)).toHaveCount(0);
   await assertNoPageOverflow(page);
   await capture(page, '03-g2-home-mobile-390.png');
 
@@ -263,6 +298,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(page.getByRole('button', { name: `${koreanDate(tomorrow)} 오전 합계 7명 세부 인원 보기` })).toHaveCSS('color', 'rgb(37, 99, 235)');
   await assertNoPageOverflow(page);
   await capture(page, '04-g2-attendance-mobile-390.png');
+  expect(consoleErrors).toEqual([]);
 });
 
 async function getDay(request: APIRequestContext, date: string, userKey: string) {

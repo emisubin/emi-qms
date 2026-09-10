@@ -9,7 +9,7 @@ import {
   type IPublicClientApplication
 } from '@azure/msal-browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 
 describe('authentication modes', () => {
   afterEach(() => {
@@ -329,6 +329,7 @@ describe('authentication modes', () => {
   });
 
   it('does not render the development user selector in EntraId mode', async () => {
+    window.sessionStorage.setItem('emi-auth-automatic-login', 'logout');
     vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
     vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
     vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
@@ -632,7 +633,8 @@ describe('authentication modes', () => {
     expect(setActiveAccount).toHaveBeenLastCalledWith(null);
   });
 
-  it('shows the re-login screen when silent token acquisition requires interaction', async () => {
+  it('shows manual recovery when automatic token recovery was already attempted', async () => {
+    window.sessionStorage.setItem('emi-auth-automatic-login', 'attempted');
     vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
     vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
     vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
@@ -659,15 +661,16 @@ describe('authentication modes', () => {
     window.history.replaceState(null, '', '/osan/qr/478f584e-a40d-488e-b10c-93a3d966d9b3/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '다시 로그인이 필요합니다.' })).toBeInTheDocument();
+    expect(await screen.findByText('인증이 필요합니다.')).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'reauth');
-    expect(screen.getByText('로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
+    expect(screen.getByText('인증이 필요합니다.')).toBeInTheDocument();
     expect(screen.queryByText('TASK-INFRA Project')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Microsoft 365로 다시 로그인' }));
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }));
 
     expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
-    expect(fakeInstance.loginRedirect).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(fakeInstance.loginRedirect).toHaveBeenCalledTimes(1));
     expect(fakeInstance.loginRedirect).toHaveBeenCalledWith(expect.objectContaining({ redirectStartPage: window.location.href }));
     expect(fakeInstance.loginRedirect).toHaveBeenCalledWith(expect.not.objectContaining({ prompt: 'select_account' }));
     const redirectRequest = fakeInstance.loginRedirect.mock.calls[0]?.[0];
@@ -701,11 +704,107 @@ describe('authentication modes', () => {
     const { App } = await import('../src/App');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '인증 정보를 확인할 수 없습니다.' })).toBeInTheDocument();
+    expect(await screen.findByText('로그인을 완료하지 못했습니다. 다시 시도해 주세요.')).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'error');
     expect(screen.getByAltText('EMI Electric Modular Innovation')).toBeInTheDocument();
     expect(screen.getByAltText('Microsoft')).toBeInTheDocument();
   });
+  it.each(['empty-cache', 'expired-token'] as const)('automatically continues %s once even under StrictMode and preserves the destination', async (scenario) => {
+    const instance = await mockAutomaticLogin(scenario === 'empty-cache' ? [] : [testAccount('expired')]);
+    window.history.replaceState(null, '', '/osan/qr/synthetic/project?view=progress');
+    const { App } = await import('../src/App');
+    render(<StrictMode><App /></StrictMode>);
+    await waitFor(() => expect(instance.loginRedirect).toHaveBeenCalledTimes(1));
+    expect(instance.loginRedirect).toHaveBeenCalledWith(expect.objectContaining({ redirectStartPage: window.location.href }));
+    expect(window.sessionStorage.getItem('emi-auth-automatic-login')).toBe('attempted');
+    expect(screen.queryByText('TASK-INFRA Project')).not.toBeInTheDocument();
+  });
+
+  it.each(['attempted', 'logout'])('does not automatically restart after a persisted %s marker', async (marker) => {
+    const instance = await mockAutomaticLogin(marker === 'logout' ? [testAccount('stale')] : []);
+    window.sessionStorage.setItem('emi-auth-automatic-login', marker);
+    const { App } = await import('../src/App');
+    render(<App />);
+    const buttonLabel = marker === 'logout' ? 'LOGIN' : '로그인';
+    await screen.findByRole('button', { name: buttonLabel });
+    expect(instance.loginRedirect).not.toHaveBeenCalled();
+    expect(instance.acquireTokenSilent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: buttonLabel }));
+    await waitFor(() => expect(instance.loginRedirect).toHaveBeenCalledTimes(1));
+    expect(window.sessionStorage.getItem('emi-auth-automatic-login')).toBe('attempted');
+  });
+
+  it('keeps account ambiguity manual and does not acquire a token for an arbitrary account', async () => {
+    const instance = await mockAutomaticLogin([testAccount('one'), testAccount('two')]);
+    const { App } = await import('../src/App');
+    render(<App />);
+    await screen.findByText('로그인할 계정을 선택해 주세요.');
+    expect(instance.loginRedirect).not.toHaveBeenCalled();
+    expect(instance.acquireTokenSilent).not.toHaveBeenCalled();
+  });
+
+  it('offers manual recovery after redirect rejection without retrying automatically', async () => {
+    const instance = await mockAutomaticLogin([]);
+    instance.loginRedirect.mockRejectedValue(new Error('synthetic redirect failure'));
+    const { App } = await import('../src/App');
+    render(<StrictMode><App /></StrictMode>);
+    await screen.findByText('로그인을 완료하지 못했습니다. 다시 시도해 주세요.');
+    expect(instance.loginRedirect).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem('emi-audit-login-owner')).toBeNull();
+    expect(window.sessionStorage.getItem('emi-auth-automatic-login')).toBe('attempted');
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }));
+    await waitFor(() => expect(instance.loginRedirect).toHaveBeenCalledTimes(2));
+  });
+
+  it.each(['selected', 'no_membership'] as const)('shows ordinary approval pending with %s access without business navigation', async (status) => {
+    const instance = await mockAutomaticLogin([testAccount('pending')]);
+    instance.acquireTokenSilent.mockResolvedValue({ accessToken: 'synthetic-token' });
+    const businessRequests: string[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname === '/api/me') {
+        const response = await approvedEntraFetch(input);
+        const user = await response.json();
+        return json({ ...user, approvalPending: true, roles: [], permissions: [], canUseAdminTestUserSwitch: false,
+          businessUnitAccess: { status, selectedBusinessUnit: status === 'selected' ? 'CHEONGJU' : null,
+            allowedBusinessUnits: status === 'selected' ? ['CHEONGJU'] : [], isOverallAdministrator: false, errorCode: null } });
+      }
+      if (pathname === '/api/projects' || pathname === '/api/admin/users') businessRequests.push(pathname);
+      return approvedEntraFetch(input);
+    });
+    const { App } = await import('../src/App');
+    render(<App />);
+    expect(await screen.findByText('관리자 승인을 기다리고 있습니다.')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-state', 'pending');
+    expect(screen.getByRole('main')).toHaveAttribute('data-auth-layout', 'login');
+    expect(screen.queryByRole('button', { name: '로그인' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(businessRequests).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: '로그아웃' }));
+    await waitFor(() => expect(instance.logoutRedirect).toHaveBeenCalledTimes(1));
+    expect(window.sessionStorage.getItem('emi-auth-automatic-login')).toBe('logout');
+  });
+
+  it('clears the redirect attempt only when a usable token is obtained', async () => {
+    window.history.replaceState(null, '', '/projects');
+    const instance = await mockAutomaticLogin([testAccount('ready')]);
+    instance.acquireTokenSilent.mockResolvedValue({ accessToken: 'synthetic-token' });
+    window.sessionStorage.setItem('emi-auth-automatic-login', 'attempted');
+    vi.stubGlobal('fetch', approvedEntraFetch);
+    const { App } = await import('../src/App');
+    render(<App />);
+    await screen.findByText('TASK-INFRA Project');
+    expect(window.sessionStorage.getItem('emi-auth-automatic-login')).toBeNull();
+    expect(instance.loginRedirect).not.toHaveBeenCalled();
+  });
+
+  it('falls back to manual login if the round-trip guard cannot be persisted', async () => {
+    const { beginLoginRedirect } = await import('../src/auth');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage unavailable'); });
+    expect(beginLoginRedirect(true)).toBe(false);
+    expect(beginLoginRedirect(false)).toBe(true);
+  });
+
 });
 
 function json(body: unknown, status = 200): Response {
@@ -830,4 +929,24 @@ async function approvedEntraFetch(input: RequestInfo | URL): Promise<Response> {
   }
 
   return json({ title: 'not found' }, 404);
+}
+
+async function mockAutomaticLogin(accounts: ReturnType<typeof testAccount>[]) {
+  vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
+  vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
+  vi.stubEnv('VITE_AZURE_CLIENT_ID', '22222222-2222-2222-2222-222222222222');
+  vi.stubEnv('VITE_AZURE_API_SCOPE', 'api://33333333-3333-3333-3333-333333333333/access_as_user');
+  const instance = {
+    getActiveAccount: () => null,
+    getAllAccounts: () => accounts,
+    setActiveAccount: vi.fn(),
+    acquireTokenSilent: vi.fn().mockRejectedValue({ errorCode: 'interaction_required' }),
+    loginRedirect: vi.fn().mockResolvedValue(undefined),
+    logoutRedirect: vi.fn()
+  };
+  vi.doMock('@azure/msal-react', () => ({
+    MsalProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+    useMsal: () => ({ accounts: [], inProgress: 'none', instance })
+  }));
+  return instance;
 }

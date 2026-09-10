@@ -414,7 +414,7 @@ var servingBackendEnvironment = concat([
   }
   {
     name: 'UploadSecurity__ScannerHost'
-    value: clamAv.properties.configuration.ingress.fqdn
+    value: clamAv.name
   }
   {
     name: 'UploadSecurity__ScannerPort'

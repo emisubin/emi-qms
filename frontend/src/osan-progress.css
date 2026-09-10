@@ -40,6 +40,8 @@
 .osan-progress-photo-region--empty { height: 222px; display: grid; place-items: center; }
 .osan-progress-show-photos { font-size: 11px; padding: 6px; margin: 0 0 8px; }
 .osan-progress-saved-photo { margin: 0 0 8px; }
+/* Evidence photos retain their source colors in previews and saved records. */
+.app-shell .osan-progress-page img { filter: none; }
 .osan-progress-saved-photo img { display: block; width: 100%; height: 202px; object-fit: contain; }
 .osan-progress-refresh { display: block; margin: 20px auto 0; border: 0; background: transparent; text-decoration: underline; color: #666; font-size: 11px; }
 .osan-progress-page [role=alert] { color: #a61b20; font-size: 12px; margin: 8px 0; }

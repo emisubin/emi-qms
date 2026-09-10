@@ -4,7 +4,7 @@
 
 ## 현재 작업과 다음 제품 작업
 
-현재 추가 요청은 [TASK-OSAN-PROJECT-001 Change 007](../tasks/osan-project-001-change-007.md)의 엑셀 미리보기 편집·부분 등록·중복 확인이다. Change006 검수 중 확정한 후속 계약을 반영한다. 아래 큐는 앞선 오산 개발 순서를 보존하며, 이번 기능의 구현·검증·승인 상태는 Change007이 소유한다.
+현재 우선 작업은 [TASK-OSAN-PHOTO-001 Change 001](../tasks/osan-photo-001-change-001.md)의 운영 사진 업로드 오류·촬영 정보 거부·흑백 표시 보정이다. 사용자가 수정과 원격 main 반영·공개배포를 승인했으며, 배포 상태는 [Azure Change 035](../tasks/azure-deploy-001-change-035.md)가 소유한다. 이전 엑셀 미리보기 편집·부분 등록·중복 확인은 [PROJECT Change 007](../tasks/osan-project-001-change-007.md)에, 아래 큐는 앞선 오산 개발 순서의 이력으로 보존한다.
 
 오산 후속 개발의 전체 실행 순서는 아래와 같다. 순서 번호는 실행 단계를 뜻하며 같은 Task를 검수·배포 단계마다 새 ID로 복제하지 않는다.
 

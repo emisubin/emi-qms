@@ -72,8 +72,33 @@ public static class OsanProgressPhotoValidator
             return (null, "파일 확장자와 실제 이미지 형식이 일치하지 않습니다.");
         }
 
-        var sha256 = Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
-        return (new OsanProgressPhotoInput(safeFileName, normalizedMime, content, sha256), null);
+        byte[] sanitizedContent;
+        try
+        {
+            sanitizedContent = OsanProgressPhotoMetadataSanitizer.Sanitize(content, normalizedMime);
+            var sanitizedMime = await OsanImageContentValidator.DetectValidFormatAsync(
+                sanitizedContent,
+                cancellationToken);
+            if (!string.Equals(sanitizedMime, normalizedMime, StringComparison.Ordinal))
+            {
+                return (null, "파일 내용이 올바른 JPEG 또는 PNG 이미지가 아닙니다.");
+            }
+        }
+        catch (InvalidDataException)
+        {
+            return (null, "파일 내용이 올바른 JPEG 또는 PNG 이미지가 아닙니다.");
+        }
+        catch (OsanImageResourceLimitException)
+        {
+            return (null, "서버에서 이미지를 안전하게 처리할 수 없습니다. 다른 이미지 파일을 선택해 주세요.");
+        }
+
+        var sha256 = Convert.ToHexString(SHA256.HashData(sanitizedContent)).ToLowerInvariant();
+        return (new OsanProgressPhotoInput(
+            safeFileName,
+            normalizedMime,
+            sanitizedContent,
+            sha256), null);
     }
 
     private static bool ConfigureDecoderResourceLimitsCore()

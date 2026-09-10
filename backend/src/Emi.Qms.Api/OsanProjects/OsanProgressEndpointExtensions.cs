@@ -4,6 +4,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
+using Emi.Qms.Api.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Emi.Qms.Api.OsanProjects;
@@ -80,6 +81,7 @@ public static class OsanProgressEndpointExtensions
                 cancellationToken));
         })
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
+        .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
         .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
         .WithName("CompleteOsanProgress");
 

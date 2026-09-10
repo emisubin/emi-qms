@@ -199,6 +199,11 @@ const expectedAnonymousFrontendPaths = [
 const excludedPathsSource = workloads.match(/excludedPaths:\s*\[([\s\S]*?)\]/mu)?.[1] ?? '';
 const sourceExcludedPaths = [...excludedPathsSource.matchAll(/'([^']+)'/gu)].map((match) => match[1]);
 const workloadsTemplate = JSON.parse(read(join(azure, 'workloads.json')));
+// TCP scanner traffic uses the same-environment service name.
+if (!/name: 'UploadSecurity__ScannerHost'\s+value: clamAv.name/u.test(workloads)
+  || !JSON.stringify(workloadsTemplate).includes("'UploadSecurity__ScannerHost', 'value', 'clamav'")) {
+  process.exit(1);
+}
 const businessUnitDatabaseResources = workloadsTemplate.resources.filter(
   (resource) => resource.type === 'Microsoft.DBforPostgreSQL/flexibleServers/databases'
 );

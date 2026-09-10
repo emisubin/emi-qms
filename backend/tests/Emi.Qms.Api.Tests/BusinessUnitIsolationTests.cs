@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -2973,10 +2974,26 @@ public sealed class BusinessUnitIsolationTests
               and permission_id = (select id from permissions where code = 'Project.Read.All');
             """,
             TestContext.Current.CancellationToken);
+        var uploadScanner = new CapturingCleanUploadMalwareScanner();
+        var publicRequestConfiguration = new Dictionary<string, string?>(
+            databases.ConfigurationValues,
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["UploadSecurity:Enabled"] = "true",
+            ["UploadSecurity:FailClosed"] = "true",
+            ["UploadSecurity:RejectImageMetadata"] = "true"
+        };
         using var factory = QmsWebApplicationFactory.Create(
             DevelopmentFeaturePolicy.TestingEnvironmentName,
-            databases.ConfigurationValues,
-            includeDefaultDevelopmentAuthentication: true);
+            publicRequestConfiguration,
+            includeDefaultDevelopmentAuthentication: true,
+            configureTestServices: services =>
+            {
+                var descriptor = services.Single(
+                    service => service.ServiceType == typeof(IUploadMalwareScanner));
+                services.Remove(descriptor);
+                services.AddSingleton<IUploadMalwareScanner>(uploadScanner);
+            });
         using var client = factory.CreateClient();
 
         using (var selectionRequired = Request(HttpMethod.Get, "/api/me", "dev-admin"))
@@ -3287,7 +3304,55 @@ public sealed class BusinessUnitIsolationTests
             """,
             TestContext.Current.CancellationToken));
 
-        var progressPhotoBytes = CreateValidPng();
+        var progressPhotoBytes = CreateJpegWithSensitiveExif();
+        var expectedSanitizedPhoto = (await OsanProgressPhotoValidator.ValidateAsync(
+            "evidence.jpg",
+            "image/jpeg",
+            progressPhotoBytes,
+            TestContext.Current.CancellationToken)).Photo;
+        Assert.NotNull(expectedSanitizedPhoto);
+        foreach (var blockedStatus in new[]
+                 {
+                     UploadMalwareScanStatus.Infected,
+                     UploadMalwareScanStatus.Unavailable
+                 })
+        {
+            uploadScanner.Status = blockedStatus;
+            using var blockedCompletion = Request(
+                HttpMethod.Post,
+                $"/api/osan/projects/{osanProjectId:D}/progress/completions",
+                "dev-manufacturing",
+                BusinessUnitCodes.Osan);
+            blockedCompletion.Content = CreateProgressCompletionContent(
+                Guid.NewGuid(),
+                "batch",
+                1,
+                JsonSerializer.Serialize(
+                    progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })),
+                progressPhotoBytes,
+                "image/jpeg",
+                "evidence.jpg");
+            using var blockedResponse = await client.SendAsync(
+                blockedCompletion,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(
+                blockedStatus == UploadMalwareScanStatus.Infected
+                    ? HttpStatusCode.UnprocessableEntity
+                    : HttpStatusCode.ServiceUnavailable,
+                blockedResponse.StatusCode);
+            Assert.Equal(progressStateBeforeForbiddenRequests, await databases.ReadScalarAsync<string>(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                $"""
+                select concat_ws(':',
+                    (select count(*) from osan_progress_operations where project_id = '{osanProjectId:D}'),
+                    (select count(*) from osan_project_target_steps where project_id = '{osanProjectId:D}' and status = 'Completed'),
+                    (select string_agg(status || '/' || version, ',' order by id) from osan_project_targets where project_id = '{osanProjectId:D}'));
+                """,
+                TestContext.Current.CancellationToken));
+        }
+        uploadScanner.Status = UploadMalwareScanStatus.Clean;
+        var scanCountBeforePhoto = uploadScanner.ScannedFiles.Count;
         Guid progressPhotoId;
         using (var completeProgress = Request(
                    HttpMethod.Post,
@@ -3301,7 +3366,9 @@ public sealed class BusinessUnitIsolationTests
                 1,
                 JsonSerializer.Serialize(
                     progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })),
-                progressPhotoBytes);
+                progressPhotoBytes,
+                "image/jpeg",
+                "evidence.jpg");
             var response = await client.SendAsync(completeProgress, TestContext.Current.CancellationToken);
             var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
             Assert.True(
@@ -3311,6 +3378,8 @@ public sealed class BusinessUnitIsolationTests
             progressPhotoId = body.RootElement.GetProperty("project").GetProperty("targets")[0]
                 .GetProperty("steps")[0].GetProperty("photos")[0].GetProperty("photoId").GetGuid();
         }
+        Assert.Equal(scanCountBeforePhoto + 1, uploadScanner.ScannedFiles.Count);
+        Assert.Equal(progressPhotoBytes, uploadScanner.ScannedFiles[scanCountBeforePhoto]);
         Assert.Equal(1L, await databases.ReadScalarAsync<long>(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
@@ -3330,10 +3399,15 @@ public sealed class BusinessUnitIsolationTests
         {
             var response = await client.SendAsync(downloadPhoto, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+            Assert.Equal("image/jpeg", response.Content.Headers.ContentType?.MediaType);
             Assert.Equal(
-                progressPhotoBytes,
+                expectedSanitizedPhoto.Content,
                 await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            Assert.NotEqual(progressPhotoBytes, expectedSanitizedPhoto.Content);
+            Assert.DoesNotContain(
+                "SyntheticCamera",
+                Encoding.ASCII.GetString(expectedSanitizedPhoto.Content),
+                StringComparison.Ordinal);
         }
 
         await databases.ExecuteAsync(
@@ -4765,7 +4839,9 @@ public sealed class BusinessUnitIsolationTests
         string completionMode,
         int stageSequence,
         string targets,
-        byte[]? photo)
+        byte[]? photo,
+        string photoContentType = "image/png",
+        string photoFileName = "evidence.png")
     {
         var content = new MultipartFormDataContent();
         content.Add(new StringContent(operationId.ToString("D")), "operationId");
@@ -4775,8 +4851,8 @@ public sealed class BusinessUnitIsolationTests
         if (photo is not null)
         {
             var photoContent = new ByteArrayContent(photo);
-            photoContent.Headers.ContentType = new("image/png");
-            content.Add(photoContent, "photos", "evidence.png");
+            photoContent.Headers.ContentType = new(photoContentType);
+            content.Add(photoContent, "photos", photoFileName);
         }
         return content;
     }
@@ -4787,6 +4863,65 @@ public sealed class BusinessUnitIsolationTests
         using var stream = new MemoryStream();
         image.SaveAsPng(stream);
         return stream.ToArray();
+    }
+
+    private static byte[] CreateJpegWithSensitiveExif()
+    {
+        using var image = new Image<Rgba32>(2, 1);
+        image[0, 0] = new Rgba32(255, 0, 0);
+        image[1, 0] = new Rgba32(0, 128, 255);
+        using var stream = new MemoryStream();
+        image.SaveAsJpeg(stream);
+        var jpeg = stream.ToArray();
+
+        var make = "SyntheticCamera\0"u8.ToArray();
+        var tiff = new byte[50 + make.Length];
+        tiff[0] = (byte)'I';
+        tiff[1] = (byte)'I';
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(2, 2), 42);
+        BinaryPrimitives.WriteUInt32LittleEndian(tiff.AsSpan(4, 4), 8);
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(8, 2), 2);
+        WriteTiffEntry(tiff, 10, 0x0112, 3, 1, 6);
+        WriteTiffEntry(tiff, 22, 0x010f, 2, (uint)make.Length, 50);
+        make.CopyTo(tiff, 50);
+        var exif = new byte[6 + tiff.Length];
+        "Exif\0\0"u8.CopyTo(exif);
+        tiff.CopyTo(exif, 6);
+
+        var result = new byte[jpeg.Length + exif.Length + 4];
+        jpeg.AsSpan(0, 2).CopyTo(result);
+        result[2] = 0xff;
+        result[3] = 0xe1;
+        BinaryPrimitives.WriteUInt16BigEndian(
+            result.AsSpan(4, 2), checked((ushort)(exif.Length + 2)));
+        exif.CopyTo(result, 6);
+        jpeg.AsSpan(2).CopyTo(result.AsSpan(exif.Length + 6));
+        return result;
+    }
+
+    private static void WriteTiffEntry(
+        byte[] tiff, int offset, ushort tag, ushort type, uint count, uint value)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(offset, 2), tag);
+        BinaryPrimitives.WriteUInt16LittleEndian(tiff.AsSpan(offset + 2, 2), type);
+        BinaryPrimitives.WriteUInt32LittleEndian(tiff.AsSpan(offset + 4, 4), count);
+        BinaryPrimitives.WriteUInt32LittleEndian(tiff.AsSpan(offset + 8, 4), value);
+    }
+
+    private sealed class CapturingCleanUploadMalwareScanner : IUploadMalwareScanner
+    {
+        public List<byte[]> ScannedFiles { get; } = [];
+        public UploadMalwareScanStatus Status { get; set; } = UploadMalwareScanStatus.Clean;
+
+        public async Task<UploadMalwareScanResult> ScanAsync(
+            Stream content,
+            CancellationToken cancellationToken)
+        {
+            using var copy = new MemoryStream();
+            await content.CopyToAsync(copy, cancellationToken);
+            ScannedFiles.Add(copy.ToArray());
+            return new UploadMalwareScanResult(Status, Status.ToString());
+        }
     }
 
     private static string QuoteIdentifier(string value) =>

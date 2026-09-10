@@ -231,7 +231,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.getByLabel('입력 날짜').fill(tomorrow);
   await expect(page.getByText('미래 날짜의 예상 수량을 입력하고 있습니다.')).toBeVisible();
   await page.getByLabel('일일 납품량').fill('0');
-  await page.getByLabel('불량 수량').fill('3');
+  await page.getByLabel('일일 불량 수량').fill('3');
   await page.getByRole('button', { name: '변경한 값 저장' }).click();
   await expect(page.getByText('생산·납품 수량을 저장했습니다.')).toBeVisible();
   expect((await getDay(request, tomorrow, 'dev-sales')).delivery!.quantity).toBe(0);
@@ -258,7 +258,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.goto('/g2/operations');
   await expect(page.getByLabel('오전 생산량')).toBeEnabled();
   await expect(page.getByLabel('일일 납품량')).toBeDisabled();
-  await expect(page.getByLabel('불량 수량')).toBeEnabled();
+  await expect(page.getByLabel('일일 불량 수량')).toBeEnabled();
   await expect(page.getByLabel('오전 수리량')).toBeEnabled();
   await expect(page.getByLabel('오후 수리량')).toBeEnabled();
 

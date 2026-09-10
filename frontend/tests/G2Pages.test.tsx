@@ -357,7 +357,8 @@ describe('G2 charts and daily management', () => {
     }));
 
     render(<G2OperationsPage developmentUserKey="dev-manufacturing" canEditProduction canEditDelivery={false} mutationEnabled />);
-    fireEvent.change(await screen.findByLabelText(/^불량 수량/u), { target: { value: '2' } });
+    fireEvent.change(await screen.findByLabelText(/^일일 불량 수량/u), { target: { value: '2' } });
+    expect(Array.from(document.querySelectorAll('.g2-entry-field > span')).map(element => element.textContent)).toEqual(['오전 생산량', '오전 수리량', '오후 생산량', '오후 수리량', '일일 납품량', '일일 불량 수량']);
     fireEvent.click(screen.getByRole('button', { name: '변경한 값 저장' }));
 
     await waitFor(() => expect(savedBody).toEqual({ defect: { quantity: 2, expectedVersion: null } }));
@@ -368,7 +369,20 @@ describe('G2 charts and daily management', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json(response)));
     render(<G2OperationsPage developmentUserKey="dev-sales" canEditProduction canEditDelivery mutationEnabled />);
     const table = await screen.findByRole('table', { name: '생산·납품·재고 월간 입력 현황' });
+    expect(within(table).getAllByRole('row')).toHaveLength(6);
+    expect(within(table).queryByRole('rowheader', { name: '오전 생산' })).toBeNull();
+    fireEvent.click(within(table).getByRole('button', { name: '생산 상세 보기' }));
     expect(within(table).getByRole('rowheader', { name: '오전 생산' })).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: '12월 29일 수리 미입력 상세 보기' }));
+    expect(within(table).getByRole('rowheader', { name: '오후 수리' })).toBeInTheDocument();
+    fireEvent.click(within(table).getByRole('button', { name: '납품 상세 보기' }));
+    fireEvent.click(within(table).getByRole('button', { name: '불량 상세 보기' }));
+    expect(within(table).getByRole('rowheader', { name: '납품 목표' })).toBeInTheDocument();
+    expect(within(table).getByRole('rowheader', { name: '일일 불량 수량' })).toBeInTheDocument();
+    expect(within(table).getByRole('rowheader', { name: '불량재고' })).toBeInTheDocument();
+    expect(within(table).queryByRole('spinbutton')).toBeNull();
+    for (const group of ['생산', '수리', '납품', '불량']) fireEvent.click(within(table).getByRole('button', { name: `${group} 상세 접기` }));
+    expect(within(table).getAllByRole('row')).toHaveLength(6);
     expect(within(table).queryByRole('rowheader', { name: '구분' })).toBeNull();
     expect(within(table).getAllByText('예상')).toHaveLength(3);
     expect(within(table).getByText('12월 29일')).toBeInTheDocument();

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, getG2Days, saveG2Attendance, saveG2Operations } from './api';
 import { G2FilteredHorizontalTable, type G2HorizontalRow } from './G2DataViews';
+import { G2ProductionSummaryTable } from './G2ProductionSummaryTable';
 import { formatG2Date, formatG2Modified, monthBounds, todaySeoul, type G2Day, type G2MetricValue, type G2RangeResponse } from './g2';
-import { useG2Holidays, type G2HolidayMap } from './useG2Holidays';
+import { useG2Holidays } from './useG2Holidays';
 
 type State = { kind: 'loading' } | { kind: 'ready'; data: G2RangeResponse } | { kind: 'forbidden'; message: string } | { kind: 'error'; message: string };
 type Feedback = { tone: 'status' | 'error'; message: string } | null;
@@ -77,7 +78,7 @@ export function G2OperationsPage({ developmentUserKey, canEditProduction, canEdi
       if (canEditProduction && inputs.morningRepair !== baseline.morningRepair) request.morningRepair = { quantity: parseQuantity(inputs.morningRepair, '오전 수리량'), expectedVersion: month.selected.morningRepair?.version ?? null };
       if (canEditProduction && inputs.afternoonRepair !== baseline.afternoonRepair) request.afternoonRepair = { quantity: parseQuantity(inputs.afternoonRepair, '오후 수리량'), expectedVersion: month.selected.afternoonRepair?.version ?? null };
       if (canEditDelivery && inputs.delivery !== baseline.delivery) request.delivery = { quantity: parseQuantity(inputs.delivery, '일일 납품량'), expectedVersion: month.selected.delivery?.version ?? null };
-      if (canEditProduction && inputs.defect !== baseline.defect) request.defect = { quantity: parseQuantity(inputs.defect, '불량 수량'), expectedVersion: month.selected.defect?.version ?? null };
+      if (canEditProduction && inputs.defect !== baseline.defect) request.defect = { quantity: parseQuantity(inputs.defect, '일일 불량 수량'), expectedVersion: month.selected.defect?.version ?? null };
       if (Object.keys(request).length === 0) { setFeedback({ tone: 'error', message: '변경한 값을 하나 이상 입력해 주세요.' }); return; }
       setBusy(true); setFeedback({ tone: 'status', message: '생산·납품 수량을 저장하는 중입니다.' });
       await saveG2Operations(developmentUserKey, month.date, request); await month.reload(); setFeedback({ tone: 'status', message: '생산·납품 수량을 저장했습니다.' });
@@ -91,35 +92,19 @@ export function G2OperationsPage({ developmentUserKey, canEditProduction, canEdi
     <article className="g2-card g2-entry-card">
       <div className="g2-entry-grid g2-entry-grid-repairs">
         <Field label="오전 생산량" value={inputs.morning} onChange={value => setInputs(current => ({ ...current, morning: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.morningProduction ?? null} />
-        <Field label="오후 생산량" value={inputs.afternoon} onChange={value => setInputs(current => ({ ...current, afternoon: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.afternoonProduction ?? null} />
         <Field label="오전 수리량" value={inputs.morningRepair} onChange={value => setInputs(current => ({ ...current, morningRepair: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.morningRepair ?? null} />
+        <Field label="오후 생산량" value={inputs.afternoon} onChange={value => setInputs(current => ({ ...current, afternoon: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.afternoonProduction ?? null} />
         <Field label="오후 수리량" value={inputs.afternoonRepair} onChange={value => setInputs(current => ({ ...current, afternoonRepair: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.afternoonRepair ?? null} />
         <Field label="일일 납품량" value={inputs.delivery} onChange={value => setInputs(current => ({ ...current, delivery: value }))} disabled={!mutationEnabled || !canEditDelivery || busy} metric={month.selected?.delivery ?? null} />
-        <Field label="불량 수량" value={inputs.defect} onChange={value => setInputs(current => ({ ...current, defect: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.defect ?? null} />
+        <Field label="일일 불량 수량" value={inputs.defect} onChange={value => setInputs(current => ({ ...current, defect: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.defect ?? null} />
       </div>
       <p className="g2-table-help">불량에는 오늘 새로 발생한 수량을 입력합니다. 수리 완료량은 불량재고에서 빠지고 다음 날 납품가능재고에 더해집니다.</p>
       <div className="g2-live-totals"><span>입력일 불량재고 <b>{month.selected?.defectInventory ?? 0}대</b></span><small>저장된 자료 기준</small></div>
       {(month.selected?.defectInventory ?? 0) < 0 ? <p className="g2-warning" role="alert">신규 불량과 수리 입력을 확인해 주세요. 불량재고가 음수입니다.</p> : null}
       {feedback ? <p className="g2-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{feedback.message}</p> : null}<button type="button" className="primary-button" disabled={!mutationEnabled || busy || (!canEditProduction && !canEditDelivery)} onClick={() => void save()}>변경한 값 저장</button>
     </article>
-    <MonthOperationsTable days={data.days} holidays={holidays} />
+    <G2ProductionSummaryTable days={data.days} holidays={holidays} monthly />
   </section>}</G2PageState>;
-}
-
-function MonthOperationsTable({ days, holidays }: { days: G2Day[]; holidays: G2HolidayMap }) {
-  return <G2FilteredHorizontalTable title="월간 입력 현황" filterLabel="입력 현황 표시 기간" caption="생산·납품·재고 월간 입력 현황" days={days} rows={[
-    { label: '오전 생산', value: day => day.morningProduction?.quantity ?? '—' },
-    { label: '오후 생산', value: day => day.afternoonProduction?.quantity ?? '—' },
-    { label: '생산 합계', value: day => <strong>{day.productionTotal ?? '—'}</strong> },
-    { label: '오전 수리', value: day => day.morningRepair?.quantity ?? '—' },
-    { label: '오후 수리', value: day => day.afternoonRepair?.quantity ?? '—' },
-    { label: '수리 합계', value: day => <strong>{day.repairTotal ?? '—'}</strong> },
-    { label: '납품 목표', value: day => day.deliveryTarget?.quantity ?? '—' },
-    { label: '납품', value: day => day.delivery?.quantity ?? '—' },
-    { label: '불량', value: day => day.defect?.quantity ?? '—' },
-    { label: '불량재고', value: day => day.defectInventory, cellClassName: day => day.defectInventory < 0 ? 'g2-negative' : undefined },
-    { label: '재고', value: day => day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
-  ]} holidays={holidays} />;
 }
 
 export function G2AttendancePage({ developmentUserKey, canEdit, mutationEnabled }: { developmentUserKey: string | undefined; canEdit: boolean; mutationEnabled: boolean }) {

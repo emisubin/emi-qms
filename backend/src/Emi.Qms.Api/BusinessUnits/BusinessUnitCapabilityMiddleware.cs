@@ -132,6 +132,9 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         if (HttpMethods.IsGet(method))
         {
             return segments.Length == 1
+                || (segments.Length == 2 && string.Equals(segments[1], "management", StringComparison.OrdinalIgnoreCase))
+                || (segments.Length == 3 && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 2
                     && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 4
@@ -140,6 +143,15 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
                     && Guid.TryParse(segments[3], out _));
         }
 
+        if (segments.Length == 1 && (HttpMethods.IsPut(method) || HttpMethods.IsDelete(method))) return true;
+        if (HttpMethods.IsPost(method) && segments.Length >= 3
+            && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase))
+        {
+            return segments.Length == 3 || (segments.Length == 5 && Guid.TryParse(segments[3], out _)
+                && (string.Equals(segments[4], "approve", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(segments[4], "save", StringComparison.OrdinalIgnoreCase)));
+        }
         return HttpMethods.IsPost(method)
             && segments.Length == 3
             && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)

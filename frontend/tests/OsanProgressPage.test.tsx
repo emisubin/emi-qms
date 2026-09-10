@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OsanProgressPage } from '../src/OsanProgressPage';
 import * as api from '../src/osanProgress';
-import { ApiError } from '../src/api';
+import { ApiError, fetchJson } from '../src/api';
+vi.mock('../src/api', async original => ({ ...await original<typeof import('../src/api')>(), fetchJson: vi.fn() }));
 vi.mock('../src/osanProgress', async importOriginal => ({ ...await importOriginal<typeof import('../src/osanProgress')>(), getOsanProgress: vi.fn(), completeOsanProgress: vi.fn(), getOsanProgressPhoto: vi.fn() }));
 function project(id = 'project-a'): api.OsanProgressDetail {
   return { projectId: id, title: id, projectCode: 'TEST', completedStepCount: 0, totalStepCount: 14, status: 'Active', targets: [1, 2].map(index => ({ targetId: `target-${index}`, sequenceNumber: index, displayName: `제품 ${index}`, status: 'InProgress', version: 1, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null, steps: api.osanStageNames.map((stepName, i) => ({ stepId: `${index}-${i}`, stepCode: String(i), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: i + 1, stepName, status: 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) })) };
@@ -11,6 +12,7 @@ const renderPage = (id = 'project-a') => render(<OsanProgressPage projectId={id}
 async function openCompletion() { await screen.findByRole('button', { name: '완료' }); fireEvent.click(screen.getByRole('button', { name: '완료' })); }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(fetchJson).mockResolvedValue({ canApprove: false, currentUserId: 'dev-user', items: [] });
   vi.mocked(api.getOsanProgress).mockResolvedValue(project());
   vi.mocked(api.completeOsanProgress).mockResolvedValue({ operationId: 'operation', replayed: false, project: project() });
   HTMLDialogElement.prototype.showModal = function() { this.open = true; };
@@ -20,10 +22,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 describe('오산 진행 상세', () => {
-  it('시작 전 대상도 별도 시작 없이 임의 단계 완료를 저장한다', async () => {
-    const data = project(); data.targets.forEach(target => { target.status = 'NotStarted'; });
+  it('앞 단계를 완료한 대상은 별도 시작 없이 다음 단계 완료를 저장한다', async () => {
+    const data = project(); data.targets.forEach(target => { target.steps[0].status = 'Completed'; target.steps[1].status = 'Completed'; });
     vi.mocked(api.getOsanProgress).mockResolvedValue(data);
-    renderPage(); await screen.findByRole('button', { name: '완료' });
+    renderPage(); await screen.findByRole('button', { name: '다음 단계' });
     expect(screen.queryByRole('button', { name: '작업 시작' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
     fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
@@ -31,6 +33,13 @@ describe('오산 진행 상세', () => {
     fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
     await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1]).toMatchObject({ stageSequence: 3, completionMode: 'individual' });
+  });
+  it('앞 단계가 미완료면 이후 단계 완료 화면을 열지 않는다', async () => {
+    renderPage(); await screen.findByRole('button', { name: '완료' });
+    fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
+    expect(screen.getByRole('button', { name: '완료' })).toBeDisabled();
+    expect(screen.getByText(/이전 단계를 모두 완료한 후/)).toBeInTheDocument();
+    expect(api.completeOsanProgress).not.toHaveBeenCalled();
   });
   it('대상 링크로 진입한 두 번째 대상만 선택하고 저장한다', async () => {
     render(<OsanProgressPage projectId="project-a" initialTargetId="target-2" developmentUserKey="dev-user" mutationAllowed />);

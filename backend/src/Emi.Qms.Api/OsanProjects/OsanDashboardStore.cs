@@ -180,7 +180,7 @@ public sealed class OsanDashboardStore(
             select step.project_id, step.sequence_number, step.step_code, step.step_name,
                    count(*) filter (where step.status = 'Completed')::integer,
                    count(*)::integer
-            from osan_project_target_steps step
+            from osan_active_project_target_steps step
             where step.project_id = any(@project_ids)
             group by step.project_id, step.sequence_number, step.step_code, step.step_name
             order by step.project_id, step.sequence_number;
@@ -246,7 +246,7 @@ public sealed class OsanDashboardStore(
                 cross join lateral (
                     select count(*) filter (where step.status = 'Completed')::integer as completed_step_count,
                            count(*)::integer as total_step_count
-                    from osan_project_target_steps step
+                    from osan_active_project_target_steps step
                     where step.project_id = projects.id
                 ) progress
                 where {scope.WhereClause}

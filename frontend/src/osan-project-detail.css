@@ -21,3 +21,8 @@
   .app-shell .osan-detail-identity h2 { font-size: 18px; line-height: 26px; }
 }
 .app-shell[data-osan-project-theme='true'] .osan-detail-page .project-progress-meter > i > b { background: #da2127 !important; }
+.osan-management { margin: 24px 0; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.osan-management-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.osan-management label { display: flex; flex-direction: column; gap: 8px; }
+.osan-management .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+@media (max-width: 600px) { .osan-management-fields { grid-template-columns: 1fr; } }

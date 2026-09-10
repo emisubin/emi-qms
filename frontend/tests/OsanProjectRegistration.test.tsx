@@ -107,13 +107,13 @@ function shellFetch(handler?: (url: URL, init?: RequestInit) => Response | Promi
 }
 
 function fillCreateForm() {
-  fireEvent.change(screen.getByLabelText(/^프로젝트 Title/), { target: { value: '  저장된 Title  ' } });
+  fireEvent.change(screen.getByLabelText(/^장비명/), { target: { value: '  저장된 Title  ' } });
   fireEvent.change(screen.getByLabelText(/^프로젝트 코드/), { target: { value: ' AbC  001 ' } });
   fireEvent.change(screen.getByLabelText(/^거래처/), { target: { value: ' 거래처 ' } });
   fireEvent.change(screen.getByLabelText('PO No'), { target: { value: ' 001-PO/+ ' } });
   fireEvent.change(screen.getByLabelText('W/O No'), { target: { value: ' 000-W/O ' } });
   fireEvent.change(screen.getByLabelText(/^납기일/), { target: { value: '2026-12-31' } });
-  fireEvent.change(screen.getByLabelText(/^제품명/), { target: { value: ' 제품  이름 ' } });
+  fireEvent.change(screen.getByLabelText(/^part분류/), { target: { value: ' 제품  이름 ' } });
   fireEvent.change(screen.getByLabelText(/^수량/), { target: { value: '2' } });
 }
 
@@ -128,6 +128,7 @@ describe('Osan project registration', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetBusinessUnitRequestContext(true);
     setRuntimeMutationAllowed(false);
     vi.unstubAllGlobals();
@@ -187,6 +188,8 @@ describe('Osan project registration', () => {
   });
 
   it('renders each desktop project as one accessible table row', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-12-30T15:00:00Z'));
     vi.stubGlobal('fetch', shellFetch((url, init) => {
       if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
         return json({ items: [projectDetail()] });
@@ -210,7 +213,7 @@ describe('Osan project registration', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveClass('project-list-head');
     expect(within(rows[0]).getAllByRole('columnheader')).toHaveLength(8);
-    expect(within(rows[0]).getByRole('columnheader', { name: '프로젝트명' })).toBeInTheDocument();
+    expect(within(rows[0]).getByRole('columnheader', { name: '장비명' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '상태' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '진행률' })).toBeInTheDocument();
 
@@ -223,6 +226,7 @@ describe('Osan project registration', () => {
     expect(listCode).toHaveClass('project-code-value');
     expect(within(projectRow).getByText('시작 전')).toBeInTheDocument();
     expect(within(projectRow).getByText('0%')).toBeInTheDocument();
+    expect(within(projectRow).getByText(/\(D-Day\)$/)).toBeInTheDocument();
 
     fireEvent.click(projectRow);
     expect(await screen.findByRole('heading', { name: '저장된 Title' })).toBeInTheDocument();
@@ -342,6 +346,8 @@ describe('Osan project registration', () => {
 
     expect(screen.getAllByRole('textbox')).toHaveLength(6);
     expect(screen.getAllByRole('spinbutton')).toHaveLength(1);
+    expect(Array.from(document.querySelectorAll('.osan-project-form input')).map(input => input.getAttribute('aria-label')))
+      .toEqual(['장비명', '프로젝트 코드', 'part분류', '수량', '거래처', 'PO No', 'W/O No', '납기일']);
     fillCreateForm();
     const submit = screen.getByRole('button', { name: '프로젝트 등록' });
     fireEvent.click(submit);
@@ -466,7 +472,7 @@ describe('Osan project registration', () => {
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('같은 요청 식별자가 다른 입력에 사용되었습니다.');
-    expect(screen.getByLabelText(/^프로젝트 Title/)).toHaveValue('  저장된 Title  ');
+    expect(screen.getByLabelText(/^장비명/)).toHaveValue('  저장된 Title  ');
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
 
     expect(await screen.findByRole('heading', { name: '저장된 Title' })).toBeInTheDocument();

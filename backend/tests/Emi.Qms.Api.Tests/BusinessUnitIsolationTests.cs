@@ -29,7 +29,7 @@ using Xunit;
 
 namespace Emi.Qms.Api.Tests;
 
-public sealed class BusinessUnitIsolationTests
+public sealed partial class BusinessUnitIsolationTests
 {
     private static readonly Guid AdminUserId = Guid.Parse("50000000-0000-0000-0000-000000000001");
     private static readonly Guid SalesUserId = Guid.Parse("50000000-0000-0000-0000-000000000002");
@@ -3241,13 +3241,14 @@ public sealed class BusinessUnitIsolationTests
             Assert.All(body.RootElement.GetProperty("targets").EnumerateArray(), target =>
             {
                 Assert.Equal(1, target.GetProperty("version").GetInt32());
-                Assert.All(target.GetProperty("steps").EnumerateArray().Take(6), step =>
+                var steps = target.GetProperty("steps").EnumerateArray().ToArray();
+                Assert.True(steps[0].GetProperty("canCompleteIndividual").GetBoolean());
+                Assert.True(steps[0].GetProperty("canCompleteBatch").GetBoolean());
+                Assert.All(steps.Skip(1), step =>
                 {
-                    Assert.True(step.GetProperty("canCompleteIndividual").GetBoolean());
-                    Assert.True(step.GetProperty("canCompleteBatch").GetBoolean());
+                    Assert.False(step.GetProperty("canCompleteIndividual").GetBoolean());
+                    Assert.False(step.GetProperty("canCompleteBatch").GetBoolean());
                 });
-                Assert.False(target.GetProperty("steps")[6]
-                    .GetProperty("canCompleteIndividual").GetBoolean());
             });
         }
 
@@ -3436,6 +3437,13 @@ public sealed class BusinessUnitIsolationTests
                 Encoding.ASCII.GetString(expectedSanitizedPhoto.Content),
                 StringComparison.Ordinal);
         }
+
+        await AssertOsanManagementHttpAsync(
+            databases,
+            client,
+            osanProjectId,
+            progressTargetIds[0],
+            uploadScanner);
 
         await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
@@ -3648,7 +3656,7 @@ public sealed class BusinessUnitIsolationTests
                      (HttpMethod.Get, "/api/g2/home"),
                      (HttpMethod.Get, "/api/pending"),
                      (HttpMethod.Put, "/api/osan/projects"),
-                     (HttpMethod.Delete, $"/api/osan/projects/{Guid.NewGuid():D}"),
+                     (HttpMethod.Delete, $"/api/osan/projects/{Guid.NewGuid():D}/unknown"),
                      (HttpMethod.Post, $"/api/projects/{Guid.NewGuid():D}/hold"),
                      (HttpMethod.Post, $"/api/projects/{Guid.NewGuid():D}/cancel")
                  })

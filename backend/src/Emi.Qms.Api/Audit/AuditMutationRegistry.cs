@@ -33,6 +33,7 @@ public static partial class AuditMutationRegistry
         DELETE /api/me/profile-photo
         DELETE /api/notices/{noticeId:guid}
         DELETE /api/notices/{noticeId:guid}/attachments/{attachmentId:guid}
+        DELETE /api/osan/projects/{projectId:guid}/
         DELETE /api/pending/{pendingId:guid}/photos/{photoId:guid}
         DELETE /api/quality/inspections/reports/{reportId:guid}/photos/{photoId:guid}
         DELETE /api/quality/iqc/reports/{reportId:guid}/photos/{photoId:guid}
@@ -121,6 +122,9 @@ public static partial class AuditMutationRegistry
         POST /api/osan/projects/import/preview
         POST /api/osan/projects/
         POST /api/osan/projects/{projectId:guid}/progress/completions
+        POST /api/osan/projects/{projectId:guid}/progress/photo-edits
+        POST /api/osan/projects/{projectId:guid}/progress/photo-edits/{requestId:guid}/approve
+        POST /api/osan/projects/{projectId:guid}/progress/photo-edits/{requestId:guid}/save
         POST /api/pending-types/
         POST /api/pending-types/{code}/activate
         POST /api/pending-types/{code}/deactivate
@@ -207,6 +211,7 @@ public static partial class AuditMutationRegistry
         PUT /api/my/notification-preferences
         PUT /api/my/web-push/subscriptions
         PUT /api/notices/{noticeId:guid}
+        PUT /api/osan/projects/{projectId:guid}/
         PUT /api/pending-types/reorder
         PUT /api/pending-types/{code}
         PUT /api/production-control/templates/manufacturing/{productTypeId:guid}/versions/{versionId:guid}

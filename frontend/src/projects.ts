@@ -33,6 +33,7 @@ export interface OsanProjectListItem {
 }
 
 export interface OsanProjectDetail extends OsanProjectListItem {
+  editToken?: string;
   targets: OsanProjectTarget[];
 }
 

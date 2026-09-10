@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OsanDashboardPage } from '../src/OsanDashboardPage';
 import { ApiError } from '../src/api';
 import * as api from '../src/osanDashboard';
@@ -13,7 +13,19 @@ const fixture = (title = '오산 검수 프로젝트'): api.OsanDashboardRespons
     stages: [{ sequenceNumber: 1, stepCode: 'INCOMING', stepName: '입고검사', completedTargetCount: 1, totalTargetCount: 2 }] }]
 });
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getOsanDashboard).mockResolvedValue(fixture()); });
+afterEach(() => { vi.useRealTimers(); });
 describe('오산 진행 현황', () => {
+  it.each(['home', 'progress'] as const)('%s 장비명 옆 D-day를 한국 자정에 갱신한다', async view => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-30T14:59:59.999Z'));
+    const rendered = render(<OsanDashboardPage view={view} onOpen={vi.fn()} />);
+    await act(async () => {});
+    const title = document.querySelector('.osan-dashboard-project-title')!;
+    expect(title).toHaveTextContent('오산 검수 프로젝트D-1');
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(title).toHaveTextContent('오산 검수 프로젝트D-Day');
+    rendered.unmount();
+  });
   it('현재 페이지 행 수가 아닌 서버 전체 집계와 부분 완료 진행률을 표시하고 상세를 연결한다', async () => {
     const open = vi.fn(); render(<OsanDashboardPage developmentUserKey="user" onOpen={open} />);
     const button = await screen.findByRole('button', { name: '오산 검수 프로젝트 진행 상세 열기' });

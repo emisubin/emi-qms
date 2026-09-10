@@ -5,13 +5,15 @@ function target(completed: number[] = []): OsanProgressTarget {
     steps: Array.from({ length: 7 }, (_, index) => ({ stepId: String(index), stepCode: String(index), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: index + 1, stepName: String(index + 1), status: completed.includes(index + 1) ? 'Completed' : 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) };
 }
 describe('오산 완료 선택 계약', () => {
-  it('개별·일괄 모두 1~6단계 임의 완료를 허용한다', () => {
-    expect(completionUnavailable([target()], 3, 'individual')).toBeNull();
-    expect(completionUnavailable([{ ...target(), status: 'NotStarted' }], 6, 'individual')).toBeNull();
-    expect(completionUnavailable([target()], 3, 'batch')).toBeNull();
+  it('개별·일괄 모두 이전 단계가 완료된 다음 단계만 허용한다', () => {
+    expect(completionUnavailable([target()], 1, 'individual')).toBeNull();
+    expect(completionUnavailable([target()], 3, 'individual')).toContain('이전 단계');
+    expect(completionUnavailable([target([1, 2])], 3, 'individual')).toBeNull();
+    expect(completionUnavailable([target([1, 2]), target([1])], 3, 'batch')).toContain('이전 단계');
+    expect(completionUnavailable([target([1, 2]), target([1, 2])], 3, 'batch')).toBeNull();
   });
   it('앞 단계가 하나라도 미완료인 혼합 선택 포장을 모두 막는다', () => {
-    expect(completionUnavailable([target([1, 2, 3, 4, 5, 6]), target([1, 2, 3, 4, 5])], 7, 'batch')).toContain('앞 6단계');
+    expect(completionUnavailable([target([1, 2, 3, 4, 5, 6]), target([1, 2, 3, 4, 5])], 7, 'batch')).toContain('이전 단계');
     expect(completionUnavailable([target([1, 2, 3, 4, 5, 6])], 7, 'individual')).toBeNull();
   });
   it('이미 완료한 대상을 자동 제외하지 않는다', () => {

@@ -27,6 +27,8 @@ public sealed class OsanProjectExcelParser
     private static readonly IReadOnlyDictionary<string, string> HeaderAliases =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
+            ["장비명"] = "title",
+            ["part분류"] = "product_name",
             ["프로젝트명"] = "title",
             ["프로젝트 title"] = "title",
             ["title"] = "title",
@@ -68,14 +70,14 @@ public sealed class OsanProjectExcelParser
 
         var headers = new (string Text, bool Required)[]
         {
-            ("프로젝트 Title", true),
+            ("장비명", true),
             ("프로젝트 코드", true),
+            ("part분류", true),
+            ("수량", true),
             ("거래처", true),
             ("PO No", false),
             ("W/O No", false),
-            ("납기일", true),
-            ("제품명", true),
-            ("수량", true)
+            ("납기일", true)
         };
         for (var index = 0; index < headers.Length; index++)
         {
@@ -91,19 +93,19 @@ public sealed class OsanProjectExcelParser
         worksheet.SheetView.FreezeRows(3);
         worksheet.Range(3, 1, 3, headers.Length).SetAutoFilter();
         worksheet.Columns(1, headers.Length).Style.Alignment.WrapText = true;
-        foreach (var column in new[] { 1, 2, 3, 4, 5, 7 })
+        foreach (var column in new[] { 1, 2, 3, 5, 6, 7 })
         {
             worksheet.Range(4, column, MaximumRows + 3, column).Style.NumberFormat.Format = "@";
         }
-        worksheet.Range(4, 6, MaximumRows + 3, 6).Style.DateFormat.Format = "yyyy-mm-dd";
-        worksheet.Range(4, 8, MaximumRows + 3, 8).Style.NumberFormat.Format = "0";
+        worksheet.Range(4, 8, MaximumRows + 3, 8).Style.DateFormat.Format = "yyyy-mm-dd";
+        worksheet.Range(4, 4, MaximumRows + 3, 4).Style.NumberFormat.Format = "0";
         worksheet.Column(1).Width = 28;
         worksheet.Column(2).Width = 20;
         worksheet.Column(3).Width = 22;
-        worksheet.Columns(4, 5).Width = 18;
-        worksheet.Column(6).Width = 14;
-        worksheet.Column(7).Width = 24;
-        worksheet.Column(8).Width = 10;
+        worksheet.Column(4).Width = 10;
+        worksheet.Column(5).Width = 22;
+        worksheet.Columns(6, 7).Width = 18;
+        worksheet.Column(8).Width = 14;
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

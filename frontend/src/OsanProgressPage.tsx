@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
+import { OsanPhotoEditor } from './OsanPhotoEditor';
 import {
   completeOsanProgress, completionUnavailable, getOsanProgress, getOsanProgressPhoto, osanStageNames,
   validateOsanPhotos,
@@ -136,6 +137,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, developmentUserKey,
           {showPhotos && <div className="osan-progress-photo-region">{step.photos.map(photo => <SavedPhoto key={`${target.targetId}:${stage}:${photo.photoId}`} projectId={projectId} photo={photo} userKey={developmentUserKey} />)}</div>}
         </> : <div className="osan-progress-photo-region osan-progress-photo-region--empty"><p>등록된 완료 사진이 없습니다.</p></div>}
         <div className="osan-progress-completed"><span>{step.completedByDisplayName ?? '작업자 정보 없음'}</span><time dateTime={step.completedAtUtc ?? undefined}>{step.completedAtUtc ? new Date(step.completedAtUtc).toLocaleString('ko-KR') : '완료 일시 정보 없음'}</time></div>
+        <OsanPhotoEditor key={`${target.targetId}:${stage}:${developmentUserKey}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/>
       </> : <p className="osan-progress-not-completed">미완료</p>}
     </section>;
   }

@@ -153,3 +153,9 @@
   .app-shell .osan-progress-photo-inputs button,
   .app-shell .osan-progress-submit { height: 36px; min-height: 36px; font-size: 13px; }
 }
+.osan-photo-editor { margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 16px; }
+.osan-photo-editor button { margin: 8px 8px 8px 0; }
+.osan-photo-editor label { display: block; margin: 12px 0; }
+.app-shell .osan-photo-editor { min-width: 0; }
+.app-shell .osan-photo-editor .osan-progress-photo-region img { display: block; width: 100%; max-width: 100%; height: auto; max-height: 720px; object-fit: contain; }
+.app-shell .osan-photo-editor input[type="file"] { width: 100%; max-width: 100%; min-width: 0; }

@@ -5,9 +5,9 @@ import { applyOsanProjectExcel, downloadOsanProjectTemplate, previewOsanProjectE
 import './osan-project-excel.css';
 
 const fields = [
-  ['title', '프로젝트명', 200], ['projectCode', '프로젝트 코드', 80], ['customerName', '거래처', 200],
-  ['poNumber', 'PO No', 100], ['workOrderNumber', 'W/O No', 100], ['deliveryDate', '납기일', 10],
-  ['productName', '제품명', 100], ['quantity', '수량', 0]
+  ['title', '장비명', 200], ['projectCode', '프로젝트 코드', 80], ['productName', 'part분류', 100],
+  ['quantity', '수량', 0], ['customerName', '거래처', 200], ['poNumber', 'PO No', 100],
+  ['workOrderNumber', 'W/O No', 100], ['deliveryDate', '납기일', 10]
 ] as const;
 type Field = typeof fields[number][0];
 type Attempt = { rows: OsanProjectExcelRow[]; hash: string; operationId: string; confirmed: number[] };
@@ -182,7 +182,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
         {confirmation && <section className="osan-excel-confirm" aria-label="중복 프로젝트 확인" ref={confirmationPanel} tabIndex={-1}>
           <h3>중복 프로젝트 확인</h3>
           <p>아래 프로젝트가 이미 등록되어 있거나 이번 파일에 중복되어 있습니다. 그래도 등록하시겠습니까?</p>
-          <ul>{confirmation.rows.filter(row => row.duplicateKind).map(row => <li key={row.rowNumber}>{row.rowNumber}행 · {row.title} · {row.projectCode}: {row.duplicateKind === 'identical' ? '프로젝트명·코드·거래처·제품명·수량이 모두 같습니다.' : '같은 프로젝트 코드가 사용되고 있습니다.'}</li>)}</ul>
+          <ul>{confirmation.rows.filter(row => row.duplicateKind).map(row => <li key={row.rowNumber}>{row.rowNumber}행 · {row.title} · {row.projectCode}: {row.duplicateKind === 'identical' ? '장비명·코드·거래처·part분류·수량이 모두 같습니다.' : '같은 프로젝트 코드가 사용되고 있습니다.'}</li>)}</ul>
           <button type="button" disabled={locked} onClick={() => setConfirmation(null)}>돌아가기</button>
           <button type="button" className="primary-button" disabled={locked} onClick={() => void run('apply', { ...confirmation, confirmed: confirmation.rows.filter(row => row.duplicateKind).map(row => row.rowNumber) })}>중복 포함 {confirmation.rows.length}개 등록</button>
         </section>}

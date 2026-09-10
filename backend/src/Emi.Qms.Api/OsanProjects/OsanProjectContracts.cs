@@ -42,7 +42,10 @@ public sealed record OsanProjectDetailResponse(
     int CompletedStepCount,
     int TotalStepCount,
     DateTimeOffset CreatedAtUtc,
-    IReadOnlyList<OsanProjectTargetResponse> Targets);
+    IReadOnlyList<OsanProjectTargetResponse> Targets)
+{
+    public string EditToken => OsanProjectStore.EditToken(this);
+}
 
 public sealed record OsanProjectTargetResponse(
     Guid TargetId,

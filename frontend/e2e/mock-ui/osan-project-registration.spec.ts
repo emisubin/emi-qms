@@ -36,19 +36,25 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(emptyCreateActions).toHaveCount(2);
   await emptyCreateActions.nth(1).click();
 
-  const expectedFields = ['프로젝트 Title', '프로젝트 코드', '거래처', 'PO No', 'W/O No', '납기일', '제품명', '수량'];
+  const expectedFields = ['장비명', '프로젝트 코드', 'part분류', '수량', '거래처', 'PO No', 'W/O No', '납기일'];
   for (const field of expectedFields) {
     await expect(page.getByLabel(field, { exact: true })).toBeVisible();
   }
   await expect(page.locator('.osan-project-field')).toHaveCount(8);
+  expect(await page.locator('.osan-project-form input').evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))).toEqual(expectedFields);
+  await page.screenshot({ path: testInfo.outputPath('osan-project-create-desktop-1440.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('osan-project-create-mobile-390.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
 
-  await page.getByLabel('프로젝트 Title').fill('  저장된 Title  ');
+  await page.getByLabel('장비명').fill('  저장된 Title  ');
   await page.getByLabel('프로젝트 코드').fill('  AbC  001  ');
   await page.getByLabel('거래처').fill('  거래처  ');
   await page.getByLabel('PO No').fill('  001-PO/+  ');
   await page.getByLabel('W/O No').fill('  000-W/O  ');
   await page.getByLabel('납기일').fill('2026-12-31');
-  await page.getByLabel('제품명').fill('  제품  이름  ');
+  await page.getByLabel('part분류').fill('  제품  이름  ');
   await page.getByLabel('수량').fill('2');
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 
@@ -171,7 +177,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(mobileList.getByText('시작 전')).toBeVisible();
   await expect(mobileList.getByText('0%')).toBeVisible();
-  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['거래처', 'Code', '제품명', '수량', '납기일', '상태', '진행률']);
+  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['거래처', 'Code', 'part분류', '수량', '납기일', '상태', '진행률']);
   const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
@@ -310,6 +316,31 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(requestFailures).toEqual([]);
 });
 
+test('Osan home and progress keep D-day beside the equipment name across widths and Korean midnight', async ({ page }, testInfo) => {
+  const unexpected: string[] = [], errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await installBackend(page, [], unexpected);
+  await page.addInitScript(() => window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN'));
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const route of ['/', '/progress']) {
+      await page.clock.setFixedTime(new Date('2026-12-30T14:59:59Z'));
+      await page.goto(route);
+      const title = page.locator('.osan-dashboard-project-title');
+      await expect(title.locator('.osan-dashboard-dday')).toHaveText('D-1');
+      await expect(title.locator('.osan-dashboard-project-name')).toHaveText('저장된 Title');
+      expect(await title.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await hasHorizontalOverflow(page)).toBe(false);
+      await page.screenshot({ path: testInfo.outputPath(`osan-${route === '/' ? 'home' : 'progress'}-dday-${width}.png`), fullPage: true });
+      await page.clock.setFixedTime(new Date('2026-12-30T15:00:00Z'));
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await expect(title.locator('.osan-dashboard-dday')).toHaveText('D-Day');
+    }
+  }
+  expect(unexpected).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 test('Osan Excel edits missing cells, saves valid rows and confirms duplicates', async ({ page }, testInfo) => {
   const unexpected: string[] = [], consoleErrors: string[] = [];
   page.on('pageerror', error => consoleErrors.push(error.message));
@@ -329,7 +360,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
     if (path.endsWith('/template')) return route.fulfill({ status: 200, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: 'synthetic template response' });
     if (path.endsWith('/preview')) return fulfillJson(route, {
       supportsRowEditing: true, fileSha256: 'synthetic-file-hash', totalRowCount: rows.length, totalQuantity: 2 * rows.length, errorCount: rows.filter(row => !row.title).length, errors: [],
-      rows: rows.map(row => ({ ...row, errors: row.title ? [] : ['프로젝트명 필요'], duplicateKind: applied && row.title ? 'identical' : null }))
+      rows: rows.map(row => ({ ...row, errors: row.title ? [] : ['장비명 필요'], duplicateKind: applied && row.title ? 'identical' : null }))
     });
     if (path.endsWith('/apply')) {
       const rowNumbers = rows.map(row => Number(row.rowNumber)); submitted.push(rowNumbers);
@@ -350,7 +381,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   expect((await downloadPromise).suggestedFilename()).toBe('EMI_오산_프로젝트_등록양식.xlsx');
   await dialog.getByLabel('작성한 엑셀 파일').setInputFiles({ name: 'projects.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic workbook') });
   await dialog.getByRole('button', { name: '내용 미리보기' }).click();
-  await expect(dialog.getByLabel('2행 프로젝트명')).toHaveText('입력 필요');
+  await expect(dialog.getByLabel('2행 장비명')).toHaveText('입력 필요');
   await expect(dialog.getByRole('textbox')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath('osan-excel-edit-desktop.png'), fullPage: true });
@@ -361,10 +392,10 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Escape'); await expect(dialog).toBeVisible();
   releaseApply();
-  await expect(dialog.getByLabel('3행 프로젝트명')).toBeDisabled();
-  await expect(dialog.getByLabel('2행 프로젝트명')).toBeEnabled();
-  await dialog.getByLabel('2행 프로젝트명').click();
-  await dialog.getByLabel('2행 프로젝트명').fill(projectDetail().title);
+  await expect(dialog.getByLabel('3행 장비명')).toBeDisabled();
+  await expect(dialog.getByLabel('2행 장비명')).toBeEnabled();
+  await dialog.getByLabel('2행 장비명').click();
+  await dialog.getByLabel('2행 장비명').fill(projectDetail().title);
   await page.keyboard.press('Enter');
   await expect(dialog.getByRole('textbox')).toHaveCount(0);
   await page.keyboard.press('Tab');
@@ -377,7 +408,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   expect(submitted).toEqual([[3]]);
   await page.screenshot({ path: testInfo.outputPath('osan-excel-duplicate-mobile.png'), fullPage: true });
   await dialog.getByRole('button', { name: '중복 포함 1개 등록' }).click();
-  await expect(dialog.getByLabel('2행 프로젝트명')).toBeDisabled();
+  await expect(dialog.getByLabel('2행 장비명')).toBeDisabled();
   expect(submitted).toEqual([[3], [2]]);
   await dialog.getByRole('button', { name: '닫기', exact: true }).click();
   await expect(page.getByTestId('osan-project-list-mobile')).toBeVisible();
@@ -504,6 +535,7 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
       }, 201);
     }
     if (path === `/api/osan/projects/${projectId}/progress`) return fulfillJson(route, projectDetail());
+    if (path === `/api/osan/projects/${projectId}/management`) return fulfillJson(route, { canManage: false, editToken: '' });
     if (path === `/api/osan/projects/${projectId}`) return fulfillJson(route, projectDetail());
     unexpectedRequests.push(`${request.method()} ${path}`);
     return fulfillJson(route, { title: 'closed in synthetic scope' }, 404);

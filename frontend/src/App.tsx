@@ -14,7 +14,9 @@ import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
+import { formatOsanDday, useKoreaDate } from './osanDday';
 import './osan-project-detail.css';
+import { OsanProjectManagement } from './OsanProjectManagement';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -2725,6 +2727,7 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'detail' ? (
         isOsan ? <OsanProjectDetailPage
+          mutationAllowed={mutationEnabled}
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
           onBack={() => setView({ kind: 'list' })}
@@ -4320,6 +4323,7 @@ function OsanProjectListPage({
   onCreate: () => void;
   onOpen: (projectId: string) => void;
 }) {
+  const today = useKoreaDate();
   const [search, setSearch] = useState('');
   const [excelOpen, setExcelOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
@@ -4411,10 +4415,10 @@ function OsanProjectListPage({
           ariaLabel="오산 프로젝트 목록"
           testIdPrefix="osan-project-list"
           columns={[
-            { label: '프로젝트명', align: 'left' },
+            { label: '장비명', align: 'left' },
             { label: '거래처', align: 'left' },
             { label: 'Code', align: 'center' },
-            { label: '제품명', align: 'left' },
+            { label: 'part분류', align: 'left' },
             { label: '수량', align: 'center' },
             { label: '납기일', align: 'center' },
             { label: '상태', align: 'center' },
@@ -4431,16 +4435,16 @@ function OsanProjectListPage({
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: project.productName, align: 'left' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: formatDate(project.deliveryDate), align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span style={{whiteSpace:'nowrap'}}>({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
               { label: '거래처', value: project.customerName },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
-              { label: '제품명', value: project.productName },
+              { label: 'part분류', value: project.productName },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: formatDate(project.deliveryDate) },
+              { label: '납기일', value: `${formatDate(project.deliveryDate)} (${formatOsanDday(project.deliveryDate, today)})` },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
@@ -4613,29 +4617,29 @@ function OsanProjectCreatePage({
       />
       <DsInputFlow title="오산 프로젝트 정보" description="아래 8개 항목을 순서대로 입력해 주세요.">
         <form className="osan-project-form" onSubmit={submit} noValidate>
-          <OsanProjectField number={1} label="프로젝트 Title" required error={fieldError('title')}>
-            <input aria-label="프로젝트 Title" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
+          <OsanProjectField number={1} label="장비명" required error={fieldError('title')}>
+            <input aria-label="장비명" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
           </OsanProjectField>
           <OsanProjectField number={2} label="프로젝트 코드" required error={fieldError('projectCode')}>
             <input aria-label="프로젝트 코드" value={draft.projectCode} maxLength={80} onChange={(event) => setField('projectCode', event.target.value)} aria-invalid={Boolean(fieldError('projectCode'))} />
           </OsanProjectField>
-          <OsanProjectField number={3} label="거래처" required error={fieldError('customerName')}>
+          <OsanProjectField number={3} label="part분류" required error={fieldError('productName')}>
+            <input aria-label="part분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
+          </OsanProjectField>
+          <OsanProjectField number={4} label="수량" required error={fieldError('quantity')}>
+            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
+          </OsanProjectField>
+          <OsanProjectField number={5} label="거래처" required error={fieldError('customerName')}>
             <input aria-label="거래처" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
           </OsanProjectField>
-          <OsanProjectField number={4} label="PO No" error={fieldError('poNumber')}>
+          <OsanProjectField number={6} label="PO No" error={fieldError('poNumber')}>
             <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={5} label="W/O No" error={fieldError('workOrderNumber')}>
+          <OsanProjectField number={7} label="W/O No" error={fieldError('workOrderNumber')}>
             <input aria-label="W/O No" value={draft.workOrderNumber} maxLength={100} onChange={(event) => setField('workOrderNumber', event.target.value)} aria-invalid={Boolean(fieldError('workOrderNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={6} label="납기일" required error={fieldError('deliveryDate')}>
+          <OsanProjectField number={8} label="납기일" required error={fieldError('deliveryDate')}>
             <input aria-label="납기일" type="date" value={draft.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} aria-invalid={Boolean(fieldError('deliveryDate'))} />
-          </OsanProjectField>
-          <OsanProjectField number={7} label="제품명" required error={fieldError('productName')}>
-            <input aria-label="제품명" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
-          </OsanProjectField>
-          <OsanProjectField number={8} label="수량" required error={fieldError('quantity')}>
-            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
           </OsanProjectField>
 
           {message ? <p className="error-text osan-project-form__message" role="alert">{message}</p> : null}
@@ -4675,6 +4679,7 @@ function OsanProjectField({
 }
 
 function OsanProjectDetailPage({
+  mutationAllowed,
   developmentUserKey,
   projectId,
   onBack,
@@ -4684,6 +4689,7 @@ function OsanProjectDetailPage({
   projectId: string;
   onBack: () => void;
   onOpenProgress: (targetId?: string) => void;
+  mutationAllowed: boolean;
 }) {
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
 
@@ -4719,7 +4725,7 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /> : null}
+      {state.kind === 'ready' ? <><OsanProjectManagement mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
     </section>
   );
 }
@@ -4756,7 +4762,7 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
           <section aria-label="프로젝트 정보">
             <h3>프로젝트 정보</h3>
             <p><span>거래처</span><strong>{project.customerName}</strong></p>
-            <p><span>제품명</span><strong>{project.productName}</strong></p>
+            <p><span>part분류</span><strong>{project.productName}</strong></p>
             <p><span>수량</span><strong>{project.quantity.toLocaleString()}개</strong></p>
           </section>
           <section aria-label="문서 정보">

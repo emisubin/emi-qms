@@ -117,7 +117,7 @@ public static class OsanProgressEndpointExtensions
         return app;
     }
 
-    private static async Task<IResult?> AuthorizeProjectAsync(
+    internal static async Task<IResult?> AuthorizeProjectAsync(
         Guid projectId,
         string permission,
         OsanProjectStore projectStore,
@@ -153,7 +153,7 @@ public static class OsanProgressEndpointExtensions
         return null;
     }
 
-    private static async Task<(CompleteOsanProgressInput? Input, Dictionary<string, string[]> Errors)>
+    internal static async Task<(CompleteOsanProgressInput? Input, Dictionary<string, string[]> Errors)>
         ReadCompletionAsync(HttpRequest request, CancellationToken cancellationToken)
     {
         var errors = new Dictionary<string, string[]>();

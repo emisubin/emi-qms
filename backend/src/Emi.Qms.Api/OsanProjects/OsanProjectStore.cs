@@ -8,7 +8,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed class OsanProjectStore
+public sealed partial class OsanProjectStore
 {
     private const string OsanProjectCodeConstraint = "ux_projects_osan_project_code";
     private readonly DatabaseConnectionStringProvider connectionStringProvider;
@@ -263,7 +263,7 @@ public sealed class OsanProjectStore
                 select
                     count(*) filter (where steps.status = 'Completed')::integer as completed_step_count,
                     count(*)::integer as total_step_count
-                from osan_project_target_steps steps
+                from osan_active_project_target_steps steps
                 where steps.project_id = projects.id
             ) progress
             where {string.Join(" and ", where)}
@@ -546,13 +546,13 @@ public sealed class OsanProjectStore
 
     private static string GetExcelFieldName(string field) => field switch
     {
-        nameof(CreateOsanProjectRequest.Title) => "프로젝트명",
+        nameof(CreateOsanProjectRequest.Title) => "장비명",
         nameof(CreateOsanProjectRequest.ProjectCode) => "프로젝트 코드",
         nameof(CreateOsanProjectRequest.CustomerName) => "거래처",
         nameof(CreateOsanProjectRequest.PoNumber) => "PO",
         nameof(CreateOsanProjectRequest.WorkOrderNumber) => "W/O",
         nameof(CreateOsanProjectRequest.DeliveryDate) => "납기일",
-        nameof(CreateOsanProjectRequest.ProductName) => "제품명",
+        nameof(CreateOsanProjectRequest.ProductName) => "part분류",
         nameof(CreateOsanProjectRequest.Quantity) => "수량",
         _ => field
     };
@@ -1034,7 +1034,7 @@ public sealed class OsanProjectStore
         NpgsqlTransaction transaction,
         Guid projectId,
         NormalizedCreateOsanProjectInput input,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, int firstSequence = 1)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -1049,7 +1049,8 @@ public sealed class OsanProjectStore
                     @project_id,
                     sequence_number,
                     @product_name || ' ' || sequence_number::text
-                from generate_series(1, @quantity) sequence_number
+                from generate_series(@first_sequence, @quantity) sequence_number
+                on conflict (project_id, sequence_number) do update set is_active=true
                 returning id, sequence_number
             )
             insert into osan_project_target_steps (
@@ -1075,11 +1076,13 @@ public sealed class OsanProjectStore
                 (6, 'SHIPPING_INSPECTION', '출하검사'),
                 (7, 'PACKING', '포장')
             ) step_snapshot(sequence_number, step_code, step_name)
-            order by created_targets.sequence_number, step_snapshot.sequence_number;
+            order by created_targets.sequence_number, step_snapshot.sequence_number
+            on conflict (target_id, sequence_number) do nothing;
             """;
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("product_name", input.ProductName);
         command.Parameters.AddWithValue("quantity", input.Quantity);
+        command.Parameters.AddWithValue("first_sequence", firstSequence);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -1160,7 +1163,7 @@ public sealed class OsanProjectStore
                     select
                         count(*) filter (where steps.status = 'Completed')::integer as completed_step_count,
                         count(*)::integer as total_step_count
-                    from osan_project_target_steps steps
+                    from osan_active_project_target_steps steps
                     where steps.project_id = projects.id
                 ) progress
                 where projects.id = @project_id
@@ -1191,8 +1194,8 @@ public sealed class OsanProjectStore
                     steps.step_code,
                     steps.step_name,
                     steps.status
-                from osan_project_targets targets
-                join osan_project_target_steps steps on steps.target_id = targets.id
+                from osan_active_project_targets targets
+                join osan_active_project_target_steps steps on steps.target_id = targets.id
                 where targets.project_id = @project_id
                 order by targets.sequence_number, steps.sequence_number;
                 """;

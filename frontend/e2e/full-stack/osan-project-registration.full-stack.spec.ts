@@ -52,13 +52,13 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await expect(page.getByText('등록된 프로젝트가 없습니다.')).toBeVisible();
   await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
 
-  await page.getByLabel('프로젝트 Title').fill('  오산 통합 프로젝트  ');
+  await page.getByLabel('장비명').fill('  오산 통합 프로젝트  ');
   await page.getByLabel('프로젝트 코드').fill('  OSAN  001  ');
   await page.getByLabel('거래처').fill('  테스트 거래처  ');
   await page.getByLabel('PO No').fill('  001-PO/+  ');
   await page.getByLabel('W/O No').fill('  000-W/O  ');
   await page.getByLabel('납기일').fill('2026-10-31');
-  await page.getByLabel('제품명').fill('  전원장치 A  ');
+  await page.getByLabel('part분류').fill('  전원장치 A  ');
   await page.getByLabel('수량').fill('2');
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 

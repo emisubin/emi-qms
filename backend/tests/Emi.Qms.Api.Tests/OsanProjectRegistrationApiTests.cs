@@ -28,7 +28,7 @@ using Xunit;
 
 namespace Emi.Qms.Api.Tests;
 
-public sealed class OsanProjectRegistrationApiTests
+public sealed partial class OsanProjectRegistrationApiTests
 {
     private static readonly Guid UserId = Guid.Parse("89000000-0000-0000-0000-000000000001");
 
@@ -43,7 +43,7 @@ public sealed class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(9, endpoints.Length);
+        Assert.Equal(16, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -54,7 +54,7 @@ public sealed class OsanProjectRegistrationApiTests
             projectCreate.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => string.Equals(authorization.Policy, QmsPolicies.ProjectCreate, StringComparison.Ordinal));
         var progressMutations = endpoints.Where(endpoint =>
-            endpoint.RoutePattern.RawText?.Contains("/progress/", StringComparison.Ordinal) == true
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/completions"
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Post,
                 StringComparer.OrdinalIgnoreCase) == true).ToArray();
@@ -198,7 +198,7 @@ public sealed class OsanProjectRegistrationApiTests
         {
             var sheet = Assert.Single(workbook.Worksheets);
             Assert.Equal(
-                ["프로젝트 Title *", "프로젝트 코드 *", "거래처 *", "PO No", "W/O No", "납기일 *", "제품명 *", "수량 *"],
+                ["장비명 *", "프로젝트 코드 *", "part분류 *", "수량 *", "거래처 *", "PO No", "W/O No", "납기일 *"],
                 Enumerable.Range(1, 8).Select(column => sheet.Cell(3, column).GetString()));
             Assert.DoesNotContain(sheet.RowsUsed(), row => row.RowNumber() > 3);
         }
@@ -964,7 +964,7 @@ public sealed class OsanProjectRegistrationApiTests
             new CompleteOsanProgressInput(
                 Guid.NewGuid(),
                 OsanCompletionModes.Batch,
-                4,
+                1,
                 partialTargets.Select(id => new OsanProgressTargetRequest(id, 1)).ToArray(),
                 []),
             UserId,
@@ -975,7 +975,7 @@ public sealed class OsanProjectRegistrationApiTests
         {
             var targetId = Assert.Single(value.Project.Targets).TargetId;
             var version = 1;
-            foreach (var stage in new[] { 6, 2, 5, 1, 4, 3, 7 })
+            foreach (var stage in Enumerable.Range(1, 7))
             {
                 var result = await progressStore.CompleteAsync(
                     value.Project.ProjectId,
@@ -1022,7 +1022,7 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(14, partialItem.TotalStepCount);
         Assert.Equal(14, partialItem.ProgressPercent);
         Assert.Equal(7, partialItem.Stages.Count);
-        var partialStage = Assert.Single(partialItem.Stages, stage => stage.SequenceNumber == 4);
+        var partialStage = Assert.Single(partialItem.Stages, stage => stage.SequenceNumber == 1);
         Assert.Equal(2, partialStage.CompletedTargetCount);
         Assert.Equal(2, partialStage.TotalTargetCount);
 
@@ -1206,39 +1206,22 @@ public sealed class OsanProjectRegistrationApiTests
                 []),
             UserId,
             TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Success, skipPredecessor.Status);
-        Assert.Equal("Completed", skipPredecessor.Value!.Project.Targets[0].Steps[1].Status);
-        Assert.Equal("NotStarted", skipPredecessor.Value.Project.Targets[0].Steps[0].Status);
-        Assert.Equal("InProgress", skipPredecessor.Value.Project.Status);
-        Assert.Equal(1, skipPredecessor.Value.Project.CompletedStepCount);
-        Assert.Equal(14, skipPredecessor.Value.Project.TotalStepCount);
-
-        var listedAfterFirstCompletion = Assert.Single((await projectStore.ListAsync(
-            new ProjectAccessScope(true, []),
-            TestContext.Current.CancellationToken)).Items);
-        var detailedAfterFirstCompletion = await projectStore.GetAsync(
+        Assert.Equal(OsanProgressMutationStatus.Conflict, skipPredecessor.Status);
+        Assert.Equal("osan_progress_prerequisite_incomplete", skipPredecessor.ErrorCode);
+        var initialProgress = await progressStore.GetAsync(
             projectId,
             TestContext.Current.CancellationToken);
-        Assert.Equal("InProgress", listedAfterFirstCompletion.Status);
-        Assert.Equal(1, listedAfterFirstCompletion.CompletedStepCount);
-        Assert.Equal(14, listedAfterFirstCompletion.TotalStepCount);
-        Assert.NotNull(detailedAfterFirstCompletion);
-        Assert.Equal("InProgress", detailedAfterFirstCompletion.Status);
-        Assert.Equal(1, detailedAfterFirstCompletion.CompletedStepCount);
-        Assert.Equal(14, detailedAfterFirstCompletion.TotalStepCount);
-
-        var outOfOrderIndividual = await progressStore.CompleteAsync(
-            projectId,
-            new CompleteOsanProgressInput(
-                Guid.NewGuid(),
-                OsanCompletionModes.Individual,
-                6,
-                [new OsanProgressTargetRequest(targetIds[0], 2)],
-                []),
-            UserId,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Success, outOfOrderIndividual.Status);
-        Assert.Equal("Completed", outOfOrderIndividual.Value!.Project.Targets[0].Steps[5].Status);
+        Assert.NotNull(initialProgress);
+        Assert.All(initialProgress.Targets, target =>
+        {
+            Assert.True(target.Steps[0].CanCompleteIndividual);
+            Assert.True(target.Steps[0].CanCompleteBatch);
+            Assert.All(target.Steps.Skip(1), step =>
+            {
+                Assert.False(step.CanCompleteIndividual);
+                Assert.False(step.CanCompleteBatch);
+            });
+        });
 
         var png = CreateStructurallyValidPng();
         var (photo, photoError) = await OsanProgressPhotoValidator.ValidateAsync(
@@ -1254,7 +1237,7 @@ public sealed class OsanProjectRegistrationApiTests
             OsanCompletionModes.Batch,
             1,
             [
-                new OsanProgressTargetRequest(targetIds[0], 3),
+                new OsanProgressTargetRequest(targetIds[0], 1),
                 new OsanProgressTargetRequest(targetIds[1], 1)
             ],
             [photo]);
@@ -1265,6 +1248,17 @@ public sealed class OsanProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, stageOne.Status);
         Assert.False(stageOne.Value!.Replayed);
+        Assert.All(stageOne.Value.Project.Targets, target =>
+        {
+            Assert.False(target.Steps[0].CanCompleteIndividual);
+            Assert.True(target.Steps[1].CanCompleteIndividual);
+            Assert.True(target.Steps[1].CanCompleteBatch);
+            Assert.All(target.Steps.Skip(2), step =>
+            {
+                Assert.False(step.CanCompleteIndividual);
+                Assert.False(step.CanCompleteBatch);
+            });
+        });
         Assert.Equal(1L, await database.ReadScalarAsync<long>(
             "select count(*) from osan_progress_photos where project_id=@project_id;",
             TestContext.Current.CancellationToken,
@@ -1273,6 +1267,20 @@ public sealed class OsanProjectRegistrationApiTests
             "select count(*) from osan_progress_step_photos where project_id=@project_id;",
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
+
+        var listedAfterFirstCompletion = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detailedAfterFirstCompletion = await projectStore.GetAsync(
+            projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("InProgress", listedAfterFirstCompletion.Status);
+        Assert.Equal(2, listedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, listedAfterFirstCompletion.TotalStepCount);
+        Assert.NotNull(detailedAfterFirstCompletion);
+        Assert.Equal("InProgress", detailedAfterFirstCompletion.Status);
+        Assert.Equal(2, detailedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, detailedAfterFirstCompletion.TotalStepCount);
 
         var replay = await progressStore.CompleteAsync(
             projectId,
@@ -1296,14 +1304,49 @@ public sealed class OsanProjectRegistrationApiTests
 
         var versions = new Dictionary<Guid, int>
         {
-            [targetIds[0]] = 4,
+            [targetIds[0]] = 2,
             [targetIds[1]] = 2
         };
+        var firstTargetStageTwo = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                2,
+                [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, firstTargetStageTwo.Status);
+        versions[targetIds[0]] += 1;
+
+        var mixedPrerequisiteOperation = Guid.NewGuid();
+        var mixedPrerequisiteBatch = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                mixedPrerequisiteOperation,
+                OsanCompletionModes.Batch,
+                3,
+                targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, mixedPrerequisiteBatch.Status);
+        Assert.Equal("osan_progress_prerequisite_incomplete", mixedPrerequisiteBatch.ErrorCode);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_target_steps where project_id=@project_id and sequence_number=3 and status='Completed';",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_operations where operation_id=@operation_id;",
+            TestContext.Current.CancellationToken,
+            ("operation_id", mixedPrerequisiteOperation)));
+
         var secondTargetStageTwo = await progressStore.CompleteAsync(
             projectId,
             new CompleteOsanProgressInput(
                 Guid.NewGuid(),
-                OsanCompletionModes.Batch,
+                OsanCompletionModes.Individual,
                 2,
                 [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
                 []),
@@ -1343,6 +1386,41 @@ public sealed class OsanProjectRegistrationApiTests
                 versions[targetId] += 1;
             }
         }
+
+        var firstTargetStageSix = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                6,
+                [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, firstTargetStageSix.Status);
+        versions[targetIds[0]] += 1;
+
+        var mixedPackingOperation = Guid.NewGuid();
+        var mixedPacking = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                mixedPackingOperation,
+                OsanCompletionModes.Batch,
+                7,
+                targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, mixedPacking.Status);
+        Assert.Equal("osan_progress_packing_prerequisite_incomplete", mixedPacking.ErrorCode);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_target_steps where project_id=@project_id and sequence_number=7 and status='Completed';",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_operations where operation_id=@operation_id;",
+            TestContext.Current.CancellationToken,
+            ("operation_id", mixedPackingOperation)));
 
         var secondTargetStageSix = await progressStore.CompleteAsync(
             projectId,
@@ -1420,6 +1498,66 @@ public sealed class OsanProjectRegistrationApiTests
             """,
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
+
+        var legacy = await projectStore.CreateAsync(
+            Normalize(ValidRequest(projectCode: "OSAN-LEGACY-ORDER", quantity: 1)),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var legacyProjectId = legacy.Value!.Project.ProjectId;
+        var legacyTargetId = Assert.Single(legacy.Value.Project.Targets).TargetId;
+        await database.ExecuteAsync(
+            """
+            update osan_project_target_steps
+            set status='Completed',
+                started_at_utc='2026-09-01T01:00:00Z',
+                completed_at_utc='2026-09-01T02:00:00Z',
+                completed_by_user_id=@user_id
+            where project_id=@project_id and target_id=@target_id and sequence_number=4;
+            """,
+            TestContext.Current.CancellationToken,
+            ("user_id", UserId),
+            ("project_id", legacyProjectId),
+            ("target_id", legacyTargetId));
+        var legacyHistoryBefore = await database.ReadScalarAsync<string>(
+            """
+            select string_agg(
+                sequence_number || ':' || status || ':'
+                || coalesce(completed_at_utc::text, '') || ':'
+                || coalesce(completed_by_user_id::text, ''),
+                ',' order by sequence_number)
+            from osan_project_target_steps
+            where project_id=@project_id and target_id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", legacyProjectId),
+            ("target_id", legacyTargetId));
+
+        var legacyProgress = await progressStore.GetAsync(
+            legacyProjectId,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(legacyProgress);
+        Assert.Equal("InProgress", legacyProgress.Status);
+        var legacyTarget = Assert.Single(legacyProgress.Targets);
+        Assert.Equal("InProgress", legacyTarget.Status);
+        Assert.True(legacyTarget.Steps[0].CanCompleteIndividual);
+        Assert.False(legacyTarget.Steps[1].CanCompleteIndividual);
+        Assert.Equal("Completed", legacyTarget.Steps[3].Status);
+        Assert.False(legacyTarget.Steps[3].CanCompleteIndividual);
+        Assert.False(legacyTarget.Steps[4].CanCompleteIndividual);
+        Assert.Equal(legacyHistoryBefore, await database.ReadScalarAsync<string>(
+            """
+            select string_agg(
+                sequence_number || ':' || status || ':'
+                || coalesce(completed_at_utc::text, '') || ':'
+                || coalesce(completed_by_user_id::text, ''),
+                ',' order by sequence_number)
+            from osan_project_target_steps
+            where project_id=@project_id and target_id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", legacyProjectId),
+            ("target_id", legacyTargetId)));
     }
 
     [Fact]

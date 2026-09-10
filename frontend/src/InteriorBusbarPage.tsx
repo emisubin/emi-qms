@@ -120,6 +120,7 @@ export function InteriorBusbarPage({
   const [planFamily, setPlanFamily] = useState("");
   const [activeProduct, setActiveProduct] = useState("");
   const [productDetail, setProductDetail] = useState<BusbarProduct | null>(null);
+  const [projectStatus, setProjectStatus] = useState("");
   const [activeProject, setActiveProject] = useState("");
   const [bomFamily, setBomFamily] = useState("");
   const [qr, setQr] = useState<{
@@ -133,12 +134,8 @@ export function InteriorBusbarPage({
   const completionRef = useRef<HTMLDivElement>(null);
   const projectDetailRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (activeProject) projectDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [activeProject]);
+  const productionHeadingRef = useRef<HTMLHeadingElement>(null);
   const photoHeadingRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (!activeProduct) return;
-    photoHeadingRef.current?.focus({ preventScroll: true });
-    photoHeadingRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
-  }, [activeProduct]);
   useEffect(() => {
     let current = true;
     if (!activeProduct) { setProductDetail(null); return; }
@@ -459,7 +456,8 @@ export function InteriorBusbarPage({
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const pendingProjects = data.projects.filter((project) => project.requestedQuantity > project.shippedQuantity)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)));
+  const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)) &&
+    (!projectStatus || (projectStatus === "Complete" ? p.requestedQuantity === p.shippedQuantity : p.requestedQuantity > p.shippedQuantity)));
   const selectedStock = data.productFamilies.find((x) => x.id === selectedProject?.productFamilyId)?.balance ?? 0;
   const selectedRemaining = selectedProject ? selectedProject.requestedQuantity - selectedProject.shippedQuantity : 0;
   const maxShipment = Math.max(0, Math.min(selectedStock, selectedRemaining));
@@ -545,14 +543,14 @@ export function InteriorBusbarPage({
           </button>
         </DsToolbar>
       )}
-      {feedback && !planDialogOpen && (
+      {feedback && !planDialogOpen && !activeProduct && (
         <DsActionFeedback
           message={feedback}
           tone={feedbackError ? "error" : "success"}
           focusOnAttention
         />
       )}
-      {editor && canWrite && !planDialogOpen && (
+      {editor && canWrite && !planDialogOpen && !activeProduct && (
         <Editor
           key={editorKey}
           spec={editor}
@@ -577,7 +575,6 @@ export function InteriorBusbarPage({
           <DsSurface label="진행 중 납품 프로젝트">
             <h3>진행 중 납품 프로젝트 · 납기순</h3>
             <Table headings={["프로젝트명", "제품군", "납품예정일", "요청", "누적 출하", "잔여"]}
-              rowActions={pendingProjects.map((project) => ({ expanded: false, toggle: () => { setActiveProject(project.id); setTab("projects"); setQuery(""); setEditor(null); } }))}
               rows={pendingProjects.map((project) => [project.name, familyName(project.productFamilyId), project.dueDate.slice(0, 10), n(project.requestedQuantity), n(project.shippedQuantity), n(project.requestedQuantity - project.shippedQuantity)])} />
           </DsSurface>
           <DsSurface label="제품군별 현황">
@@ -631,6 +628,7 @@ export function InteriorBusbarPage({
           <DsSurface>
             <DsToolbar label="납품 프로젝트 도구">
               <Search value={query} onChange={setQuery} />
+              <label>프로젝트 상태<select aria-label="프로젝트 상태" value={projectStatus} onChange={(event) => { setProjectStatus(event.target.value); setActiveProject(""); }}><option value="">전체</option><option value="InProgress">진행 중</option><option value="Complete">완료</option></select></label>
               {writeButton("프로젝트 등록", () => projectEditor())}
             </DsToolbar>
             <Table
@@ -791,7 +789,7 @@ export function InteriorBusbarPage({
               </div>
             </div>
           </DsSurface>
-          {planDialogOpen && <PlanDialog label={`${selectedPlanDate} 제품군별 생산계획`} busy={busy} heading={planHeadingRef}
+          {planDialogOpen && <BusbarDialog label={`${selectedPlanDate} 제품군별 생산계획`} busy={busy} heading={planHeadingRef}
             onClose={() => { if (!busy) { setPlanDialogOpen(false); setEditor(null); setFeedback(""); } }}>
             {feedback && <DsActionFeedback message={feedback} tone={feedbackError ? "error" : "success"} focusOnAttention />}
             {error && <DsActionFeedback message={error} tone="error" />}
@@ -813,12 +811,13 @@ export function InteriorBusbarPage({
                     {plan?.productsInitialized === false && <small className="busbar-note">계획을 저장해 대기 제품을 준비하세요.</small>}
                   </>];
               })} />
-          </PlanDialog>}
+          </BusbarDialog>}
         </>
       )}
       {tab === "production" && (
         <>
           <DsSurface>
+            <h3 ref={productionHeadingRef} tabIndex={-1}>생산 제품 목록</h3>
             <DsToolbar>
               <Search value={query} onChange={setQuery} />
               <button
@@ -839,13 +838,13 @@ export function InteriorBusbarPage({
             </DsToolbar>
             <Table
               headings={[
+                "사진·QR",
                 "제품번호 / 등록 대기",
                 "제품군",
                 "실제 작업자",
                 "제조일시 (한국 시간)",
                 "생산 상태",
                 "외부 게시",
-                "작업",
               ]}
               rows={data.products
                 .filter((p) =>
@@ -856,6 +855,17 @@ export function InteriorBusbarPage({
                   ),
                 )
                 .map((p) => [
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveProduct(p.id);
+                      setFeedback("");
+                    }}
+                  >
+                    {p.status === "Draft"
+                      ? "사진 등록 계속하기"
+                      : "사진·QR 보기"}
+                  </button>,
                   productLabel(p),
                   familyName(p.productFamilyId),
                   p.workerName ?? "작업자 선택 전",
@@ -872,26 +882,23 @@ export function InteriorBusbarPage({
                   >
                     {statusLabel(p.publicationState)}
                   </DsBadge>,
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveProduct(p.id);
-                      setFeedback("");
-                    }}
-                  >
-                    {p.status === "Draft"
-                      ? "사진 등록 계속하기"
-                      : "사진·QR 보기"}
-                  </button>,
+
                 ])}
             />
           </DsSurface>
           {selectedProduct && (
-            <DsSurface label="제품 사진과 QR">
-              <h3 ref={photoHeadingRef} tabIndex={-1}>
-                {productLabel(selectedProduct)} ·{" "}
-                {familyName(selectedProduct.productFamilyId)}
-              </h3>
+            <BusbarDialog label={`${productLabel(selectedProduct)} · ${familyName(selectedProduct.productFamilyId)}`} busy={busy} heading={photoHeadingRef}
+              closeLabel="사진 팝업 닫기" className="busbar-photo-dialog" fallbackFocus={productionHeadingRef}
+              onClose={() => { if (!busy) { setActiveProduct(""); setProductDetail(null); setEditor(null); setFeedback(""); setQr(null); } }}>
+              {feedback && <DsActionFeedback message={feedback} tone={feedbackError ? "error" : "success"} focusOnAttention />}
+              {error && <DsActionFeedback message={error} tone="error" />}
+              {editor && canWrite && <Editor key={editorKey} spec={editor} busy={busy}
+                onClose={() => { if (!busy) setEditor(null); }}
+                onSave={async (values) => {
+                  const ok = await run(() => busbarApi.write(user, editor.path, editor.makeBody(values), editor.method));
+                  if (ok) { setEditor(null); requestAnimationFrame(() => photoHeadingRef.current?.focus()); }
+                }} />}
+
               <p>
                 제조 작업자: {selectedProduct.workerName ?? "선택 전"} ·{" "}
                 {busbarDateTime(selectedProduct.manufacturedAtUtc)}
@@ -1022,16 +1029,8 @@ export function InteriorBusbarPage({
                   있습니다.
                 </p>
               )}
-            </DsSurface>
-          )}
-          {qr &&
-            data.products.some(
-              (p) =>
-                p.id === qr.productId &&
-                p.revision === qr.revision &&
-                p.publicationState === "Published" &&
-                p.status === "Complete",
-            ) && (
+              {qr && selectedProduct.id === qr.productId && selectedProduct.revision === qr.revision &&
+                selectedProduct.publicationState === "Published" && selectedProduct.status === "Complete" && (
               <DsSurface label="QR 인쇄 미리보기">
                 <img
                   src={qr.url}
@@ -1048,6 +1047,8 @@ export function InteriorBusbarPage({
                 </div>
               </DsSurface>
             )}
+            </BusbarDialog>
+          )}
         </>
       )}
       {tab === "purchases" && (
@@ -1360,14 +1361,15 @@ function Search({
     </label>
   );
 }
-function PlanDialog({ label, busy, onClose, children, heading }: { label: string; busy: boolean; onClose: () => void; children: ReactNode; heading: RefObject<HTMLHeadingElement | null> }) {
+function BusbarDialog({ label, busy, onClose, children, heading, closeLabel = "생산계획 팝업 닫기", className = "", fallbackFocus }: { label: string; busy: boolean; onClose: () => void; children: ReactNode; heading: RefObject<HTMLHeadingElement | null>; closeLabel?: string; className?: string; fallbackFocus?: RefObject<HTMLElement | null> }) {
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const original = document.activeElement as HTMLElement | null;
+    const fallback = fallbackFocus?.current;
     heading.current?.focus();
-    return () => { if (original?.isConnected) original.focus({ preventScroll: true }); };
-  }, [heading]);
-  return <DsDialog label={label} onClose={onClose} closeDisabled={busy} className="busbar-plan-dialog">
+    return () => { if (original?.isConnected) original.focus({ preventScroll: true }); else fallback?.focus({ preventScroll: true }); };
+  }, [heading, fallbackFocus]);
+  return <DsDialog label={label} onClose={onClose} closeDisabled={busy} className={`busbar-plan-dialog ${className}`}>
     <div className="dialog" ref={panel} onKeyDown={(event) => {
       if (event.key === "Escape") { event.preventDefault(); if (!busy) onClose(); }
       if (event.key === "Tab") {
@@ -1378,7 +1380,7 @@ function PlanDialog({ label, busy, onClose, children, heading }: { label: string
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
     }}>
-      <DsToolbar><h3 ref={heading} tabIndex={-1}>{label}</h3><button disabled={busy} onClick={onClose} aria-label="생산계획 팝업 닫기">닫기</button></DsToolbar>
+      <DsToolbar><h3 ref={heading} tabIndex={-1}>{label}</h3><button disabled={busy} onClick={onClose} aria-label={closeLabel}>닫기</button></DsToolbar>
       {children}
     </div>
   </DsDialog>;

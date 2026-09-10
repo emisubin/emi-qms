@@ -155,6 +155,7 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
         : json(data);
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
       return json(data.products.find((p) => p.id === path.split("/").at(-1)));
+    if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: png });
     if (path.includes("/photos/") && req.method() === "GET")
       return route.fulfill({ contentType: "image/png", body: png });
     if (path.startsWith("/api/interior-busbar/") && req.method() !== "GET") {
@@ -634,7 +635,7 @@ test("calendar plan retry retains ID and saves without leaving selected date", a
 });
 
 for (const navigation of ["filter", "plan row"] as const) {
-  test(`late upload refresh preserves the newly selected plan through ${navigation}`, async ({
+  test(`photo upload blocks closing and later navigation preserves the selected plan through ${navigation}`, async ({
     page,
   }) => {
     const data = fixture();
@@ -708,6 +709,12 @@ for (const navigation of ["filter", "plan row"] as const) {
       .getByLabel("앨범에서 앞면 선택")
       .setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
     await started;
+    await expect(page.getByRole("button", { name: "사진 팝업 닫기" })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    releaseUpload();
+    await expect(page.locator(".busbar-page")).toHaveAttribute("aria-busy", "false");
+    await page.getByRole("button", { name: "사진 팝업 닫기" }).click();
     if (navigation === "filter") {
       await page.getByLabel("계획 종료일", { exact: true }).fill("2026-09-12");
       await page.getByLabel("계획 시작일", { exact: true }).fill("2026-09-12");
@@ -715,7 +722,7 @@ for (const navigation of ["filter", "plan row"] as const) {
       await page.getByRole("tab", { name: "생산계획", exact: true }).click();
       await selectPlanMonth(page, "2026-09");
       await selectPlanDate(page, "2026-09-12");
-      await expect(page.getByRole("button", { name: "합성 제품군 A 2026-09-12 제품 보기", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "합성 제품군 A 2026-09-12 제품 보기", exact: true })).toBeEnabled();
       releaseUpload();
       await page
         .getByRole("button", { name: "합성 제품군 A 2026-09-12 제품 보기", exact: true })
@@ -814,11 +821,14 @@ test("completing a Draft-filtered product preserves its number after it leaves t
   await page.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
   await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
   await page.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
-  await expect(page.locator(".busbar-completion strong")).toHaveText("IB-00000001");
+  await expect(page.getByRole("dialog").locator(".busbar-completion strong")).toHaveText("IB-00000001");
   await expect(page.locator(".busbar-completion")).toBeFocused();
   await expect(page.getByLabel("생산 상태 필터", { exact: true })).toHaveValue("Draft");
   await expect(page.getByRole("button", { name: "사진 등록 계속하기", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "QR 인쇄 준비", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "사진 팝업 닫기" }).click();
+  await expect(page.getByRole("heading", { name: "생산 제품 목록", exact: true })).toBeFocused();
+
 });
 
 test("calendar month boundaries and new plans preserve selected family and date", async ({ page }) => {
@@ -947,6 +957,86 @@ test("overview excludes completed projects and orders pending projects by due da
   expect(names.slice(1).map((name) => name.match(/합성 .*? 현장/)?.[0])).toEqual(["합성 빠른 현장", "합성 A 현장", "합성 B 현장", "합성 나중 현장"]);
   await expect(page.getByText("합성 완료 현장", { exact: true })).toHaveCount(0);
   await rows.nth(2).getByRole("cell", { name: "합성 A 현장", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "납품 프로젝트", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("heading", { name: "합성 A 현장", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "종합 현황", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(rows.nth(2)).not.toHaveAttribute("tabindex");
+  await expect(rows.nth(2)).not.toHaveAttribute("aria-expanded");
+});
+
+test("photo action is first column and popup supports completion, QR preview and print", async ({ page }) => {
+  const data = fixture(); await mock(page, data);
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
+  const table = page.getByRole("region", { name: "사진·QR 목록", exact: true });
+  await expect(table.getByRole("columnheader").first()).toHaveText("사진·QR");
+  await expect(table.getByRole("row").nth(1).getByRole("cell").first().getByRole("button", { name: "사진 등록 계속하기" })).toBeVisible();
+  await table.getByRole("button", { name: "사진 등록 계속하기" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("앨범에서 앞면 선택")).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: `/private/tmp/emi-busbar-photo-popup-${width}.png` });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  }
+  await dialog.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
+  await expect(dialog.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
+  await dialog.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
+  await expect(dialog.locator(".busbar-completion strong")).toHaveText("IB-00000001");
+  data.products[0].publicationState = "Published";
+  await dialog.getByRole("button", { name: "게시 다시 요청" }).click();
+  await dialog.getByRole("button", { name: "QR 인쇄 준비" }).click();
+  await expect(dialog.getByRole("img", { name: "IB-00000001 QR", exact: true })).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".busbar-qr-print")).toBeVisible();
+  await expect(page.locator(".busbar-qr-print p")).toHaveText("IB-00000001");
+  await page.screenshot({ path: "/private/tmp/emi-busbar-photo-popup-print.png" });
+  await page.emulateMedia({ media: "screen" });
+  await dialog.getByRole("button", { name: "사진 팝업 닫기" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(table.getByRole("button", { name: "사진·QR 보기" })).toBeFocused();
+});
+
+test("project status filter combines with text search", async ({ page }) => {
+  const data = fixture(), project = data.projects[0];
+  data.projects = [
+    { ...project, id: "a", name: "합성 A 진행" },
+    { ...project, id: "b", name: "합성 A 완료", shippedQuantity: 60 },
+    { ...project, id: "c", name: "합성 B 진행" },
+  ];
+  await mock(page, data); await page.goto("/interior-busbar");
+  await page.getByRole("tab", { name: "납품 프로젝트", exact: true }).click();
+  const table = page.getByRole("region", { name: "프로젝트명 목록", exact: true });
+  await expect(table.getByRole("row")).toHaveCount(4);
+  await page.getByLabel("검색", { exact: true }).fill("합성 A");
+  await page.getByLabel("프로젝트 상태", { exact: true }).selectOption("InProgress");
+  await expect(table.getByRole("row")).toHaveCount(2);
+  await expect(table.getByRole("button", { name: "합성 A 진행", exact: true })).toBeVisible();
+  await page.getByLabel("프로젝트 상태", { exact: true }).selectOption("Complete");
+  await expect(table.getByRole("row")).toHaveCount(2);
+  await expect(table.getByRole("button", { name: "합성 A 완료", exact: true })).toBeVisible();
+  await page.getByLabel("프로젝트 상태", { exact: true }).selectOption("");
+  await expect(table.getByRole("row")).toHaveCount(3);
+});
+
+test("late product detail response cannot replace a different photo popup", async ({ page }) => {
+  const data = fixture();
+  const otherId = "00000000-0000-0000-0000-000000000099";
+  data.products.push({ ...data.products[0], id: otherId, planSequence: 2, workerName: "합성 두번째 작업자" });
+  await mock(page, data);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(`http://localhost:5080/api/interior-busbar/products/${productId}`, async (route) => {
+    await gate; await route.fulfill({ contentType: "application/json", body: JSON.stringify(data.products[0]) });
+  });
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
+  const firstResponse = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/interior-busbar/products/${productId}`);
+  await page.getByRole("button", { name: "사진 등록 계속하기", exact: true }).first().click();
+  await page.getByRole("button", { name: "사진 팝업 닫기" }).click();
+  await page.getByRole("button", { name: "사진 등록 계속하기", exact: true }).nth(1).click();
+  await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", "2026-09-09 · 대기 2번 · 합성 제품군 A");
+  release();
+  await firstResponse;
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  await expect(page.getByRole("dialog")).toContainText("합성 두번째 작업자");
+  await expect(page.getByRole("dialog")).toHaveAttribute("aria-label", "2026-09-09 · 대기 2번 · 합성 제품군 A");
 });

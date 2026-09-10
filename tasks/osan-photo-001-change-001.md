@@ -8,7 +8,7 @@
 
 검증: scanner same-environment 실제PING/INSTREAM, 정상·악성/검사불가 반례, 메타데이터정리/방향보존/손상입력·한도, 실제보안미들웨어통합, 독립review 및 requiredCI. 운영시험은 원본업무데이터를 변경하지 않는다. 배포 후migration불필요 여부·새revision과publichealth를확인한다.
 
-현재 상태: 구현·직접 검증·독립 코드/증거 검토 완료. 원격 required CI·main 병합·코드 공개배포는 다음 단계다.
+현재 상태: 구현·직접 검증·독립 코드/증거 검토·main 병합·승인된 선배포 완료. 원격 전체 CI는 계속 실행 중이다.
 
 연결 복구 완료: Bicep·JSON ScannerHost를 `clamav` 서비스 이름으로 보정했다. 정적/컴파일/생성JSON일치 PASS, 독립review GO. 운영 backend의 해당 환경변수 하나만 변경하여 revision45가 Ready/Healthy로 올라왔다. 공개 로그인 세션에서 합성xlsx 미리보기 업로드가 정상 완료되어 실제API→ClamAV→파서 연결을 확인했다(프로젝트 등록0). 기존 이미지 e854362…와 검사활성/fail-closed/metadata/provider 설정을 보존했다. 긴FQDN에 대한 timeout 원인과 shortname PONG/INSTREAM OK는 별도Frontend컨테이너에서도 재현했다.
 
@@ -19,3 +19,5 @@
 최종 소스 운영 실행환경 확인: `backend/Dockerfile.production`의 고정 Linux amd64·distroless 이미지 빌드 PASS. app 사용자·읽기 전용·network none에서 컬러 JPEG/PNG 및 Orientation6·촬영기기 메타데이터가 포함된 JPEG/PNG 4종의 실제 validator PASS. 촬영기기 문자열 제거도 확인했다. 합성 fixture 생성 도구가 중복 EXIF를 넣은 첫 시도는 거부됐으며, 중복 없는 정상 fixture로 보정 후 네 파일 모두 통과했다. 독립 검토는 구현자와 분리된 기존 reviewer 맥락을 재사용했다.
 
 최종 직접 검증: validator 2/2, 공통 UploadSecurity 5/5, 실제 전용 3DB HTTP `ThreeDatabaseBoundary_EnforcesRoutingRolesWorkersAndPendingLogin` 1/1(31.4초) PASS. HTTP는 metadata rejection 활성 상태에서 원본 EXIF JPEG의 byte-exact 스캔·정리본 저장/조회·일괄 사진 연결, marker 경로 infected422·unavailable503 및 DB 상태 불변을 검증했다. 마지막 child-IFD 포인터 보정 후 validator 재실행 PASS, Release 빌드 경고0/오류0, diff-check PASS. 테스트 DB는 fixture가 자동 정리했다. 독립 최종 코드·증거 GO, 남은 P0–P2 없음.
+
+후속 순서 변경: 사용자가 선배포 후 전체 CI 지속과 임시 main 보호 예외·즉시 원복을 명시 승인했다. PR133/main edd2763 병합 및 보호 규칙 원복 완료. 원격 CI·선배포의 현재 상태는 Azure Change035에 기록한다. 커밋된 최종 e96d0aa 소스로 Linux 이미지를 다시 빌드하고 사진 4종 validator PASS를 확인했다.

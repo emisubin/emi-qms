@@ -198,3 +198,47 @@ describe('오산 진행 상세', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
 });
+
+describe('PC 단계 상세 팝업', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  it('7단계를 표시하고 완료된 단계에서도 설명과 완료 기록을 팝업에 표시한다', async () => {
+    const data = project();
+    data.targets[0].steps[0].status = 'Completed';
+    data.targets[0].steps[0].completedByDisplayName = '검수 작업자';
+    data.targets[0].steps[0].completedAtUtc = '2026-09-10T10:00:00Z';
+    vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+    renderPage();
+    const overview = await screen.findByRole('navigation', { name: '전체 진행 단계' });
+    expect(within(overview).getAllByRole('button')).toHaveLength(7);
+    expect(screen.queryByRole('button', { name: '다음 단계' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '단계 설명' })).not.toBeInTheDocument();
+    fireEvent.click(within(overview).getByRole('button', { name: /입고검사/ }));
+    const dialog = await screen.findByRole('dialog', { name: '입고검사' });
+    expect(within(dialog).getByRole('region', { name: '단계 설명' })).toHaveTextContent('60~150㎛');
+    expect(within(dialog).getByText('검수 작업자')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: '완료', exact: true })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '단계 상세 닫기' }));
+    expect(screen.queryByRole('dialog', { name: '입고검사' })).not.toBeInTheDocument();
+  });
+  it('선행 단계 제한을 유지하고 완료 팝업을 닫으면 단계 상세를 유지한다', async () => {
+    const data = project();
+    data.targets[0].steps[1].canCompleteIndividual = false;
+    vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+    renderPage();
+    const overview = await screen.findByRole('navigation', { name: '전체 진행 단계' });
+    fireEvent.click(within(overview).getByRole('button', { name: /배치검사/ }));
+    expect(within(screen.getByRole('dialog', { name: '배치검사' })).getByRole('button', { name: '완료', exact: true })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '단계 상세 닫기' }));
+    fireEvent.click(within(overview).getByRole('button', { name: /입고검사/ }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '입고검사' })).getByRole('button', { name: '완료', exact: true }));
+    const completion = screen.getByRole('dialog', { name: '해당 진행 단계를 완료하셨나요?' });
+    expect(completion).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '단계 상세 닫기' })).toBeDisabled();
+    fireEvent(completion, new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(screen.getByRole('dialog', { name: '입고검사' })).toBeInTheDocument();
+    expect(api.completeOsanProgress).not.toHaveBeenCalled();
+  });
+});

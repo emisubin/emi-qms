@@ -80,7 +80,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
 
   await targetRows.nth(1).press('Enter');
   await expect(page).toHaveURL(/\/progress\?projectId=[^&]+&targetId=/);
-  await expect(page.getByRole('navigation', { name: '진행 단계' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '전체 진행 단계', exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '프로젝트' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
   const projectRow = page.getByTestId('osan-project-list-desktop').getByRole('row', { name: '오산 통합 프로젝트 상세 열기' });

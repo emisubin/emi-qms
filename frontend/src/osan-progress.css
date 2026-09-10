@@ -162,4 +162,31 @@
 
 /* Supplied work instructions: no empty space for future guidance photos. */
 .app-shell .osan-progress-guidance { min-height: 0; padding: 20px 16px; gap: 14px; }
-.app-shell .osan-progress-guidance > p { margin: 0; padding: 0; font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.app-shell .osan-progress-guidance > p { margin: 0; padding: 0; font-size: 16px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere; }
+
+@media (max-width: 860px) {
+  .app-shell .osan-progress-guidance { width: calc(100% - 16px); padding: 18px 12px; }
+}
+.osan-progress-stage-overview { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin: 28px 0; }
+.app-shell .osan-progress-stage-overview button { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; padding: 22px 8px; border: 1px solid #dedede; border-radius: 10px; background: #fff; color: #282828; }
+.osan-progress-stage-overview strong { font-size: 16px; white-space: nowrap; }
+.osan-progress-stage-overview span { font-size: 13px; }
+.osan-progress-stage-overview small { font-size: 11px; }
+.osan-stage-number { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #f1f1f1; }
+.app-shell .osan-progress-stage-overview button.is-complete { border-color: #86b39a; background: #f3faf6; }
+.app-shell .osan-progress-stage-overview button[aria-pressed='true'] { outline: 2px solid #da2127; outline-offset: 2px; }
+.osan-stage-dialog { width: min(1100px, calc(100vw - 64px)); max-width: none; max-height: calc(100dvh - 64px); padding: 28px; border: 0; border-radius: 16px; background: #fff; color: #282828; overflow-y: auto; }
+.osan-stage-dialog::backdrop { background: #0008; }
+.osan-stage-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.osan-stage-dialog-header h2 { font-size: 24px; line-height: 1.4; }
+.osan-stage-dialog-header p { margin-top: 8px; font-size: 15px; overflow-wrap: anywhere; }
+.osan-stage-dialog-header button { flex-shrink: 0; }
+.app-shell .osan-stage-dialog .osan-progress-guidance, .app-shell .osan-stage-dialog .osan-progress-histories { width: 100%; max-width: none; }
+.app-shell .osan-stage-dialog .osan-progress-guidance { padding: 20px; margin-bottom: 24px; }
+.app-shell .osan-stage-dialog .osan-progress-guidance > p { font-size: 17px; }
+.osan-stage-dialog > [role] { margin-top: 16px; }
+@media (min-width: 861px) and (max-width: 1100px) {
+  .osan-progress-stage-overview { gap: 6px; }
+  .osan-progress-stage-overview strong { font-size: 13px; }
+  .app-shell .osan-progress-stage-overview button { padding: 18px 4px; }
+}

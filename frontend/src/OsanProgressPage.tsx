@@ -45,6 +45,9 @@ function OsanProgressWorkspace({ projectId, initialTargetId, developmentUserKey,
   const [refreshing, setRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialTargetId ? [initialTargetId] : []);
   const [stage, setStage] = useState(1);
+  const [desktop, setDesktop] = useState(() => window.matchMedia?.('(min-width: 861px)').matches ?? false);
+  const [stageOpen, setStageOpen] = useState(false);
+  const stageDialog = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState<'individual' | 'batch'>('individual');
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [photoTargetId, setPhotoTargetId] = useState<string | null>(null);
@@ -76,13 +79,25 @@ function OsanProgressWorkspace({ projectId, initialTargetId, developmentUserKey,
       setLoadStatus(error instanceof ApiError ? error.status : undefined);
       if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
         setProject(undefined); setSelectedIds([]); setFiles([]);
-        setModalOpen(false); setSelectorOpen(false); setPhotoTargetId(null);
+        setModalOpen(false); setStageOpen(false); setSelectorOpen(false); setPhotoTargetId(null);
         pendingCompletion.current = null;
       }
     });
     return () => { current = false; controller.abort(); };
   }, [projectId, developmentUserKey, reload]);
   useEffect(() => { if (modalOpen) modal.current?.showModal(); else modal.current?.close(); }, [modalOpen]);
+  useEffect(() => {
+    const media = window.matchMedia?.('(min-width: 861px)');
+    if (!media) return;
+    const changed = () => setDesktop(media.matches);
+    media.addEventListener('change', changed);
+    return () => media.removeEventListener('change', changed);
+  }, []);
+  useEffect(() => {
+    if (stageOpen) stageDialog.current?.showModal(); else stageDialog.current?.close();
+  }, [stageOpen]);
+  useEffect(() => { if (!desktop && !modalOpen && !busy) setStageOpen(false); }, [desktop, modalOpen, busy]);
+
   useEffect(() => {
     if (!selectorOpen) return;
     function dismiss(event: PointerEvent) {
@@ -143,6 +158,11 @@ function OsanProgressWorkspace({ projectId, initialTargetId, developmentUserKey,
     </section>;
   }
   if (!project) return <section className="osan-progress-page">{loadError ? <><p role="alert">{loadStatus === 403 ? '이 프로젝트의 진행 정보를 조회할 권한이 없습니다.' : loadStatus === 404 ? '프로젝트를 찾을 수 없습니다.' : loadError}</p><button type="button" onClick={refresh}>다시 불러오기</button></> : <p role="status">진행 정보를 불러오는 중…</p>}</section>;
+  const stageContent = <>
+    {(desktop || !selectedStageCompleted) && <OsanStageGuidance stage={stage} />}
+    <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
+    {!selectedStageCompleted && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
+  </>;
   return <section className="osan-progress-page" aria-label="오산 진행 상세">
     <header className="osan-progress-header"><button type="button" onClick={onBack} disabled={busy} aria-label="진행 현황으로 돌아가기">‹</button><h1>진행 현황</h1></header>
     <div className="osan-progress-project"><h2>{project.title}</h2><p>{project.projectCode}</p><span>{project.status === 'Completed' ? '완료' : project.status === 'InProgress' ? '진행 중' : '시작 전'}</span></div>
@@ -156,14 +176,33 @@ function OsanProgressWorkspace({ projectId, initialTargetId, developmentUserKey,
           {project.targets.map(target => <label key={target.targetId}><input type="checkbox" checked={selectedIds.includes(target.targetId)} onChange={event => { const ids = event.target.checked ? [...selectedIds, target.targetId] : selectedIds.filter(id => id !== target.targetId); changeSelection(ids, ids.length === 1 ? 'individual' : 'batch'); }} /><span>{target.displayName}</span></label>)}
         </div>}
       </div>
-      <div className="osan-progress-stage-card">
+      {desktop ? <nav className="osan-progress-stage-overview" aria-label="전체 진행 단계">
+        {osanStageNames.map((name, index) => {
+          const completed = selected.filter(target => target.steps.find(step => step.sequenceNumber === index + 1)?.status === 'Completed').length;
+          const done = selected.length > 0 && completed === selected.length;
+          return <button type="button" key={name} aria-haspopup="dialog" aria-pressed={stageOpen && stage === index + 1}
+            disabled={busy || refreshing} className={done ? 'is-complete' : ''}
+            onClick={() => { setStage(index + 1); setError(''); setSuccess(''); setPhotoTargetId(null); pendingCompletion.current = null; setFiles([]); setFileError(''); setStageOpen(true); }}>
+            <span className="osan-stage-number">{index + 1}</span><strong>{name}</strong>
+            <span>{selected.length === 0 ? '대상을 선택하세요' : done ? '완료' : completed > 0 ? '일부 완료' : '미완료'}</span>
+            <small>{completed} / {selected.length} 대상 완료</small>
+          </button>;
+        })}
+      </nav> : <div className="osan-progress-stage-card">
       <nav className="osan-progress-stages" aria-label="진행 단계"><button type="button" aria-label="이전 단계" disabled={stage === 1 || busy} onClick={() => { setStage(value => value - 1); setError(''); pendingCompletion.current = null; setFiles([]); setFileError(''); }}>‹</button><h2>{osanStageNames[stage - 1]}</h2><button type="button" aria-label="다음 단계" disabled={stage === 7 || busy} onClick={() => { setStage(value => value + 1); setError(''); pendingCompletion.current = null; setFiles([]); setFileError(''); }}>›</button></nav>
       <div className="osan-progress-stage-index">{stage} / 7</div>
-      {!selectedStageCompleted && <OsanStageGuidance stage={stage} />}
-      <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
-      {!selectedStageCompleted && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
-      </div>
-      {success && <p role="status">{success}</p>}{error && !modalOpen && <p role="alert">{error}</p>}
+        {stageContent}
+      </div>}
+      <dialog ref={stageDialog} className="osan-stage-dialog" aria-labelledby="osan-stage-dialog-title"
+        onCancel={event => { if (busy || modalOpen) event.preventDefault(); else setStageOpen(false); }}>
+        {stageOpen && <>
+          <header className="osan-stage-dialog-header"><div><h2 id="osan-stage-dialog-title">{osanStageNames[stage - 1]}</h2><p>{project.title} · {selectionLabel}</p></div>
+            <button type="button" disabled={busy || modalOpen} onClick={() => setStageOpen(false)} aria-label="단계 상세 닫기">닫기</button></header>
+          {stageContent}
+          {success && <p role="status">{success}</p>}{error && !modalOpen && <p role="alert">{error}</p>}
+        </>}
+      </dialog>
+      {!stageOpen && success && <p role="status">{success}</p>}{!stageOpen && error && !modalOpen && <p role="alert">{error}</p>}
       <button type="button" className="osan-progress-refresh" disabled={busy} onClick={refresh}>새로고침</button>
     </>}
     <dialog ref={modal} className="osan-progress-completion-modal" aria-labelledby="osan-completion-title" onCancel={event => { if (busy) event.preventDefault(); else setModalOpen(false); }}>

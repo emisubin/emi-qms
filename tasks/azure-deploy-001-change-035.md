@@ -6,7 +6,9 @@
 
 코드배포 rollback기준은 이 정상연결설정과Backendimage이며, Frontendrevision33/image `sha256:28d6cf2265ddf7f044c1b23317cec5a2145d23c1574f283b81f5ba29fbd6f144`를보존한다. 사진 메타데이터 보정과 추가 승인된 컬러 표시 보정은 독립review/관련검증/requiredCI 후 정확한main으로기존manualworkflow배포한다. 검사비활성·fail-open·DB초기화·시험프로젝트생성·provider발송은 하지않는다.
 
-현재 상태: 운영 연결 복구, 코드 구현·직접 검증·독립 검토·원격 main 병합·선배포 완료. PR CI는 Backend 35분 시간 초과로 미완료이며 main CI는 진행 중이다. 전체 검증 완료 판정은 보류한다.
+현재 상태: 운영 연결 복구·구현·전체 제품 검증·독립 검토·사용자 검수·main 병합·공개배포 완료. 아래 시간 초과 기록은 당시 이력으로 보존한다.
+
+최종 마감: 배포 main의 Backend610, Frontend352, UI14, Full-stack66 모두 PASS. Backend job은 테스트 완료 후 시간 제한으로 취소된 이력을 유지한다. 후속 CI 설정 PR135는 정책 검증과 required Gate PASS 후 main7a03167에 정상 병합했다. 제품 코드는 추가 변경하지 않아 Backend46/Frontend34를 유지하며 재배포는 불필요하다. 사용자가 컬러 수정 완료를 확인했고 독립 증거 review도 GO. 상세 검증 근거는 PHOTO Change001을 따른다.
 
 사용자 후속 승인: 전체 CI 대기 시간이 길어 선배포 후 검증 지속을 요청했고, main ruleset의 임시 관리자 예외 추가·PR 병합 직후 원복까지 별도로 명시 승인했다. 전체 관리자 역할보다 범위를 좁혀 현재 인증된 관리자 사용자만 `pull_request` 모드로 잠시 허용했다. 서버 측 예외가 열린 구간에는 PR133 병합·규칙 복구만 실행했다. 다른 보호 규칙은 유지했고, 원본과 복구 후 ruleset의 수정 가능한 모든 필드가 동일하며 bypass actor 0임을 확인했다.
 

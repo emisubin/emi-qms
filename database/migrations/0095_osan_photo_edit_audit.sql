@@ -1,0 +1,4 @@
+drop trigger if exists trg_qms_global_audit_osan_photo_edit_requests on osan_photo_edit_requests;
+create trigger trg_qms_global_audit_osan_photo_edit_requests
+after insert or update or delete on osan_photo_edit_requests
+for each row execute function qms_audit_capture_row_change();

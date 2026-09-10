@@ -10,7 +10,7 @@ public sealed class AuditInfrastructureTests
 {
     private static readonly IReadOnlySet<string> PostGlobalAuditMigrationTrackedRelations =
         ParseRelationNames("""
-            g2_defect_inventory_counts osan_project_target_steps osan_project_targets
+            g2_defect_inventory_counts osan_project_target_steps osan_project_targets osan_photo_edit_requests
             """);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ExplicitRelationExclusions =
@@ -31,7 +31,7 @@ public sealed class AuditInfrastructureTests
                 production_plan_template_audit_events project_audit_events project_workflow_events
                 sales_monthly_target_audit_events ul891_recovery_case_events
                 user_notification_preference_audit_events user_profile_photo_audit_events
-                osan_project_events
+                osan_project_events osan_project_management_history
                 """),
             ["ProviderWorkerOrGeneratedArtifact"] = ParseRelationNames("""
                 iqc_report_pdf_artifacts notification_deliveries notification_delivery_attempts
@@ -49,7 +49,7 @@ public sealed class AuditInfrastructureTests
                 sales_settlement_operations ul891_set_operations osan_project_create_operations
                 """),
             ["AppendOnlyOsanProgressEvidence"] = ParseRelationNames("""
-                osan_progress_operations osan_progress_photos osan_progress_step_photos
+                osan_progress_operations osan_progress_photos osan_progress_step_photos osan_photo_revision_files
                 """),
             ["SeedReferenceData"] = ParseRelationNames("""
                 permissions roles
@@ -183,8 +183,8 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(97, trackedRelations.Count);
-        Assert.Equal(59, excludedRelations.Length);
+        Assert.Equal(98, trackedRelations.Count);
+        Assert.Equal(61, excludedRelations.Length);
     }
 
     [Fact]

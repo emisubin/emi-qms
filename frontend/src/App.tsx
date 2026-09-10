@@ -14,7 +14,9 @@ import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
+import { formatOsanDday, useKoreaDate } from './osanDday';
 import './osan-project-detail.css';
+import { OsanProjectManagement } from './OsanProjectManagement';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
 import { LogisticsPage } from './LogisticsPage';
 import { PanelKittingPage } from './PanelKittingPage';
@@ -32,6 +34,8 @@ import { WebPushFirstRunPrompt } from './WebPushSettings';
 import { deactivateCurrentWebPushForLogout } from './webPushLogout';
 import { PanelQrManager } from './PanelQrManager';
 import { QrScanLandingPage } from './QrScanLandingPage';
+import { OsanQrPage } from './OsanQrPage';
+import { OsanQrPrintDialog } from './OsanQrPrintDialog';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
@@ -330,6 +334,7 @@ type View =
   | { kind: 'privacy-notice' }
   | { kind: 'notice-board'; noticeId?: string; compose?: boolean }
   | { kind: 'qr-scan'; token: string }
+  | { kind: 'osan-qr'; projectId: string; targetId?: string }
   | { kind: 'my-work' }
   | { kind: 'teams-activity' }
   | { kind: 'teams-activity-detail'; deliveryId: string }
@@ -431,6 +436,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
         quality: 'Quality',
         logistics: 'Logistics'
       } as const)[view.area];
+    case 'osan-qr':
     case 'qr-scan': return 'Projects';
     case 'pending-types':
     case 'admin-dashboard':
@@ -707,6 +713,8 @@ function initialViewFromLocation(): View {
     );
   }
 
+  const osanQrMatch = window.location.pathname.match(/^\/osan\/qr\/([0-9a-fA-F-]{36})(?:\/([0-9a-fA-F-]{36}))?$/);
+  if (osanQrMatch) return { kind: 'osan-qr', projectId: osanQrMatch[1], targetId: osanQrMatch[2] };
   const qrScanMatch = window.location.pathname.match(/^\/q\/([A-Za-z0-9_-]{43})$/);
   if (qrScanMatch?.[1]) {
     return { kind: 'qr-scan', token: qrScanMatch[1] };
@@ -1293,6 +1301,8 @@ function pathForView(view: View) {
       return view.noticeId ? `/notices/${view.noticeId}` : `/notices${view.compose ? '?compose=1' : ''}`;
     case 'qr-scan':
       return `/q/${view.token}`;
+    case 'osan-qr':
+      return '/osan/qr/' + encodeURIComponent(view.projectId) + (view.targetId ? '/' + encodeURIComponent(view.targetId) : '');
     case 'my-work':
       return '/my-work';
     case 'teams-activity':
@@ -2110,6 +2120,12 @@ function QmsAppShellContent({
     };
   }, [setView, view.kind]);
 
+  useEffect(() => {
+    if (view.kind === 'osan-qr' && currentUser.kind === 'ready' && !isAccessBlocked
+      && !isOsan && businessUnitAccess.allowedBusinessUnits.includes('OSAN')
+      && businessUnitRequestState.inFlightMutationCount === 0) selectBusinessUnit('OSAN');
+  }, [view.kind, currentUser, isAccessBlocked, isOsan, businessUnitAccess.allowedBusinessUnits, businessUnitRequestState.inFlightMutationCount]);
+
   const switchBusinessUnitContext = useCallback((businessUnit: BusinessUnitCode) => {
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', '/');
@@ -2247,6 +2263,12 @@ function QmsAppShellContent({
         onLogout={onLogout}
       />
     );
+  }
+
+  if (view.kind === 'osan-qr') {
+    if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
+    if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
+    return <OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />;
   }
 
   const permissions = user?.permissions ?? [];
@@ -2725,6 +2747,7 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'detail' ? (
         isOsan ? <OsanProjectDetailPage
+          mutationAllowed={mutationEnabled}
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
           onBack={() => setView({ kind: 'list' })}
@@ -4320,12 +4343,13 @@ function OsanProjectListPage({
   onCreate: () => void;
   onOpen: (projectId: string) => void;
 }) {
+  const today = useKoreaDate();
+  const [qrIds, setQrIds] = useState<string[] | null>(null);
   const [search, setSearch] = useState('');
   const [excelOpen, setExcelOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [importMessage, setImportMessage] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [customer, setCustomer] = useState('');
   const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
@@ -4351,15 +4375,14 @@ function OsanProjectListPage({
   const filteredProjects = projects.filter((project) => {
     const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
       .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
-    const matchesDateFrom = !dateFrom || project.deliveryDate >= dateFrom;
-    const matchesDateTo = !dateTo || project.deliveryDate <= dateTo;
+    const matchesCustomer = !customer || project.customerName === customer;
     const matchesStatus = tab === 'All' || project.status === tab;
-    return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
+    return matchesSearch && matchesCustomer && matchesStatus;
   });
+  const selection = useSelectedRows(filteredProjects.map(project => project.projectId));
   const resetFilters = () => {
     setSearch('');
-    setDateFrom('');
-    setDateTo('');
+    setCustomer('');
     setTab('All');
   };
 
@@ -4370,9 +4393,11 @@ function OsanProjectListPage({
       counts={state.kind === 'loading' || state.kind === 'error' || state.kind === 'forbidden' ? null : [projects.length, projects.filter(p => p.status === 'NotStarted').length, projects.filter(p => p.status === 'InProgress').length, projects.filter(p => p.status === 'Completed').length]}
       search={search} onSearchChange={setSearch} onSearch={() => setSearch(search.trim())}
       status={tab} onStatusChange={value => setTab(value as typeof tab)} onReset={resetFilters}
-      filters={<><label>시작일 <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>종료일 <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label></>}
+      customer={customer} onCustomerChange={setCustomer} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
       actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
     >
+      {qrIds && <OsanQrPrintDialog projectIds={qrIds} userKey={developmentUserKey} onClose={() => setQrIds(null)} />}
+      {state.kind === 'ready' && <div className="osan-qr-selection"><label><SelectionCheckbox checked={selection.allSelected} indeterminate={selection.selectedIds.size > 0 && !selection.allSelected} label="현재 목록 전체 선택" onChange={selection.toggleAll} />현재 목록 전체 선택</label><span>{selection.selectedIds.size}개 선택</span><button disabled={!selection.selectedIds.size} onClick={() => setQrIds([...selection.selectedIds])}>선택 프로젝트 QR 출력</button>{selection.selectedIds.size > 0 && <button onClick={selection.clear}>선택 해제</button>}</div>}
       {importMessage && <p role="status">{importMessage}</p>}
       {excelOpen && canCreate && <OsanProjectExcelDialog developmentUserKey={developmentUserKey} onClose={() => setExcelOpen(false)} onApplied={count => {
         setImportMessage(`${count}개 프로젝트를 등록했습니다.`); setImportRevision(value => value + 1);
@@ -4410,11 +4435,13 @@ function OsanProjectListPage({
         <ProjectListPresentation
           ariaLabel="오산 프로젝트 목록"
           testIdPrefix="osan-project-list"
+          selectable
+          desktopLeadingHeader={<span role="columnheader">선택</span>}
           columns={[
-            { label: '프로젝트명', align: 'left' },
-            { label: '거래처', align: 'left' },
+            { label: '장비명', align: 'left' },
+            { label: 'part 분류', align: 'left' },
+            { label: '고객사', align: 'left' },
             { label: 'Code', align: 'center' },
-            { label: '제품명', align: 'left' },
             { label: '수량', align: 'center' },
             { label: '납기일', align: 'center' },
             { label: '상태', align: 'center' },
@@ -4425,22 +4452,24 @@ function OsanProjectListPage({
             title: project.title,
             openAriaLabel: `${project.title} 상세 열기`,
             onOpen: () => onOpen(project.projectId),
+            desktopLeading: <span role="cell"><SelectionCheckbox checked={selection.selectedIds.has(project.projectId)} label={project.title + " QR 선택"} onChange={checked => selection.toggle(project.projectId, checked)} /></span>,
+            mobileTitleLeading: <SelectionCheckbox checked={selection.selectedIds.has(project.projectId)} label={project.title + " QR 선택"} onChange={checked => selection.toggle(project.projectId, checked)} />,
             desktopCells: [
               { value: <strong>{project.title}</strong>, align: 'left' },
+              { value: project.productName, align: 'left' },
               { value: project.customerName, align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
-              { value: project.productName, align: 'left' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: formatDate(project.deliveryDate), align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
-              { label: '거래처', value: project.customerName },
+              { label: 'part 분류', value: project.productName },
+              { label: '고객사', value: project.customerName },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
-              { label: '제품명', value: project.productName },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: formatDate(project.deliveryDate) },
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span> },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
@@ -4613,29 +4642,29 @@ function OsanProjectCreatePage({
       />
       <DsInputFlow title="오산 프로젝트 정보" description="아래 8개 항목을 순서대로 입력해 주세요.">
         <form className="osan-project-form" onSubmit={submit} noValidate>
-          <OsanProjectField number={1} label="프로젝트 Title" required error={fieldError('title')}>
-            <input aria-label="프로젝트 Title" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
+          <OsanProjectField number={1} label="장비명" required error={fieldError('title')}>
+            <input aria-label="장비명" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
           </OsanProjectField>
           <OsanProjectField number={2} label="프로젝트 코드" required error={fieldError('projectCode')}>
             <input aria-label="프로젝트 코드" value={draft.projectCode} maxLength={80} onChange={(event) => setField('projectCode', event.target.value)} aria-invalid={Boolean(fieldError('projectCode'))} />
           </OsanProjectField>
-          <OsanProjectField number={3} label="거래처" required error={fieldError('customerName')}>
-            <input aria-label="거래처" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
+          <OsanProjectField number={3} label="part 분류" required error={fieldError('productName')}>
+            <input aria-label="part 분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
           </OsanProjectField>
-          <OsanProjectField number={4} label="PO No" error={fieldError('poNumber')}>
+          <OsanProjectField number={4} label="수량" required error={fieldError('quantity')}>
+            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
+          </OsanProjectField>
+          <OsanProjectField number={5} label="고객사" required error={fieldError('customerName')}>
+            <input aria-label="고객사" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
+          </OsanProjectField>
+          <OsanProjectField number={6} label="PO No" error={fieldError('poNumber')}>
             <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={5} label="W/O No" error={fieldError('workOrderNumber')}>
+          <OsanProjectField number={7} label="W/O No" error={fieldError('workOrderNumber')}>
             <input aria-label="W/O No" value={draft.workOrderNumber} maxLength={100} onChange={(event) => setField('workOrderNumber', event.target.value)} aria-invalid={Boolean(fieldError('workOrderNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={6} label="납기일" required error={fieldError('deliveryDate')}>
+          <OsanProjectField number={8} label="납기일" required error={fieldError('deliveryDate')}>
             <input aria-label="납기일" type="date" value={draft.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} aria-invalid={Boolean(fieldError('deliveryDate'))} />
-          </OsanProjectField>
-          <OsanProjectField number={7} label="제품명" required error={fieldError('productName')}>
-            <input aria-label="제품명" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
-          </OsanProjectField>
-          <OsanProjectField number={8} label="수량" required error={fieldError('quantity')}>
-            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
           </OsanProjectField>
 
           {message ? <p className="error-text osan-project-form__message" role="alert">{message}</p> : null}
@@ -4675,6 +4704,7 @@ function OsanProjectField({
 }
 
 function OsanProjectDetailPage({
+  mutationAllowed,
   developmentUserKey,
   projectId,
   onBack,
@@ -4684,8 +4714,11 @@ function OsanProjectDetailPage({
   projectId: string;
   onBack: () => void;
   onOpenProgress: (targetId?: string) => void;
+  mutationAllowed: boolean;
 }) {
+  const [qrOpen, setQrOpen] = useState(false);
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
+  const [managementActions, setManagementActions] = useState<HTMLDivElement | null>(null);
 
   const load = useCallback(() => {
     const controller = new AbortController();
@@ -4704,9 +4737,10 @@ function OsanProjectDetailPage({
 
   return (
     <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
+      {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
       <header className="osan-detail-header">
         <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
-          actions={<button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button>} />
+          actions={<>{state.kind === 'ready' && <button type="button" className="osan-detail-back" onClick={() => setQrOpen(true)}>QR 코드</button>}<div className="osan-detail-management-actions" ref={setManagementActions} /><button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button></>} />
       </header>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
@@ -4719,7 +4753,7 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /> : null}
+      {state.kind === 'ready' ? <><OsanProjectManagement actionsContainer={managementActions} mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
     </section>
   );
 }
@@ -4755,8 +4789,8 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
         <div className="osan-detail-facts">
           <section aria-label="프로젝트 정보">
             <h3>프로젝트 정보</h3>
-            <p><span>거래처</span><strong>{project.customerName}</strong></p>
-            <p><span>제품명</span><strong>{project.productName}</strong></p>
+            <p><span>고객사</span><strong>{project.customerName}</strong></p>
+            <p><span>part 분류</span><strong>{project.productName}</strong></p>
             <p><span>수량</span><strong>{project.quantity.toLocaleString()}개</strong></p>
           </section>
           <section aria-label="문서 정보">
@@ -5360,7 +5394,8 @@ function isOsanViewAllowed(view: View) {
     || view.kind === 'list'
     || view.kind === 'create'
     || view.kind === 'detail'
-    || view.kind === 'osan-progress') {
+    || view.kind === 'osan-progress'
+    || view.kind === 'osan-qr') {
     return true;
   }
   return false;

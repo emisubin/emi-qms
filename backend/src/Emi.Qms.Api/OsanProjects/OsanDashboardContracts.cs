@@ -24,14 +24,16 @@ public sealed record OsanDashboardQuery(
     string Status,
     int Page,
     int PageSize,
-    string View = OsanDashboardViews.Progress);
+    string View = OsanDashboardViews.Progress,
+    string Customer = "");
 
 public sealed record OsanDashboardResponse(
     OsanDashboardSummaryResponse Summary,
     IReadOnlyList<OsanDashboardProjectResponse> Items,
     long TotalCount,
     int Page,
-    int PageSize);
+    int PageSize,
+    IReadOnlyList<string>? Customers = null);
 
 public sealed record OsanDashboardSummaryResponse(
     long TotalCount,

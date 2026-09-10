@@ -33,7 +33,11 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                   from osan_progress_step_photos link
                   where link.project_id = photo.project_id
                     and link.photo_id = photo.id
-              );
+              )
+            union all
+            select f.original_file_name,f.normalized_mime,f.content
+            from osan_photo_revision_files f join osan_photo_edit_requests r on r.id=f.request_id
+            where r.project_id=@project_id and f.id=@photo_id and r.used_at is not null;
             """);
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("photo_id", photoId);
@@ -169,16 +173,19 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                         cancellationToken);
                 }
 
-                if (input.StageSequence == 7
-                    && targetSteps.Take(6).Any(step => !string.Equals(
+                if (targetSteps.Take(input.StageSequence - 1).Any(step => !string.Equals(
                         step.Status,
                         "Completed",
                         StringComparison.Ordinal)))
                 {
                     return await RollbackConflictAsync(
                         transaction,
-                        "osan_progress_packing_prerequisite_incomplete",
-                        $"{snapshots[target.TargetId].DisplayName}의 포장 전 6단계가 모두 완료되지 않았습니다.",
+                        input.StageSequence == 7
+                            ? "osan_progress_packing_prerequisite_incomplete"
+                            : "osan_progress_prerequisite_incomplete",
+                        input.StageSequence == 7
+                            ? $"{snapshots[target.TargetId].DisplayName}의 포장 전 6단계가 모두 완료되지 않았습니다."
+                            : $"{snapshots[target.TargetId].DisplayName}의 {input.StageSequence}단계 전 선행 단계가 모두 완료되지 않았습니다.",
                         cancellationToken);
                 }
             }
@@ -359,7 +366,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         command.Transaction = transaction;
         command.CommandText = """
             select id, display_name, status, version
-            from osan_project_targets
+            from osan_active_project_targets
             where project_id = @project_id
               and id = any(@target_ids)
             order by id
@@ -414,7 +421,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         command.Transaction = transaction;
         command.CommandText = """
             select id, target_id, sequence_number, status
-            from osan_project_target_steps
+            from osan_active_project_target_steps
             where project_id = @project_id
               and target_id = any(@target_ids)
             order by target_id, sequence_number
@@ -479,7 +486,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         command.CommandText = """
             with incomplete as (
                 select count(*) as incomplete_count
-                from osan_project_target_steps
+                from osan_active_project_target_steps
                 where project_id = @project_id
                   and target_id = @target_id
                   and status <> 'Completed'
@@ -577,7 +584,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
               and project.project_profile = 'Osan'
               and not exists (
                   select 1
-                  from osan_project_targets target
+                  from osan_active_project_targets target
                   where target.project_id = project.id
                     and target.status <> 'Completed'
               );
@@ -706,8 +713,8 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     step.id, step.sequence_number, step.step_code, step.step_name, step.status,
                     step.started_at_utc, step.completed_at_utc, step.completed_by_user_id,
                     completer.display_name
-                from osan_project_targets target
-                join osan_project_target_steps step on step.target_id = target.id
+                from osan_active_project_targets target
+                join osan_active_project_target_steps step on step.target_id = target.id
                 left join qms_users starter on starter.id = target.started_by_user_id
                 left join qms_users completer on completer.id = step.completed_by_user_id
                 where target.project_id = @project_id
@@ -749,15 +756,13 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         {
             photoCommand.Transaction = transaction;
             photoCommand.CommandText = """
-                select link.step_id, photo.id, photo.display_order, photo.original_file_name,
+                select photo.step_id, photo.id, photo.display_order, photo.original_file_name,
                        photo.normalized_mime, photo.byte_size, photo.sha256,
                        photo.uploaded_at_utc, photo.uploaded_by_user_id, uploader.display_name
-                from osan_progress_step_photos link
-                join osan_progress_photos photo
-                  on photo.project_id = link.project_id and photo.id = link.photo_id
+                from osan_current_progress_photos photo
                 join qms_users uploader on uploader.id = photo.uploaded_by_user_id
-                where link.project_id = @project_id
-                order by link.step_id, photo.display_order;
+                where photo.project_id = @project_id
+                order by photo.step_id, photo.display_order;
                 """;
             photoCommand.Parameters.AddWithValue("project_id", projectId);
             await using var reader = await photoCommand.ExecuteReaderAsync(cancellationToken);
@@ -872,7 +877,6 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                 : completedStepCount == Steps.Count
                     ? "Completed"
                     : "InProgress";
-            var priorSixComplete = Steps.Take(6).All(step => step.Status == "Completed");
             return new OsanProgressTargetResponse(
                 TargetId,
                 sequenceNumber,
@@ -882,13 +886,13 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                 startedAtUtc,
                 startedByUserId,
                 startedByDisplayName,
-                Steps.Select(step => step.ToResponse(
+                Steps.Select((step, index) => step.ToResponse(
                     projectedStatus != "Completed"
                         && step.Status != "Completed"
-                        && (step.SequenceNumber < 7 || priorSixComplete),
+                        && Steps.Take(index).All(previous => previous.Status == "Completed"),
                     projectedStatus != "Completed"
                         && step.Status != "Completed"
-                        && (step.SequenceNumber < 7 || priorSixComplete)))
+                        && Steps.Take(index).All(previous => previous.Status == "Completed")))
                     .ToArray());
         }
     }

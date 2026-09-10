@@ -5,6 +5,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.PanelQr;
 using Emi.Qms.Api.Projects;
 using Microsoft.AspNetCore.Mvc;
 
@@ -243,6 +244,49 @@ public static class OsanProjectEndpointExtensions
         .RequireAuthorization()
         .WithName("GetOsanProject");
 
+        api.MapGet("/{projectId:guid}/targets/{targetId:guid}/qr", async (
+            Guid projectId,
+            Guid targetId,
+            string? format,
+            OsanProjectStore projectStore,
+            DatabaseConnectionStringProvider connectionStringProvider,
+            QrScanUrlBuilder scanUrlBuilder,
+            PanelQrRenderer renderer,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var denied = await OsanProgressEndpointExtensions.AuthorizeProjectAsync(
+                projectId,
+                QmsPermissions.ProjectRead,
+                projectStore,
+                connectionStringProvider,
+                user,
+                cancellationToken);
+            if (denied is not null)
+            {
+                return denied;
+            }
+            if (!await projectStore.IsActiveTargetAsync(projectId, targetId, cancellationToken))
+            {
+                return Results.NotFound();
+            }
+
+            var normalizedFormat = string.Equals(format, "png", StringComparison.OrdinalIgnoreCase)
+                ? "png"
+                : "svg";
+            var scanUrl = scanUrlBuilder.BuildForPath($"/osan/qr/{projectId:D}/{targetId:D}");
+            var bytes = normalizedFormat == "png"
+                ? renderer.RenderPng(scanUrl)
+                : renderer.RenderSvg(scanUrl);
+            var contentType = normalizedFormat == "png" ? "image/png" : "image/svg+xml";
+            httpContext.Response.Headers.CacheControl = "private, no-store";
+            httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+            return Results.File(bytes, contentType, $"osan-target-qr-{targetId:D}.{normalizedFormat}");
+        })
+        .RequireAuthorization()
+        .WithName("RenderOsanTargetQrImage");
+
         api.MapPost("", async (
             CreateOsanProjectRequest request,
             OsanProjectStore store,
@@ -319,6 +363,8 @@ public static class OsanProjectEndpointExtensions
         IQueryCollection values)
     {
         var errors = new Dictionary<string, string[]>();
+        var customer = values["customer"].ToString().Trim();
+        if (customer.Length > 200) errors["customer"] = ["고객사는 200자 이하여야 합니다."];
         var search = values["search"].ToString().Trim();
         if (search.Length > 200)
         {
@@ -353,7 +399,7 @@ public static class OsanProjectEndpointExtensions
         }
 
         return errors.Count == 0
-            ? (new OsanDashboardQuery(search, status, page, pageSize, view), errors)
+            ? (new OsanDashboardQuery(search, status, page, pageSize, view, customer), errors)
             : (null, errors);
     }
 

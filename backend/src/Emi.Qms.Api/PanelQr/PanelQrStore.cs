@@ -7,7 +7,7 @@ namespace Emi.Qms.Api.PanelQr;
 
 public sealed partial class PanelQrStore(
     DatabaseConnectionStringProvider connectionStringProvider,
-    IConfiguration configuration,
+    QrScanUrlBuilder scanUrlBuilder,
     TimeProvider timeProvider)
 {
     private const int MaxPrintSheetItems = 50;
@@ -424,17 +424,7 @@ public sealed partial class PanelQrStore(
     internal async Task RecordResolveAsync(PanelQrSnapshot snapshot, string status, Guid actorUserId, string correlationId, CancellationToken cancellationToken)
         => await RecordEventAsync(snapshot, status is "Ok" or "OkCompletedProject" ? "ResolveSucceeded" : "ResolveStateViewed", status, null, actorUserId, correlationId, cancellationToken);
 
-    public string BuildScanUrl(string token)
-    {
-        var origin = configuration["Qr:ScanOrigin"]
-            ?? configuration["QR_SCAN_ORIGIN"]
-            ?? configuration["Frontend:Origin"]
-            ?? configuration["FRONTEND_ORIGIN"]
-            ?? "https://localhost:5174";
-        var firstOrigin = origin.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault()
-            ?? "https://localhost:5174";
-        return $"{firstOrigin.TrimEnd('/')}/q/{token}";
-    }
+    public string BuildScanUrl(string token) => scanUrlBuilder.BuildForPath($"/q/{token}");
 
     private async Task RecordEventAsync(PanelQrSnapshot snapshot, string eventType, string? outcomeStatus, int? itemCount, Guid actorUserId, string correlationId, CancellationToken cancellationToken)
     {

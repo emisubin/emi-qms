@@ -53,7 +53,7 @@ export function completionUnavailable(targets: OsanProgressTarget[], stageSequen
   if (mode === 'individual' && targets.length !== 1) return '개별 완료는 대상 한 개를 선택해 주세요.';
   for (const target of targets) {
     if (target.steps.find(step => step.sequenceNumber === stageSequence)?.status === 'Completed') return `${target.displayName}: 이미 완료한 단계입니다.`;
-    if (stageSequence === 7 && target.steps.some(step => step.sequenceNumber < 7 && step.status !== 'Completed')) return `${target.displayName}: 앞 6단계 완료 후 포장할 수 있습니다.`;
+    if (target.steps.some(step => step.sequenceNumber < stageSequence && step.status !== 'Completed')) return `${target.displayName}: 이전 단계를 모두 완료한 후 입력할 수 있습니다.`;
     const step = target.steps.find(item => item.sequenceNumber === stageSequence);
     if (!step || !(mode === 'individual' ? step.canCompleteIndividual : step.canCompleteBatch)) return `${target.displayName}: 현재 이 단계를 완료할 수 없습니다. 새로고침하여 상태를 확인해 주세요.`;
   }

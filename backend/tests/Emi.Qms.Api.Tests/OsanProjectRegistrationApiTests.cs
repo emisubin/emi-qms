@@ -6,6 +6,7 @@ using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.PanelQr;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Security;
@@ -21,14 +22,16 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
+using ZXing;
 
 namespace Emi.Qms.Api.Tests;
 
-public sealed class OsanProjectRegistrationApiTests
+public sealed partial class OsanProjectRegistrationApiTests
 {
     private static readonly Guid UserId = Guid.Parse("89000000-0000-0000-0000-000000000001");
 
@@ -43,7 +46,7 @@ public sealed class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(9, endpoints.Length);
+        Assert.Equal(17, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -54,7 +57,7 @@ public sealed class OsanProjectRegistrationApiTests
             projectCreate.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => string.Equals(authorization.Policy, QmsPolicies.ProjectCreate, StringComparison.Ordinal));
         var progressMutations = endpoints.Where(endpoint =>
-            endpoint.RoutePattern.RawText?.Contains("/progress/", StringComparison.Ordinal) == true
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/completions"
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Post,
                 StringComparer.OrdinalIgnoreCase) == true).ToArray();
@@ -71,6 +74,11 @@ public sealed class OsanProjectRegistrationApiTests
             completion.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
         Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/photos/{photoId:guid}"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Get,
+                StringComparer.OrdinalIgnoreCase) == true);
+        Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/targets/{targetId:guid}/qr"
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);
@@ -102,6 +110,85 @@ public sealed class OsanProjectRegistrationApiTests
     }
 
     [Fact]
+    public void TargetQr_PngDecodesToStableTargetPathAndConfiguredOrigin()
+    {
+        var projectId = Guid.Parse("89000000-0000-0000-0000-000000000099");
+        var targetId = Guid.Parse("89000000-0000-0000-0000-000000000098");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Qr:ScanOrigin"] = "https://qms.example.test/, https://unused.example.test"
+            })
+            .Build();
+        var urlBuilder = new QrScanUrlBuilder(configuration, new TestWebHostEnvironment("/tmp"));
+        var scanUrl = urlBuilder.BuildForPath($"/osan/qr/{projectId:D}/{targetId:D}");
+        var renderer = new PanelQrRenderer();
+        using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
+        var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
+        {
+            Options =
+            {
+                PossibleFormats = [BarcodeFormat.QR_CODE],
+                TryHarder = true
+            }
+        };
+
+        var decoded = reader.Decode(image);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(BarcodeFormat.QR_CODE, decoded.BarcodeFormat);
+        Assert.Equal(
+            $"https://qms.example.test/osan/qr/{projectId:D}/{targetId:D}",
+            decoded.Text);
+    }
+
+    [Fact]
+    public void TargetQr_UsesLocalhostFallbackOnlyOutsideProduction()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var environment = new TestWebHostEnvironment("/tmp");
+        var builder = new QrScanUrlBuilder(configuration, environment);
+
+        Assert.Equal(
+            "https://localhost:5174/osan/qr/project-id",
+            builder.BuildForPath("/osan/qr/project-id"));
+
+        environment.EnvironmentName = Environments.Production;
+        Assert.Throws<InvalidOperationException>(() => builder.BuildForPath("/osan/qr/project-id"));
+    }
+
+    [Theory]
+    [InlineData("ftp://qms.example.test")]
+    [InlineData("https://user:password@qms.example.test")]
+    [InlineData("https://qms.example.test/app")]
+    [InlineData("https://qms.example.test?tenant=osan")]
+    [InlineData("https://qms.example.test#fragment")]
+    public void TargetQr_RejectsOriginValuesThatAreNotHttpOriginOnly(string origin)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Qr:ScanOrigin"] = origin })
+            .Build();
+        var builder = new QrScanUrlBuilder(configuration, new TestWebHostEnvironment("/tmp"));
+
+        Assert.Throws<InvalidOperationException>(() => builder.BuildForPath("/osan/qr/project-id"));
+    }
+
+    [Fact]
+    public void TargetQr_RequiresHttpsOriginInProduction()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Qr:ScanOrigin"] = "http://qms.example.test"
+            })
+            .Build();
+        var environment = new TestWebHostEnvironment("/tmp") { EnvironmentName = Environments.Production };
+        var builder = new QrScanUrlBuilder(configuration, environment);
+
+        Assert.Throws<InvalidOperationException>(() => builder.BuildForPath("/osan/qr/project-id"));
+    }
+
+    [Fact]
     public void DashboardQuery_DefaultsAndRejectsInvalidValues()
     {
         var validValues = new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
@@ -110,12 +197,13 @@ public sealed class OsanProjectRegistrationApiTests
             ["status"] = OsanDashboardStatuses.InProgress,
             ["page"] = "2",
             ["pageSize"] = "11",
-            ["view"] = OsanDashboardViews.Home
+            ["view"] = OsanDashboardViews.Home,
+            ["customer"] = "  Beta Customer  "
         });
         var (query, errors) = OsanProjectEndpointExtensions.ParseDashboardQuery(validValues);
         Assert.Empty(errors);
         Assert.Equal(new OsanDashboardQuery(
-            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home), query);
+            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home, "Beta Customer"), query);
 
         var (defaults, defaultErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection());
@@ -125,6 +213,7 @@ public sealed class OsanProjectRegistrationApiTests
         var (invalid, invalidErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
             {
+                ["customer"] = new string('c', 201),
                 ["search"] = new string('a', 201),
                 ["status"] = "Paused",
                 ["page"] = "0",
@@ -132,7 +221,7 @@ public sealed class OsanProjectRegistrationApiTests
                 ["view"] = "archive"
             }));
         Assert.Null(invalid);
-        Assert.Equal(["search", "status", "page", "pageSize", "view"], invalidErrors.Keys);
+        Assert.Equal(["customer", "search", "status", "page", "pageSize", "view"], invalidErrors.Keys);
     }
 
     [Fact]
@@ -198,7 +287,7 @@ public sealed class OsanProjectRegistrationApiTests
         {
             var sheet = Assert.Single(workbook.Worksheets);
             Assert.Equal(
-                ["프로젝트 Title *", "프로젝트 코드 *", "거래처 *", "PO No", "W/O No", "납기일 *", "제품명 *", "수량 *"],
+                ["장비명 *", "프로젝트 코드 *", "part 분류 *", "수량 *", "고객사 *", "PO No", "W/O No", "납기일 *"],
                 Enumerable.Range(1, 8).Select(column => sheet.Cell(3, column).GetString()));
             Assert.DoesNotContain(sheet.RowsUsed(), row => row.RowNumber() > 3);
         }
@@ -206,6 +295,8 @@ public sealed class OsanProjectRegistrationApiTests
         var valid = CreateOsanExcel(workbook =>
         {
             AddExcelHeaders(workbook.Worksheet(1));
+            workbook.Worksheet(1).Cell(1, 3).Value = "고객사";
+            workbook.Worksheet(1).Cell(1, 7).Value = "part 분류";
             AddExcelRow(workbook.Worksheet(1), 2, "  Title  Case ", " 00Ab  01 ", " Customer ",
                 " 001-PO ", " 000-W/O ", new DateOnly(2026, 12, 31), " Product  X ", 2);
         });
@@ -887,7 +978,7 @@ public sealed class OsanProjectRegistrationApiTests
             Normalize(ValidRequest(
                 title: "Not started panel",
                 projectCode: "DASH-002",
-                customerName: "Alpha Customer",
+                customerName: "고객 AB",
                 deliveryDate: new DateOnly(2026, 10, 2))),
             UserId,
             TestContext.Current.CancellationToken);
@@ -895,7 +986,7 @@ public sealed class OsanProjectRegistrationApiTests
             Normalize(ValidRequest(
                 title: "Partial panel",
                 projectCode: "DASH-001",
-                customerName: "Beta Customer",
+                customerName: "고객 A",
                 poNumber: "PO-FIND-ME",
                 quantity: 2,
                 deliveryDate: new DateOnly(2026, 10, 1))),
@@ -913,6 +1004,7 @@ public sealed class OsanProjectRegistrationApiTests
             Normalize(ValidRequest(
                 title: "LEAKTOKEN hidden",
                 projectCode: "DASH-HIDDEN",
+                customerName: "Secret Customer",
                 poNumber: "LEAKTOKEN",
                 deliveryDate: new DateOnly(2026, 8, 1))),
             UserId,
@@ -964,7 +1056,7 @@ public sealed class OsanProjectRegistrationApiTests
             new CompleteOsanProgressInput(
                 Guid.NewGuid(),
                 OsanCompletionModes.Batch,
-                4,
+                1,
                 partialTargets.Select(id => new OsanProgressTargetRequest(id, 1)).ToArray(),
                 []),
             UserId,
@@ -975,7 +1067,7 @@ public sealed class OsanProjectRegistrationApiTests
         {
             var targetId = Assert.Single(value.Project.Targets).TargetId;
             var version = 1;
-            foreach (var stage in new[] { 6, 2, 5, 1, 4, 3, 7 })
+            foreach (var stage in Enumerable.Range(1, 7))
             {
                 var result = await progressStore.CompleteAsync(
                     value.Project.ProjectId,
@@ -1015,6 +1107,8 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
         Assert.Equal(3, firstPage.TotalCount);
         Assert.Equal(2, firstPage.Items.Count);
+        Assert.Equal(["Customer", "고객 A", "고객 AB"], firstPage.Customers!.Order(StringComparer.Ordinal));
+        Assert.DoesNotContain("Secret Customer", firstPage.Customers!);
         Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
             firstPage.Items.Select(item => item.ProjectId));
         var partialItem = firstPage.Items[0];
@@ -1022,7 +1116,7 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(14, partialItem.TotalStepCount);
         Assert.Equal(14, partialItem.ProgressPercent);
         Assert.Equal(7, partialItem.Stages.Count);
-        var partialStage = Assert.Single(partialItem.Stages, stage => stage.SequenceNumber == 4);
+        var partialStage = Assert.Single(partialItem.Stages, stage => stage.SequenceNumber == 1);
         Assert.Equal(2, partialStage.CompletedTargetCount);
         Assert.Equal(2, partialStage.TotalTargetCount);
 
@@ -1032,6 +1126,7 @@ public sealed class OsanProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(firstPage.Summary, secondPage.Summary);
         Assert.Equal(3, secondPage.TotalCount);
+        Assert.Equal(firstPage.Customers, secondPage.Customers);
         var completedItem = Assert.Single(secondPage.Items);
         Assert.Equal(completed.Value.Project.ProjectId, completedItem.ProjectId);
         Assert.Equal(7, completedItem.CompletedStepCount);
@@ -1058,6 +1153,36 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(new OsanDashboardSummaryResponse(1, 0, 1, 0), searched.Summary);
         Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(searched.Items).ProjectId);
 
+        var customerFiltered = await store.GetAsync(
+            new OsanDashboardQuery(
+                "PO-FIND-ME",
+                OsanDashboardStatuses.InProgress,
+                1,
+                1,
+                OsanDashboardViews.Progress,
+                "고객 A"),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(1, 0, 1, 0), customerFiltered.Summary);
+        Assert.Equal(1, customerFiltered.TotalCount);
+        Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(customerFiltered.Items).ProjectId);
+        Assert.Equal(firstPage.Customers, customerFiltered.Customers);
+
+        var nonExactCustomer = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty,
+                OsanDashboardStatuses.All,
+                1,
+                10,
+                OsanDashboardViews.Progress,
+                "고객"),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, nonExactCustomer.Summary.TotalCount);
+        Assert.Equal(0, nonExactCustomer.TotalCount);
+        Assert.Empty(nonExactCustomer.Items);
+        Assert.Equal(firstPage.Customers, nonExactCustomer.Customers);
+
         var noLeak = await store.GetAsync(
             new OsanDashboardQuery("LEAKTOKEN", OsanDashboardStatuses.All, 1, 10),
             scope,
@@ -1074,6 +1199,7 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(0, noCheongjuLeak.Summary.TotalCount);
         Assert.Equal(0, noCheongjuLeak.TotalCount);
         Assert.Empty(noCheongjuLeak.Items);
+        Assert.DoesNotContain("Cheongju Customer", noCheongjuLeak.Customers!);
 
         var emptyScope = await store.GetAsync(
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10),
@@ -1082,6 +1208,7 @@ public sealed class OsanProjectRegistrationApiTests
         Assert.Equal(0, emptyScope.Summary.TotalCount);
         Assert.Equal(0, emptyScope.TotalCount);
         Assert.Empty(emptyScope.Items);
+        Assert.Empty(emptyScope.Customers!);
 
         var homeScope = new ProjectAccessScope(
             false,
@@ -1206,39 +1333,22 @@ public sealed class OsanProjectRegistrationApiTests
                 []),
             UserId,
             TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Success, skipPredecessor.Status);
-        Assert.Equal("Completed", skipPredecessor.Value!.Project.Targets[0].Steps[1].Status);
-        Assert.Equal("NotStarted", skipPredecessor.Value.Project.Targets[0].Steps[0].Status);
-        Assert.Equal("InProgress", skipPredecessor.Value.Project.Status);
-        Assert.Equal(1, skipPredecessor.Value.Project.CompletedStepCount);
-        Assert.Equal(14, skipPredecessor.Value.Project.TotalStepCount);
-
-        var listedAfterFirstCompletion = Assert.Single((await projectStore.ListAsync(
-            new ProjectAccessScope(true, []),
-            TestContext.Current.CancellationToken)).Items);
-        var detailedAfterFirstCompletion = await projectStore.GetAsync(
+        Assert.Equal(OsanProgressMutationStatus.Conflict, skipPredecessor.Status);
+        Assert.Equal("osan_progress_prerequisite_incomplete", skipPredecessor.ErrorCode);
+        var initialProgress = await progressStore.GetAsync(
             projectId,
             TestContext.Current.CancellationToken);
-        Assert.Equal("InProgress", listedAfterFirstCompletion.Status);
-        Assert.Equal(1, listedAfterFirstCompletion.CompletedStepCount);
-        Assert.Equal(14, listedAfterFirstCompletion.TotalStepCount);
-        Assert.NotNull(detailedAfterFirstCompletion);
-        Assert.Equal("InProgress", detailedAfterFirstCompletion.Status);
-        Assert.Equal(1, detailedAfterFirstCompletion.CompletedStepCount);
-        Assert.Equal(14, detailedAfterFirstCompletion.TotalStepCount);
-
-        var outOfOrderIndividual = await progressStore.CompleteAsync(
-            projectId,
-            new CompleteOsanProgressInput(
-                Guid.NewGuid(),
-                OsanCompletionModes.Individual,
-                6,
-                [new OsanProgressTargetRequest(targetIds[0], 2)],
-                []),
-            UserId,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(OsanProgressMutationStatus.Success, outOfOrderIndividual.Status);
-        Assert.Equal("Completed", outOfOrderIndividual.Value!.Project.Targets[0].Steps[5].Status);
+        Assert.NotNull(initialProgress);
+        Assert.All(initialProgress.Targets, target =>
+        {
+            Assert.True(target.Steps[0].CanCompleteIndividual);
+            Assert.True(target.Steps[0].CanCompleteBatch);
+            Assert.All(target.Steps.Skip(1), step =>
+            {
+                Assert.False(step.CanCompleteIndividual);
+                Assert.False(step.CanCompleteBatch);
+            });
+        });
 
         var png = CreateStructurallyValidPng();
         var (photo, photoError) = await OsanProgressPhotoValidator.ValidateAsync(
@@ -1254,7 +1364,7 @@ public sealed class OsanProjectRegistrationApiTests
             OsanCompletionModes.Batch,
             1,
             [
-                new OsanProgressTargetRequest(targetIds[0], 3),
+                new OsanProgressTargetRequest(targetIds[0], 1),
                 new OsanProgressTargetRequest(targetIds[1], 1)
             ],
             [photo]);
@@ -1265,6 +1375,17 @@ public sealed class OsanProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, stageOne.Status);
         Assert.False(stageOne.Value!.Replayed);
+        Assert.All(stageOne.Value.Project.Targets, target =>
+        {
+            Assert.False(target.Steps[0].CanCompleteIndividual);
+            Assert.True(target.Steps[1].CanCompleteIndividual);
+            Assert.True(target.Steps[1].CanCompleteBatch);
+            Assert.All(target.Steps.Skip(2), step =>
+            {
+                Assert.False(step.CanCompleteIndividual);
+                Assert.False(step.CanCompleteBatch);
+            });
+        });
         Assert.Equal(1L, await database.ReadScalarAsync<long>(
             "select count(*) from osan_progress_photos where project_id=@project_id;",
             TestContext.Current.CancellationToken,
@@ -1273,6 +1394,20 @@ public sealed class OsanProjectRegistrationApiTests
             "select count(*) from osan_progress_step_photos where project_id=@project_id;",
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
+
+        var listedAfterFirstCompletion = Assert.Single((await projectStore.ListAsync(
+            new ProjectAccessScope(true, []),
+            TestContext.Current.CancellationToken)).Items);
+        var detailedAfterFirstCompletion = await projectStore.GetAsync(
+            projectId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("InProgress", listedAfterFirstCompletion.Status);
+        Assert.Equal(2, listedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, listedAfterFirstCompletion.TotalStepCount);
+        Assert.NotNull(detailedAfterFirstCompletion);
+        Assert.Equal("InProgress", detailedAfterFirstCompletion.Status);
+        Assert.Equal(2, detailedAfterFirstCompletion.CompletedStepCount);
+        Assert.Equal(14, detailedAfterFirstCompletion.TotalStepCount);
 
         var replay = await progressStore.CompleteAsync(
             projectId,
@@ -1296,14 +1431,49 @@ public sealed class OsanProjectRegistrationApiTests
 
         var versions = new Dictionary<Guid, int>
         {
-            [targetIds[0]] = 4,
+            [targetIds[0]] = 2,
             [targetIds[1]] = 2
         };
+        var firstTargetStageTwo = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                2,
+                [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, firstTargetStageTwo.Status);
+        versions[targetIds[0]] += 1;
+
+        var mixedPrerequisiteOperation = Guid.NewGuid();
+        var mixedPrerequisiteBatch = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                mixedPrerequisiteOperation,
+                OsanCompletionModes.Batch,
+                3,
+                targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, mixedPrerequisiteBatch.Status);
+        Assert.Equal("osan_progress_prerequisite_incomplete", mixedPrerequisiteBatch.ErrorCode);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_target_steps where project_id=@project_id and sequence_number=3 and status='Completed';",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_operations where operation_id=@operation_id;",
+            TestContext.Current.CancellationToken,
+            ("operation_id", mixedPrerequisiteOperation)));
+
         var secondTargetStageTwo = await progressStore.CompleteAsync(
             projectId,
             new CompleteOsanProgressInput(
                 Guid.NewGuid(),
-                OsanCompletionModes.Batch,
+                OsanCompletionModes.Individual,
                 2,
                 [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
                 []),
@@ -1343,6 +1513,41 @@ public sealed class OsanProjectRegistrationApiTests
                 versions[targetId] += 1;
             }
         }
+
+        var firstTargetStageSix = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                Guid.NewGuid(),
+                OsanCompletionModes.Individual,
+                6,
+                [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Success, firstTargetStageSix.Status);
+        versions[targetIds[0]] += 1;
+
+        var mixedPackingOperation = Guid.NewGuid();
+        var mixedPacking = await progressStore.CompleteAsync(
+            projectId,
+            new CompleteOsanProgressInput(
+                mixedPackingOperation,
+                OsanCompletionModes.Batch,
+                7,
+                targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
+                []),
+            UserId,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(OsanProgressMutationStatus.Conflict, mixedPacking.Status);
+        Assert.Equal("osan_progress_packing_prerequisite_incomplete", mixedPacking.ErrorCode);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_project_target_steps where project_id=@project_id and sequence_number=7 and status='Completed';",
+            TestContext.Current.CancellationToken,
+            ("project_id", projectId)));
+        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+            "select count(*) from osan_progress_operations where operation_id=@operation_id;",
+            TestContext.Current.CancellationToken,
+            ("operation_id", mixedPackingOperation)));
 
         var secondTargetStageSix = await progressStore.CompleteAsync(
             projectId,
@@ -1420,6 +1625,66 @@ public sealed class OsanProjectRegistrationApiTests
             """,
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
+
+        var legacy = await projectStore.CreateAsync(
+            Normalize(ValidRequest(projectCode: "OSAN-LEGACY-ORDER", quantity: 1)),
+            UserId,
+            TestContext.Current.CancellationToken);
+        var legacyProjectId = legacy.Value!.Project.ProjectId;
+        var legacyTargetId = Assert.Single(legacy.Value.Project.Targets).TargetId;
+        await database.ExecuteAsync(
+            """
+            update osan_project_target_steps
+            set status='Completed',
+                started_at_utc='2026-09-01T01:00:00Z',
+                completed_at_utc='2026-09-01T02:00:00Z',
+                completed_by_user_id=@user_id
+            where project_id=@project_id and target_id=@target_id and sequence_number=4;
+            """,
+            TestContext.Current.CancellationToken,
+            ("user_id", UserId),
+            ("project_id", legacyProjectId),
+            ("target_id", legacyTargetId));
+        var legacyHistoryBefore = await database.ReadScalarAsync<string>(
+            """
+            select string_agg(
+                sequence_number || ':' || status || ':'
+                || coalesce(completed_at_utc::text, '') || ':'
+                || coalesce(completed_by_user_id::text, ''),
+                ',' order by sequence_number)
+            from osan_project_target_steps
+            where project_id=@project_id and target_id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", legacyProjectId),
+            ("target_id", legacyTargetId));
+
+        var legacyProgress = await progressStore.GetAsync(
+            legacyProjectId,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(legacyProgress);
+        Assert.Equal("InProgress", legacyProgress.Status);
+        var legacyTarget = Assert.Single(legacyProgress.Targets);
+        Assert.Equal("InProgress", legacyTarget.Status);
+        Assert.True(legacyTarget.Steps[0].CanCompleteIndividual);
+        Assert.False(legacyTarget.Steps[1].CanCompleteIndividual);
+        Assert.Equal("Completed", legacyTarget.Steps[3].Status);
+        Assert.False(legacyTarget.Steps[3].CanCompleteIndividual);
+        Assert.False(legacyTarget.Steps[4].CanCompleteIndividual);
+        Assert.Equal(legacyHistoryBefore, await database.ReadScalarAsync<string>(
+            """
+            select string_agg(
+                sequence_number || ':' || status || ':'
+                || coalesce(completed_at_utc::text, '') || ':'
+                || coalesce(completed_by_user_id::text, ''),
+                ',' order by sequence_number)
+            from osan_project_target_steps
+            where project_id=@project_id and target_id=@target_id;
+            """,
+            TestContext.Current.CancellationToken,
+            ("project_id", legacyProjectId),
+            ("target_id", legacyTargetId)));
     }
 
     [Fact]

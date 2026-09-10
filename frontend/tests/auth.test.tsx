@@ -656,6 +656,7 @@ describe('authentication modes', () => {
     }));
 
     const { App } = await import('../src/App');
+    window.history.replaceState(null, '', '/osan/qr/478f584e-a40d-488e-b10c-93a3d966d9b3');
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '다시 로그인이 필요합니다.' })).toBeInTheDocument();
@@ -667,6 +668,7 @@ describe('authentication modes', () => {
 
     expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).not.toBeInTheDocument();
     expect(fakeInstance.loginRedirect).toHaveBeenCalledTimes(1);
+    expect(fakeInstance.loginRedirect).toHaveBeenCalledWith(expect.objectContaining({ redirectStartPage: window.location.href }));
     expect(fakeInstance.loginRedirect).toHaveBeenCalledWith(expect.not.objectContaining({ prompt: 'select_account' }));
     const redirectRequest = fakeInstance.loginRedirect.mock.calls[0]?.[0];
     expect(redirectRequest?.correlationId).toMatch(/^[0-9a-f-]{36}$/i);

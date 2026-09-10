@@ -6,6 +6,7 @@ using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.PanelQr;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Security;
@@ -21,10 +22,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
+using ZXing;
 
 namespace Emi.Qms.Api.Tests;
 
@@ -43,7 +46,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(16, endpoints.Length);
+        Assert.Equal(17, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -74,6 +77,11 @@ public sealed partial class OsanProjectRegistrationApiTests
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);
+        Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/qr"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Get,
+                StringComparer.OrdinalIgnoreCase) == true);
         var excelRoutes = endpoints.Where(endpoint =>
             endpoint.RoutePattern.RawText?.StartsWith(
                 "/api/osan/projects/import/",
@@ -99,6 +107,82 @@ public sealed partial class OsanProjectRegistrationApiTests
                     HttpMethods.Get,
                     StringComparer.OrdinalIgnoreCase) == true);
         Assert.NotEmpty(dashboard.Metadata.GetOrderedMetadata<IAuthorizeData>());
+    }
+
+    [Fact]
+    public void ProjectQr_PngDecodesToStableProjectPathAndConfiguredOrigin()
+    {
+        var projectId = Guid.Parse("89000000-0000-0000-0000-000000000099");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Qr:ScanOrigin"] = "https://qms.example.test/, https://unused.example.test"
+            })
+            .Build();
+        var urlBuilder = new QrScanUrlBuilder(configuration, new TestWebHostEnvironment("/tmp"));
+        var scanUrl = urlBuilder.BuildForPath($"/osan/qr/{projectId:D}");
+        var renderer = new PanelQrRenderer();
+        using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
+        var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
+        {
+            Options =
+            {
+                PossibleFormats = [BarcodeFormat.QR_CODE],
+                TryHarder = true
+            }
+        };
+
+        var decoded = reader.Decode(image);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(BarcodeFormat.QR_CODE, decoded.BarcodeFormat);
+        Assert.Equal($"https://qms.example.test/osan/qr/{projectId:D}", decoded.Text);
+    }
+
+    [Fact]
+    public void ProjectQr_UsesLocalhostFallbackOnlyOutsideProduction()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var environment = new TestWebHostEnvironment("/tmp");
+        var builder = new QrScanUrlBuilder(configuration, environment);
+
+        Assert.Equal(
+            "https://localhost:5174/osan/qr/project-id",
+            builder.BuildForPath("/osan/qr/project-id"));
+
+        environment.EnvironmentName = Environments.Production;
+        Assert.Throws<InvalidOperationException>(() => builder.BuildForPath("/osan/qr/project-id"));
+    }
+
+    [Theory]
+    [InlineData("ftp://qms.example.test")]
+    [InlineData("https://user:password@qms.example.test")]
+    [InlineData("https://qms.example.test/app")]
+    [InlineData("https://qms.example.test?tenant=osan")]
+    [InlineData("https://qms.example.test#fragment")]
+    public void ProjectQr_RejectsOriginValuesThatAreNotHttpOriginOnly(string origin)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Qr:ScanOrigin"] = origin })
+            .Build();
+        var builder = new QrScanUrlBuilder(configuration, new TestWebHostEnvironment("/tmp"));
+
+        Assert.Throws<InvalidOperationException>(() => builder.BuildForPath("/osan/qr/project-id"));
+    }
+
+    [Fact]
+    public void ProjectQr_RequiresHttpsOriginInProduction()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Qr:ScanOrigin"] = "http://qms.example.test"
+            })
+            .Build();
+        var environment = new TestWebHostEnvironment("/tmp") { EnvironmentName = Environments.Production };
+        var builder = new QrScanUrlBuilder(configuration, environment);
+
+        Assert.Throws<InvalidOperationException>(() => builder.BuildForPath("/osan/qr/project-id"));
     }
 
     [Fact]

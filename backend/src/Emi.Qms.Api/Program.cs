@@ -155,6 +155,7 @@ builder.Services.AddSingleton<ExcelExportService>();
 builder.Services.AddSingleton<SelectedExcelExportService>();
 builder.Services.AddSingleton<PanelInformationExcelParser>();
 builder.Services.AddSingleton<PanelInformationStore>();
+builder.Services.AddSingleton<QrScanUrlBuilder>();
 builder.Services.AddSingleton<PanelQrStore>();
 builder.Services.AddSingleton<PanelQrRenderer>();
 builder.Services.AddSingleton<PendingStore>();

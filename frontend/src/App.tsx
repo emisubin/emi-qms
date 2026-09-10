@@ -34,6 +34,8 @@ import { WebPushFirstRunPrompt } from './WebPushSettings';
 import { deactivateCurrentWebPushForLogout } from './webPushLogout';
 import { PanelQrManager } from './PanelQrManager';
 import { QrScanLandingPage } from './QrScanLandingPage';
+import { OsanQrPage } from './OsanQrPage';
+import { OsanQrPrintDialog } from './OsanQrPrintDialog';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
 import type { LogisticsStage } from './logistics';
@@ -332,6 +334,7 @@ type View =
   | { kind: 'privacy-notice' }
   | { kind: 'notice-board'; noticeId?: string; compose?: boolean }
   | { kind: 'qr-scan'; token: string }
+  | { kind: 'osan-qr'; projectId: string }
   | { kind: 'my-work' }
   | { kind: 'teams-activity' }
   | { kind: 'teams-activity-detail'; deliveryId: string }
@@ -433,6 +436,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
         quality: 'Quality',
         logistics: 'Logistics'
       } as const)[view.area];
+    case 'osan-qr':
     case 'qr-scan': return 'Projects';
     case 'pending-types':
     case 'admin-dashboard':
@@ -709,6 +713,8 @@ function initialViewFromLocation(): View {
     );
   }
 
+  const osanQrMatch = window.location.pathname.match(/^\/osan\/qr\/([0-9a-fA-F-]{36})$/);
+  if (osanQrMatch) return { kind: 'osan-qr', projectId: osanQrMatch[1] };
   const qrScanMatch = window.location.pathname.match(/^\/q\/([A-Za-z0-9_-]{43})$/);
   if (qrScanMatch?.[1]) {
     return { kind: 'qr-scan', token: qrScanMatch[1] };
@@ -1295,6 +1301,8 @@ function pathForView(view: View) {
       return view.noticeId ? `/notices/${view.noticeId}` : `/notices${view.compose ? '?compose=1' : ''}`;
     case 'qr-scan':
       return `/q/${view.token}`;
+    case 'osan-qr':
+      return `/osan/qr/${encodeURIComponent(view.projectId)}`;
     case 'my-work':
       return '/my-work';
     case 'teams-activity':
@@ -2112,6 +2120,12 @@ function QmsAppShellContent({
     };
   }, [setView, view.kind]);
 
+  useEffect(() => {
+    if (view.kind === 'osan-qr' && currentUser.kind === 'ready' && !isAccessBlocked
+      && !isOsan && businessUnitAccess.allowedBusinessUnits.includes('OSAN')
+      && businessUnitRequestState.inFlightMutationCount === 0) selectBusinessUnit('OSAN');
+  }, [view.kind, currentUser, isAccessBlocked, isOsan, businessUnitAccess.allowedBusinessUnits, businessUnitRequestState.inFlightMutationCount]);
+
   const switchBusinessUnitContext = useCallback((businessUnit: BusinessUnitCode) => {
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', '/');
@@ -2249,6 +2263,12 @@ function QmsAppShellContent({
         onLogout={onLogout}
       />
     );
+  }
+
+  if (view.kind === 'osan-qr') {
+    if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
+    if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
+    return <OsanQrPage key={`${view.projectId}:${developmentUserKey}`} projectId={view.projectId} userKey={developmentUserKey} />;
   }
 
   const permissions = user?.permissions ?? [];
@@ -4324,6 +4344,7 @@ function OsanProjectListPage({
   onOpen: (projectId: string) => void;
 }) {
   const today = useKoreaDate();
+  const [qrIds, setQrIds] = useState<string[] | null>(null);
   const [search, setSearch] = useState('');
   const [excelOpen, setExcelOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
@@ -4358,6 +4379,7 @@ function OsanProjectListPage({
     const matchesStatus = tab === 'All' || project.status === tab;
     return matchesSearch && matchesCustomer && matchesStatus;
   });
+  const selection = useSelectedRows(filteredProjects.map(project => project.projectId));
   const resetFilters = () => {
     setSearch('');
     setCustomer('');
@@ -4374,6 +4396,8 @@ function OsanProjectListPage({
       customer={customer} onCustomerChange={setCustomer} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
       actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
     >
+      {qrIds && <OsanQrPrintDialog projectIds={qrIds} userKey={developmentUserKey} onClose={() => setQrIds(null)} />}
+      {state.kind === 'ready' && <div className="osan-qr-selection"><label><SelectionCheckbox checked={selection.allSelected} indeterminate={selection.selectedIds.size > 0 && !selection.allSelected} label="현재 목록 전체 선택" onChange={selection.toggleAll} />현재 목록 전체 선택</label><span>{selection.selectedIds.size}개 선택</span><button disabled={!selection.selectedIds.size} onClick={() => setQrIds([...selection.selectedIds])}>선택 프로젝트 QR 출력</button>{selection.selectedIds.size > 0 && <button onClick={selection.clear}>선택 해제</button>}</div>}
       {importMessage && <p role="status">{importMessage}</p>}
       {excelOpen && canCreate && <OsanProjectExcelDialog developmentUserKey={developmentUserKey} onClose={() => setExcelOpen(false)} onApplied={count => {
         setImportMessage(`${count}개 프로젝트를 등록했습니다.`); setImportRevision(value => value + 1);
@@ -4411,6 +4435,8 @@ function OsanProjectListPage({
         <ProjectListPresentation
           ariaLabel="오산 프로젝트 목록"
           testIdPrefix="osan-project-list"
+          selectable
+          desktopLeadingHeader={<span role="columnheader">선택</span>}
           columns={[
             { label: '장비명', align: 'left' },
             { label: 'part 분류', align: 'left' },
@@ -4426,6 +4452,8 @@ function OsanProjectListPage({
             title: project.title,
             openAriaLabel: `${project.title} 상세 열기`,
             onOpen: () => onOpen(project.projectId),
+            desktopLeading: <span role="cell"><SelectionCheckbox checked={selection.selectedIds.has(project.projectId)} label={project.title + " QR 선택"} onChange={checked => selection.toggle(project.projectId, checked)} /></span>,
+            mobileTitleLeading: <SelectionCheckbox checked={selection.selectedIds.has(project.projectId)} label={project.title + " QR 선택"} onChange={checked => selection.toggle(project.projectId, checked)} />,
             desktopCells: [
               { value: <strong>{project.title}</strong>, align: 'left' },
               { value: project.productName, align: 'left' },
@@ -4688,6 +4716,7 @@ function OsanProjectDetailPage({
   onOpenProgress: (targetId?: string) => void;
   mutationAllowed: boolean;
 }) {
+  const [qrOpen, setQrOpen] = useState(false);
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
   const [managementActions, setManagementActions] = useState<HTMLDivElement | null>(null);
 
@@ -4708,9 +4737,10 @@ function OsanProjectDetailPage({
 
   return (
     <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
+      {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
       <header className="osan-detail-header">
         <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
-          actions={<><div className="osan-detail-management-actions" ref={setManagementActions} /><button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button></>} />
+          actions={<>{state.kind === 'ready' && <button type="button" className="osan-detail-back" onClick={() => setQrOpen(true)}>QR 코드</button>}<div className="osan-detail-management-actions" ref={setManagementActions} /><button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button></>} />
       </header>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
@@ -5364,7 +5394,8 @@ function isOsanViewAllowed(view: View) {
     || view.kind === 'list'
     || view.kind === 'create'
     || view.kind === 'detail'
-    || view.kind === 'osan-progress') {
+    || view.kind === 'osan-progress'
+    || view.kind === 'osan-qr') {
     return true;
   }
   return false;

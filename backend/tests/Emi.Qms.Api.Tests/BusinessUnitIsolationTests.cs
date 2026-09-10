@@ -3006,6 +3006,7 @@ public sealed partial class BusinessUnitIsolationTests
             databases.ConfigurationValues,
             StringComparer.OrdinalIgnoreCase)
         {
+            ["Qr:ScanOrigin"] = "https://qms.example.test",
             ["UploadSecurity:Enabled"] = "true",
             ["UploadSecurity:FailClosed"] = "true",
             ["UploadSecurity:RejectImageMetadata"] = "true"
@@ -3079,6 +3080,113 @@ public sealed partial class BusinessUnitIsolationTests
             using var body = JsonDocument.Parse(responseBody);
             osanProjectId = body.RootElement.GetProperty("project").GetProperty("projectId").GetGuid();
             Assert.Equal(2, body.RootElement.GetProperty("project").GetProperty("targets").GetArrayLength());
+        }
+
+        using (var anonymousQr = await client.GetAsync(
+                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousQr.StatusCode);
+        }
+
+        using (var wrongBusinessUnitQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   "dev-admin",
+                   BusinessUnitCodes.Cheongju))
+        using (var response = await client.SendAsync(
+                   wrongBusinessUnitQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+
+        using (var missingProjectQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{Guid.NewGuid():D}/qr?format=png",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   missingProjectQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            delete from user_project_access
+            where user_id = '{SalesUserId:D}' and project_id = '{osanProjectId:D}';
+            """,
+            TestContext.Current.CancellationToken);
+        using (var unassignedQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   unassignedQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into user_project_access (user_id, project_id)
+            values ('{SalesUserId:D}', '{osanProjectId:D}')
+            on conflict do nothing;
+            """,
+            TestContext.Current.CancellationToken);
+
+        using (var projectQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   projectQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+            Assert.True(response.Headers.CacheControl?.Private);
+            Assert.True(response.Headers.CacheControl?.NoStore);
+            Assert.Contains("nosniff", response.Headers.GetValues("X-Content-Type-Options"));
+            using var image = Image.Load<Rgba32>(await response.Content.ReadAsByteArrayAsync(
+                TestContext.Current.CancellationToken));
+            var decoded = new ZXing.ImageSharp.BarcodeReader<Rgba32>
+            {
+                Options =
+                {
+                    PossibleFormats = [ZXing.BarcodeFormat.QR_CODE],
+                    TryHarder = true
+                }
+            }.Decode(image);
+            Assert.NotNull(decoded);
+            Assert.Equal(
+                $"https://qms.example.test/osan/qr/{osanProjectId:D}",
+                decoded.Text);
+        }
+
+        using (var projectQrDefaultSvg = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/qr",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   projectQrDefaultSvg,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("image/svg+xml", response.Content.Headers.ContentType?.MediaType);
+            Assert.Contains(
+                "<svg",
+                await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+                StringComparison.Ordinal);
         }
 
         using (var listOsanProjects = Request(
@@ -3221,6 +3329,19 @@ public sealed partial class BusinessUnitIsolationTests
             on conflict do nothing;
             """,
             TestContext.Current.CancellationToken);
+
+        using (var assignedProjectQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   "dev-manufacturing",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   assignedProjectQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+        }
 
         Guid[] progressTargetIds;
         using (var getProgress = Request(

@@ -5,6 +5,7 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.PanelInformation;
+using Emi.Qms.Api.PanelQr;
 using Emi.Qms.Api.Projects;
 using Microsoft.AspNetCore.Mvc;
 
@@ -242,6 +243,44 @@ public static class OsanProjectEndpointExtensions
         })
         .RequireAuthorization()
         .WithName("GetOsanProject");
+
+        api.MapGet("/{projectId:guid}/qr", async (
+            Guid projectId,
+            string? format,
+            OsanProjectStore projectStore,
+            DatabaseConnectionStringProvider connectionStringProvider,
+            QrScanUrlBuilder scanUrlBuilder,
+            PanelQrRenderer renderer,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var denied = await OsanProgressEndpointExtensions.AuthorizeProjectAsync(
+                projectId,
+                QmsPermissions.ProjectRead,
+                projectStore,
+                connectionStringProvider,
+                user,
+                cancellationToken);
+            if (denied is not null)
+            {
+                return denied;
+            }
+
+            var normalizedFormat = string.Equals(format, "png", StringComparison.OrdinalIgnoreCase)
+                ? "png"
+                : "svg";
+            var scanUrl = scanUrlBuilder.BuildForPath($"/osan/qr/{projectId:D}");
+            var bytes = normalizedFormat == "png"
+                ? renderer.RenderPng(scanUrl)
+                : renderer.RenderSvg(scanUrl);
+            var contentType = normalizedFormat == "png" ? "image/png" : "image/svg+xml";
+            httpContext.Response.Headers.CacheControl = "private, no-store";
+            httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+            return Results.File(bytes, contentType, $"osan-project-qr-{projectId:D}.{normalizedFormat}");
+        })
+        .RequireAuthorization()
+        .WithName("RenderOsanProjectQrImage");
 
         api.MapPost("", async (
             CreateOsanProjectRequest request,

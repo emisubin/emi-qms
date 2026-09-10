@@ -219,7 +219,7 @@ describe('PC 단계 상세 팝업', () => {
     const dialog = await screen.findByRole('dialog', { name: '입고검사' });
     expect(within(dialog).getByRole('region', { name: '단계 설명' })).toHaveTextContent('60~150㎛');
     expect(within(dialog).getByText('검수 작업자')).toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: '완료', exact: true })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: '완료' })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '단계 상세 닫기' }));
     expect(screen.queryByRole('dialog', { name: '입고검사' })).not.toBeInTheDocument();
   });
@@ -230,10 +230,10 @@ describe('PC 단계 상세 팝업', () => {
     renderPage();
     const overview = await screen.findByRole('navigation', { name: '전체 진행 단계' });
     fireEvent.click(within(overview).getByRole('button', { name: /배치검사/ }));
-    expect(within(screen.getByRole('dialog', { name: '배치검사' })).getByRole('button', { name: '완료', exact: true })).toBeDisabled();
+    expect(within(screen.getByRole('dialog', { name: '배치검사' })).getByRole('button', { name: '완료' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '단계 상세 닫기' }));
     fireEvent.click(within(overview).getByRole('button', { name: /입고검사/ }));
-    fireEvent.click(within(screen.getByRole('dialog', { name: '입고검사' })).getByRole('button', { name: '완료', exact: true }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '입고검사' })).getByRole('button', { name: '완료' }));
     const completion = screen.getByRole('dialog', { name: '해당 진행 단계를 완료하셨나요?' });
     expect(completion).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '단계 상세 닫기' })).toBeDisabled();

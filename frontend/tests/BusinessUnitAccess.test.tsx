@@ -835,4 +835,26 @@ describe('business-unit access shell', () => {
     expect(selectedBusinessRequestCount).toBe(1);
     expect(getBusinessUnitRequestState().generation).toBe(generationBeforeRevocation + 1);
   });
+  it.each([true, false])('QR selects only server-authorized Osan context (allowed=%s)', async allowed => {
+    const projectId = '478f584e-a40d-488e-b10c-93a3d966d9b3';
+    window.history.replaceState(null, '', '/osan/qr/' + projectId);
+    selectBusinessUnit('CHEONGJU');
+    const calls: Array<{path: string; headers: Headers}> = [];
+    const fallback = shellFetch((headers: Headers) => selectedUser({ status: 'selected', selectedBusinessUnit: headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN', allowedBusinessUnits: allowed ? ['CHEONGJU','OSAN'] : ['CHEONGJU'], isOverallAdministrator: true, errorCode: null }), calls);
+    HTMLDialogElement.prototype.close = function() { this.removeAttribute('open'); };
+    vi.stubGlobal('fetch', fallback);
+    render(<App />);
+    if (allowed) {
+      await waitFor(() => expect(getBusinessUnitRequestState().selectedBusinessUnit).toBe('OSAN'));
+      await screen.findByRole('alert');
+      expect(calls.filter(c => c.path.startsWith('/api/osan/projects/')).length).toBeGreaterThan(0);
+      expect(calls.filter(c => c.path.startsWith('/api/osan/projects/')).every(c => c.headers.get('X-Qms-Business-Unit') === 'OSAN')).toBe(true);
+    } else {
+      expect(await screen.findByText('오산 프로젝트를 볼 권한이 없습니다.')).toBeInTheDocument();
+      expect(calls.some(c => c.path.startsWith('/api/osan/projects/'))).toBe(false);
+      expect(getBusinessUnitRequestState().selectedBusinessUnit).toBe('CHEONGJU');
+    }
+    expect(window.location.pathname).toBe('/osan/qr/' + projectId);
+  });
+
 });

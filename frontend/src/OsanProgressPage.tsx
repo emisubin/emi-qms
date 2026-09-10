@@ -15,7 +15,7 @@ export function OsanProgressPage(props: OsanProgressPageProps) {
   return <OsanProgressWorkspace key={`${props.projectId}:${props.initialTargetId ?? ''}:${props.developmentUserKey ?? ''}`} {...props} />;
 }
 function message(error: unknown) { return error instanceof Error ? error.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.'; }
-function SavedPhoto({ projectId, photo, userKey }: { projectId: string; photo: OsanProgressPhoto; userKey?: string }) {
+export function SavedPhoto({ projectId, photo, userKey }: { projectId: string; photo: OsanProgressPhoto; userKey?: string }) {
   const [url, setUrl] = useState<string>();
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);

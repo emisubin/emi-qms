@@ -159,3 +159,7 @@
 .app-shell .osan-photo-editor { min-width: 0; }
 .app-shell .osan-photo-editor .osan-progress-photo-region img { display: block; width: 100%; max-width: 100%; height: auto; max-height: 720px; object-fit: contain; }
 .app-shell .osan-photo-editor input[type="file"] { width: 100%; max-width: 100%; min-width: 0; }
+
+/* Supplied work instructions: no empty space for future guidance photos. */
+.app-shell .osan-progress-guidance { min-height: 0; padding: 20px 16px; gap: 14px; }
+.app-shell .osan-progress-guidance > p { margin: 0; padding: 0; font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }

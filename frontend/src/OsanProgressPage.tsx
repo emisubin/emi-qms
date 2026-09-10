@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
 import { OsanPhotoEditor } from './OsanPhotoEditor';
+import { OsanStageGuidance } from './OsanStageGuidance';
 import {
   completeOsanProgress, completionUnavailable, getOsanProgress, getOsanProgressPhoto, osanStageNames,
   validateOsanPhotos,
@@ -158,7 +159,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, developmentUserKey,
       <div className="osan-progress-stage-card">
       <nav className="osan-progress-stages" aria-label="진행 단계"><button type="button" aria-label="이전 단계" disabled={stage === 1 || busy} onClick={() => { setStage(value => value - 1); setError(''); pendingCompletion.current = null; setFiles([]); setFileError(''); }}>‹</button><h2>{osanStageNames[stage - 1]}</h2><button type="button" aria-label="다음 단계" disabled={stage === 7 || busy} onClick={() => { setStage(value => value + 1); setError(''); pendingCompletion.current = null; setFiles([]); setFileError(''); }}>›</button></nav>
       <div className="osan-progress-stage-index">{stage} / 7</div>
-      {!selectedStageCompleted && <div className="osan-progress-guidance"><div className="osan-progress-guidance-photo">안내 사진이 들어갈 영역</div><p>단계 설명이 들어갈 영역</p></div>}
+      {!selectedStageCompleted && <OsanStageGuidance stage={stage} />}
       <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
       {!selectedStageCompleted && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
       </div>

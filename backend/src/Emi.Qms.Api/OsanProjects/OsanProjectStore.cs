@@ -548,11 +548,11 @@ public sealed partial class OsanProjectStore
     {
         nameof(CreateOsanProjectRequest.Title) => "장비명",
         nameof(CreateOsanProjectRequest.ProjectCode) => "프로젝트 코드",
-        nameof(CreateOsanProjectRequest.CustomerName) => "거래처",
+        nameof(CreateOsanProjectRequest.CustomerName) => "고객사",
         nameof(CreateOsanProjectRequest.PoNumber) => "PO",
         nameof(CreateOsanProjectRequest.WorkOrderNumber) => "W/O",
         nameof(CreateOsanProjectRequest.DeliveryDate) => "납기일",
-        nameof(CreateOsanProjectRequest.ProductName) => "part분류",
+        nameof(CreateOsanProjectRequest.ProductName) => "part 분류",
         nameof(CreateOsanProjectRequest.Quantity) => "수량",
         _ => field
     };

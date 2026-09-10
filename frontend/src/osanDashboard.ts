@@ -13,10 +13,11 @@ export interface OsanDashboardProject {
   stages: OsanDashboardStage[];
 }
 export interface OsanDashboardResponse {
+  customers?: string[];
   summary: { totalCount: number; notStartedCount: number; inProgressCount: number; completedCount: number };
   items: OsanDashboardProject[]; totalCount: number; page: number; pageSize: number;
 }
-export function getOsanDashboard(userKey: string | undefined, query: { search: string; status: OsanDashboardStatus; page: number; view?: 'home' | 'progress' }, signal: AbortSignal) {
-  const params = new URLSearchParams({ search: query.search, status: query.status, page: String(query.page), pageSize: '11', view: query.view ?? 'progress' });
+export function getOsanDashboard(userKey: string | undefined, query: { customer?: string; search: string; status: OsanDashboardStatus; page: number; view?: 'home' | 'progress' }, signal: AbortSignal) {
+  const params = new URLSearchParams({ search: query.search, customer: query.customer ?? '', status: query.status, page: String(query.page), pageSize: '11', view: query.view ?? 'progress' });
   return fetchJson<OsanDashboardResponse>(`/api/osan/dashboard?${params}`, userKey, { signal });
 }

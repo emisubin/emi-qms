@@ -29,3 +29,9 @@
 - 별도 Docker project emi-qms-e2e-osan-management-20260910, disposable tmpfs Directory/청주/오산 3DB. 실제 provider 비활성. 기존 5186 환경과 운영 데이터는 변경하지 않았다.
 - 실행 소유: 이 작업의 API session38860 및 frontend session96601. 기동 스크립트 /private/tmp/osan-management-preview.sh는 종료 시 자신의 합성 자원만 정리한다.
 - 남은 일: 사용자 검수 및 필요한 보정. 원격 push·병합·공개배포는 이번 승인 범위가 아니다.
+
+## 검수 후 UI 보정 (2026-09-10)
+
+사용자가 수정 구현 승인. 프로젝트 상세의 관리자 수정·삭제를 우측 상단 목록으로 옆에 같은 버튼 스타일로 배치하고, D-day를 홈/진행 현황 16px 및 프로젝트 PC/모바일 15px로 확대한다. 오산 거래처 표시를 고객사로 통일하고 프로젝트 열은 장비명/part 분류/고객사/Code/수량/납기일/상태/진행률 순서로 변경한다. 검색은 유지하고 세 화면 필터는 고객사별·상태별만 제공한다. 고객사 필터는 일치 검색이며 대시보드의 권한 범위·홈 제외 조건과 함께 서버 페이지 분할 전에 적용한다. 기존 Excel ‘거래처’ 헤더 입력 호환은 유지한다. DB 필드·관리자 권한·사진 승인 계약은 그대로다.
+
+프런트 관련 4개 파일 44개 테스트, 타입 검사·lint·제품 빌드 통과. 브라우저 검증 3개(생성/목록/청주 보존, D-day 날짜 전환, Excel) 통과. PC1440/모바일390 PNG를 직접 열어 확인했고 실제 API 연결 화면에서 상단 버튼 높이26px 및 모바일 문서 폭390px 확인. 모의 API의 CORS 기준과 다른5195 테스트는 실패하여 기존 허용5173에서 재실행했고, 승인된 열 순서 변경에 따른 비교 기대값을 보정했다. 독립 reviewer 추가 diff 검토 P0–P2 없음. Backend Release 빌드 경고0/오류0 및 쿼리경계·Excel·실제 PostgreSQL dashboard 집중 검증 3/3 통과. 실제5099 API에서도 고객사 exact/prefix 구분 및 고객사 옵션 보존 확인. 기존5098 PID5358와 소유 wrapper/합성3DB를 유지하고, 같은 안전한 DB/provider 설정의 최신 API5099(PID12053, seed/startup migration 비활성)를 추가 기동했다. UI5194는 최신5099에 연결하며 현재 frontend session68161이 소유한다. 기존 프로젝트·사진을 보존했다. 최신 API PID/ready 증거는 /private/tmp/osan-management-preview-5099.pid 및 /private/tmp/osan-management-preview-5099-ready.json에 있다. 이 보정은 구현·관련 검증 완료, 사용자 검수 대기 상태다. 공개배포/원격 반영 승인 없음.

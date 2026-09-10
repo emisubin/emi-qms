@@ -4328,8 +4328,7 @@ function OsanProjectListPage({
   const [excelOpen, setExcelOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [importMessage, setImportMessage] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [customer, setCustomer] = useState('');
   const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
@@ -4355,15 +4354,13 @@ function OsanProjectListPage({
   const filteredProjects = projects.filter((project) => {
     const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
       .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
-    const matchesDateFrom = !dateFrom || project.deliveryDate >= dateFrom;
-    const matchesDateTo = !dateTo || project.deliveryDate <= dateTo;
+    const matchesCustomer = !customer || project.customerName === customer;
     const matchesStatus = tab === 'All' || project.status === tab;
-    return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
+    return matchesSearch && matchesCustomer && matchesStatus;
   });
   const resetFilters = () => {
     setSearch('');
-    setDateFrom('');
-    setDateTo('');
+    setCustomer('');
     setTab('All');
   };
 
@@ -4374,7 +4371,7 @@ function OsanProjectListPage({
       counts={state.kind === 'loading' || state.kind === 'error' || state.kind === 'forbidden' ? null : [projects.length, projects.filter(p => p.status === 'NotStarted').length, projects.filter(p => p.status === 'InProgress').length, projects.filter(p => p.status === 'Completed').length]}
       search={search} onSearchChange={setSearch} onSearch={() => setSearch(search.trim())}
       status={tab} onStatusChange={value => setTab(value as typeof tab)} onReset={resetFilters}
-      filters={<><label>시작일 <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} /></label><label>종료일 <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} /></label></>}
+      customer={customer} onCustomerChange={setCustomer} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
       actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
     >
       {importMessage && <p role="status">{importMessage}</p>}
@@ -4416,9 +4413,9 @@ function OsanProjectListPage({
           testIdPrefix="osan-project-list"
           columns={[
             { label: '장비명', align: 'left' },
-            { label: '거래처', align: 'left' },
+            { label: 'part 분류', align: 'left' },
+            { label: '고객사', align: 'left' },
             { label: 'Code', align: 'center' },
-            { label: 'part분류', align: 'left' },
             { label: '수량', align: 'center' },
             { label: '납기일', align: 'center' },
             { label: '상태', align: 'center' },
@@ -4431,20 +4428,20 @@ function OsanProjectListPage({
             onOpen: () => onOpen(project.projectId),
             desktopCells: [
               { value: <strong>{project.title}</strong>, align: 'left' },
+              { value: project.productName, align: 'left' },
               { value: project.customerName, align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
-              { value: project.productName, align: 'left' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: <span>{formatDate(project.deliveryDate)} <span style={{whiteSpace:'nowrap'}}>({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
-              { label: '거래처', value: project.customerName },
+              { label: 'part 분류', value: project.productName },
+              { label: '고객사', value: project.customerName },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
-              { label: 'part분류', value: project.productName },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: `${formatDate(project.deliveryDate)} (${formatOsanDday(project.deliveryDate, today)})` },
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span> },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
@@ -4623,14 +4620,14 @@ function OsanProjectCreatePage({
           <OsanProjectField number={2} label="프로젝트 코드" required error={fieldError('projectCode')}>
             <input aria-label="프로젝트 코드" value={draft.projectCode} maxLength={80} onChange={(event) => setField('projectCode', event.target.value)} aria-invalid={Boolean(fieldError('projectCode'))} />
           </OsanProjectField>
-          <OsanProjectField number={3} label="part분류" required error={fieldError('productName')}>
-            <input aria-label="part분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
+          <OsanProjectField number={3} label="part 분류" required error={fieldError('productName')}>
+            <input aria-label="part 분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
           </OsanProjectField>
           <OsanProjectField number={4} label="수량" required error={fieldError('quantity')}>
             <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
           </OsanProjectField>
-          <OsanProjectField number={5} label="거래처" required error={fieldError('customerName')}>
-            <input aria-label="거래처" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
+          <OsanProjectField number={5} label="고객사" required error={fieldError('customerName')}>
+            <input aria-label="고객사" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
           </OsanProjectField>
           <OsanProjectField number={6} label="PO No" error={fieldError('poNumber')}>
             <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
@@ -4692,6 +4689,7 @@ function OsanProjectDetailPage({
   mutationAllowed: boolean;
 }) {
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
+  const [managementActions, setManagementActions] = useState<HTMLDivElement | null>(null);
 
   const load = useCallback(() => {
     const controller = new AbortController();
@@ -4712,7 +4710,7 @@ function OsanProjectDetailPage({
     <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
       <header className="osan-detail-header">
         <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
-          actions={<button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button>} />
+          actions={<><div className="osan-detail-management-actions" ref={setManagementActions} /><button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button></>} />
       </header>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
@@ -4725,7 +4723,7 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <><OsanProjectManagement mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
+      {state.kind === 'ready' ? <><OsanProjectManagement actionsContainer={managementActions} mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
     </section>
   );
 }
@@ -4761,8 +4759,8 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
         <div className="osan-detail-facts">
           <section aria-label="프로젝트 정보">
             <h3>프로젝트 정보</h3>
-            <p><span>거래처</span><strong>{project.customerName}</strong></p>
-            <p><span>part분류</span><strong>{project.productName}</strong></p>
+            <p><span>고객사</span><strong>{project.customerName}</strong></p>
+            <p><span>part 분류</span><strong>{project.productName}</strong></p>
             <p><span>수량</span><strong>{project.quantity.toLocaleString()}개</strong></p>
           </section>
           <section aria-label="문서 정보">

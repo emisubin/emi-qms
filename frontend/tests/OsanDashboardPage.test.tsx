@@ -7,7 +7,7 @@ vi.mock('../src/osanDashboard', async original => ({ ...await original<typeof im
 const fixture = (title = '오산 검수 프로젝트'): api.OsanDashboardResponse => ({
   summary: { totalCount: 26, notStartedCount: 15, inProgressCount: 10, completedCount: 1 },
   totalCount: 26, page: 1, pageSize: 11,
-  items: [{ projectId: 'p1', title, projectCode: 'OS-1', customerName: '검수 거래처', productName: '패널',
+  items: [{ projectId: 'p1', title, projectCode: 'OS-1', customerName: '검수 고객사', productName: '패널',
     poNumber: 'PO-KEY', workOrderNumber: 'WO-KEY', quantity: 2, deliveryDate: '2026-10-01', status: 'InProgress',
     completedStepCount: 1, totalStepCount: 14, progressPercent: 7,
     stages: [{ sequenceNumber: 1, stepCode: 'INCOMING', stepName: '입고검사', completedTargetCount: 1, totalTargetCount: 2 }] }]
@@ -37,13 +37,13 @@ describe('오산 진행 현황', () => {
   it('검색을 제출하며 상태 필터를 변경하면 페이지를 1로 되돌리고 서버 요약을 보존한다', async () => {
     render(<OsanDashboardPage onOpen={vi.fn()} />); await screen.findByRole('button', { name: '다음 페이지' });
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
-    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 2 }, expect.any(AbortSignal)));
+    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 2 }, expect.any(AbortSignal)));
     fireEvent.change(screen.getByRole('textbox', { name: '프로젝트 검색' }), { target: { value: ' PO-KEY ' } });
     fireEvent.click(screen.getByRole('button', { name: '검색' }));
-    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: 'PO-KEY', status: 'All', page: 1 }, expect.any(AbortSignal)));
+    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: 'PO-KEY', customer: '', status: 'All', page: 1 }, expect.any(AbortSignal)));
     fireEvent.click(screen.getByRole('button', { name: '필터' }));
-    fireEvent.change(screen.getByRole('combobox', { name: '상태' }), { target: { value: 'Completed' } });
-    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: 'PO-KEY', status: 'Completed', page: 1 }, expect.any(AbortSignal)));
+    fireEvent.change(screen.getByRole('combobox', { name: '상태별' }), { target: { value: 'Completed' } });
+    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: 'PO-KEY', customer: '', status: 'Completed', page: 1 }, expect.any(AbortSignal)));
     expect(within(screen.getByLabelText('프로젝트 요약')).getByText('26')).toBeInTheDocument();
   });
   it('늦은 검색 응답과 사용자 전환 전 응답을 표시하지 않는다', async () => {
@@ -83,7 +83,7 @@ describe('오산 진행 현황', () => {
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '없음' } });
     fireEvent.click(screen.getByRole('button', { name: '검색' }));
     fireEvent.click(await screen.findByRole('button', { name: '검색 조건 초기화' }));
-    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1 }, expect.any(AbortSignal)));
+    await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 1 }, expect.any(AbortSignal)));
     await screen.findByText('등록된 프로젝트가 없습니다.');
     expect(screen.getByRole('button', { name: '다음 페이지' })).toBeDisabled();
   });
@@ -95,11 +95,11 @@ describe('오산 홈 분리', () => {
     const view = render(<OsanDashboardPage view="home" onOpen={vi.fn()} />);
     await screen.findByText('납기 2026-10-01 · 진행 중');
     expect(screen.getByRole('heading', { name: '오산 홈' })).toBeInTheDocument();
-    expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
+    expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
     view.rerender(<OsanDashboardPage onOpen={vi.fn()} />);
     await screen.findByRole('button', { name: '오산 검수 프로젝트 진행 상세 열기' });
     expect(screen.queryByText('납기 2026-10-01 · 진행 중')).not.toBeInTheDocument();
-    expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1 }, expect.any(AbortSignal));
+    expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 1 }, expect.any(AbortSignal));
   });
 });
 
@@ -117,5 +117,21 @@ it('홈 자동 갱신으로 마지막 페이지가 사라지면 유효 페이지
   fireEvent(window, new Event('focus'));
   await screen.findByText('1 / 1');
   expect(screen.queryByText('등록된 프로젝트가 없습니다.')).not.toBeInTheDocument();
-  expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
+  expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
+});
+
+it.each(['home', 'progress'] as const)('%s 고객사와 상태를 함께 적용하고 페이지 및 초기화를 처리한다', async view => {
+  vi.mocked(api.getOsanDashboard).mockResolvedValue({ ...fixture(), customers: ['고객 A', '고객 AB'] });
+  render(<OsanDashboardPage view={view} onOpen={vi.fn()} />);
+  await screen.findByRole('button', { name: '다음 페이지' });
+  fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+  fireEvent.click(screen.getByRole('button', { name: '필터' }));
+  await screen.findByRole('option', { name: '고객 A' });
+  expect(screen.getAllByRole('combobox')).toHaveLength(2);
+  fireEvent.change(screen.getByRole('combobox', { name: '고객사별' }), { target: { value: '고객 A' } });
+  await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ customer: '고객 A', page: 1 }), expect.any(AbortSignal)));
+  fireEvent.change(screen.getByRole('combobox', { name: '상태별' }), { target: { value: 'Completed' } });
+  await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ customer: '고객 A', status: 'Completed', page: 1 }), expect.any(AbortSignal)));
+  fireEvent.click(screen.getByRole('button', { name: '초기화' }));
+  await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ customer: '', status: 'All', page: 1 }), expect.any(AbortSignal)));
 });

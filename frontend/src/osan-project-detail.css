@@ -26,3 +26,7 @@
 .osan-management label { display: flex; flex-direction: column; gap: 8px; }
 .osan-management .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 @media (max-width: 600px) { .osan-management-fields { grid-template-columns: 1fr; } }
+
+.osan-detail-management-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.app-shell .osan-detail-header .osan-list-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 600px) { .app-shell .osan-detail-header .osan-list-actions { position: static; margin-top: 12px; justify-content: flex-end; } }

@@ -36,7 +36,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(emptyCreateActions).toHaveCount(2);
   await emptyCreateActions.nth(1).click();
 
-  const expectedFields = ['장비명', '프로젝트 코드', 'part분류', '수량', '거래처', 'PO No', 'W/O No', '납기일'];
+  const expectedFields = ['장비명', '프로젝트 코드', 'part 분류', '수량', '고객사', 'PO No', 'W/O No', '납기일'];
   for (const field of expectedFields) {
     await expect(page.getByLabel(field, { exact: true })).toBeVisible();
   }
@@ -50,11 +50,11 @@ test('Osan shares its page frame and preserves registration and target navigatio
 
   await page.getByLabel('장비명').fill('  저장된 Title  ');
   await page.getByLabel('프로젝트 코드').fill('  AbC  001  ');
-  await page.getByLabel('거래처').fill('  거래처  ');
+  await page.getByLabel('고객사').fill('  고객사  ');
   await page.getByLabel('PO No').fill('  001-PO/+  ');
   await page.getByLabel('W/O No').fill('  000-W/O  ');
   await page.getByLabel('납기일').fill('2026-12-31');
-  await page.getByLabel('part분류').fill('  제품  이름  ');
+  await page.getByLabel('part 분류').fill('  제품  이름  ');
   await page.getByLabel('수량').fill('2');
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 
@@ -63,7 +63,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(postedBodies[0]).toMatchObject({
     title: '저장된 Title',
     projectCode: 'AbC  001',
-    customerName: '거래처',
+    customerName: '고객사',
     poNumber: '001-PO/+',
     workOrderNumber: '000-W/O',
     deliveryDate: '2026-12-31',
@@ -108,7 +108,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   }
   await expect(overview.getByText('001-PO/+', { exact: true })).toBeVisible();
   await expect(overview.getByText('000-W/O', { exact: true })).toBeVisible();
-  await expect(overview.getByText('거래처', { exact: true })).toHaveCount(2);
+  await expect(overview.getByText('고객사', { exact: true })).toHaveCount(2);
   await expect(overview.getByText('제품 이름', { exact: true })).toBeVisible();
   await expect(overview.getByText('2개', { exact: true })).toBeVisible();
   await expect(overview.getByText('2026-12-31', { exact: true })).toBeVisible();
@@ -177,21 +177,20 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(mobileList.getByText('시작 전')).toBeVisible();
   await expect(mobileList.getByText('0%')).toBeVisible();
-  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['거래처', 'Code', 'part분류', '수량', '납기일', '상태', '진행률']);
+  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['part 분류', '고객사', 'Code', '수량', '납기일', '상태', '진행률']);
   const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
   await expect(osanMobilePage.getByLabel('프로젝트 요약').locator(':scope > div')).toHaveText(['전체1', '시작 전1', '진행 중0', '완료0']);
   await osanMobilePage.getByRole('button', { name: '필터', exact: true }).click();
-  await expect(osanMobilePage.getByRole('combobox', { name: '상태' })).toHaveValue('All');
-  await expect(osanMobilePage.getByLabel('시작일')).toBeVisible();
-  await expect(osanMobilePage.getByLabel('종료일')).toBeVisible();
-  await osanMobilePage.getByLabel('시작일').fill('2027-01-01');
-  await expect(page.getByText('조건에 맞는 프로젝트가 없습니다.')).toBeVisible();
-  await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
+  await expect(osanMobilePage.getByRole('combobox', { name: '상태별' })).toHaveValue('All');
+  await expect(osanMobilePage.getByRole('combobox')).toHaveCount(2);
+  await expect(osanMobilePage.getByLabel('시작일')).toHaveCount(0);
+  await osanMobilePage.getByRole('combobox', { name: '고객사별' }).selectOption('고객사');
   await expect(mobileList).toBeVisible();
-  await osanMobilePage.getByRole('combobox', { name: '상태' }).selectOption('Completed');
+  await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
+  await osanMobilePage.getByRole('combobox', { name: '상태별' }).selectOption('Completed');
   await expect(page.getByText('조건에 맞는 프로젝트가 없습니다.')).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
   await expect(mobileList).toBeVisible();
@@ -260,7 +259,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(cheongjuDesktopPageContract.structure.commonOrderValid).toBe(true);
   const cheongjuDesktopListContract = await projectListContract(page);
   expect(cheongjuDesktopListContract.geometry.headerBodyAligned).toBe(true);
-  expect(cheongjuDesktopListContract.structure).toEqual(osanDesktopListContract.structure);
+  // 오산은 승인된 part 분류/고객사/Code 순서를 사용하며 공용 행 구조는 유지한다.
+  expect(cheongjuDesktopListContract.structure).toEqual({ ...osanDesktopListContract.structure,
+    commonCells: [0, 2, 3, 1, 4, 5, 6, 7].map(index => osanDesktopListContract.structure.commonCells[index]) });
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-desktop-1440.png'), fullPage: true });
 
@@ -580,7 +581,7 @@ function projectDetail() {
     projectId,
     title: '저장된 Title',
     projectCode: 'AbC  001',
-    customerName: '거래처',
+    customerName: '고객사',
     poNumber: '001-PO/+',
     workOrderNumber: '000-W/O',
     deliveryDate: '2026-12-31',
@@ -614,7 +615,7 @@ function projectDetail() {
 function cheongjuProject() {
   return {
     projectId: cheongjuProjectId,
-    customerName: '거래처',
+    customerName: '고객사',
     item: '제품  이름',
     projectCode: 'AbC  001',
     projectTitle: '청주 기준 프로젝트',

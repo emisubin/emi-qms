@@ -30,7 +30,7 @@ public sealed class OsanDashboardStore(
 
         var today = DateOnly.FromDateTime(
             TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), SeoulTimeZone).DateTime);
-        var scope = BuildScope(query.Search, query.View, today, accessScope);
+        var scope = BuildScope(query.Search, query.View, today, accessScope, query.Customer);
         var summary = await ReadSummaryAsync(
             connection,
             transaction,
@@ -53,6 +53,12 @@ public sealed class OsanDashboardStore(
             transaction,
             projects.Select(project => project.ProjectId).ToArray(),
             cancellationToken);
+        var customers = new List<string>();
+        var customerScope = BuildScope("", query.View, today, accessScope);
+        await using (var command = CreateScopedCommand(connection, transaction, customerScope,
+            "select distinct customer_name from scoped_projects order by customer_name;"))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            while (await reader.ReadAsync(cancellationToken)) customers.Add(reader.GetString(0));
         await transaction.CommitAsync(cancellationToken);
 
         var items = projects.Select(project => new OsanDashboardProjectResponse(
@@ -71,7 +77,7 @@ public sealed class OsanDashboardStore(
             ProgressPercent(project.Status, project.CompletedStepCount, project.TotalStepCount),
             stages.GetValueOrDefault(project.ProjectId, [])))
             .ToArray();
-        return new OsanDashboardResponse(summary, items, totalCount, query.Page, query.PageSize);
+        return new OsanDashboardResponse(summary, items, totalCount, query.Page, query.PageSize, customers);
     }
 
     private static async Task<OsanDashboardSummaryResponse> ReadSummaryAsync(
@@ -261,7 +267,8 @@ public sealed class OsanDashboardStore(
         string search,
         string view,
         DateOnly today,
-        ProjectAccessScope accessScope)
+        ProjectAccessScope accessScope,
+        string customer = "")
     {
         var where = new List<string>
         {
@@ -287,6 +294,11 @@ public sealed class OsanDashboardStore(
                     "project_keys",
                     accessScope.ProjectKeys.ToArray()));
             }
+        }
+        if (customer.Length > 0)
+        {
+            where.Add("projects.customer_name = @customer");
+            parameters.Add(new NpgsqlParameter("customer", NpgsqlDbType.Text) { Value = customer });
         }
         if (search.Length > 0)
         {

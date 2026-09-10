@@ -319,6 +319,8 @@ public static class OsanProjectEndpointExtensions
         IQueryCollection values)
     {
         var errors = new Dictionary<string, string[]>();
+        var customer = values["customer"].ToString().Trim();
+        if (customer.Length > 200) errors["customer"] = ["고객사는 200자 이하여야 합니다."];
         var search = values["search"].ToString().Trim();
         if (search.Length > 200)
         {
@@ -353,7 +355,7 @@ public static class OsanProjectEndpointExtensions
         }
 
         return errors.Count == 0
-            ? (new OsanDashboardQuery(search, status, page, pageSize, view), errors)
+            ? (new OsanDashboardQuery(search, status, page, pageSize, view, customer), errors)
             : (null, errors);
     }
 

@@ -110,12 +110,13 @@ public sealed partial class OsanProjectRegistrationApiTests
             ["status"] = OsanDashboardStatuses.InProgress,
             ["page"] = "2",
             ["pageSize"] = "11",
-            ["view"] = OsanDashboardViews.Home
+            ["view"] = OsanDashboardViews.Home,
+            ["customer"] = "  Beta Customer  "
         });
         var (query, errors) = OsanProjectEndpointExtensions.ParseDashboardQuery(validValues);
         Assert.Empty(errors);
         Assert.Equal(new OsanDashboardQuery(
-            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home), query);
+            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home, "Beta Customer"), query);
 
         var (defaults, defaultErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection());
@@ -125,6 +126,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var (invalid, invalidErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
             {
+                ["customer"] = new string('c', 201),
                 ["search"] = new string('a', 201),
                 ["status"] = "Paused",
                 ["page"] = "0",
@@ -132,7 +134,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 ["view"] = "archive"
             }));
         Assert.Null(invalid);
-        Assert.Equal(["search", "status", "page", "pageSize", "view"], invalidErrors.Keys);
+        Assert.Equal(["customer", "search", "status", "page", "pageSize", "view"], invalidErrors.Keys);
     }
 
     [Fact]
@@ -198,7 +200,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         {
             var sheet = Assert.Single(workbook.Worksheets);
             Assert.Equal(
-                ["장비명 *", "프로젝트 코드 *", "part분류 *", "수량 *", "거래처 *", "PO No", "W/O No", "납기일 *"],
+                ["장비명 *", "프로젝트 코드 *", "part 분류 *", "수량 *", "고객사 *", "PO No", "W/O No", "납기일 *"],
                 Enumerable.Range(1, 8).Select(column => sheet.Cell(3, column).GetString()));
             Assert.DoesNotContain(sheet.RowsUsed(), row => row.RowNumber() > 3);
         }
@@ -206,6 +208,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         var valid = CreateOsanExcel(workbook =>
         {
             AddExcelHeaders(workbook.Worksheet(1));
+            workbook.Worksheet(1).Cell(1, 3).Value = "고객사";
+            workbook.Worksheet(1).Cell(1, 7).Value = "part 분류";
             AddExcelRow(workbook.Worksheet(1), 2, "  Title  Case ", " 00Ab  01 ", " Customer ",
                 " 001-PO ", " 000-W/O ", new DateOnly(2026, 12, 31), " Product  X ", 2);
         });
@@ -887,7 +891,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             Normalize(ValidRequest(
                 title: "Not started panel",
                 projectCode: "DASH-002",
-                customerName: "Alpha Customer",
+                customerName: "고객 AB",
                 deliveryDate: new DateOnly(2026, 10, 2))),
             UserId,
             TestContext.Current.CancellationToken);
@@ -895,7 +899,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             Normalize(ValidRequest(
                 title: "Partial panel",
                 projectCode: "DASH-001",
-                customerName: "Beta Customer",
+                customerName: "고객 A",
                 poNumber: "PO-FIND-ME",
                 quantity: 2,
                 deliveryDate: new DateOnly(2026, 10, 1))),
@@ -913,6 +917,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             Normalize(ValidRequest(
                 title: "LEAKTOKEN hidden",
                 projectCode: "DASH-HIDDEN",
+                customerName: "Secret Customer",
                 poNumber: "LEAKTOKEN",
                 deliveryDate: new DateOnly(2026, 8, 1))),
             UserId,
@@ -1015,6 +1020,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
         Assert.Equal(3, firstPage.TotalCount);
         Assert.Equal(2, firstPage.Items.Count);
+        Assert.Equal(["Customer", "고객 A", "고객 AB"], firstPage.Customers);
+        Assert.DoesNotContain("Secret Customer", firstPage.Customers!);
         Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
             firstPage.Items.Select(item => item.ProjectId));
         var partialItem = firstPage.Items[0];
@@ -1032,6 +1039,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             TestContext.Current.CancellationToken);
         Assert.Equal(firstPage.Summary, secondPage.Summary);
         Assert.Equal(3, secondPage.TotalCount);
+        Assert.Equal(firstPage.Customers, secondPage.Customers);
         var completedItem = Assert.Single(secondPage.Items);
         Assert.Equal(completed.Value.Project.ProjectId, completedItem.ProjectId);
         Assert.Equal(7, completedItem.CompletedStepCount);
@@ -1058,6 +1066,36 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(new OsanDashboardSummaryResponse(1, 0, 1, 0), searched.Summary);
         Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(searched.Items).ProjectId);
 
+        var customerFiltered = await store.GetAsync(
+            new OsanDashboardQuery(
+                "PO-FIND-ME",
+                OsanDashboardStatuses.InProgress,
+                1,
+                1,
+                OsanDashboardViews.Progress,
+                "고객 A"),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(1, 0, 1, 0), customerFiltered.Summary);
+        Assert.Equal(1, customerFiltered.TotalCount);
+        Assert.Equal(partial.Value.Project.ProjectId, Assert.Single(customerFiltered.Items).ProjectId);
+        Assert.Equal(firstPage.Customers, customerFiltered.Customers);
+
+        var nonExactCustomer = await store.GetAsync(
+            new OsanDashboardQuery(
+                string.Empty,
+                OsanDashboardStatuses.All,
+                1,
+                10,
+                OsanDashboardViews.Progress,
+                "고객"),
+            scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, nonExactCustomer.Summary.TotalCount);
+        Assert.Equal(0, nonExactCustomer.TotalCount);
+        Assert.Empty(nonExactCustomer.Items);
+        Assert.Equal(firstPage.Customers, nonExactCustomer.Customers);
+
         var noLeak = await store.GetAsync(
             new OsanDashboardQuery("LEAKTOKEN", OsanDashboardStatuses.All, 1, 10),
             scope,
@@ -1074,6 +1112,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(0, noCheongjuLeak.Summary.TotalCount);
         Assert.Equal(0, noCheongjuLeak.TotalCount);
         Assert.Empty(noCheongjuLeak.Items);
+        Assert.DoesNotContain("Cheongju Customer", noCheongjuLeak.Customers!);
 
         var emptyScope = await store.GetAsync(
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10),
@@ -1082,6 +1121,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(0, emptyScope.Summary.TotalCount);
         Assert.Equal(0, emptyScope.TotalCount);
         Assert.Empty(emptyScope.Items);
+        Assert.Empty(emptyScope.Customers!);
 
         var homeScope = new ProjectAccessScope(
             false,

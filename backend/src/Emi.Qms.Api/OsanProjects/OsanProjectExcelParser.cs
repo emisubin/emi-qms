@@ -29,6 +29,7 @@ public sealed class OsanProjectExcelParser
         {
             ["장비명"] = "title",
             ["part분류"] = "product_name",
+            ["part 분류"] = "product_name",
             ["프로젝트명"] = "title",
             ["프로젝트 title"] = "title",
             ["title"] = "title",
@@ -72,9 +73,9 @@ public sealed class OsanProjectExcelParser
         {
             ("장비명", true),
             ("프로젝트 코드", true),
-            ("part분류", true),
+            ("part 분류", true),
             ("수량", true),
-            ("거래처", true),
+            ("고객사", true),
             ("PO No", false),
             ("W/O No", false),
             ("납기일", true)

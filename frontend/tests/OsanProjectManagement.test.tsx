@@ -8,7 +8,7 @@ vi.mock('../src/api', async original => ({ ...await original<typeof import('../s
 const project: OsanProjectDetail = {
   editToken: 'project-snapshot-token',
   projectId: 'project-a', title: '합성 장비', projectCode: '001 CODE', productName: '분류 A', quantity: 1,
-  customerName: '합성 거래처', poNumber: '001-PO', workOrderNumber: null, deliveryDate: '2026-12-31',
+  customerName: '합성 고객사', poNumber: '001-PO', workOrderNumber: null, deliveryDate: '2026-12-31',
   status: 'NotStarted', completedStepCount: 0, totalStepCount: 7, createdAtUtc: '2026-09-10T00:00:00Z',
   targets: [{ targetId: 'target-a', sequenceNumber: 1, displayName: '분류 A 1', status: 'NotStarted',
     steps: [{ stepId: 'step-a', sequenceNumber: 1, stepCode: 'INCOMING', stepName: '입고검사', status: 'NotStarted' }] }]
@@ -58,7 +58,7 @@ describe('오산 프로젝트 관리', () => {
     const { onSaved, onDeleted } = show();
     fireEvent.click(await screen.findByRole('button', { name: '프로젝트 정보 수정' }));
     expect(Array.from(document.querySelectorAll('input')).map(input => input.getAttribute('aria-label')))
-      .toEqual(['장비명 수정', '프로젝트 코드 수정', 'part분류 수정', '수량 수정', '거래처 수정', 'PO No 수정', 'W/O No 수정', '납기일 수정']);
+      .toEqual(['장비명 수정', '프로젝트 코드 수정', 'part 분류 수정', '수량 수정', '고객사 수정', 'PO No 수정', 'W/O No 수정', '납기일 수정']);
     expect(screen.getByLabelText('프로젝트 코드 수정')).toHaveValue('001 CODE');
     fireEvent.change(screen.getByLabelText('장비명 수정'), { target: { value: '수정 장비' } });
     fireEvent.change(screen.getByLabelText('수량 수정'), { target: { value: '2' } });
@@ -73,7 +73,7 @@ describe('오산 프로젝트 관리', () => {
     expect([url, user, init?.method]).toEqual([path, 'admin', 'PUT']);
     expect(JSON.parse(init!.body as string)).toMatchObject({ expectedToken: 'project-snapshot-token', fields: {
       title: '수정 장비', projectCode: '001 CODE', productName: '분류 A', quantity: 2,
-      customerName: '합성 거래처', poNumber: '001-PO', workOrderNumber: '', deliveryDate: '2026-12-31'
+      customerName: '합성 고객사', poNumber: '001-PO', workOrderNumber: '', deliveryDate: '2026-12-31'
     } });
     await act(async () => resolve({}));
     expect(onSaved).toHaveBeenCalledOnce();

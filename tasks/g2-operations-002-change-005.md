@@ -51,3 +51,9 @@
 - G2Pages 19/19 PASS: 입력 순서·명칭·불량 저장·월간 4개 펼침/접힘·상세 읽기 전용·기간 필터 검증. typecheck 및 변경 파일 eslint PASS. 테스트 옵션의 타입 오류 1건은 지원하지 않는 `exact` 제거로 수정 후 통과했다.
 - 기존 합성 검수 runtime에서 실제 입력 배치와 수리/불량 상세를 직접 확인했다. desktop 및 390px에서 페이지 가로 넘침이 없고, 상세 입력창 없이 저장된 수량만 표시됨을 확인했다. 작은 가역 Frontend 표시 변경으로 직접 검토/집중 검증을 적용했고 Backend/DB/전체 회귀는 반복하지 않았다.
 - 공개배포/운영 데이터 변경 없음. 같은 branch에 local commit으로 보존하며 사용자 검수 대기를 유지한다.
+
+## 사용자 검수 수락·게시 승인 — 2026-09-10
+
+- 입력 화면 보정 후 사용자가 `원격메인에 병합하고 공개배포까지 완료해`라고 요청했다. 현재 G2 수리·불량재고 및 월간 표/입력 배치 결과의 사용자 검수 수락과 해당 main 병합·Azure 공개배포 실행 승인으로 기록한다.
+- 게시 후보는 `06d2aab`, `8edc6a0` 및 이 승인 기록이다. 원격 main 기준 `0a12b819cc7622b8afc55ae485c420f8f01b2ad9` 이후 타 변경이 없음을 fetch로 확인했다. PR의 required CI가 Backend/Frontend/일반 및 사업부 전용 full-stack 전체 회귀를 책임 실행한다.
+- 운영 변경은 기존 Azure 수동 release workflow의 exact main SHA, additive migration `0091`, Backend/Frontend 이미지 교체와 기존 보안/인증/provider 설정 보존으로 제한한다. DB reset·bootstrap·membership backfill·시험 알림 발송은 승인 범위에 포함하지 않는다.

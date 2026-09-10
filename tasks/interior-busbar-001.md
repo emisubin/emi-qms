@@ -222,3 +222,10 @@ FE 구현·관련 검증 완료, 기존 5197 서버에 반영. 공용 팝업 안
 독립 reviewer /root/azure_qr_review 새 맥락(요청 Astra/high, 실제 NOT_REPORTED) 코드·계획 검토, 차단finding없음. worker는 기존 Pending 전체를 게시하므로 로컬5097 게시 활성화 보류 및 최종 URL확인 뒤 QR주소 연결 지적을 반영했다. 사용자에게 기존 대기사진도 게시할지 비동기 확인 요청, 아직 답변 없음. 실제 검수 사진의 일괄 공개는 진행하지 않는다.
 
 로컬5197/5097에 최신Release와 확정 PublicBaseUrl/BlobEndpoint 연결, Publication Enabled=false/SAS미주입/seed=false/migration=false 유지. 재기동 중 .NET 경로 오류로 한 차례 시작 실패 후 실제 /usr/local/share/dotnet/dotnet 경로로 복구, PID38316 ready200/workspace200 canWrite=true 제품65개 조회 확인. 기존 검수 DB 유지. production 배포/push/PR/merge 미실행. 남은 단계: 기존 대기 제품 공개 여부 응답→승인 범위의 자동게시 활성화와 실제 사진/라벨 현장검수, 이후 마지막 이카운트 연동. 현재는 공개사이트 실연결 검증 완료·자동게시 비활성이다.
+
+
+## Change 015 — 실제 제품 한 건 공개 테스트 준비
+
+사용자 “하나만 테스트로 하자”로 단일 테스트 지시. Pending Complete 중 최초 완료 제품 IB-00000001(id88a740bc-1bdd-4faf-ab09-d8fdca72e4db, revision2)을 선정. singleID FORUPDATE/sharedlock→실 renderer/sink→공개본문 해시→해당행만 게시상태 갱신→타제품/원장/사진 해시 보존→PMS QR 해독 검증 도구를 /private/tmp/emi-busbar-one-product에 준비했다. 독립 /root/azure_qr_review(기존 reviewer 맥락 재사용)는 차단finding없음, 외부게시 뒤 후속단계 실패 시 동일대상 상태확인 경계를 확인했다.
+
+실제 실행 요청은 자동 승인 검토가 거부: 특정 실제 제품 및 정확한 사진·제조정보·작업자명 공개 payload의 명시 승인이 부족하다는 이유. 우회 실행하지 않았고 실제 제품은 게시하지 않았다. 5097 worker는 false 유지. 허용된 읽기 전용 DB/로컬 renderer로 /private/tmp/emi-busbar-local-preview/product.html(0600)을 준비, 해당 건 Pending 확인. 공개예정 HTML SHA256 4B5355208B518934EA779BC115FE6279DFC661BEF886199F825D1F4F0DA47A26. 이름·실사진은 Task에 복제하지 않았다. 127.0.0.1:56318/product.html 한 경로만 제공하는 로컬 미리보기(session37240)를 열어 사용자가 정확한 payload를 확인할 수 있도록 했다. 특정 제품·정확한 내용에 대한 공개 승인 대기. 다른 실제 제품 변경 및 외부 전송 없음.

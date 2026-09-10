@@ -11,3 +11,10 @@
 .app-shell .osan-qr-print-dialog button.primary{color:#fff!important}
 .app-shell .osan-qr-print-dialog .osan-qr-dialog-header h2{text-decoration:none;font-weight:700;line-height:1.35}
 .app-shell .osan-qr-print-dialog .osan-qr-dialog-header p{margin:6px 0 0;line-height:1.5;font-size:12px;color:#888}
+.osan-qr-print-item{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:100%}.osan-qr-print-item>label{display:flex;align-items:center;gap:6px;font-size:12px;max-width:220px;overflow-wrap:anywhere}.osan-qr-print-item[data-selected="false"] .osan-qr-label{opacity:.45}.osan-qr-target-selection{margin:10px 0 16px}.osan-qr-target-selection label{display:flex;align-items:center;gap:8px;font-size:14px}.app-shell .osan-qr-print-dialog .osan-qr-print-item input,.app-shell .osan-qr-print-dialog .osan-qr-target-selection input{width:16px;height:16px;min-height:0;appearance:auto;margin:0;accent-color:#da2127;flex-shrink:0}
+.osan-qr-panels:has(>.osan-qr-panel:only-child){grid-template-columns:minmax(0,1fr)}
+@media(min-width:650px){.osan-qr-panels:has(>.osan-qr-panel:only-child) .osan-qr-stages{grid-template-columns:repeat(7,minmax(0,1fr))}}
+/* QR selection is available on touch devices as well as desktop reports. */
+.app-shell[data-layout-mode='mobile'] .osan-list-frame .selected-export-checkbox{display:inline-block!important;width:20px;height:20px;flex-shrink:0}
+/* The dashboard's compact 8px heading box must not constrain the print dialog. */
+.app-shell .osan-qr-print-dialog .osan-qr-dialog-header h2{height:auto}

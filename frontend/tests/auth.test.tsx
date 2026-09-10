@@ -656,7 +656,7 @@ describe('authentication modes', () => {
     }));
 
     const { App } = await import('../src/App');
-    window.history.replaceState(null, '', '/osan/qr/478f584e-a40d-488e-b10c-93a3d966d9b3');
+    window.history.replaceState(null, '', '/osan/qr/478f584e-a40d-488e-b10c-93a3d966d9b3/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '다시 로그인이 필요합니다.' })).toBeInTheDocument();

@@ -837,7 +837,7 @@ describe('business-unit access shell', () => {
   });
   it.each([true, false])('QR selects only server-authorized Osan context (allowed=%s)', async allowed => {
     const projectId = '478f584e-a40d-488e-b10c-93a3d966d9b3';
-    window.history.replaceState(null, '', '/osan/qr/' + projectId);
+    window.history.replaceState(null, '', '/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
     selectBusinessUnit('CHEONGJU');
     const calls: Array<{path: string; headers: Headers}> = [];
     const fallback = shellFetch((headers: Headers) => selectedUser({ status: 'selected', selectedBusinessUnit: headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN', allowedBusinessUnits: allowed ? ['CHEONGJU','OSAN'] : ['CHEONGJU'], isOverallAdministrator: true, errorCode: null }), calls);
@@ -854,7 +854,7 @@ describe('business-unit access shell', () => {
       expect(calls.some(c => c.path.startsWith('/api/osan/projects/'))).toBe(false);
       expect(getBusinessUnitRequestState().selectedBusinessUnit).toBe('CHEONGJU');
     }
-    expect(window.location.pathname).toBe('/osan/qr/' + projectId);
+    expect(window.location.pathname).toBe('/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   });
 
 });

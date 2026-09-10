@@ -334,7 +334,7 @@ type View =
   | { kind: 'privacy-notice' }
   | { kind: 'notice-board'; noticeId?: string; compose?: boolean }
   | { kind: 'qr-scan'; token: string }
-  | { kind: 'osan-qr'; projectId: string }
+  | { kind: 'osan-qr'; projectId: string; targetId?: string }
   | { kind: 'my-work' }
   | { kind: 'teams-activity' }
   | { kind: 'teams-activity-detail'; deliveryId: string }
@@ -713,8 +713,8 @@ function initialViewFromLocation(): View {
     );
   }
 
-  const osanQrMatch = window.location.pathname.match(/^\/osan\/qr\/([0-9a-fA-F-]{36})$/);
-  if (osanQrMatch) return { kind: 'osan-qr', projectId: osanQrMatch[1] };
+  const osanQrMatch = window.location.pathname.match(/^\/osan\/qr\/([0-9a-fA-F-]{36})(?:\/([0-9a-fA-F-]{36}))?$/);
+  if (osanQrMatch) return { kind: 'osan-qr', projectId: osanQrMatch[1], targetId: osanQrMatch[2] };
   const qrScanMatch = window.location.pathname.match(/^\/q\/([A-Za-z0-9_-]{43})$/);
   if (qrScanMatch?.[1]) {
     return { kind: 'qr-scan', token: qrScanMatch[1] };
@@ -1302,7 +1302,7 @@ function pathForView(view: View) {
     case 'qr-scan':
       return `/q/${view.token}`;
     case 'osan-qr':
-      return `/osan/qr/${encodeURIComponent(view.projectId)}`;
+      return '/osan/qr/' + encodeURIComponent(view.projectId) + (view.targetId ? '/' + encodeURIComponent(view.targetId) : '');
     case 'my-work':
       return '/my-work';
     case 'teams-activity':
@@ -2268,7 +2268,7 @@ function QmsAppShellContent({
   if (view.kind === 'osan-qr') {
     if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
     if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
-    return <OsanQrPage key={`${view.projectId}:${developmentUserKey}`} projectId={view.projectId} userKey={developmentUserKey} />;
+    return <OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />;
   }
 
   const permissions = user?.permissions ?? [];

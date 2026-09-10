@@ -8,7 +8,7 @@ import { formatOsanDday, useKoreaDate } from './osanDday';
 import logo from './assets/emi-qr-logo.png';
 import './osan-qr.css';
 
-export function OsanQrPage({ projectId, userKey }: { projectId: string; userKey?: string }) {
+export function OsanQrPage({ projectId, targetId, userKey }: { projectId: string; targetId?: string; userKey?: string }) {
   const [data, setData] = useState<{ project: OsanProjectDetail; progress: OsanProgressDetail }>();
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -20,14 +20,15 @@ export function OsanQrPage({ projectId, userKey }: { projectId: string; userKey?
     const controller = new AbortController();
     setData(undefined); setError(''); setSelected(undefined);
     Promise.all([getOsanProject(userKey ?? '', projectId, { signal: controller.signal }), getOsanProgress(projectId, userKey, controller.signal)])
-      .then(([project, progress]) => { if (alive) setData({ project, progress }); })
+      .then(([project, progress]) => { if (alive) { if (targetId && !progress.targets.some(target => target.targetId === targetId)) setError('삭제되었거나 찾을 수 없는 패널입니다.'); else setData({ project, progress }); } })
       .catch((e: unknown) => { if (alive) setError(e instanceof ApiError && e.status === 403 ? '이 프로젝트를 볼 권한이 없습니다.' : e instanceof ApiError && e.status === 404 ? '삭제되었거나 찾을 수 없는 프로젝트입니다.' : '프로젝트를 불러오지 못했습니다. 다시 시도해 주세요.'); });
     return () => { alive = false; controller.abort(); };
-  }, [projectId, userKey, revision]);
+  }, [projectId, targetId, userKey, revision]);
   useEffect(() => { if (selected) dialog.current?.showModal(); else dialog.current?.close(); }, [selected]);
   const target = data?.progress.targets.find(item => item.targetId === selected?.targetId);
   const step = target?.steps.find(item => item.sequenceNumber === selected?.sequence);
   const percent = data && data.progress.totalStepCount ? Math.round(data.progress.completedStepCount / data.progress.totalStepCount * 100) : 0;
+  const visibleTargets = data?.progress.targets.filter(item => !targetId || item.targetId === targetId) ?? [];
   const completedTargets = data?.progress.targets.filter(item => item.steps.length === 7 && item.steps.every(s => s.status === 'Completed')).length ?? 0;
   return <main className="osan-qr-page">
     <header className="osan-qr-appbar"><img src={logo} alt="EMI" /><span>오산 · 프로젝트 조회</span></header>
@@ -38,8 +39,8 @@ export function OsanQrPage({ projectId, userKey }: { projectId: string; userKey?
       <dl className="osan-qr-facts"><div><dt>고객사</dt><dd>{data.project.customerName}</dd></div><div><dt>part 분류</dt><dd>{data.project.productName}</dd></div><div><dt>수량</dt><dd>{data.project.quantity}대</dd></div><div><dt>납기일</dt><dd>{data.project.deliveryDate}</dd></div></dl>
       <details className="osan-qr-documents"><summary>PO · W/O 정보 보기</summary><p>PO No. {data.project.poNumber || '없음'}<br />W/O No. {data.project.workOrderNumber || '없음'}</p></details>
       <section className="osan-qr-summary" aria-label="전체 진행 요약"><div><strong>전체 진행률</strong><b>{percent}<small>%</small></b></div><progress value={percent} max="100" aria-label="전체 진행률" /><footer><span>완료 단계 <b>{data.progress.completedStepCount} / {data.progress.totalStepCount}</b></span><span>완료 대상 <b>{completedTargets} / {data.progress.targets.length}대</b></span></footer></section>
-      <h2>대상별 진행 현황</h2><p className="osan-qr-hint">단계를 누르면 작업 설명과 완료 기록을 볼 수 있습니다.</p>
-      <div className="osan-qr-panels">{data.progress.targets.map(item => {
+      <h2>{targetId ? `${visibleTargets[0]?.displayName ?? "패널"} 진행 현황` : "대상별 진행 현황"}</h2><p className="osan-qr-hint">단계를 누르면 작업 설명과 완료 기록을 볼 수 있습니다.</p>
+      <div className="osan-qr-panels">{visibleTargets.map(item => {
         const count = item.steps.filter(s => s.status === 'Completed').length;
         return <section className="osan-qr-panel" key={item.targetId}><header><strong>{item.displayName}</strong><span>{count === 7 ? '완료' : count > 0 ? '진행 중' : '시작 전'} · {count}/7단계</span></header><div className="osan-qr-stages">{osanStageNames.map((name, i) => {
           const done = item.steps.some(s => s.sequenceNumber === i + 1 && s.status === 'Completed');

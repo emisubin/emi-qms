@@ -244,8 +244,9 @@ public static class OsanProjectEndpointExtensions
         .RequireAuthorization()
         .WithName("GetOsanProject");
 
-        api.MapGet("/{projectId:guid}/qr", async (
+        api.MapGet("/{projectId:guid}/targets/{targetId:guid}/qr", async (
             Guid projectId,
+            Guid targetId,
             string? format,
             OsanProjectStore projectStore,
             DatabaseConnectionStringProvider connectionStringProvider,
@@ -266,21 +267,25 @@ public static class OsanProjectEndpointExtensions
             {
                 return denied;
             }
+            if (!await projectStore.IsActiveTargetAsync(projectId, targetId, cancellationToken))
+            {
+                return Results.NotFound();
+            }
 
             var normalizedFormat = string.Equals(format, "png", StringComparison.OrdinalIgnoreCase)
                 ? "png"
                 : "svg";
-            var scanUrl = scanUrlBuilder.BuildForPath($"/osan/qr/{projectId:D}");
+            var scanUrl = scanUrlBuilder.BuildForPath($"/osan/qr/{projectId:D}/{targetId:D}");
             var bytes = normalizedFormat == "png"
                 ? renderer.RenderPng(scanUrl)
                 : renderer.RenderSvg(scanUrl);
             var contentType = normalizedFormat == "png" ? "image/png" : "image/svg+xml";
             httpContext.Response.Headers.CacheControl = "private, no-store";
             httpContext.Response.Headers.XContentTypeOptions = "nosniff";
-            return Results.File(bytes, contentType, $"osan-project-qr-{projectId:D}.{normalizedFormat}");
+            return Results.File(bytes, contentType, $"osan-target-qr-{targetId:D}.{normalizedFormat}");
         })
         .RequireAuthorization()
-        .WithName("RenderOsanProjectQrImage");
+        .WithName("RenderOsanTargetQrImage");
 
         api.MapPost("", async (
             CreateOsanProjectRequest request,

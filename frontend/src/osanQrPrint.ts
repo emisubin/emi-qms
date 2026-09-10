@@ -2,12 +2,10 @@ export const qrLabelCss = `.osan-qr-label{box-sizing:border-box;width:var(--labe
 
 export function populateQrPrintDocument(doc: Document, labels: Element[], size: 30 | 50) {
   const style = doc.createElement('style');
-  style.textContent = qrLabelCss + '@page{size:A4;margin:10mm}body{margin:0}.sheet{display:grid;grid-template-columns:repeat(' + (size === 30 ? 5 : 3) + ',' + size + 'mm);gap:3mm;align-content:start;break-after:page;page-break-after:always}.sheet:last-child{break-after:auto;page-break-after:auto}';
+  style.textContent = qrLabelCss + '@page{size:' + size + 'mm ' + size + 'mm;margin:0}html,body{margin:0;padding:0}.sheet{width:' + size + 'mm;height:' + size + 'mm;overflow:hidden;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}.sheet:last-child{break-after:auto;page-break-after:auto}';
   doc.head.append(style);
-  const capacity = size === 30 ? 40 : 15;
-  for (let start = 0; start < labels.length; start += capacity) {
+  labels.forEach(label => {
     const sheet = doc.createElement('div'); sheet.className = 'sheet';
-    labels.slice(start, start + capacity).forEach(label => sheet.append(label.cloneNode(true)));
-    doc.body.append(sheet);
-  }
+    sheet.append(label.cloneNode(true)); doc.body.append(sheet);
+  });
 }

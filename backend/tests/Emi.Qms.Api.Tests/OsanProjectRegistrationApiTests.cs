@@ -78,7 +78,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);
         Assert.Single(endpoints, endpoint =>
-            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/qr"
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/targets/{targetId:guid}/qr"
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);
@@ -110,9 +110,10 @@ public sealed partial class OsanProjectRegistrationApiTests
     }
 
     [Fact]
-    public void ProjectQr_PngDecodesToStableProjectPathAndConfiguredOrigin()
+    public void TargetQr_PngDecodesToStableTargetPathAndConfiguredOrigin()
     {
         var projectId = Guid.Parse("89000000-0000-0000-0000-000000000099");
+        var targetId = Guid.Parse("89000000-0000-0000-0000-000000000098");
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -120,7 +121,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             })
             .Build();
         var urlBuilder = new QrScanUrlBuilder(configuration, new TestWebHostEnvironment("/tmp"));
-        var scanUrl = urlBuilder.BuildForPath($"/osan/qr/{projectId:D}");
+        var scanUrl = urlBuilder.BuildForPath($"/osan/qr/{projectId:D}/{targetId:D}");
         var renderer = new PanelQrRenderer();
         using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
         var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
@@ -136,11 +137,13 @@ public sealed partial class OsanProjectRegistrationApiTests
 
         Assert.NotNull(decoded);
         Assert.Equal(BarcodeFormat.QR_CODE, decoded.BarcodeFormat);
-        Assert.Equal($"https://qms.example.test/osan/qr/{projectId:D}", decoded.Text);
+        Assert.Equal(
+            $"https://qms.example.test/osan/qr/{projectId:D}/{targetId:D}",
+            decoded.Text);
     }
 
     [Fact]
-    public void ProjectQr_UsesLocalhostFallbackOnlyOutsideProduction()
+    public void TargetQr_UsesLocalhostFallbackOnlyOutsideProduction()
     {
         var configuration = new ConfigurationBuilder().Build();
         var environment = new TestWebHostEnvironment("/tmp");
@@ -160,7 +163,7 @@ public sealed partial class OsanProjectRegistrationApiTests
     [InlineData("https://qms.example.test/app")]
     [InlineData("https://qms.example.test?tenant=osan")]
     [InlineData("https://qms.example.test#fragment")]
-    public void ProjectQr_RejectsOriginValuesThatAreNotHttpOriginOnly(string origin)
+    public void TargetQr_RejectsOriginValuesThatAreNotHttpOriginOnly(string origin)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Qr:ScanOrigin"] = origin })
@@ -171,7 +174,7 @@ public sealed partial class OsanProjectRegistrationApiTests
     }
 
     [Fact]
-    public void ProjectQr_RequiresHttpsOriginInProduction()
+    public void TargetQr_RequiresHttpsOriginInProduction()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>

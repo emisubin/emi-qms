@@ -3052,6 +3052,7 @@ public sealed partial class BusinessUnitIsolationTests
         }
 
         Guid osanProjectId;
+        Guid[] osanTargetIds;
         var osanCreateOperationId = Guid.NewGuid();
         var osanCreatePayload = new
         {
@@ -3079,11 +3080,41 @@ public sealed partial class BusinessUnitIsolationTests
                 $"Expected Osan project create to return Created, got {response.StatusCode}. Body: {responseBody}");
             using var body = JsonDocument.Parse(responseBody);
             osanProjectId = body.RootElement.GetProperty("project").GetProperty("projectId").GetGuid();
-            Assert.Equal(2, body.RootElement.GetProperty("project").GetProperty("targets").GetArrayLength());
+            osanTargetIds = body.RootElement.GetProperty("project").GetProperty("targets")
+                .EnumerateArray()
+                .Select(target => target.GetProperty("targetId").GetGuid())
+                .ToArray();
+            Assert.Equal(2, osanTargetIds.Length);
+        }
+
+        Guid mismatchedTargetId;
+        using (var createOtherOsanProject = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            createOtherOsanProject.Content = JsonContent.Create(osanCreatePayload with
+            {
+                title = "Other Osan routed project",
+                projectCode = "OSAN-ROUTED-002",
+                quantity = 1,
+                operationId = Guid.NewGuid()
+            });
+            var response = await client.SendAsync(
+                createOtherOsanProject,
+                TestContext.Current.CancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.True(
+                response.StatusCode == HttpStatusCode.Created,
+                $"Expected second Osan project create to return Created, got {response.StatusCode}. Body: {responseBody}");
+            using var body = JsonDocument.Parse(responseBody);
+            mismatchedTargetId = body.RootElement.GetProperty("project").GetProperty("targets")[0]
+                .GetProperty("targetId").GetGuid();
         }
 
         using (var anonymousQr = await client.GetAsync(
-                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    TestContext.Current.CancellationToken))
         {
             Assert.Equal(HttpStatusCode.Unauthorized, anonymousQr.StatusCode);
@@ -3091,7 +3122,7 @@ public sealed partial class BusinessUnitIsolationTests
 
         using (var wrongBusinessUnitQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-admin",
                    BusinessUnitCodes.Cheongju))
         using (var response = await client.SendAsync(
@@ -3103,7 +3134,7 @@ public sealed partial class BusinessUnitIsolationTests
 
         using (var missingProjectQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{Guid.NewGuid():D}/qr?format=png",
+                   $"/api/osan/projects/{Guid.NewGuid():D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
@@ -3123,7 +3154,7 @@ public sealed partial class BusinessUnitIsolationTests
             TestContext.Current.CancellationToken);
         using (var unassignedQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
@@ -3142,43 +3173,49 @@ public sealed partial class BusinessUnitIsolationTests
             """,
             TestContext.Current.CancellationToken);
 
-        using (var projectQr = Request(
-                   HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
-                   "dev-sales",
-                   BusinessUnitCodes.Osan))
-        using (var response = await client.SendAsync(
-                   projectQr,
-                   TestContext.Current.CancellationToken))
+        var decodedTargetUrls = new List<string>();
+        foreach (var targetId in osanTargetIds)
         {
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
-            Assert.True(response.Headers.CacheControl?.Private);
-            Assert.True(response.Headers.CacheControl?.NoStore);
-            Assert.Contains("nosniff", response.Headers.GetValues("X-Content-Type-Options"));
-            using var image = Image.Load<Rgba32>(await response.Content.ReadAsByteArrayAsync(
-                TestContext.Current.CancellationToken));
-            var decoded = new ZXing.ImageSharp.BarcodeReader<Rgba32>
+            using var targetQr = Request(
+                HttpMethod.Get,
+                $"/api/osan/projects/{osanProjectId:D}/targets/{targetId:D}/qr?format=png",
+                "dev-sales",
+                BusinessUnitCodes.Osan);
+            using var response = await client.SendAsync(
+                targetQr,
+                TestContext.Current.CancellationToken);
             {
-                Options =
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+                Assert.True(response.Headers.CacheControl?.Private);
+                Assert.True(response.Headers.CacheControl?.NoStore);
+                Assert.Contains("nosniff", response.Headers.GetValues("X-Content-Type-Options"));
+                using var image = Image.Load<Rgba32>(await response.Content.ReadAsByteArrayAsync(
+                    TestContext.Current.CancellationToken));
+                var decoded = new ZXing.ImageSharp.BarcodeReader<Rgba32>
                 {
-                    PossibleFormats = [ZXing.BarcodeFormat.QR_CODE],
-                    TryHarder = true
-                }
-            }.Decode(image);
-            Assert.NotNull(decoded);
-            Assert.Equal(
-                $"https://qms.example.test/osan/qr/{osanProjectId:D}",
-                decoded.Text);
+                    Options =
+                    {
+                        PossibleFormats = [ZXing.BarcodeFormat.QR_CODE],
+                        TryHarder = true
+                    }
+                }.Decode(image);
+                Assert.NotNull(decoded);
+                Assert.Equal(
+                    $"https://qms.example.test/osan/qr/{osanProjectId:D}/{targetId:D}",
+                    decoded.Text);
+                decodedTargetUrls.Add(decoded.Text);
+            }
         }
+        Assert.Equal(2, decodedTargetUrls.Distinct(StringComparer.Ordinal).Count());
 
-        using (var projectQrDefaultSvg = Request(
+        using (var targetQrDefaultSvg = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/qr",
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr",
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
-                   projectQrDefaultSvg,
+                   targetQrDefaultSvg,
                    TestContext.Current.CancellationToken))
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -3188,6 +3225,40 @@ public sealed partial class BusinessUnitIsolationTests
                 await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
                 StringComparison.Ordinal);
         }
+
+        using (var mismatchedTargetQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{mismatchedTargetId:D}/qr?format=png",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   mismatchedTargetQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"update osan_project_targets set is_active=false where id='{osanTargetIds[1]:D}';",
+            TestContext.Current.CancellationToken);
+        using (var inactiveTargetQr = Request(
+                   HttpMethod.Get,
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[1]:D}/qr?format=png",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(
+                   inactiveTargetQr,
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+        await databases.ExecuteAsync(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"update osan_project_targets set is_active=true where id='{osanTargetIds[1]:D}';",
+            TestContext.Current.CancellationToken);
 
         using (var listOsanProjects = Request(
                    HttpMethod.Get,
@@ -3332,7 +3403,7 @@ public sealed partial class BusinessUnitIsolationTests
 
         using (var assignedProjectQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/qr?format=png",
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-manufacturing",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(

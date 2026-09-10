@@ -300,6 +300,25 @@ public sealed partial class OsanProjectStore
             : null;
     }
 
+    public async Task<bool> IsActiveTargetAsync(
+        Guid projectId,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("""
+            select exists (
+                select 1
+                from osan_active_project_targets
+                where id = @target_id
+                  and project_id = @project_id
+            );
+            """);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("target_id", targetId);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
     public async Task<OsanProjectDetailResponse?> GetAsync(
         Guid projectId,
         CancellationToken cancellationToken)

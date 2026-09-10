@@ -122,6 +122,61 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         await transaction.CommitAsync(token);
     }
 
+    public async Task SaveDefectInventoryCountAsync(DateOnly date, SaveG2InventoryCountRequest request, Guid actor, CancellationToken token)
+    {
+        ValidateDate(date);
+        if (date > Today()) throw new ArgumentException("불량재고 실사는 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
+        ValidateQuantity(request.Quantity, request.ExpectedVersion, nameof(request));
+        await using var source = CreateDataSource();
+        await using var connection = await source.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
+        await ExpireForecastMetricsAsync(connection, transaction, Today(), token);
+        await AcquireLockAsync(connection, transaction, DefectInventoryLockKey(date), token);
+        var current = await LockDefectInventoryAsync(connection, transaction, date, token);
+        EnsureVersion(current?.Version, request.ExpectedVersion, "불량재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
+        if (current is null || current.Quantity != request.Quantity)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = current is null
+                ? "insert into g2_defect_inventory_counts (count_date,quantity,created_by_user_id,updated_by_user_id) values (@date,@quantity,@actor,@actor);"
+                : "update g2_defect_inventory_counts set quantity=@quantity,version=version+1,updated_by_user_id=@actor,updated_at_utc=now() where id=@id;";
+            command.Parameters.AddWithValue("date", date);
+            command.Parameters.AddWithValue("quantity", request.Quantity);
+            command.Parameters.AddWithValue("actor", actor);
+            command.Parameters.AddWithValue("id", current?.Id ?? Guid.Empty);
+            await command.ExecuteNonQueryAsync(token);
+        }
+        await EnsureNonNegativeDefectInventoryAsync(connection, transaction, token);
+        await transaction.CommitAsync(token);
+    }
+
+    public async Task DeleteDefectInventoryCountAsync(DateOnly date, int? expectedVersion, CancellationToken token)
+    {
+        ValidateDate(date);
+        if (date > Today()) throw new ArgumentException("불량재고 실사는 오늘 또는 과거 날짜에만 삭제할 수 있습니다.", nameof(date));
+        if (expectedVersion is < 1) throw new ArgumentException("현재 버전을 확인해 주세요.", nameof(expectedVersion));
+        await using var source = CreateDataSource();
+        await using var connection = await source.OpenConnectionAsync(token);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
+        await ExpireForecastMetricsAsync(connection, transaction, Today(), token);
+        await AcquireLockAsync(connection, transaction, DefectInventoryLockKey(date), token);
+        var current = await LockDefectInventoryAsync(connection, transaction, date, token);
+        EnsureVersion(current?.Version, expectedVersion, "불량재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
+        if (current is not null)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "delete from g2_defect_inventory_counts where id=@id;";
+            command.Parameters.AddWithValue("id", current.Id);
+            await command.ExecuteNonQueryAsync(token);
+        }
+        await EnsureNonNegativeDefectInventoryAsync(connection, transaction, token);
+        await transaction.CommitAsync(token);
+    }
+
     public async Task SaveTargetAsync(string type, DateOnly date, SaveG2TargetRequest request, Guid actor, CancellationToken token)
     {
         ValidateDate(date);
@@ -161,6 +216,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         var metricsFrom = from >= G2InventoryCalculator.AvailableInventoryStartDate ? from.AddDays(-1) : from;
         var metrics = await ReadMetricsAsync(connection, metricsFrom, to, token);
         var counts = await ReadCountsAsync(connection, from, to, token);
+        var defectCounts = await ReadDefectCountsAsync(connection, from, to, token);
         var targets = await ReadTargetsAsync(connection, from, to, token);
         var balanceBefore = await ReadBalanceBeforeAsync(connection, from, token);
         var production = new Dictionary<DateOnly, long>();
@@ -194,6 +250,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
             defectInventory += (long)(Metric(metrics, date, G2MetricCodes.Defect)?.Quantity ?? 0)
                 - (mr?.Quantity ?? 0)
                 - (ar?.Quantity ?? 0);
+            if (defectCounts.TryGetValue(date, out var defectCount)) defectInventory = defectCount.Quantity;
             dailyTargets.TryGetValue((date, G2TargetTypes.DailyProduction), out var productionTarget);
             dailyTargets.TryGetValue((date, G2TargetTypes.Delivery), out var deliveryTarget);
             dailyTargets.TryGetValue((date, G2TargetTypes.Inventory), out var inventoryTarget);
@@ -203,7 +260,8 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
                 morningTotal, afternoonTotal, Sum(morningTotal, afternoonTotal), inventory.GetValueOrDefault(date),
                 counts.TryGetValue(date, out var count) ? ToResponse(count) : null,
                 productionTarget is null ? null : ToResponse(productionTarget), deliveryTarget is null ? null : ToResponse(deliveryTarget), inventoryTarget is null ? null : ToResponse(inventoryTarget),
-                ToResponse(mr), ToResponse(ar), repairTotal, defectInventory));
+                ToResponse(mr), ToResponse(ar), repairTotal, defectInventory,
+                defectCounts.TryGetValue(date, out defectCount) ? ToResponse(defectCount) : null));
         }
         await transaction.CommitAsync(token);
         return new(today, from, to, days);
@@ -228,6 +286,21 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
     {
         await using var command = connection.CreateCommand();
         command.CommandText = "select c.id,c.count_date,c.quantity,c.version,c.updated_at_utc,u.display_name from g2_inventory_counts c join qms_users u on u.id=c.updated_by_user_id where c.count_date between @from and @to order by c.count_date;";
+        command.Parameters.AddWithValue("from", from); command.Parameters.AddWithValue("to", to);
+        var result = new Dictionary<DateOnly, InventoryRow>();
+        await using var reader = await command.ExecuteReaderAsync(token);
+        while (await reader.ReadAsync(token))
+        {
+            var row = new InventoryRow(reader.GetGuid(0), reader.GetFieldValue<DateOnly>(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetFieldValue<DateTimeOffset>(4), reader.GetString(5));
+            result[row.Date] = row;
+        }
+        return result;
+    }
+
+    private static async Task<Dictionary<DateOnly, InventoryRow>> ReadDefectCountsAsync(NpgsqlConnection connection, DateOnly from, DateOnly to, CancellationToken token)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "select c.id,c.count_date,c.quantity,c.version,c.updated_at_utc,u.display_name from g2_defect_inventory_counts c join qms_users u on u.id=c.updated_by_user_id where c.count_date between @from and @to order by c.count_date;";
         command.Parameters.AddWithValue("from", from); command.Parameters.AddWithValue("to", to);
         var result = new Dictionary<DateOnly, InventoryRow>();
         await using var reader = await command.ExecuteReaderAsync(token);
@@ -279,8 +352,6 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
               select case metric_code
                 when 'MorningProduction' then coalesce(quantity,0)
                 when 'AfternoonProduction' then coalesce(quantity,0)
-                when 'MorningRepair' then coalesce(quantity,0)
-                when 'AfternoonRepair' then coalesce(quantity,0)
                 when 'Delivery' then -coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
@@ -292,13 +363,24 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
               select case metric_code
                 when 'MorningProduction' then coalesce(quantity,0)
                 when 'AfternoonProduction' then coalesce(quantity,0)
+                when 'Defect' then -coalesce(quantity,0)
+                else 0 end as delta
+              from g2_daily_metrics
+              where work_date >= @checkpoint
+                and work_date >= @available_inventory_previous
+                and work_date < @repair_inventory_previous
+                and work_date < @from_previous
+              union all
+              select case metric_code
+                when 'MorningProduction' then coalesce(quantity,0)
+                when 'AfternoonProduction' then coalesce(quantity,0)
                 when 'MorningRepair' then coalesce(quantity,0)
                 when 'AfternoonRepair' then coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
               from g2_daily_metrics
               where work_date >= @checkpoint
-                and work_date >= @available_inventory_previous
+                and work_date >= @repair_inventory_previous
                 and work_date < @from_previous
               union all
               select -coalesce(quantity,0) as delta
@@ -313,12 +395,26 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         sum.Parameters.AddWithValue("from", from);
         sum.Parameters.AddWithValue("available_inventory_start", G2InventoryCalculator.AvailableInventoryStartDate);
         sum.Parameters.AddWithValue("available_inventory_previous", G2InventoryCalculator.AvailableInventoryStartDate.AddDays(-1));
+        sum.Parameters.AddWithValue("repair_inventory_previous", G2InventoryCalculator.RepairInventoryStartDate.AddDays(-1));
         sum.Parameters.AddWithValue("from_previous", from.AddDays(-1));
         return checked(balance + (long)(await sum.ExecuteScalarAsync(token) ?? 0L));
     }
 
     private static async Task<long> ReadDefectInventoryBeforeAsync(NpgsqlConnection connection, DateOnly from, CancellationToken token)
     {
+        DateOnly? checkpointDate = null;
+        long balance = 0;
+        await using (var checkpoint = connection.CreateCommand())
+        {
+            checkpoint.CommandText = "select count_date,quantity::bigint from g2_defect_inventory_counts where count_date < @from order by count_date desc limit 1;";
+            checkpoint.Parameters.AddWithValue("from", from);
+            await using var reader = await checkpoint.ExecuteReaderAsync(token);
+            if (await reader.ReadAsync(token))
+            {
+                checkpointDate = reader.GetFieldValue<DateOnly>(0);
+                balance = reader.GetInt64(1);
+            }
+        }
         await using var command = connection.CreateCommand();
         command.CommandText = """
             select coalesce(sum(case metric_code
@@ -328,10 +424,12 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
                 else 0 end),0)::bigint
             from g2_daily_metrics
             where work_date < @from
+              and (@checkpoint is null or work_date > @checkpoint)
               and metric_code in ('Defect','MorningRepair','AfternoonRepair');
             """;
         command.Parameters.AddWithValue("from", from);
-        return (long)(await command.ExecuteScalarAsync(token) ?? 0L);
+        command.Parameters.Add("checkpoint", NpgsqlDbType.Date).Value = checkpointDate.HasValue ? checkpointDate.Value : DBNull.Value;
+        return checked(balance + (long)(await command.ExecuteScalarAsync(token) ?? 0L));
     }
 
     private static async Task EnsureNonNegativeDefectInventoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken token)
@@ -339,17 +437,33 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select coalesce(min(defect_inventory),0)::bigint
-            from (
-              select sum(sum(case metric_code
+            with daily_movements as (
+              select work_date,
+                sum(case metric_code
                   when 'Defect' then coalesce(quantity,0)
                   when 'MorningRepair' then -coalesce(quantity,0)
                   when 'AfternoonRepair' then -coalesce(quantity,0)
-                  else 0 end)) over (order by work_date) as defect_inventory
+                  else 0 end)::bigint as movement
               from g2_daily_metrics
               where metric_code in ('Defect','MorningRepair','AfternoonRepair')
               group by work_date
-            ) daily_balances;
+            ), events as (
+              select coalesce(movements.work_date,counts.count_date) as event_date,
+                coalesce(movements.movement,0)::bigint as movement,
+                counts.quantity::bigint as count_quantity
+              from daily_movements movements
+              full join g2_defect_inventory_counts counts on counts.count_date=movements.work_date
+            ), segmented as (
+              select *,sum(case when count_quantity is null then 0 else 1 end)
+                over (order by event_date) as segment
+              from events
+            ), balances as (
+              select coalesce(max(count_quantity) over (partition by segment),0)
+                + sum(case when count_quantity is null then movement else 0 end)
+                    over (partition by segment order by event_date) as defect_inventory
+              from segmented
+            )
+            select coalesce(min(defect_inventory),0)::bigint from balances;
             """;
         var minimum = (long)(await command.ExecuteScalarAsync(token) ?? 0L);
         if (minimum < 0)
@@ -409,6 +523,14 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
         return await reader.ReadAsync(token) ? new(reader.GetGuid(0), date, reader.GetInt32(1), reader.GetInt32(2), default, "") : null;
     }
 
+    private static async Task<InventoryRow?> LockDefectInventoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, DateOnly date, CancellationToken token)
+    {
+        await using var command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = "select id,quantity,version from g2_defect_inventory_counts where count_date=@date for update;"; command.Parameters.AddWithValue("date", date);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        return await reader.ReadAsync(token) ? new(reader.GetGuid(0), date, reader.GetInt32(1), reader.GetInt32(2), default, "") : null;
+    }
+
     private static async Task<TargetRow?> LockTargetAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string type, DateOnly date, CancellationToken token)
     {
         await using var command = connection.CreateCommand(); command.Transaction = transaction;
@@ -433,6 +555,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
     private static void ValidateYearMonth(int year, int month) { if (year is < 2000 or > 9999) throw new ArgumentOutOfRangeException(nameof(year), "연도는 2000년 이후로 선택해 주세요."); if (month is < 1 or > 12) throw new ArgumentOutOfRangeException(nameof(month), "월은 1월부터 12월까지 선택해 주세요."); }
     private static int MetricLockKey(DateOnly date, string code) => checked(date.DayNumber * 16 + code switch { G2MetricCodes.MorningProduction => 0, G2MetricCodes.AfternoonProduction => 1, G2MetricCodes.Delivery => 2, G2MetricCodes.MorningEmiAttendance => 3, G2MetricCodes.MorningContractorAttendance => 4, G2MetricCodes.AfternoonEmiAttendance => 5, G2MetricCodes.AfternoonContractorAttendance => 6, G2MetricCodes.Defect => 7, G2MetricCodes.MorningRepair => 12, G2MetricCodes.AfternoonRepair => 13, _ => throw new ArgumentOutOfRangeException(nameof(code)) });
     private static int InventoryLockKey(DateOnly date) => checked(date.DayNumber * 16 + 8);
+    private static int DefectInventoryLockKey(DateOnly date) => checked(date.DayNumber * 16 + 14);
     private static int TargetLockKey(DateOnly date, string type) => checked(date.DayNumber * 16 + type switch { G2TargetTypes.DailyProduction => 9, G2TargetTypes.Inventory => 10, G2TargetTypes.Delivery => 11, _ => throw new ArgumentOutOfRangeException(nameof(type)) });
     private NpgsqlDataSource CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); return string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException("QMS database connection is not configured.") : NpgsqlDataSource.Create(value); }
     private sealed record MetricRow(Guid Id, DateOnly Date, string Code, int? Quantity, bool IsForecast, int Version, DateTimeOffset UpdatedAt, string UpdatedBy);

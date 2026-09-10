@@ -1,6 +1,51 @@
 # G2 Change 005 — 수리량과 불량재고, 홈 합계 펼치기
 
-- 상태: 구현·집중 검증·독립 검토 완료 / 사용자 검수 대기 / 원격 미게시
+## 실사 입력 위치 통합 — 2026-09-10
+
+- 후속 게시 승인: 사용자가 검수 화면 제공 후 `수정 후 공개배포해`라고 요청했다. 현재 수정 결과의 수락 및 해당 변경의 main 병합·Azure 공개배포 승인으로 기록한다. 9/10 수식 보정·불량재고 실사·팝업 구분 선택을 함께 배포한다. 기존 수동 workflow의 exact main SHA와 additive migration 0092/0093만 적용하며 DB reset/bootstrap/backfill/실제 시험 발송은 제외한다. 최종 후보의 전체 회귀는 PR CI가 책임 실행한다.
+- 원격 기준: origin/main 977fb35의 tree가 이전 승인 cdef95a와 동일함을 확인했다. squash 이력으로 발생한 통합 충돌은 이미 검증된 현재 파일을 유지해 해결했으며 통합 전후 제품 tree는 동일하다.
+
+- 사용자 요청: 홈 생산·납품·재고 그래프의 기존 실사 입력 팝업에서 `재고 / 불량재고`를 선택한다. 별도 생산 현황 위 불량 실사 진입은 제거하고 기존 실사 수정 진입도 그래프 아래로 통합한다.
+- 기준: `49ec0f8`, 동일 task branch/worktree clean에서 시작. 작은 가역 Frontend UX 보정으로 직접 구현·집중 검증한다. API·권한·수식·DB·저장/삭제/CAS 계약은 변경하지 않는다.
+- 선택 또는 날짜 전환 시 해당 구분/날짜의 저장된 값과 버전을 불러와 다른 종류의 임시 입력이 섞이지 않도록 한다. 검수용 Vite HMR만 적용하며 Backend/DB는 재시작하거나 변경하지 않는다.
+- 검증 완료: G2Pages 24/24, typecheck, 관련 eslint, full-stack G2 1/1(전체 24.8초), diff whitespace 검사 PASS. 두 종류 전환 시 값·버전 분리, 0, 저장/삭제 대상, 권한/읽기모드와 그래프 내 단일 진입을 확인했다. Backend는 변경하지 않아 단위 검증을 재실행하지 않았고, full-stack의 일회용 DB/container/network는 harness가 정리했다.
+- 화면 확인: aside-browser로 실제 검수 서버의 재고 선택 팝업을 확인하고, 최종 E2E의 PC 1440px·모바일 390px 불량재고 팝업 이미지를 직접 열어 선택창·입력·저장/삭제 배치와 잘림 없음을 확인했다. sip·shower의 문구 냉독에서 구분/날짜 변경 시 미저장 입력 폐기가 명시되지 않은 비차단 안내 개선 후보만 남았다. 저장 데이터는 보존되며 종류별 값/버전 분리는 테스트로 확인했다.
+- 상태: 검수 서버 `http://127.0.0.1:5178/g2`에 HMR 반영. 이번 변경은 로컬 commit으로 보존하며 사용자 검수 대기다. 원격 게시·공개배포·운영 데이터 변경은 하지 않았다.
+
+## 후속 수정 진행 — 2026-09-10
+
+- 상태: 후속 수정 로컬 구현·집중 검증·독립 검토 완료, 검수 서버 반영. 이번 수정의 사용자 검수·원격 반영·공개배포는 미완료다.
+- 사용자 승인: 9월 10일 재고부터 수리 반영, 9월 9일까지 기존 수식 보존. 불량재고 실사는 해당 날짜 마감값으로 확정하고 이후 신규 불량/수리를 누적하되 납품가능재고를 직접 변경하지 않는다. 사용자가 구현 및 최신 v2 규칙 적용을 명시 승인했다.
+- 이해한 범위: 납품가능재고의 세 시기(8/27까지 당일 생산·불량·납품, 8/28~9/9 전일 생산·불량 및 당일 납품, 9/10부터 전일 수리 추가)를 서버 전체/부분 조회와 홈 임시 계산에서 일치시킨다. 아래 과거 계약의 8/28 수리 반영 문구는 배포 당시 이력이며 이번 승인으로 보정한다.
+- 불량 실사: 기존 재고 실사 권한·과거/오늘 날짜·버전 충돌 보호를 재사용한다. 0도 유효하며 수정/삭제와 과거 입력 정정은 이후 불량재고 음수 여부를 원자적으로 검사한다. 실사일의 일일 입력 수량은 삭제하지 않는다.
+- 기준선: 기존 task branch `codex/g2-repair-inventory`, HEAD `bf96c24`, clean. Root/Backend/Frontend/Scripts v2 및 검증/완료/증거/모델 정책을 재확인했다. 기본 clone WIP와 검수 DB는 보존한다. 기존 task를 재사용하며 신규 원격 게시·배포는 승인 범위에 없다.
+- 검증 계획: 날짜 경계·실사·전체/부분 조회·과거 정정/경쟁/CAS/권한의 집중 테스트, 홈 임시값·실사 저장/삭제 UI, desktop/390px 합성 화면 및 독립 검토. 제품 전체 회귀는 사용자 검수 후 최종 병합 후보에서 수행한다.
+
+### 후속 점검 기록
+
+- readchk: 승인된 불량 마감 실사와 납품가능재고의 독립성을 확인했다. sip의 shower 냉독 결과에 따라 당일 불량/수리가 포함된 마감 수량, 삭제 후 이전 실사(없으면 0) 기준 재계산 안내를 보완했다.
+- ssotize는 읽기 전용으로 날짜 문자열/수식 명칭 및 실사 필드/상수의 두 검색을 대조했다. 현재 계약은 이 후속 수정 절, 구현은 Backend 계산/시작잔액과 Frontend 임시 계산이 각각 소유한다. Change003·004와 기존 implementation-report는 역사 기록이며 재작성하지 않는다. 전역 문서 통합은 하지 않는다. 관리 화면의 날짜 제한 없는 수리 반영 설명은 승인된 9/10 기준으로 보정했다.
+- mandela: 같은 잘못된 시작일을 구현과 테스트가 공유할 위험을 확인했다. 9/8의 재고 100, 생산20·불량3 및 9/9 납품4로 9/9 재고113; 9/9 생산10·수리6·불량2 및 9/10 납품6으로 9/10 재고121이라는 손계산 기대값을 사용한다. 단순 FE/BE 상호 일치만 성공 근거로 쓰지 않는다.
+- re0는 이 진행 절의 현재 상태와 이전 완료 기록을 구분하는 데 한정했다. factchk/ detool은 외부 사실·도구 중립성 주장 작업이 아니므로 생략했다. 별도 요구사항/품질 reviewer는 코드와 테스트를 검토한다.
+- aside-browser에 따라 사용자 승인으로 Aside CLI 설치 후 guide/repl 지침을 읽었다. 기존 검수 주소를 Aside로 열어 불량 실사 모달을 직접 확인했다. Aside의 직접 viewport 변경은 미지원이므로 모바일 검증은 기존 E2E의 390px 실제 브라우저를 사용한다. 합성 화면 증거는 비추적 경로에만 보관한다.
+
+### 후속 수정 결과·재개
+
+- 구현: 수리량의 납품가능재고 반영 시작일을 2026-09-10으로 제한했다. 서버 계산/부분 조회 시작잔액/홈 임시 계산을 함께 보정했다. 이전 8/28 시점 전환과 재고 실사 우선을 유지한다.
+- 신규 `0092_g2_defect_inventory_counts.sql` 및 불량 마감 실사 PUT/DELETE, 기존 재고 관리 권한과 감사 대상 경로 등록을 추가했다. `0093_g2_defect_inventory_audit.sql`은 기존 공용 변경 이력 trigger를 연결한다. 실사·수리·일일 불량의 경쟁 입력은 동일 잠금으로 직렬화하며 불량재고 음수 변경은 전체 취소한다. 기준점별 구간 합산을 사용해 미래 달력 전체 생성과 날짜별 중복 누적 조회를 피했다.
+- 홈 생산 현황 위 `불량재고 실사 입력`에서 날짜·마감 수량 입력, 기존 실사 수정·삭제가 가능하다. 합성 0대 저장/재조회/수정/삭제와 버전 충돌·권한 거부·미래 날짜 거부를 검증했다. 홈/월간 불량재고의 실사 표시는 공용 표를 사용한다.
+- 검증: Release build warning/error 0; G2OperationsTests 17/17, 최종 isolated PostgreSqlMigrationTests.G2 12/12(10초), AuditInfrastructureTests 12/12, AuditMutationCoverageTests 4/4, G2Pages 23/23, 최종 full-stack G2 1/1(시나리오16초/전체23.2초) PASS. 관련 eslint/typecheck/build 및 diff check PASS. 기존 Vite 큰 chunk 안내만 남는다. 제품 전체 suite/원격 CI는 아직 실행하지 않았다.
+- 발견·해결: 새 PUT/DELETE의 공통 감사 registry 등록 누락으로 최초 서버 기동이 실패했다. 두 경로를 감사 포함 목록에 추가한 뒤 재빌드·기동 단위검사·full-stack을 재실행해 통과했다. 제외 목록으로 우회하지 않았다.
+- 추가 발견·해결: 새 테이블에 row 감사 trigger가 빠져 있었다. 이미 검수 DB에 적용된 `0092`는 원래 정의로 보존하고 추가 `0093`으로 보정했다. 실제 Insert/Update/Delete 3건의 감사 이벤트와 수량 기록, 새/기존 schema 적용을 검증했다. 늦은 변경은 최초 GO와 구분해 추가 독립 검토와 영향 테스트를 다시 통과했다. 검수 DB 초기화는 하지 않았다.
+- 화면: full-stack 합성 `frontend/test-results/g2-operations/05-defect-count-dialog-mobile-390.png`, `06-defect-count-table-mobile-390.png`, `07-defect-count-dialog-desktop-1440.png` 및 Aside 검수 모달을 직접 열어 확인했다. 모바일 버튼·날짜/수량 입력·실사 표기·표 내부 가로 스크롤과 페이지 넘침 없음 확인. 실행 이미지/report는 commit하지 않는다.
+- 독립 검토: 최종 요구사항 GO / 품질 GO, Open P0/P1/P2=0. 기준 bf96c245 대비 최초 누적 18개 파일 manifest digest `2fccf70419973bcc733ad94a630f7fd6bd2f225406baa7b2f7dae7994437fe65`와 추가 감사 변경을 검토했다. 추가 고정 hash: 0093 `4536f771825c0570372e7bc9e34531a0f4e4318cac4c67f6a8c4ebecc12b3093`, AuditInfrastructureTests `436184293115da59b5a9a557adb20b4f1083d55da7602c0046d7c29224304cbf`, PostgreSqlMigrationTests `a599f2dba4b513f80348b81a5ab500d02c5a154dc5e1f54ea8e318ad9a5f1bf9`. 이후 변경은 이 결과 기록뿐이다. 구현 요청 Sol High, reviewer GPT-6 High; 관측 모델은 모두 NOT_REPORTED. 동일 suite를 reviewer가 반복하지 않았다.
+- 검수 runtime: 기존 5178 frontend 유지, 이 작업 소유 backend만 갱신(최종 session `29109`, 이전 `22040`·중간 `64187` 종료). `0092` 후 `0093`을 기존 합성 검수 DB에 추가 적용했으며 reset/reseed하지 않았다. 30일 원본 metric·기존 재고 실사 digest `c75ae015eb2eda0a4bbe8ed0bbb6ac3f97f7b6e9511ffa32cc497ee8cb06847d`가 최종 갱신 후에도 동일했다. 합성 9/9 재고56, 9/10 재고59로 손계산과 일치. 준비상태/홈 HTTP200.
+- 서버 재개 보조파일 `/private/tmp/g2-repair-review-resume.sh`는 기존 전용 tmpfs DB 소유권을 검사하고 초기화 없이 실행한다. Frontend session77618은 유지한다. Aside는 task 소유 합성 검수 탭으로만 사용했고 공개 PMS 데이터 입력/배포는 하지 않았다.
+- 다음: 사용자 검수 후 별도 원격 병합·배포 승인 시 최신 main 및 migration 번호 충돌을 재확인한다. 이번 결과는 local commit만 보존한다. 원격 branch/main·운영 DB·공개배포는 미변경이며 이전 배포 완료 승인을 재사용하지 않는다.
+
+## 이전 구현·게시 이력
+
+- 상태: 구현·사용자 검수·전체 회귀·원격 main 병합·Azure 공개배포 완료
 - 승인: 2026-09-10 사용자가 신규 불량의 1회 차감 수식을 확인하고 구현·검수 화면 제공을 요청했다.
 - 기준: origin/main `0a12b819cc7622b8afc55ae485c420f8f01b2ad9`, branch `codex/g2-repair-inventory`
 - 작업공간: `/private/tmp/emi-qms-g2-repair-20260910`. 기존 clone의 WIP와 실행환경을 보존하고 별도 검수 runtime을 제공하기 위한 임시 격리. 검수 종료 후 정리는 별도 요청 시 수행.
@@ -57,3 +102,11 @@
 - 입력 화면 보정 후 사용자가 `원격메인에 병합하고 공개배포까지 완료해`라고 요청했다. 현재 G2 수리·불량재고 및 월간 표/입력 배치 결과의 사용자 검수 수락과 해당 main 병합·Azure 공개배포 실행 승인으로 기록한다.
 - 게시 후보는 `06d2aab`, `8edc6a0` 및 이 승인 기록이다. 원격 main 기준 `0a12b819cc7622b8afc55ae485c420f8f01b2ad9` 이후 타 변경이 없음을 fetch로 확인했다. PR의 required CI가 Backend/Frontend/일반 및 사업부 전용 full-stack 전체 회귀를 책임 실행한다.
 - 운영 변경은 기존 Azure 수동 release workflow의 exact main SHA, additive migration `0091`, Backend/Frontend 이미지 교체와 기존 보안/인증/provider 설정 보존으로 제한한다. DB reset·bootstrap·membership backfill·시험 알림 발송은 승인 범위에 포함하지 않는다.
+
+## 게시·배포 결과 — 2026-09-10
+
+- PR #131: https://github.com/emisubin/emi-qms/pull/131, squash main `977fb35301446813394dccda8421c3e998fe0d8b`, merged `2026-09-10T01:34:35Z`.
+- PR CI `34423812056`: 모든 필수 항목 PASS. Backend 602/602, Frontend 41개 test file, mock browser 14/14, 일반 full-stack 64/64, 사업부 접근 1/1, 오산 등록 1/1 통과. Main CI `34426028588`도 성공했다.
+- Azure manual release `34426075806`: https://github.com/emisubin/emi-qms/actions/runs/34426075806. Exact source는 위 merge SHA. Migration/Backend/Frontend/PublicSecurity 모두 PASS (`2026-09-10T01:43:50Z`). DB bootstrap/membership backfill/inspection은 모두 SKIPPED이며 실제 실행하지 않았다.
+- 배포 후 공개 HTTP 직접 확인: `/health/live` 200, 익명 `/` 401, 익명 `/api/me` 401. 기존 인증 경계를 유지했다. 이번 turn에서는 인증된 운영 계정의 G2 입력/수정 smoke는 하지 않아 운영 업무 데이터 mutation이 없다.
+- 운영 배포 결과는 PR #131 댓글에도 남긴다. 이 사후 결과 기록은 local branch commit으로 보존하며 제품 source 추가 변경·추가 배포는 없다. 검수용 5178/5088과 합성 DB는 기존 상태로 유지한다.

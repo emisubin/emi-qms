@@ -99,19 +99,18 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
     }
 
     [Fact]
-    public void InventoryCalculator_AddsPreviousDayRepairsWithoutDeductingCumulativeDefectInventoryAgain()
+    public void InventoryCalculator_AddsPreviousDayRepairsOnlyFromSeptember10()
     {
-        var from = G2InventoryCalculator.AvailableInventoryStartDate;
+        var from = new DateOnly(2026, 9, 9);
         var result = G2InventoryCalculator.Calculate(
             from,
-            from.AddDays(2),
+            from.AddDays(1),
             20,
             new Dictionary<DateOnly, int>(),
             new Dictionary<DateOnly, long>
             {
                 [from.AddDays(-1)] = 5,
-                [from] = 4,
-                [from.AddDays(1)] = 3
+                [from] = 4
             },
             new Dictionary<DateOnly, long>(),
             new Dictionary<DateOnly, long>
@@ -125,13 +124,12 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
                 [from] = 1
             });
 
-        Assert.Equal(22, result[from]);
-        Assert.Equal(26, result[from.AddDays(1)]);
-        Assert.Equal(29, result[from.AddDays(2)]);
+        Assert.Equal(21, result[from]);
+        Assert.Equal(25, result[from.AddDays(1)]);
     }
 
     [Fact]
-    public void InventoryCalculator_UsesSameDayRepairsBeforeCutoverAndPreservesPhysicalOverrides()
+    public void InventoryCalculator_DoesNotAddRepairsBeforeSeptember10AndPreservesPhysicalOverrides()
     {
         var from = G2InventoryCalculator.AvailableInventoryStartDate.AddDays(-2);
         var result = G2InventoryCalculator.Calculate(
@@ -144,9 +142,44 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             new Dictionary<DateOnly, long> { [from] = 3, [from.AddDays(1)] = 4 },
             new Dictionary<DateOnly, long> { [from] = 1, [from.AddDays(1)] = 2 });
 
-        Assert.Equal(10, result[from]);
+        Assert.Equal(9, result[from]);
         Assert.Equal(30, result[from.AddDays(1)]);
-        Assert.Equal(33, result[from.AddDays(2)]);
+        Assert.Equal(31, result[from.AddDays(2)]);
+    }
+
+    [Fact]
+    public void InventoryCalculator_UsesSameDayMovementsThroughAugust27()
+    {
+        var date = new DateOnly(2026, 8, 27);
+        var result = G2InventoryCalculator.Calculate(
+            date,
+            date,
+            20,
+            new Dictionary<DateOnly, int>(),
+            new Dictionary<DateOnly, long> { [date] = 7 },
+            new Dictionary<DateOnly, long> { [date] = 4 },
+            new Dictionary<DateOnly, long> { [date] = 3 },
+            new Dictionary<DateOnly, long> { [date] = 99 });
+
+        Assert.Equal(20, result[date]);
+    }
+
+    [Fact]
+    public async Task DefectInventoryCountEndpoints_RequireInventoryManagePermission()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-quality");
+
+        using var save = await client.PutAsJsonAsync(
+            "/api/g2/defect-inventory-counts/2026-08-18",
+            new { quantity = 0, expectedVersion = (int?)null },
+            TestContext.Current.CancellationToken);
+        using var delete = await client.DeleteAsync(
+            "/api/g2/defect-inventory-counts/2026-08-18?expectedVersion=1",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, save.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);
     }
 
     [Theory]

@@ -377,6 +377,14 @@ export async function deleteG2InventoryCount(developmentUserKey: string | undefi
   return fetchJson<{ saved: boolean }>(`/api/g2/inventory-counts/${date}?expectedVersion=${expectedVersion}`, developmentUserKey, { method: 'DELETE' });
 }
 
+export async function saveG2DefectInventoryCount(developmentUserKey: string | undefined, date: string, quantity: number, expectedVersion: number | null): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/defect-inventory-counts/${date}`, developmentUserKey, { method: 'PUT', body: JSON.stringify({ quantity, expectedVersion }) });
+}
+
+export async function deleteG2DefectInventoryCount(developmentUserKey: string | undefined, date: string, expectedVersion: number): Promise<{ saved: boolean }> {
+  return fetchJson<{ saved: boolean }>(`/api/g2/defect-inventory-counts/${date}?expectedVersion=${expectedVersion}`, developmentUserKey, { method: 'DELETE' });
+}
+
 export async function saveG2Target(developmentUserKey: string | undefined, type: 'DailyProduction' | 'Delivery' | 'Inventory', date: string, quantity: number, expectedVersion: number | null): Promise<{ saved: boolean }> {
   return fetchJson<{ saved: boolean }>(`/api/g2/targets/${type}/${date}`, developmentUserKey, { method: 'PUT', body: JSON.stringify({ quantity, expectedVersion }) });
 }

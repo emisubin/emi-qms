@@ -49,7 +49,8 @@ public sealed record G2DayResponse(
     G2MetricValueResponse? MorningRepair = null,
     G2MetricValueResponse? AfternoonRepair = null,
     long? RepairTotal = null,
-    long DefectInventory = 0);
+    long DefectInventory = 0,
+    G2InventoryCountResponse? DefectInventoryCount = null);
 public sealed record G2RangeResponse(DateOnly Today, DateOnly From, DateOnly To, IReadOnlyList<G2DayResponse> Days);
 public sealed record G2HomeResponse(DateOnly Today, int Year, int Month, bool HasInventoryBaseline, IReadOnlyList<G2DayResponse> Days);
 public sealed record G2MetricChangeRequest(int? Quantity, int? ExpectedVersion);

@@ -3,6 +3,7 @@ namespace Emi.Qms.Api.G2;
 public static class G2InventoryCalculator
 {
     public static readonly DateOnly AvailableInventoryStartDate = new(2026, 8, 28);
+    public static readonly DateOnly RepairInventoryStartDate = new(2026, 9, 10);
 
     public static DateOnly ProductionDateFor(DateOnly inventoryDate) =>
         inventoryDate >= AvailableInventoryStartDate ? inventoryDate.AddDays(-1) : inventoryDate;
@@ -26,7 +27,7 @@ public static class G2InventoryCalculator
             {
                 var productionDate = ProductionDateFor(date);
                 balance += production.GetValueOrDefault(productionDate)
-                    + (repairs?.GetValueOrDefault(productionDate) ?? 0)
+                    + (date >= RepairInventoryStartDate ? repairs?.GetValueOrDefault(productionDate) ?? 0 : 0)
                     - defects.GetValueOrDefault(productionDate)
                     - delivery.GetValueOrDefault(date);
             }

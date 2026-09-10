@@ -952,11 +952,11 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+        Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal(96L, await ReadScalarAsync<long>(
+        Assert.Equal(97L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_qms_global_audit_%';",
             TestContext.Current.CancellationToken));
@@ -1179,13 +1179,13 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal(3L, await ReadScalarAsync<long>(
+            Assert.Equal(4L, await ReadScalarAsync<long>(
                 provider,
-                "select count(*) from information_schema.tables where table_schema='public' and table_name in ('g2_daily_metrics','g2_inventory_counts','g2_targets');",
+                "select count(*) from information_schema.tables where table_schema='public' and table_name in ('g2_daily_metrics','g2_inventory_counts','g2_defect_inventory_counts','g2_targets');",
                 TestContext.Current.CancellationToken));
             Assert.Equal(6L, await ReadScalarAsync<long>(
                 provider,
@@ -1229,6 +1229,14 @@ public sealed class PostgreSqlMigrationTests
                 TestContext.Current.CancellationToken));
             Assert.Equal(1L, await ReadScalarAsync<long>(
                 provider,
+                "select count(*) from pg_constraint where conrelid='g2_defect_inventory_counts'::regclass and conname='ck_g2_defect_inventory_counts_quantity' and pg_get_constraintdef(oid) like '%quantity >= 0%';",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
+                "select count(*) from pg_trigger where tgrelid='g2_defect_inventory_counts'::regclass and tgname='trg_qms_global_audit_g2_defect_inventory_counts' and not tgisinternal;",
+                TestContext.Current.CancellationToken));
+            Assert.Equal(1L, await ReadScalarAsync<long>(
+                provider,
                 "select count(*) from g2_daily_metrics where is_forecast and quantity=50;",
                 TestContext.Current.CancellationToken));
             Assert.Equal(2L, await ReadScalarAsync<long>(
@@ -1241,6 +1249,61 @@ public sealed class PostgreSqlMigrationTests
             through0080.Delete(recursive: true);
             through0081.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task G2DefectInventoryCountAudit_RecordsInsertUpdateAndDelete()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        var actor = Guid.Parse("82000000-0000-0000-0000-000000000017");
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '{actor:D}',
+                'g2-defect-count-audit-test',
+                'G2 Defect Count Audit Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var store = new G2OperationsStore(
+            provider,
+            new MutableTimeProvider(new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero)));
+        var date = new DateOnly(2026, 9, 8);
+
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actor, null, Guid.NewGuid(), null, "G2", "SaveG2DefectInventoryCount", "SaveG2DefectInventoryCount")))
+        {
+            await store.SaveDefectInventoryCountAsync(date, new(3, null), actor, TestContext.Current.CancellationToken);
+        }
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actor, null, Guid.NewGuid(), null, "G2", "SaveG2DefectInventoryCount", "SaveG2DefectInventoryCount")))
+        {
+            await store.SaveDefectInventoryCountAsync(date, new(4, 1), actor, TestContext.Current.CancellationToken);
+        }
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   actor, null, Guid.NewGuid(), null, "G2", "DeleteG2DefectInventoryCount", "DeleteG2DefectInventoryCount")))
+        {
+            await store.DeleteDefectInventoryCountAsync(date, 2, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_events where target_type='g2_defect_inventory_counts' and event_type='MutationSucceeded';",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(3L, await ReadScalarAsync<long>(
+            provider,
+            "select count(distinct row_action) from audit_event_changes where target_type='g2_defect_inventory_counts' and row_action in ('Insert','Update','Delete');",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(2L, await ReadScalarAsync<long>(
+            provider,
+            "select count(*) from audit_event_changes where target_type='g2_defect_inventory_counts' and field_code='g2_defect_inventory_counts.quantity' and projection_kind='ExactScalar' and after_value in ('3','4');",
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -1307,6 +1370,73 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task G2Inventory_UsesTheApprovedAugustAndSeptemberMovementWindowsForAllRanges()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '82000000-0000-0000-0000-000000000013',
+                'g2-inventory-window-test',
+                'G2 Inventory Window Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var actor = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from qms_users where development_user_key='g2-inventory-window-test';",
+            TestContext.Current.CancellationToken);
+        var store = new G2OperationsStore(
+            provider,
+            new MutableTimeProvider(new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero)));
+        var august27 = new DateOnly(2026, 8, 27);
+        var august28 = new DateOnly(2026, 8, 28);
+        var september9 = new DateOnly(2026, 9, 9);
+        var september10 = new DateOnly(2026, 9, 10);
+
+        await store.SaveInventoryCountAsync(august27.AddDays(-1), new(100, null), actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(august27,
+        [
+            new(G2MetricCodes.MorningProduction, 10, null),
+            new(G2MetricCodes.MorningRepair, 2, null),
+            new(G2MetricCodes.Delivery, 5, null),
+            new(G2MetricCodes.Defect, 2, null)
+        ], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(august28,
+        [
+            new(G2MetricCodes.Delivery, 3, null)
+        ], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(september9,
+        [
+            new(G2MetricCodes.MorningProduction, 6, null),
+            new(G2MetricCodes.MorningRepair, 4, null),
+            new(G2MetricCodes.Delivery, 2, null),
+            new(G2MetricCodes.Defect, 4, null)
+        ], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(september10,
+        [
+            new(G2MetricCodes.Delivery, 3, null)
+        ], actor, TestContext.Current.CancellationToken);
+
+        var full = await store.GetRangeAsync(august27.AddDays(-1), september10, TestContext.Current.CancellationToken);
+        var partial = await store.GetRangeAsync(september9, september10, TestContext.Current.CancellationToken);
+        var lastDayOnly = await store.GetRangeAsync(september10, september10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(103, full.Days.Single(day => day.Date == august27).Inventory);
+        Assert.Equal(108, full.Days.Single(day => day.Date == august28).Inventory);
+        Assert.Equal(106, full.Days.Single(day => day.Date == september9).Inventory);
+        Assert.Equal(109, full.Days.Single(day => day.Date == september10).Inventory);
+        Assert.Equal([106L, 109L], partial.Days.Select(day => day.Inventory));
+        Assert.Equal(109, lastDayOnly.Days[0].Inventory);
+    }
+
+    [Fact]
     public async Task G2Repairs_AppearInFullPartialAndSingleDayInventoryAndDefectBalances()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -1359,12 +1489,12 @@ public sealed class PostgreSqlMigrationTests
         var partial = await store.GetRangeAsync(date, date.AddDays(1), TestContext.Current.CancellationToken);
         var lastDayOnly = await store.GetRangeAsync(date.AddDays(1), date.AddDays(1), TestContext.Current.CancellationToken);
 
-        Assert.Equal([20L, 25L, 26L], full.Days.Select(day => day.Inventory));
+        Assert.Equal([20L, 22L, 22L], full.Days.Select(day => day.Inventory));
         Assert.Equal([2L, 5L, 3L], full.Days.Select(day => day.DefectInventory));
         Assert.Equal([3L, 1L, 2L], full.Days.Select(day => day.RepairTotal));
-        Assert.Equal([25L, 26L], partial.Days.Select(day => day.Inventory));
+        Assert.Equal([22L, 22L], partial.Days.Select(day => day.Inventory));
         Assert.Equal([5L, 3L], partial.Days.Select(day => day.DefectInventory));
-        Assert.Equal(26, lastDayOnly.Days[0].Inventory);
+        Assert.Equal(22, lastDayOnly.Days[0].Inventory);
         Assert.Equal(3, lastDayOnly.Days[0].DefectInventory);
         Assert.Equal(2, lastDayOnly.Days[0].AfternoonRepair?.Quantity);
     }
@@ -1432,6 +1562,193 @@ public sealed class PostgreSqlMigrationTests
             provider,
             "select version from g2_daily_metrics where work_date='2026-08-28' and metric_code='Defect';",
             TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task G2DefectInventoryCounts_AreEndOfDateCheckpointsWithoutChangingAvailableInventory()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '82000000-0000-0000-0000-000000000014',
+                'g2-defect-count-range-test',
+                'G2 Defect Count Range Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var actor = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from qms_users where development_user_key='g2-defect-count-range-test';",
+            TestContext.Current.CancellationToken);
+        var store = new G2OperationsStore(
+            provider,
+            new MutableTimeProvider(new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero)));
+        var september8 = new DateOnly(2026, 9, 8);
+        var september9 = september8.AddDays(1);
+        var september10 = september9.AddDays(1);
+
+        await store.SaveInventoryCountAsync(september8, new(100, null), actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(september8, [new(G2MetricCodes.Defect, 10, null)], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(september9,
+        [
+            new(G2MetricCodes.MorningProduction, 5, null),
+            new(G2MetricCodes.Defect, 2, null),
+            new(G2MetricCodes.MorningRepair, 3, null)
+        ], actor, TestContext.Current.CancellationToken);
+        var inventoryBeforeCount = (await store.GetRangeAsync(september10, september10, TestContext.Current.CancellationToken)).Days[0].Inventory;
+
+        await store.SaveDefectInventoryCountAsync(september9, new(4, null), actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(september10,
+        [
+            new(G2MetricCodes.Defect, 2, null),
+            new(G2MetricCodes.AfternoonRepair, 1, null)
+        ], actor, TestContext.Current.CancellationToken);
+
+        var full = await store.GetRangeAsync(september8, september10, TestContext.Current.CancellationToken);
+        var partial = await store.GetRangeAsync(september9, september10, TestContext.Current.CancellationToken);
+        var lastDayOnly = await store.GetRangeAsync(september10, september10, TestContext.Current.CancellationToken);
+
+        Assert.Equal([10L, 4L, 5L], full.Days.Select(day => day.DefectInventory));
+        Assert.Equal([4L, 5L], partial.Days.Select(day => day.DefectInventory));
+        Assert.Equal(5, lastDayOnly.Days[0].DefectInventory);
+        Assert.Equal(4, full.Days[1].DefectInventoryCount?.Quantity);
+        Assert.Equal(1, full.Days[1].DefectInventoryCount?.Version);
+        Assert.Equal(inventoryBeforeCount, lastDayOnly.Days[0].Inventory);
+
+        await store.SaveDefectInventoryCountAsync(september9, new(0, 1), actor, TestContext.Current.CancellationToken);
+        var zeroCount = await store.GetRangeAsync(september9, september10, TestContext.Current.CancellationToken);
+        Assert.Equal(0, zeroCount.Days[0].DefectInventoryCount?.Quantity);
+        Assert.Equal(2, zeroCount.Days[0].DefectInventoryCount?.Version);
+        Assert.Equal([0L, 1L], zeroCount.Days.Select(day => day.DefectInventory));
+        await Assert.ThrowsAsync<DBConcurrencyException>(() => store.SaveDefectInventoryCountAsync(
+            september9, new(3, 1), actor, TestContext.Current.CancellationToken));
+
+        await store.DeleteDefectInventoryCountAsync(september9, 2, TestContext.Current.CancellationToken);
+        var afterDelete = await store.GetRangeAsync(september9, september10, TestContext.Current.CancellationToken);
+        Assert.Null(afterDelete.Days[0].DefectInventoryCount);
+        Assert.Equal([9L, 10L], afterDelete.Days.Select(day => day.DefectInventory));
+    }
+
+    [Fact]
+    public async Task G2DefectInventoryCounts_InvalidCreateEditDeleteAndFutureDateRollBack()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '82000000-0000-0000-0000-000000000015',
+                'g2-defect-count-validation-test',
+                'G2 Defect Count Validation Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var actor = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from qms_users where development_user_key='g2-defect-count-validation-test';",
+            TestContext.Current.CancellationToken);
+        var store = new G2OperationsStore(
+            provider,
+            new MutableTimeProvider(new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero)));
+        var firstDate = new DateOnly(2026, 9, 1);
+
+        await store.SaveMetricsAsync(firstDate, [new(G2MetricCodes.Defect, 2, null)], actor, TestContext.Current.CancellationToken);
+        await store.SaveDefectInventoryCountAsync(firstDate, new(5, null), actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(firstDate.AddDays(1), [new(G2MetricCodes.MorningRepair, 4, null)], actor, TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveDefectInventoryCountAsync(
+            firstDate, new(3, 1), actor, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteDefectInventoryCountAsync(
+            firstDate, 1, TestContext.Current.CancellationToken));
+        var preserved = await store.GetRangeAsync(firstDate, firstDate.AddDays(1), TestContext.Current.CancellationToken);
+        Assert.Equal(5, preserved.Days[0].DefectInventoryCount?.Quantity);
+        Assert.Equal(1, preserved.Days[0].DefectInventoryCount?.Version);
+        Assert.Equal(1, preserved.Days[1].DefectInventory);
+
+        await store.SaveMetricsAsync(firstDate, [new(G2MetricCodes.Defect, 0, 1)], actor, TestContext.Current.CancellationToken);
+        Assert.Equal(1, (await store.GetRangeAsync(firstDate.AddDays(1), firstDate.AddDays(1), TestContext.Current.CancellationToken)).Days[0].DefectInventory);
+
+        var createDate = firstDate.AddDays(4);
+        await store.SaveMetricsAsync(createDate, [new(G2MetricCodes.Defect, 5, null)], actor, TestContext.Current.CancellationToken);
+        await store.SaveMetricsAsync(createDate.AddDays(1), [new(G2MetricCodes.AfternoonRepair, 5, null)], actor, TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveDefectInventoryCountAsync(
+            createDate, new(4, null), actor, TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await ReadScalarAsync<long>(
+            provider,
+            $"select count(*) from g2_defect_inventory_counts where count_date='{createDate:yyyy-MM-dd}';",
+            TestContext.Current.CancellationToken));
+
+        var futureDate = new DateOnly(2026, 9, 21);
+        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveDefectInventoryCountAsync(
+            futureDate, new(0, null), actor, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.DeleteDefectInventoryCountAsync(
+            futureDate, null, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task G2DefectInventoryCounts_SerializeAgainstRepairWrites()
+    {
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            provider,
+            """
+            insert into qms_users (id,development_user_key,display_name,department_id,is_active)
+            values (
+                '82000000-0000-0000-0000-000000000016',
+                'g2-defect-count-concurrency-test',
+                'G2 Defect Count Concurrency Test',
+                (select id from departments order by code limit 1),
+                true
+            );
+            """,
+            TestContext.Current.CancellationToken);
+        var actor = await ReadScalarAsync<Guid>(
+            provider,
+            "select id from qms_users where development_user_key='g2-defect-count-concurrency-test';",
+            TestContext.Current.CancellationToken);
+        var store = new G2OperationsStore(
+            provider,
+            new MutableTimeProvider(new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero)));
+        var countDate = new DateOnly(2026, 9, 8);
+        await store.SaveMetricsAsync(countDate, [new(G2MetricCodes.Defect, 5, null)], actor, TestContext.Current.CancellationToken);
+
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<Exception?> SaveCountAsync()
+        {
+            await start.Task;
+            return await Record.ExceptionAsync(() => store.SaveDefectInventoryCountAsync(
+                countDate, new(2, null), actor, TestContext.Current.CancellationToken));
+        }
+        async Task<Exception?> SaveRepairAsync()
+        {
+            await start.Task;
+            return await Record.ExceptionAsync(() => store.SaveMetricsAsync(
+                countDate.AddDays(1), [new(G2MetricCodes.MorningRepair, 4, null)], actor, TestContext.Current.CancellationToken));
+        }
+
+        var count = SaveCountAsync();
+        var repair = SaveRepairAsync();
+        start.SetResult();
+        var outcomes = await Task.WhenAll(count, repair);
+
+        Assert.Single(outcomes, exception => exception is null);
+        Assert.Single(outcomes, exception => exception is ArgumentException);
+        var range = await store.GetRangeAsync(countDate, countDate.AddDays(1), TestContext.Current.CancellationToken);
+        Assert.All(range.Days, day => Assert.True(day.DefectInventory >= 0));
     }
 
     [Fact]
@@ -1701,7 +2018,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1769,7 +2086,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -1899,7 +2216,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2587,7 +2904,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2853,7 +3170,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2957,7 +3274,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3023,7 +3340,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+        Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3087,7 +3404,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3210,7 +3527,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3376,7 +3693,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3898,7 +4215,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3941,7 +4258,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4122,7 +4439,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4199,7 +4516,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4264,7 +4581,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+            Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4314,7 +4631,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0091_g2_repairs", await ReadScalarAsync<string>(
+        Assert.Equal("0093_g2_defect_inventory_audit", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

@@ -16,6 +16,7 @@ type G2DayPayload = {
   afternoonRepair: MetricPayload;
   repairTotal: number | null;
   defectInventory: number;
+  defectInventoryCount: MetricPayload;
   productionTotal: number | null;
   morningAttendanceTotal: number | null;
   afternoonAttendanceTotal: number | null;
@@ -187,7 +188,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.getByLabel('목표 수량').fill('0');
   await expect(page.getByRole('button', { name: '목표 저장' })).toBeEnabled();
   await page.getByLabel('목표 수량').fill('');
-  await page.getByRole('button', { name: '실사 입력' }).click();
+  await page.getByRole('button', { name: '실사 입력', exact: true }).click();
   await page.getByLabel('실사 수량').fill('');
   await expect(page.getByRole('dialog').getByRole('button', { name: '저장' })).toBeDisabled();
   await page.getByLabel('실사 수량').fill('0');
@@ -298,6 +299,52 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(page.getByRole('button', { name: `${koreanDate(tomorrow)} 오전 합계 7명 세부 인원 보기` })).toHaveCSS('color', 'rgb(37, 99, 235)');
   await assertNoPageOverflow(page);
   await capture(page, '04-g2-attendance-mobile-390.png');
+
+  const inventoryBeforeCount = (await getDay(request, tomorrow, 'dev-sales')).inventory;
+  await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${today}`, {
+    headers: devHeaders('dev-logistics'), data: { quantity: 0, expectedVersion: null }
+  }), 403);
+  await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${tomorrow}`, {
+    headers: devHeaders('dev-sales'), data: { quantity: 0, expectedVersion: null }
+  }), 400);
+  await page.goto('/g2');
+  await page.getByRole('button', { name: '실사 입력', exact: true }).click();
+  await page.getByLabel('실사 구분').selectOption('defect');
+  const countDialog = page.getByRole('dialog', { name: '불량재고 실사 입력' });
+  await expect(countDialog.getByLabel('실사 날짜')).toHaveValue(today);
+  await expect(countDialog.getByRole('button', { name: '저장', exact: true })).toBeDisabled();
+  await countDialog.getByLabel('실사 수량').fill('0');
+  await assertNoPageOverflow(page);
+  await page.screenshot({ path: path.join(screenshotDirectory, '05-defect-count-dialog-mobile-390.png'), animations: 'disabled' });
+  await countDialog.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(countDialog).toHaveCount(0);
+  const countedDay = await getDay(request, today, 'dev-sales');
+  expect(countedDay.defectInventoryCount?.quantity).toBe(0);
+  expect(countedDay.defectInventory).toBe(0);
+  expect(countedDay.defect?.quantity).toBe(1);
+  expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(inventoryBeforeCount);
+  await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${today}`, {
+    headers: devHeaders('dev-sales'), data: { quantity: 9, expectedVersion: null }
+  }), 409);
+  await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
+  await expect(page.getByRole('table', { name: '생산 현황', exact: true }).getByText('실사', { exact: true })).toBeVisible();
+  await page.getByRole('table', { name: '생산 현황', exact: true }).getByText('실사', { exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole('heading', { name: '생산 현황', exact: true }).scrollIntoViewIfNeeded();
+  await assertNoPageOverflow(page);
+  await page.screenshot({ path: path.join(screenshotDirectory, '06-defect-count-table-mobile-390.png'), animations: 'disabled' });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.getByRole('button', { name: `${Number(today.slice(-2))}일 불량 실사 0대 · 수정`, exact: true }).click();
+  await expect(countDialog.getByLabel('실사 수량')).toHaveValue('0');
+  await page.screenshot({ path: path.join(screenshotDirectory, '07-defect-count-dialog-desktop-1440.png'), animations: 'disabled' });
+  await countDialog.getByLabel('실사 수량').fill('4');
+  await countDialog.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(countDialog).toHaveCount(0);
+  expect((await getDay(request, today, 'dev-sales')).defectInventoryCount?.quantity).toBe(4);
+  await page.getByRole('button', { name: `${Number(today.slice(-2))}일 불량 실사 4대 · 수정`, exact: true }).click();
+  await countDialog.getByRole('button', { name: '실사 삭제', exact: true }).click();
+  await expect(countDialog).toHaveCount(0);
+  expect((await getDay(request, today, 'dev-sales')).defectInventoryCount).toBeNull();
+  expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(inventoryBeforeCount);
   expect(consoleErrors).toEqual([]);
 });
 

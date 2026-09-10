@@ -736,6 +736,7 @@
 .g2-marker-actions { margin-top: 10px; }
 .g2-marker-actions button { display: grid; gap: 2px; text-align: left; }
 .g2-marker-actions span { color: var(--muted); font-size: 0.72rem; }
+.g2-count-badge { display: block; margin-top: 2px; font-size: 0.65rem; font-weight: 600; color: inherit; }
 
 .g2-empty-note,
 .g2-review-safe,
@@ -794,7 +795,8 @@
 .g2-inline-form select,
 .g2-entry-field input,
 .g2-date-picker input,
-.g2-dialog input { width: 100%; min-height: 42px; }
+.g2-dialog input,
+.g2-dialog select { width: 100%; min-height: 42px; }
 .g2-entry-field small { min-height: 32px; color: var(--muted); font-weight: 500; }
 .g2-entry-card { display: grid; gap: 14px; }
 .g2-entry-card > .primary-button { justify-self: end; }

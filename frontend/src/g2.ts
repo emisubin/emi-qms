@@ -42,6 +42,7 @@ export type G2Day = {
   attendanceTotal: number | null;
   inventory: number | null;
   physicalCount: G2InventoryCount | null;
+  defectInventoryCount: G2InventoryCount | null;
   dailyProductionTarget: G2Target | null;
   deliveryTarget: G2Target | null;
   inventoryTarget: G2Target | null;

@@ -72,12 +72,13 @@ public sealed partial class BusinessUnitIsolationTests
         }
 
         var requestId = Guid.NewGuid();
-        using (var requestEdit = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
+        for (var replay = 0; replay < 2; replay++)
         {
+            using var requestEdit = Request(
+                HttpMethod.Post,
+                $"/api/osan/projects/{projectId:D}/progress/photo-edits",
+                "dev-manufacturing",
+                BusinessUnitCodes.Osan);
             requestEdit.Content = JsonContent.Create(new
             {
                 requestId,
@@ -87,6 +88,10 @@ public sealed partial class BusinessUnitIsolationTests
             using var response = await client.SendAsync(requestEdit, cancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
+        Assert.Equal(1L, await CountPhotoEditAuditEventsAsync(
+            databases,
+            "RequestOsanProgressPhotoEdit",
+            cancellationToken));
 
         var replacementBytes = CreateValidPng();
         var operationId = Guid.NewGuid();
@@ -128,15 +133,20 @@ public sealed partial class BusinessUnitIsolationTests
             using var response = await client.SendAsync(wrongUnitApproval, cancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
-        using (var approval = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/approve",
-                   "dev-admin",
-                   BusinessUnitCodes.Osan))
+        for (var replay = 0; replay < 2; replay++)
         {
+            using var approval = Request(
+                HttpMethod.Post,
+                $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/approve",
+                "dev-admin",
+                BusinessUnitCodes.Osan);
             using var response = await client.SendAsync(approval, cancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
+        Assert.Equal(1L, await CountPhotoEditAuditEventsAsync(
+            databases,
+            "ApproveOsanProgressPhotoEdit",
+            cancellationToken));
         using (var differentUserSave = Request(
                    HttpMethod.Post,
                    $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/save",
@@ -172,6 +182,20 @@ public sealed partial class BusinessUnitIsolationTests
             using var response = await client.SendAsync(save, cancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
+        Assert.Equal(1L, await CountPhotoEditAuditEventsAsync(
+            databases,
+            "SaveOsanProgressPhotoEdit",
+            cancellationToken));
+        Assert.Equal(3L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            """
+            select count(*)
+            from audit_events
+            where target_type='osan_photo_edit_requests'
+              and outcome='Succeeded';
+            """,
+            cancellationToken));
 
         Guid revisionPhotoId;
         using (var listEdits = Request(
@@ -255,4 +279,19 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
     }
+
+    private static Task<long> CountPhotoEditAuditEventsAsync(
+        IsolationDatabaseSet databases,
+        string action,
+        CancellationToken cancellationToken) => databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            $"""
+            select count(*)
+            from audit_events
+            where target_type='osan_photo_edit_requests'
+              and action='{action}'
+              and outcome='Succeeded';
+            """,
+            cancellationToken);
 }

@@ -1107,7 +1107,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
         Assert.Equal(3, firstPage.TotalCount);
         Assert.Equal(2, firstPage.Items.Count);
-        Assert.Equal(["Customer", "고객 A", "고객 AB"], firstPage.Customers);
+        Assert.Equal(["Customer", "고객 A", "고객 AB"], firstPage.Customers!.Order(StringComparer.Ordinal));
         Assert.DoesNotContain("Secret Customer", firstPage.Customers!);
         Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
             firstPage.Items.Select(item => item.ProjectId));

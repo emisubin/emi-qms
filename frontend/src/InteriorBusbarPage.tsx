@@ -130,7 +130,6 @@ export function InteriorBusbarPage({
   const [projectStatus, setProjectStatus] = useState("");
   const [activeProject, setActiveProject] = useState("");
   const [bomFamily, setBomFamily] = useState("");
-  const [productMode, setProductMode] = useState<"photo" | "manage">("photo");
   const [selectedQrIds, setSelectedQrIds] = useState<string[]>([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [printArmed, setPrintArmed] = useState(false);
@@ -162,7 +161,7 @@ export function InteriorBusbarPage({
   const selectedProduct = productDetail?.id === activeProduct
     ? productDetail
     : data?.products.find((product) => product.id === activeProduct);
-  const completedProductId = productMode === "photo" && selectedProduct?.status === "Complete" ? selectedProduct.id : undefined;
+  const completedProductId = selectedProduct?.status === "Complete" ? selectedProduct.id : undefined;
   useEffect(() => {
     if (!completedProductId) return;
     completionRef.current?.focus({ preventScroll: true });
@@ -612,6 +611,7 @@ export function InteriorBusbarPage({
           <DsSurface label="진행 중 납품 프로젝트">
             <h3>진행 중 납품 프로젝트 · 납기순</h3>
             <Table headings={["프로젝트명", "제품군", "납품예정일", "요청", "누적 출하", "잔여"]}
+              rowClasses={pendingProjects.map((project) => project.dueDate.slice(0, 10) >= today() && project.dueDate.slice(0, 10) <= datePlus(today(), 3) ? "busbar-due-soon" : "")}
               rows={pendingProjects.map((project) => [project.name, familyName(project.productFamilyId), project.dueDate.slice(0, 10), n(project.requestedQuantity), n(project.shippedQuantity), n(project.requestedQuantity - project.shippedQuantity)])} />
           </DsSurface>
           <DsSurface label="제품군별 현황">
@@ -683,9 +683,7 @@ export function InteriorBusbarPage({
               ]}
               rowActions={visibleProjects.map((p) => ({ expanded: activeProject === p.id, toggle: () => setActiveProject(activeProject === p.id ? "" : p.id) }))}
               rows={visibleProjects.map((p) => [
-                  <button type="button" aria-expanded={activeProject === p.id} onClick={() => setActiveProject(activeProject === p.id ? "" : p.id)}>
-                    {p.name}
-                  </button>,
+                  p.name,
                   p.customerJobNumber,
                   familyName(p.productFamilyId),
                   p.dueDate.slice(0, 10),
@@ -741,14 +739,13 @@ export function InteriorBusbarPage({
                   <div><dt>요청 수량</dt><dd>{n(selectedProject.requestedQuantity)}개</dd></div>
                   <div><dt>누적 출하</dt><dd>{n(selectedProject.shippedQuantity)}개</dd></div>
                   <div><dt>납품 잔여</dt><dd>{n(selectedRemaining)}개</dd></div>
-                  <div className="busbar-shippable"><dt>현재 최대 출하 가능</dt><dd>{n(maxShipment)}개</dd></div>
                 </dl>
                 <div>
                   <h4>해당 제품군 날짜별 생산계획</h4>
-                  <Table headings={["생산일", "계획", "완료", "미완료"]}
+                  <Table headings={["생산일", "계획", "완료", "미완료", "재고"]}
                     rows={data.plans.filter((p) => p.productFamilyId === selectedProject.productFamilyId)
                       .sort((a, b) => a.planDate.localeCompare(b.planDate))
-                      .map((p) => [p.planDate.slice(0, 10), `${n(p.quantity)}개`, `${n(p.actualQuantity)}개`, `${n(Math.max(0, p.quantity - (p.actualQuantity ?? 0)))}개`])} />
+                      .map((p) => [p.planDate.slice(0, 10), `${n(p.quantity)}개`, `${n(p.actualQuantity)}개`, `${n(Math.max(0, p.quantity - (p.actualQuantity ?? 0)))}개`, `${n(selectedStock)}개`])} />
                 </div>
               </div>
               <p className="busbar-note">공용 재고는 이 프로젝트에 예약된 수량이 아닙니다. 생산 예정 수량은 현재 출하 가능 수량에 포함하지 않습니다.</p>
@@ -892,43 +889,20 @@ export function InteriorBusbarPage({
               rows={visibleProducts.map((product) => [
                 <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintQr(product)}
                   onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />,
-                <button disabled={busy} onClick={() => { setProductMode("photo"); setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{product.status === "Draft" ? "사진등록" : "사진보기"}</button>,
+                <button disabled={busy} onClick={() => { setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{product.status === "Draft" ? "사진등록" : "사진보기"}</button>,
                 familyName(product.productFamilyId), product.workerName ?? "작업자 선택 전", busbarDateTime(product.manufacturedAtUtc), productionStatusLabel(product),
-                <button disabled={busy} aria-label={`${productLabel(product)} 제품 관리`} onClick={() => { setProductMode("manage"); setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{productLabel(product)}</button>,
+                productLabel(product),
                 <><DsBadge tone={product.publicationState === "Failed" ? "danger" : product.publicationState === "Published" ? "success" : "neutral"}>{statusLabel(product.publicationState)}</DsBadge>
                   {product.qrState === "ConfigurationPending" && <small className="busbar-note"> · QR 공개 주소 설정 대기</small>}</>,
               ])} />
           </DsSurface>
           {selectedProduct && (
             <BusbarDialog label={`${productLabel(selectedProduct)} · ${familyName(selectedProduct.productFamilyId)}`} busy={busy} heading={photoHeadingRef}
-              closeLabel={productMode === "photo" ? "사진 팝업 닫기" : "제품 관리 닫기"} className="busbar-photo-dialog" fallbackFocus={productionHeadingRef}
+              closeLabel="사진 팝업 닫기" className="busbar-photo-dialog" fallbackFocus={productionHeadingRef}
               onClose={() => { if (!busy) { setActiveProduct(""); setProductDetail(null); setEditor(null); setFeedback(""); } }}>
               {feedback && <DsActionFeedback message={feedback} tone={feedbackError ? "error" : "success"} focusOnAttention />}
               {error && <DsActionFeedback message={error} tone="error" />}
-              {productMode === "manage" && editor && canWrite && <Editor key={editorKey} spec={editor} busy={busy}
-                onClose={() => { if (!busy) setEditor(null); }}
-                onSave={async (values) => {
-                  const ok = await run(() => busbarApi.write(user, editor.path, editor.makeBody(values), editor.method));
-                  if (ok) { setEditor(null); requestAnimationFrame(() => photoHeadingRef.current?.focus()); }
-                }} />}
-
-              {productMode === "manage" && <>
-              <p>
-                제조 작업자: {selectedProduct.workerName ?? "선택 전"} ·{" "}
-                {busbarDateTime(selectedProduct.manufacturedAtUtc)}
-              </p>
-              <p className="busbar-note">
-                사진 등록 담당자:{" "}
-                {selectedProduct.registeredByDisplayName ??
-                  "사진 두 장 등록 후 표시"}
-              </p>
-              <p className="busbar-note">
-                앞·뒤 사진 두 장의 등록이 끝나면 자동으로 생산 완료합니다.
-                제조일시는 두 번째 사진이 PMS에 등록된 시각이며 사진 파일의
-                촬영시간과 다를 수 있습니다.
-              </p>
-              </>}
-              {productMode === "photo" && selectedProduct.status === "Complete" && (
+              {selectedProduct.status === "Complete" && (
                 <div
                   ref={completionRef}
                   tabIndex={-1}
@@ -943,76 +917,16 @@ export function InteriorBusbarPage({
                   </p>
                 </div>
               )}
-              {productMode === "photo" && selectedProduct.workerName && <p className="busbar-note">제조 작업자: {selectedProduct.workerName}</p>}
+              {selectedProduct.workerName && <p className="busbar-note">제조 작업자: {selectedProduct.workerName}</p>}
               <PhotoWorkspace
                 key={selectedProduct.id}
                 user={user}
                 product={selectedProduct}
                 workers={data.workers}
-                canWrite={canWrite && (productMode === "manage" || selectedProduct.status === "Draft")}
+                canWrite={canWrite && selectedProduct.status === "Draft"}
                 busy={busy}
                 run={run}
               />
-              {productMode === "manage" && <DsToolbar>
-                {canWrite &&
-                  selectedProduct.manufacturedAtUtc &&
-                  selectedProduct.status !== "Draft" && (
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        void run(
-                          () =>
-                            busbarApi.write(
-                              user,
-                              `/products/${selectedProduct.id}/publication/retry`,
-                              {},
-                            ),
-                          "외부 페이지 게시를 다시 요청했습니다.",
-                        )
-                      }
-                    >
-                      게시 다시 요청
-                    </button>
-                  )}
-                {canWrite && selectedProduct.status !== "Cancelled" && (
-                  <>
-                    {writeButton("작업자 정정", () =>
-                      open({
-                        title: "작업자 정정",
-                        path: `/products/${selectedProduct.id}`,
-                        method: "PATCH",
-                        fields: [
-                          {
-                            key: "workerId",
-                            label: "실제 제조 작업자",
-                            type: "select",
-                            options: options(
-                              data.workers,
-                              selectedProduct.workerId ?? undefined,
-                            ),
-                            value: selectedProduct.workerId ?? undefined,
-                          },
-                          reasonField,
-                        ],
-                        makeBody: (v) => v,
-                      }),
-                    )}
-                    {writeButton("생산 취소", () => {
-                      const requestId = crypto.randomUUID();
-                      open({
-                        title: "생산 취소",
-                        path: `/products/${selectedProduct.id}/cancel`,
-                        fields: [reasonField],
-                        note:
-                          selectedProduct.status === "Draft"
-                            ? "미완료 등록을 취소합니다. 재고는 변경되지 않습니다."
-                            : "당시 소요량 기준으로 자재를 되돌리고 완제품 1개를 차감합니다.",
-                        makeBody: (v) => ({ ...v, requestId }),
-                      });
-                    })}
-                  </>
-                )}
-              </DsToolbar>}
               {selectedProduct.qrState === "ConfigurationPending" && <p className="busbar-note">QR 공개 주소 설정 후 출력할 수 있습니다. 생산 기록은 정상 반영되었습니다.</p>}
             </BusbarDialog>
           )}
@@ -1284,9 +1198,11 @@ function Table({
   headings,
   rows,
   rowActions,
+  rowClasses,
 }: {
   headings: string[];
   rows: ReactNode[][];
+  rowClasses?: string[];
   rowActions?: { expanded: boolean; toggle: () => void }[];
 }) {
   return rows.length ? (
@@ -1308,7 +1224,7 @@ function Table({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className={rowActions ? "busbar-clickable-row" : undefined}
+            <tr key={i} className={[rowActions ? "busbar-clickable-row" : "", rowClasses?.[i]].filter(Boolean).join(" ")}
               tabIndex={rowActions ? 0 : undefined} aria-expanded={rowActions?.[i].expanded}
               onClick={(event) => { if (!(event.target as HTMLElement).closest("button, a, input, select")) rowActions?.[i].toggle(); }}
               onKeyDown={(event) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key) && rowActions) { event.preventDefault(); rowActions[i].toggle(); } }}>

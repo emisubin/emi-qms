@@ -191,7 +191,6 @@
 .busbar-shipping-summary > div { padding: 12px; background: #f8fafc; border-radius: 8px; }
 .busbar-shipping-summary dt { color: #475569; font-size: 13px; }
 .busbar-shipping-summary dd { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
-.busbar-shipping-summary .busbar-shippable { grid-column: 1 / -1; background: #eff6ff; color: #1d4ed8; }
 /* Fractional implicit rows share the tallest content height across the month. */
 .busbar-month-calendar { max-width: 100%; overflow-x: auto; }
 .busbar-calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-width: 840px; text-align: center; font-weight: 600; padding-block: 12px; }
@@ -277,3 +276,8 @@
   .busbar-print-sheet .busbar-qr-label { display: inline-block; width: 58mm; padding: 4mm; vertical-align: top; break-inside: avoid; }
   .busbar-print-sheet .busbar-qr-label img { display: block; width: 44mm; height: 44mm; margin: auto; }
 }
+
+/* Selection stays soft; today retains its red identity. */
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) { background: #f1f5f9 !important; color: #334155 !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) * { color: inherit !important; }
+.app-shell .busbar-page table tbody tr.busbar-due-soon > td { background: #fef9c3 !important; color: #713f12 !important; }

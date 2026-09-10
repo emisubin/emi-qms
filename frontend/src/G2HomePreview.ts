@@ -4,6 +4,7 @@ export type G2PreviewField = 'morningProduction' | 'afternoonProduction' | 'morn
 export type G2PreviewInputs = Record<string, Partial<Record<G2PreviewField, string>>>;
 
 const availableInventoryStartDate = '2026-08-28';
+const repairInventoryStartDate = '2026-09-10';
 
 function previewQuantity(value: string | undefined, fallback: number | null | undefined) {
   if (value === undefined) return fallback ?? null;
@@ -27,7 +28,7 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
   const first = days[0];
   let balance: number | null = first.physicalCount === null && first.inventory !== null
     ? first.date < availableInventoryStartDate
-      ? first.inventory - (first.productionTotal ?? 0) - (first.repairTotal ?? 0) + (first.delivery?.quantity ?? 0) + (first.defect?.quantity ?? 0)
+      ? first.inventory - (first.productionTotal ?? 0) + (first.delivery?.quantity ?? 0) + (first.defect?.quantity ?? 0)
       : first.inventory + (first.delivery?.quantity ?? 0)
     : null;
   let previousMovement: { production: number; repair: number; delivery: number; defect: number } | null = null;
@@ -56,16 +57,18 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
 
     if (day.physicalCount !== null) balance = day.physicalCount.quantity;
     else if (balance !== null && day.date < availableInventoryStartDate) {
-      balance += currentMovement.production + currentMovement.repair - currentMovement.delivery - currentMovement.defect;
+      balance += currentMovement.production - currentMovement.delivery - currentMovement.defect;
     } else if (balance !== null && day.date >= availableInventoryStartDate) {
       if (index > 0 && previousMovement !== null) {
-        balance += previousMovement.production + previousMovement.repair - previousMovement.defect;
+        balance += previousMovement.production + (day.date >= repairInventoryStartDate ? previousMovement.repair : 0) - previousMovement.defect;
       }
       balance -= currentMovement.delivery;
     }
 
     previousMovement = currentMovement;
-    defectInventory += currentMovement.defect - currentMovement.repair;
+    defectInventory = day.defectInventoryCount
+      ? day.defectInventoryCount.quantity
+      : defectInventory + currentMovement.defect - currentMovement.repair;
     return { ...day, morningProduction, afternoonProduction, morningRepair, afternoonRepair, delivery, defect, productionTotal, repairTotal, defectInventory, inventory: balance };
   });
 }

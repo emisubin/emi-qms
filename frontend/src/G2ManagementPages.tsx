@@ -98,7 +98,7 @@ export function G2OperationsPage({ developmentUserKey, canEditProduction, canEdi
         <Field label="일일 납품량" value={inputs.delivery} onChange={value => setInputs(current => ({ ...current, delivery: value }))} disabled={!mutationEnabled || !canEditDelivery || busy} metric={month.selected?.delivery ?? null} />
         <Field label="일일 불량 수량" value={inputs.defect} onChange={value => setInputs(current => ({ ...current, defect: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.defect ?? null} />
       </div>
-      <p className="g2-table-help">불량에는 오늘 새로 발생한 수량을 입력합니다. 수리 완료량은 불량재고에서 빠지고 다음 날 납품가능재고에 더해집니다.</p>
+      <p className="g2-table-help">불량에는 해당 날짜에 새로 발생한 수량을 입력합니다. 수리 완료량은 불량재고에서 빠지며, 2026년 9월 10일 재고부터 전일 수리량을 납품가능재고에 더합니다.</p>
       <div className="g2-live-totals"><span>입력일 불량재고 <b>{month.selected?.defectInventory ?? 0}대</b></span><small>저장된 자료 기준</small></div>
       {(month.selected?.defectInventory ?? 0) < 0 ? <p className="g2-warning" role="alert">신규 불량과 수리 입력을 확인해 주세요. 불량재고가 음수입니다.</p> : null}
       {feedback ? <p className="g2-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{feedback.message}</p> : null}<button type="button" className="primary-button" disabled={!mutationEnabled || busy || (!canEditProduction && !canEditDelivery)} onClick={() => void save()}>변경한 값 저장</button>

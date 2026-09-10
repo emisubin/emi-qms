@@ -1,0 +1,4 @@
+drop trigger if exists trg_qms_global_audit_g2_defect_inventory_counts on g2_defect_inventory_counts;
+create trigger trg_qms_global_audit_g2_defect_inventory_counts
+after insert or update or delete on g2_defect_inventory_counts
+for each row execute function qms_audit_capture_row_change();

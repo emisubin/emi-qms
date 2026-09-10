@@ -27,6 +27,7 @@ public static partial class AuditMutationRegistry
         DELETE /api/admin/departments/{departmentId:guid}/purge
         DELETE /api/admin/users/{userId:guid}/purge
         DELETE /api/deleted-projects/{projectId:guid}/purge
+        DELETE /api/g2/defect-inventory-counts/{date}
         DELETE /api/g2/inventory-counts/{date}
         DELETE /api/logistics/{stage:regex(^(packing|departure|delivery)$)}/{targetId:guid}/evidence/{evidenceId:guid}
         DELETE /api/me/profile-photo
@@ -196,6 +197,7 @@ public static partial class AuditMutationRegistry
         PUT /api/form-templates/{family}/{templateKey}/current
         PUT /api/form-templates/{family}/{templateKey}/versions/{versionId:guid}/items
         PUT /api/g2/attendance/{date}
+        PUT /api/g2/defect-inventory-counts/{date}
         PUT /api/g2/inventory-counts/{date}
         PUT /api/g2/operations/{date}
         PUT /api/g2/targets/{targetType}/{effectiveDate}

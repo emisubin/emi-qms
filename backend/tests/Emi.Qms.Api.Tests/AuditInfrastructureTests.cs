@@ -10,7 +10,7 @@ public sealed class AuditInfrastructureTests
 {
     private static readonly IReadOnlySet<string> PostGlobalAuditMigrationTrackedRelations =
         ParseRelationNames("""
-            osan_project_target_steps osan_project_targets
+            g2_defect_inventory_counts osan_project_target_steps osan_project_targets
             """);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ExplicitRelationExclusions =
@@ -183,7 +183,7 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(96, trackedRelations.Count);
+        Assert.Equal(97, trackedRelations.Count);
         Assert.Equal(59, excludedRelations.Length);
     }
 

@@ -37,12 +37,12 @@ export function G2ProductionSummaryTable({ days, holidays, input, monthly = fals
     summary('defect', '불량', day => day.defect?.quantity ?? null),
     ...(expanded.defect ? [
       detail('defect', monthly ? '일일 불량 수량' : '신규 불량'),
-      { key: 'defect-stock', label: '불량재고', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.defectInventory, cellClassName: (day: G2Day) => day.defectInventory < 0 ? 'g2-negative' : undefined }
+      { key: 'defect-stock', label: '불량재고', rowClassName: 'g2-detail-row', value: (day: G2Day) => <>{day.defectInventory}{day.defectInventoryCount ? <small className="g2-count-badge" title="실사로 확인한 마감 불량재고">실사</small> : null}</>, cellClassName: (day: G2Day) => day.defectInventory < 0 ? 'g2-negative' : undefined }
     ] : []),
     { key: 'inventory', label: '재고', rowClassName: 'g2-inventory-row', value: day => day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
   ];
   return <>
-    <p className="g2-table-help">행의 이름이나 숫자를 눌러 상세를 확인하세요. 불량재고는 해당 일자까지의 신규 불량에서 수리 완료량을 뺀 수량입니다.</p>
+    <p className="g2-table-help">행의 이름이나 숫자를 눌러 상세를 확인하세요. 불량재고는 마감 실사를 기준으로 다음 날부터 신규 불량을 더하고 수리량을 뺀 수량입니다. 실사가 없으면 0부터 누적합니다.</p>
     {days.some(day => day.defectInventory < 0) ? <p className="g2-warning" role="alert">불량재고보다 수리량이 많은 날짜가 있습니다. 신규 불량과 수리 입력을 확인해 주세요.</p> : null}
     {monthly
       ? <G2FilteredHorizontalTable title="월간 입력 현황" filterLabel="입력 현황 표시 기간" caption="생산·납품·재고 월간 입력 현황" days={days} rows={rows} holidays={holidays} />

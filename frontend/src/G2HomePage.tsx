@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, deleteG2InventoryCount, getG2Home, saveG2InventoryCount, saveG2Target } from './api';
+import { ApiError, deleteG2InventoryCount, deleteG2DefectInventoryCount, getG2Home, saveG2InventoryCount, saveG2DefectInventoryCount, saveG2Target } from './api';
 import { G2ProductionDeliveryInventoryChart, G2ShiftProductionChart } from './G2Charts';
 import { G2DateRangeFilter, G2HorizontalTable, type G2HorizontalRow } from './G2DataViews';
 import { formatG2Date, formatG2Modified, todaySeoul, type G2Day, type G2HomeResponse, type G2Target } from './g2';
@@ -99,7 +99,8 @@ export function G2HomePage({
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [countEditor, setCountEditor] = useState<{ date: string; value: string } | null>(null);
+  const [countEditor, setCountEditor] = useState<{ date: string; value: string; kind: 'available' | 'defect' } | null>(null);
+  const countLabel = countEditor?.kind === 'defect' ? '불량재고 실사' : '재고 실사';
   const [targetType, setTargetType] = useState<'DailyProduction' | 'Delivery' | 'Inventory'>('DailyProduction');
   const [targetDate, setTargetDate] = useState(initialDate);
   const [targetValue, setTargetValue] = useState('');
@@ -137,10 +138,14 @@ export function G2HomePage({
     () => previewDays.filter(day => day.date >= dateRange.from && day.date <= dateRange.to),
     [dateRange.from, dateRange.to, previewDays]
   );
-  function openCount(date: string) {
-    const count = data?.days.find(day => day.date === date)?.physicalCount;
-    setCountEditor({ date, value: count ? String(count.quantity) : '' }); setFeedback(null);
+  function openCount(date: string, kind: 'available' | 'defect' = 'available') {
+    const day = data?.days.find(day => day.date === date);
+    const count = kind === 'defect' ? day?.defectInventoryCount : day?.physicalCount;
+    setCountEditor({ date, kind, value: count ? String(count.quantity) : '' }); setFeedback(null);
   }
+
+  const currentCountDay = data?.days.find(day => day.date === countEditor?.date);
+  const currentCount = countEditor?.kind === 'defect' ? currentCountDay?.defectInventoryCount : currentCountDay?.physicalCount;
 
   async function saveCount() {
     if (!data || !countEditor || busy) return;
@@ -148,20 +153,20 @@ export function G2HomePage({
     if (countEditor.value.trim() === '') { setFeedback('실사 수량을 입력해 주세요.'); return; }
     const quantity = Number(countEditor.value);
     if (!Number.isInteger(quantity) || quantity < 0) { setFeedback('실사 수량은 0 이상의 정수로 입력해 주세요.'); return; }
-    const current = data.days.find(day => day.date === countEditor.date)?.physicalCount ?? null;
-    setBusy(true); setFeedback('재고 실사를 저장하는 중입니다.');
-    try { await saveG2InventoryCount(developmentUserKey, countEditor.date, quantity, current?.version ?? null); await load(year, month, true); setFeedback('재고 실사를 저장했습니다.'); setCountEditor(null); }
-    catch (error) { setFeedback(error instanceof ApiError ? error.message : '재고 실사를 저장하지 못했습니다.'); }
+    const save = countEditor.kind === 'defect' ? saveG2DefectInventoryCount : saveG2InventoryCount;
+    setBusy(true); setFeedback(`${countLabel}를 저장하는 중입니다.`);
+    try { await save(developmentUserKey, countEditor.date, quantity, currentCount?.version ?? null); await load(year, month, true); setFeedback(`${countLabel}를 저장했습니다.`); setCountEditor(null); }
+    catch (error) { setFeedback(error instanceof ApiError ? error.message : `${countLabel}를 저장하지 못했습니다.`); }
     finally { setBusy(false); }
   }
 
   async function deleteCount() {
     if (!data || !countEditor || busy) return;
-    const current = data.days.find(day => day.date === countEditor.date)?.physicalCount;
-    if (!current) return;
-    setBusy(true); setFeedback('재고 실사를 삭제하는 중입니다.');
-    try { await deleteG2InventoryCount(developmentUserKey, countEditor.date, current.version); await load(year, month, true); setFeedback('재고 실사를 삭제했습니다.'); setCountEditor(null); }
-    catch (error) { setFeedback(error instanceof ApiError ? error.message : '재고 실사를 삭제하지 못했습니다.'); }
+    if (!currentCount) return;
+    const remove = countEditor.kind === 'defect' ? deleteG2DefectInventoryCount : deleteG2InventoryCount;
+    setBusy(true); setFeedback(`${countLabel}를 삭제하는 중입니다.`);
+    try { await remove(developmentUserKey, countEditor.date, currentCount.version); await load(year, month, true); setFeedback(`${countLabel}를 삭제했습니다.`); setCountEditor(null); }
+    catch (error) { setFeedback(error instanceof ApiError ? error.message : `${countLabel}를 삭제하지 못했습니다.`); }
     finally { setBusy(false); }
   }
 
@@ -232,7 +237,7 @@ export function G2HomePage({
   return <section className="page-surface g2-page" aria-labelledby="g2-home-title">
     <header className="page-header"><div><p className="eyebrow">G2 운영관리</p><h2 id="g2-home-title">G2 홈</h2><p>이번 달 생산·납품·재고와 제조 출근 현황을 한눈에 확인합니다.</p></div><div className="button-row g2-month-controls"><button type="button" disabled={busy} onClick={() => moveMonth(-1)} aria-label="이전 달">이전</button><strong>{year}년 {month}월</strong><button type="button" disabled={busy} onClick={() => moveMonth(1)} aria-label="다음 달">다음</button></div></header>
     {!mutationEnabled && (canManageInventory || canManageTargets) ? <p className="g2-review-safe" role="status">현재 검수 전용 읽기 모드이므로 실사와 목표를 수정할 수 없습니다.</p> : null}
-    {feedback ? <p className="g2-feedback" role={feedback.includes('못') || feedback.includes('확인') ? 'alert' : 'status'} aria-live="polite">{feedback}</p> : null}
+    {feedback && !countEditor ? <p className="g2-feedback" role={feedback.includes('못') || feedback.includes('확인') ? 'alert' : 'status'} aria-live="polite">{feedback}</p> : null}
     <G2DateRangeFilter label="홈 표시 기간" from={dateRange.from} to={dateRange.to} minimum={dateRange.firstDate} maximum={dateRange.lastDate} filteredCount={visibleDays.length} totalCount={data.days.length} onFromChange={dateRange.setFrom} onToChange={dateRange.setTo} onReset={dateRange.reset} />
 
     <article className="g2-card g2-chart-card"><header><div><p className="eyebrow">일별 흐름</p><h3>생산 · 납품 · 재고</h3></div></header>
@@ -250,7 +255,12 @@ export function G2HomePage({
       {canManageInventory ? <div className="g2-marker-actions" aria-label="재고 실사 날짜별 수정">{visibleDays.filter(day => day.physicalCount).map(day => <button key={day.date} type="button" disabled={!mutationEnabled} onClick={() => openCount(day.date)}><b>{Number(day.date.slice(-2))}일 실사</b><span>{day.physicalCount?.quantity}대 · 수정</span></button>)}<button type="button" disabled={!mutationEnabled || !countDateMaximum} onClick={() => countDateMaximum && openCount(countDateMaximum)}>실사 입력</button></div> : null}
     </article>
 
-    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">상세의 생산·수리·납품·불량 입력은 조회용 임시 예상값입니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p><G2ProductionSummaryTable days={visibleDays} holidays={holidays} input={previewInput} /></article>
+    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">상세의 생산·수리·납품·불량 입력은 조회용 임시 예상값입니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p>
+      {canManageInventory ? <div className="g2-marker-actions" aria-label="불량재고 실사 날짜별 수정">
+        {visibleDays.filter(day => day.defectInventoryCount).map(day => <button key={day.date} type="button" aria-label={`${Number(day.date.slice(-2))}일 불량 실사 ${day.defectInventoryCount?.quantity}대 · 수정`} disabled={!mutationEnabled || busy} onClick={() => openCount(day.date, 'defect')}><b>{Number(day.date.slice(-2))}일 불량 실사</b><span>{day.defectInventoryCount?.quantity}대 · 수정</span></button>)}
+        <button type="button" disabled={!mutationEnabled || busy || !countDateMaximum} onClick={() => countDateMaximum && openCount(countDateMaximum, 'defect')}>불량재고 실사 입력</button>
+      </div> : null}
+      <G2ProductionSummaryTable days={visibleDays} holidays={holidays} input={previewInput} /></article>
 
     {canManageTargets ? <article className="g2-card g2-target-card"><header><div><p className="eyebrow">목표 관리</p><h3>적용 시작일별 목표</h3></div></header><div className="g2-inline-form"><label>목표 종류<select value={targetType} disabled={!mutationEnabled || busy} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}><option value="DailyProduction">일 생산목표</option><option value="Delivery">납품 목표</option><option value="Inventory">재고목표</option></select></label><label className="g2-target-date-field">적용 시작일<input type="date" min={targetDateMinimum} max={targetDateMaximum} value={targetDate} disabled={!mutationEnabled || busy} required onChange={event => { setTargetDate(event.target.value); setTargetValue(''); }} /></label><label>목표 수량<input type="number" min="0" step="1" value={targetValue} disabled={!mutationEnabled || busy} required onChange={event => setTargetValue(event.target.value)} /></label><button className="primary-button" type="button" disabled={!mutationEnabled || busy || !targetDate || targetValue.trim() === ''} onClick={() => void saveTarget()}>목표 저장</button></div><small>같은 적용일을 다시 저장하면 기존 목표를 수정합니다. 이전·다음 달로 이동해 과거와 미래 목표를 관리할 수 있습니다.</small></article> : null}
 
@@ -264,6 +274,17 @@ export function G2HomePage({
 
     <article className="g2-card"><header><div><p className="eyebrow">선택 기간</p><h3>제조 인원 출근 현황</h3></div></header><G2AttendanceSummaryTable days={visibleDays} holidays={holidays} /></article>
 
-    {countEditor ? <div className="g2-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setCountEditor(null); }}><section className="g2-dialog" role="dialog" aria-modal="true" aria-labelledby="g2-count-title" onKeyDown={event => { if (event.key === 'Escape' && !busy) setCountEditor(null); }}><header><div><p className="eyebrow">자동 재고 기준점</p><h3 id="g2-count-title">재고 실사 입력</h3></div><button type="button" disabled={busy} onClick={() => setCountEditor(null)}>닫기</button></header><label>실사 날짜<input type="date" min={countDateMinimum} max={countDateMaximum} value={countEditor.date} disabled={busy} required onChange={event => openCount(event.target.value)} /></label><label>실사 수량<input ref={dialogInputRef} type="number" min="0" step="1" value={countEditor.value} disabled={busy} required onChange={event => setCountEditor(current => current ? { ...current, value: event.target.value } : null)} /></label>{data.days.find(day => day.date === countEditor.date)?.physicalCount ? <small>마지막 수정: {formatG2Modified(data.days.find(day => day.date === countEditor.date)?.physicalCount ?? null)}</small> : null}<div className="button-row"><button className="primary-button" type="button" disabled={busy || !countEditor.date || countEditor.value.trim() === ''} onClick={() => void saveCount()}>저장</button>{data.days.find(day => day.date === countEditor.date)?.physicalCount ? <button className="danger-button" type="button" disabled={busy} onClick={() => void deleteCount()}>실사 삭제</button> : null}</div></section></div> : null}
+    {countEditor ? <div className="g2-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setCountEditor(null); }}>
+      <section className="g2-dialog" role="dialog" aria-modal="true" aria-labelledby="g2-count-title" onKeyDown={event => { if (event.key === 'Escape' && !busy) setCountEditor(null); }}>
+        <header><div><p className="eyebrow">{countEditor.kind === 'defect' ? '일 마감 불량재고 기준점' : '자동 재고 기준점'}</p><h3 id="g2-count-title">{countLabel} 입력</h3></div><button type="button" disabled={busy} onClick={() => setCountEditor(null)}>닫기</button></header>
+        {countEditor.kind === 'defect' ? <p className="g2-table-help">당일 신규 불량과 수리를 반영한 마감 수량을 입력하세요. 다음 날부터 신규 불량을 더하고 수리량을 뺍니다. 납품가능재고는 직접 변경하지 않습니다.</p> : null}
+        <label>실사 날짜<input type="date" min={countDateMinimum} max={countDateMaximum} value={countEditor.date} disabled={busy} required onChange={event => openCount(event.target.value, countEditor.kind)} /></label>
+        <label>실사 수량<input ref={dialogInputRef} type="number" min="0" step="1" inputMode="numeric" value={countEditor.value} disabled={busy} required onChange={event => setCountEditor(current => current ? { ...current, value: event.target.value } : null)} /></label>
+        {currentCount ? <small>마지막 수정: {formatG2Modified(currentCount)}</small> : null}
+        {currentCount && countEditor.kind === 'defect' ? <small>실사를 삭제하면 이전 실사부터 다시 계산합니다. 이전 실사가 없으면 0부터 누적하며, 이후 불량재고가 음수가 되면 삭제할 수 없습니다.</small> : null}
+        {feedback ? <p className="g2-feedback" role="status" aria-live="polite">{feedback}</p> : null}
+        <div className="button-row"><button className="primary-button" type="button" disabled={busy || !countEditor.date || countEditor.value.trim() === ''} onClick={() => void saveCount()}>저장</button>{currentCount ? <button className="danger-button" type="button" disabled={busy} onClick={() => void deleteCount()}>실사 삭제</button> : null}</div>
+      </section>
+    </div> : null}
   </section>;
 }

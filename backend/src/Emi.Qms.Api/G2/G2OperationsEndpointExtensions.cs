@@ -41,6 +41,15 @@ public static class G2OperationsEndpointExtensions
         group.MapDelete("/inventory-counts/{date}", async (DateOnly date, int? expectedVersion, G2OperationsStore store, CancellationToken token) => await Safe(() => store.DeleteInventoryCountAsync(date, expectedVersion, token)))
             .RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("DeleteG2InventoryCount");
 
+        group.MapPut("/defect-inventory-counts/{date}", async (DateOnly date, SaveG2InventoryCountRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
+        {
+            var actor = UserId(user);
+            return actor is null ? Results.Unauthorized() : await Safe(() => store.SaveDefectInventoryCountAsync(date, request, actor.Value, token));
+        }).RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("SaveG2DefectInventoryCount");
+
+        group.MapDelete("/defect-inventory-counts/{date}", async (DateOnly date, int? expectedVersion, G2OperationsStore store, CancellationToken token) => await Safe(() => store.DeleteDefectInventoryCountAsync(date, expectedVersion, token)))
+            .RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("DeleteG2DefectInventoryCount");
+
         group.MapPut("/targets/{targetType}/{effectiveDate}", async (string targetType, DateOnly effectiveDate, SaveG2TargetRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
         {
             var actor = UserId(user);

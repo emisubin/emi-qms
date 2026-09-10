@@ -8,18 +8,11 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<AdminDashboardResponse> GetDashboardAsync(CancellationToken cancellationToken)
+    public async Task<AdminDashboardResponse> GetDashboardAsync(int pendingUserCount, CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             select
-                (
-                    select count(*)::integer
-                    from qms_users u
-                    where u.auth_provider = 'EntraId'
-                      and u.is_active = true
-                      and not exists (select 1 from user_roles ur where ur.user_id = u.id)
-                ) as pending_user_count,
                 (
                     select count(*)::integer
                     from notification_deliveries
@@ -45,11 +38,10 @@ public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connec
             """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         await reader.ReadAsync(cancellationToken);
-        var pendingUserCount = reader.GetInt32(0);
-        var failedDeliveryCount = reader.GetInt32(1);
-        var pendingDeliveryCount = reader.GetInt32(2);
-        var processingDeliveryCount = reader.GetInt32(3);
-        var activeEscalationCount = reader.GetInt32(4);
+        var failedDeliveryCount = reader.GetInt32(0);
+        var pendingDeliveryCount = reader.GetInt32(1);
+        var processingDeliveryCount = reader.GetInt32(2);
+        var activeEscalationCount = reader.GetInt32(3);
         await reader.CloseAsync();
 
         var activeEscalationLevels = await ReadActiveEscalationLevelsAsync(dataSource, cancellationToken);

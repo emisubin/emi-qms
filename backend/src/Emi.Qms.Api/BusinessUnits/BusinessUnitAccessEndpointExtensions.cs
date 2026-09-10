@@ -72,7 +72,7 @@ public static class BusinessUnitAccessEndpointExtensions
         return app;
     }
 
-    private static bool TryGetOverallAdministrator(
+    internal static bool TryGetOverallAdministrator(
         HttpContext context,
         ClaimsPrincipal principal,
         out Guid actorUserId)

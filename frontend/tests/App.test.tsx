@@ -303,6 +303,18 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '제공 지연' })).toHaveAttribute('data-active', 'true');
   });
 
+  it('opens the approval-pending filter from the administrator Home metric', async () => {
+    window.history.pushState(null, '', '/');
+    render(<App />);
+
+    await switchToDevelopmentUser('dev-admin');
+    fireEvent.click(await screen.findByRole('button', { name: /승인 대기 사용자/ }));
+
+    expect(await screen.findByRole('heading', { name: '승인 대기 사용자' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/admin/users');
+    expect(window.location.search).toBe('?filter=approval-pending');
+  });
+
   it('loads the notice board independently while keeping Pending discoverable', async () => {
     window.history.pushState(null, '', '/');
     const calls: string[] = [];
@@ -1232,6 +1244,7 @@ describe('App', () => {
     fireEvent.click(within(commonNavigation).getByRole('button', { name: '관리자' }));
 
     expect(await screen.findByRole('heading', { name: '관리자' })).toBeInTheDocument();
+    expect(screen.getByText('사업부 소속·부서·역할 확인이 필요한 사용자입니다.')).toBeInTheDocument();
     expect(screen.getByText('발송 실패')).toBeInTheDocument();
     expect(screen.getByText('L0 예정일 임박')).toBeInTheDocument();
     expect(screen.getByText('L1 초과')).toBeInTheDocument();
@@ -3507,6 +3520,15 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === '/api/home/department-metrics') {
     const user = currentUser(userKey);
+    if (user.roles.includes('system-administrator')) {
+      return json({
+        departmentCode: user.department,
+        departmentName: user.departmentName,
+        metrics: [
+          { id: 'admin-approval-pending', label: '승인 대기 사용자', count: 1, tone: 'warning', destinationKey: 'admin-users', actionLabel: '승인 대기 사용자 보기' }
+        ]
+      });
+    }
     if (user.department === 'materials') {
       return json({
         departmentCode: user.department,

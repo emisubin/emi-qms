@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
 
@@ -10,6 +11,8 @@ public static class HomeMetricsEndpointExtensions
     public static IEndpointRouteBuilder MapHomeMetricsEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/home/department-metrics", async (
+            HttpContext context,
+            ApprovalPendingUserCountService pendingUsers,
             ClaimsPrincipal principal,
             IIdentityStore identityStore,
             HomeMetricsStore store,
@@ -30,6 +33,9 @@ public static class HomeMetricsEndpointExtensions
                 .ToHashSet(StringComparer.Ordinal);
             var isSystemAdministrator = profile.Roles.Any(role =>
                 string.Equals(role.Code, QmsRoles.SystemAdministrator, StringComparison.Ordinal));
+            var pendingUserCount = isSystemAdministrator || profile.Department?.Code == "administration"
+                ? await pendingUsers.GetCountAsync(context, cancellationToken)
+                : 0;
             return Results.Ok(await store.GetAsync(
                 profile.Department?.Code,
                 profile.Department?.Name,
@@ -37,6 +43,7 @@ public static class HomeMetricsEndpointExtensions
                 permissions,
                 isSystemAdministrator,
                 ProjectEndpointExtensions.GetProjectAccessScope(principal),
+                pendingUserCount,
                 cancellationToken));
         })
         .RequireAuthorization("AuthenticatedIdentity")

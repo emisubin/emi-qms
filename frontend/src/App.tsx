@@ -1276,7 +1276,7 @@ function viewForHomeDestination(destinationKey: string): View {
     case 'logistics-packing': return { kind: 'logistics', stage: 'packing' };
     case 'logistics-departure': return { kind: 'logistics', stage: 'departure' };
     case 'logistics-delivery': return { kind: 'logistics', stage: 'delivery' };
-    case 'admin-users': return { kind: 'admin-users' };
+    case 'admin-users': return { kind: 'admin-users', filter: 'approval-pending' };
     case 'admin-deliveries': return { kind: 'admin-notification-deliveries', status: 'Failed' };
     case 'admin-dashboard': return { kind: 'admin-dashboard' };
     default: return { kind: 'list' };
@@ -5038,21 +5038,32 @@ function BusinessUnitAccessAdministrationPage({
     }
   };
 
+  const visibleUsers = state.kind === 'ready'
+    ? state.data.users.filter((directoryUser) => filter !== 'approval-pending' || directoryUser.approvalPending)
+    : [];
+
   return (
     <section className="panel-section business-unit-access-admin">
       <DsPageHeader
         className="page-header"
         eyebrow="관리자"
-        title="사용자 관리"
+        title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
       {mutationDisabledReason ? (
         <p className="account-review-safe-note" role="status">{mutationDisabledReason}</p>
       ) : null}
       {state.kind === 'loading' ? <p role="status">사용자 접근 정보를 불러오는 중입니다.</p> : null}
-      {state.kind === 'empty' ? <DsEmptyState title="관리할 계정이 없습니다." description="활성 디렉터리 계정이 등록되면 여기에 표시됩니다." /> : null}
+      {state.kind === 'empty' || (state.kind === 'ready' && visibleUsers.length === 0) ? (
+        <DsEmptyState
+          title={filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '관리할 계정이 없습니다.'}
+          description={filter === 'approval-pending'
+            ? '승인 준비가 필요한 사용자가 생기면 여기에 표시됩니다.'
+            : '활성 디렉터리 계정이 등록되면 여기에 표시됩니다.'}
+        />
+      ) : null}
       {state.kind === 'forbidden' || state.kind === 'not-found' || state.kind === 'error' ? <StateMessage state={state} /> : null}
-      {state.kind === 'ready' ? (
+      {state.kind === 'ready' && visibleUsers.length > 0 ? (
         <div className="table-scroll business-unit-access-table-scroll">
           <table className="business-unit-access-table">
             <thead>
@@ -5068,9 +5079,7 @@ function BusinessUnitAccessAdministrationPage({
               </tr>
             </thead>
             <tbody>
-              {state.data.users
-                .filter((directoryUser) => filter !== 'approval-pending' || directoryUser.approvalPending)
-                .map((directoryUser) => {
+              {visibleUsers.map((directoryUser) => {
                   const userDrafts = drafts[directoryUser.userId] ?? [];
                   const selectedCode = selectedUnits[directoryUser.userId]
                     ?? buildInitialIntegratedUserAccessSelection(directoryUser, state.data.availableBusinessUnits);
@@ -6523,7 +6532,7 @@ function AdminDashboardPage({
       {state.kind === 'ready' ? (
         <DsKpiGrid className="admin-dashboard-grid">
           <DsKpiCard className="admin-dashboard-card" label="승인 대기 사용자" value={<>{state.data.pendingUserCount}건</>}>
-            <p>역할이 부여되지 않은 Entra 사용자입니다.</p>
+            <p>사업부 소속·부서·역할 확인이 필요한 사용자입니다.</p>
             <button type="button" onClick={() => onNavigate({ kind: 'admin-users', filter: 'approval-pending' })}>승인 대기 사용자 보기</button>
           </DsKpiCard>
           <DsKpiCard className="admin-dashboard-card" tone="danger" label="발송 실패" value={<>{state.data.failedDeliveryCount}건</>}>

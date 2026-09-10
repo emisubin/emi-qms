@@ -10,10 +10,13 @@ public static class AdminMasterDataEndpointExtensions
         var admin = app.MapGroup("/api/admin");
 
         admin.MapGet("/dashboard", async (
+            HttpContext context,
+            ApprovalPendingUserCountService pendingUsers,
             AdminMasterDataStore store,
             CancellationToken cancellationToken) =>
         {
-            return Results.Ok(await store.GetDashboardAsync(cancellationToken));
+            var pendingUserCount = await pendingUsers.GetCountAsync(context, cancellationToken);
+            return Results.Ok(await store.GetDashboardAsync(pendingUserCount, cancellationToken));
         })
         .RequireAuthorization(QmsPolicies.AdminHistoryRead)
         .WithName("GetAdminDashboard");

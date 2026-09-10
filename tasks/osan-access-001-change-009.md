@@ -13,3 +13,6 @@
 - 자동 테스트와 직접 관찰은 합성 데이터만 사용했다. 실제 사용자·권한 데이터 mutation 없음.
 - 사용자 검수: 수정 결과의 직접 검수는 미실행. 즉시 수정·공개배포 요청에 따라 실행하되 사용자 검수 완료로 표현하지 않는다.
 - 현재 상태: 구현·관련 검증·독립 검토 완료. 원격 CI·병합·공개 배포 미완료.
+
+- 원격 검증 진행: PR #134, 최초 head `4a4c5005abe5e3cf37b3bbd0510a920c9a3643ce`, CI `34452218525`에서 Frontend 단위 355/355·mock browser 15/15 PASS. Backend와 full-stack 실행 중 main에 PR #135가 병합됐다.
+- 기준선 보정: main `7a03167a8ae7bb71c135cdec90545e2e792fa5b6`의 Backend CI 35→50분 및 normal logger, 기존 사진 Task 기록만 통합했다. 이전 전체 검증 610/610 PASS 뒤 job 35분 timeout 이력이 원인이다. 이번 제품 diff는 변하지 않았고 제품 관련 로컬 검증·검토 근거는 유효하다. 새 head의 required CI로 최종 판정한다.

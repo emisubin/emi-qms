@@ -901,7 +901,7 @@ test("photo popup contains registration only and table follows production order"
   await expect(table.getByRole("cell", { name: "1차 사진 등록 완료", exact: true })).toBeVisible();
   await dialog.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
   await expect(dialog.locator(".busbar-completion strong")).toHaveText("IB-00000001");
-  await expect(dialog.getByRole("button", { name: /QR|작업자 정정/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /QR|생산 취소/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "사진 팝업 닫기" }).click();
   await expect(table.getByRole("button", { name: "사진보기" })).toBeFocused();
 });
@@ -1060,5 +1060,30 @@ test("deadline rows highlight only today through D-3 and selected calendar day i
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: `/private/tmp/emi-busbar-gray-calendar-${width}.png`, fullPage: true });
+  }
+});
+
+
+test("worker correction is in photo dialog and publication retry stays in external column", async ({ page }) => {
+  const data = fixture();
+  data.products[0] = { ...data.products[0], status: "Complete", number: "IB-00000001", manufacturedAtUtc: "2026-09-10T01:00:00Z", publicationState: "Failed" };
+  const writes = await mock(page, data);
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab", { name: "생산·사진·QR", exact: true }).click();
+  const row = page.getByRole("row").filter({ hasText: "IB-00000001" });
+  await expect(row.getByRole("cell").last().getByRole("button", { name: "게시 재시도" })).toBeVisible();
+  await row.getByRole("button", { name: "게시 재시도" }).click();
+  expect(writes[0].path).toBe(`/api/interior-busbar/products/${productId}/publication/retry`);
+  await row.getByRole("button", { name: "사진보기" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: /생산 취소|게시 재시도/ })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "작업자 정정", exact: true }).click();
+  await expect(dialog.getByLabel("정정 사유", { exact: true })).toHaveAttribute("required", "");
+  await dialog.getByLabel("정정 사유", { exact: true }).fill("합성 작업자 확인");
+  await dialog.getByRole("button", { name: "저장", exact: true }).click();
+  expect(writes.some((item) => item.path === `/api/interior-busbar/products/${productId}`)).toBe(true);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: `/private/tmp/emi-busbar-worker-correction-${width}.png`, fullPage: true });
   }
 });

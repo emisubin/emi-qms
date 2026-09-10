@@ -893,7 +893,8 @@ export function InteriorBusbarPage({
                 familyName(product.productFamilyId), product.workerName ?? "작업자 선택 전", busbarDateTime(product.manufacturedAtUtc), productionStatusLabel(product),
                 productLabel(product),
                 <><DsBadge tone={product.publicationState === "Failed" ? "danger" : product.publicationState === "Published" ? "success" : "neutral"}>{statusLabel(product.publicationState)}</DsBadge>
-                  {product.qrState === "ConfigurationPending" && <small className="busbar-note"> · QR 공개 주소 설정 대기</small>}</>,
+                  {product.qrState === "ConfigurationPending" && <small className="busbar-note"> · QR 공개 주소 설정 대기</small>}
+                  {canWrite && product.status === "Complete" && product.publicationState !== "Published" && <button disabled={busy} onClick={() => void run(() => busbarApi.write(user, `/products/${product.id}/publication/retry`, {}), "외부 페이지 게시를 다시 요청했습니다.")}>게시 재시도</button>}</>,
               ])} />
           </DsSurface>
           {selectedProduct && (
@@ -902,6 +903,12 @@ export function InteriorBusbarPage({
               onClose={() => { if (!busy) { setActiveProduct(""); setProductDetail(null); setEditor(null); setFeedback(""); } }}>
               {feedback && <DsActionFeedback message={feedback} tone={feedbackError ? "error" : "success"} focusOnAttention />}
               {error && <DsActionFeedback message={error} tone="error" />}
+              {editor && canWrite && <Editor key={editorKey} spec={editor} busy={busy}
+                onClose={() => { if (!busy) setEditor(null); }}
+                onSave={async (values) => {
+                  const ok = await run(() => busbarApi.write(user, editor.path, editor.makeBody(values), editor.method));
+                  if (ok) { setEditor(null); requestAnimationFrame(() => photoHeadingRef.current?.focus()); }
+                }} />}
               {selectedProduct.status === "Complete" && (
                 <div
                   ref={completionRef}
@@ -918,6 +925,11 @@ export function InteriorBusbarPage({
                 </div>
               )}
               {selectedProduct.workerName && <p className="busbar-note">제조 작업자: {selectedProduct.workerName}</p>}
+              {canWrite && selectedProduct.status !== "Cancelled" && writeButton("작업자 정정", () => open({
+                title: "작업자 정정", path: `/products/${selectedProduct.id}`, method: "PATCH",
+                fields: [{ key: "workerId", label: "실제 제조 작업자", type: "select", options: options(data.workers, selectedProduct.workerId ?? undefined), value: selectedProduct.workerId ?? undefined }, reasonField],
+                makeBody: (values) => values,
+              }))}
               <PhotoWorkspace
                 key={selectedProduct.id}
                 user={user}

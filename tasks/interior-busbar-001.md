@@ -207,3 +207,18 @@ FE 구현·관련 검증 완료, 기존 5197 서버에 반영. 공용 팝업 안
 사용자가 제품번호 제외 시안으로 진행 승인. EMI 헤더·제조정보 카드·앞뒤 사진 모바일 세로/PC 두 열을 실제 공개 HTML renderer에 적용한다. 샘플/디자인 시안 문구는 실제 게시에서 제외한다. 사진은 자르지 않고 원본 비율 유지, 제품번호 미표시·독립 데이터 이미지·CSP·이름 escaping·공개 중지 경계를 유지한다. 내부 번호/출하/API/DB 계약 및 외부 자원은 변경하지 않는다.
 
 실제 renderer 합성 출력의 정상/중지 테스트 2개 통과(skip 0). 생성 HTML을 HTTP(S) 차단 후 390/1440px로 열어 사진 두 장 로딩·가로 넘침 0과 시각 배치를 직접 확인했다. 악성 형식 작업자명은 실행 없이 텍스트로 표시됨을 유지한다. 실제 게시 source 적용 완료, runtime binary 갱신·Azure 자원 생성/게시는 미실행이며 실제 연결 시 반영한다.
+
+
+## Change 014 — Azure 공개 저장소 실제 연결
+
+2026-09-10 사용자 “좋아. 시작해”로 Azure 연결 시작 승인. 기존 구독 Azure subscription 1의 PMS 그룹 emi-pms-pilot 안에 emipmsbusbarqr 신규 StorageV2/한국 중부/Standard_LRS/Hot 저장소 생성. HTTPS 전용/TLS1.2/Blob 익명접근 false, $web ACL off 유지. 기존 PMS 저장소·운영 앱·업무 DB 변경 없음. 기본 페이지는 QR 안내, 404는 일반 안내이며 제품 목록은 없음.
+
+확정 공개주소: https://emipmsbusbarqr.z12.web.core.windows.net/ . Blob endpoint: https://emipmsbusbarqr.blob.core.windows.net/ . 별도 도메인/CDN 없음. 실제 자원은 유지 중이며 사용량 과금 대상이다. 합성 공개 검증 token a6f771f081f75edbeec65db2f1df069ee2025777d0380231053565544dd6e05b, 사진2개는 단색 합성 이미지, 작업자 연결검증(가상). 실제 업무 사진은 전송하지 않았다.
+
+격리된 /private/tmp/emi-busbar-azure-probe에서 실제 renderer/sink를 호출했다. 최초게시→동일주소 정정→정보중지→합성자료복원 통과. HTTPS 익명webGET, UTF-8 HTML/no-store, 번호·내부링크 미포함, oldETag PUT412, 익명blobGET/list 거부, root목록없음/404, 출력QR PNG ZXing 해독 URL일치 확인. 실제 공개사이트 390/1440 이미지2개 로딩·overflow0·HTTP1/PMS0 확인 및 직접 시각검토. /private/tmp/emi-busbar-live-qr.png 와 /private/tmp/emi-busbar-azure-live-{390,1440}.png는 합성 증거.
+
+최소권한 container SAS rcw/HTTPS/2026-09-12 02:42 UTC 만료, 저장소 밖 /private/tmp/emi-busbar-azure-private/publication.json 0600/부모0700으로 임시보관. 토큰·계정키는 로그/기록에 남기지 않는다. 자동게시 운영 활성화 전 지속 자격증명 관리/갱신을 준비해야 한다. SAS가 만료되어도 이미 게시한 공개페이지 조회에는 영향 없음.
+
+독립 reviewer /root/azure_qr_review 새 맥락(요청 Astra/high, 실제 NOT_REPORTED) 코드·계획 검토, 차단finding없음. worker는 기존 Pending 전체를 게시하므로 로컬5097 게시 활성화 보류 및 최종 URL확인 뒤 QR주소 연결 지적을 반영했다. 사용자에게 기존 대기사진도 게시할지 비동기 확인 요청, 아직 답변 없음. 실제 검수 사진의 일괄 공개는 진행하지 않는다.
+
+로컬5197/5097에 최신Release와 확정 PublicBaseUrl/BlobEndpoint 연결, Publication Enabled=false/SAS미주입/seed=false/migration=false 유지. 재기동 중 .NET 경로 오류로 한 차례 시작 실패 후 실제 /usr/local/share/dotnet/dotnet 경로로 복구, PID38316 ready200/workspace200 canWrite=true 제품65개 조회 확인. 기존 검수 DB 유지. production 배포/push/PR/merge 미실행. 남은 단계: 기존 대기 제품 공개 여부 응답→승인 범위의 자동게시 활성화와 실제 사진/라벨 현장검수, 이후 마지막 이카운트 연동. 현재는 공개사이트 실연결 검증 완료·자동게시 비활성이다.

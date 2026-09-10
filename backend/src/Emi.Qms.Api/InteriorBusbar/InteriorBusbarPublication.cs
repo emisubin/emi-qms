@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Identity;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -14,7 +16,8 @@ public sealed record InteriorBusbarPublicSnapshot(Guid ProductId, string Number,
     DateTimeOffset ManufacturedAtUtc, string Token, int Revision, bool Cancelled,
     IReadOnlyList<InteriorBusbarPublicPhoto> Photos);
 
-public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicBaseUrl, Uri? BlobEndpoint, string SasToken)
+public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicBaseUrl, Uri? BlobEndpoint, string SasToken,
+    string AuthenticationMode = "Sas", string? ManagedIdentityClientId = null)
 {
     public static InteriorBusbarPublicationOptions Load(IConfiguration configuration)
     {
@@ -26,7 +29,15 @@ public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicB
         var publicUrl = ReadHttps(configuration[section + "PublicBaseUrl"]);
         var blob = ReadHttps(configuration[section + "BlobEndpoint"]);
         var sas = (configuration[section + "SasToken"] ?? string.Empty).TrimStart('?');
-        if (enabled && (publicUrl is null || blob is null || string.IsNullOrWhiteSpace(sas)))
+        var mode = configuration[section + "AuthenticationMode"]?.Trim() ?? "Sas";
+        var clientId = configuration[section + "ManagedIdentityClientId"]?.Trim();
+        if (mode is not ("Sas" or "ManagedIdentity"))
+            throw new InvalidOperationException("공개 저장소 인증 방식이 잘못되었습니다.");
+        if (mode == "ManagedIdentity" && (!Guid.TryParse(clientId, out _) || !string.IsNullOrEmpty(sas)))
+            throw new InvalidOperationException("관리 ID 인증은 명시적인 사용자 할당 ID를 사용하며 SAS와 함께 설정할 수 없습니다.");
+        if (mode == "Sas" && !string.IsNullOrEmpty(clientId))
+            throw new InvalidOperationException("SAS 인증에 관리 ID를 함께 설정할 수 없습니다.");
+        if (enabled && (publicUrl is null || blob is null || (mode == "Sas" && string.IsNullOrWhiteSpace(sas))))
             throw new InvalidOperationException("제품 공개 저장소 설정이 완성되지 않았습니다.");
         if (blob is not null && !Regex.IsMatch(blob.Host, @"\A[a-z0-9]{3,24}\.blob\.core\.windows\.net\z"))
             throw new InvalidOperationException("제품 공개 저장소는 Azure Blob endpoint여야 합니다.");
@@ -39,7 +50,7 @@ public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicB
                 "\\A" + Regex.Escape(account) + @"\.z[0-9]+\.web\.core\.windows\.net\z"))
                 throw new InvalidOperationException("공개 주소는 같은 별도 저장소의 정적 웹사이트 기본 주소여야 합니다.");
         }
-        return new(enabled, publicUrl, blob, sas);
+        return new(enabled, publicUrl, blob, sas, mode, clientId);
     }
 
     private static Uri? ReadHttps(string? value)
@@ -106,21 +117,27 @@ public sealed class AzureInteriorBusbarPublicationSink : IInteriorBusbarPublicat
     // This private client deliberately has no request-URL logger: storage SAS is a secret.
     private readonly HttpClient client;
     private readonly InteriorBusbarPublicationOptions options;
+    private readonly TokenCredential? credential;
     public AzureInteriorBusbarPublicationSink(InteriorBusbarPublicationOptions options)
         : this(options, new SocketsHttpHandler { AllowAutoRedirect = false }) { }
-    internal AzureInteriorBusbarPublicationSink(InteriorBusbarPublicationOptions options, HttpMessageHandler handler)
+    internal AzureInteriorBusbarPublicationSink(InteriorBusbarPublicationOptions options, HttpMessageHandler handler, TokenCredential? credential = null)
     {
         this.options = options;
+        this.credential = options.AuthenticationMode == "ManagedIdentity"
+            ? credential ?? new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(options.ManagedIdentityClientId!))
+            : null;
         client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
     }
     public async Task PublishAsync(string token, byte[] html, CancellationToken cancellationToken)
     {
         if (!options.Enabled) throw new InvalidOperationException("제품 외부 게시가 비활성화되어 있습니다.");
         InteriorBusbarPublicationOptions.ValidateToken(token);
-        var address = new Uri(options.BlobEndpoint!, $"$web/p/{token}.html?{options.SasToken}");
+        var path = $"$web/p/{token}.html";
+        var address = new Uri(options.BlobEndpoint!, credential is null ? $"{path}?{options.SasToken}" : path);
         // Conditional writes fence even a timed-out older upload still executing at Azure.
         using var head = new HttpRequestMessage(HttpMethod.Head, address);
         head.Headers.TryAddWithoutValidation("x-ms-version", "2023-11-03");
+        await AuthorizeAsync(head, cancellationToken);
         using var current = await client.SendAsync(head, cancellationToken);
         if (current.StatusCode != HttpStatusCode.NotFound && !current.IsSuccessStatusCode)
             throw new InvalidOperationException("제품 공개 저장소 확인에 실패했습니다.");
@@ -134,8 +151,16 @@ public sealed class AzureInteriorBusbarPublicationSink : IInteriorBusbarPublicat
         request.Content = new ByteArrayContent(html);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("text/html") { CharSet = "utf-8" };
         request.Content.Headers.ContentMD5 = MD5.HashData(html);
+        await AuthorizeAsync(request, cancellationToken);
         using var response = await client.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("제품 페이지 게시에 실패했습니다. 공개 저장소 설정을 확인해 주세요.");
+    }
+    private async Task AuthorizeAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (credential is null) return;
+        var token = await credential.GetTokenAsync(new TokenRequestContext(["https://storage.azure.com/.default"]), cancellationToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+        request.Headers.TryAddWithoutValidation("x-ms-date", DateTimeOffset.UtcNow.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
     }
     public void Dispose() => client.Dispose();
 }

@@ -241,3 +241,27 @@ FE 구현·관련 검증 완료, 기존 5197 서버에 반영. 공용 팝업 안
 ### 단일 제품 사용자 확인 완료
 
 사용자가 서버/실제 공개 페이지 안내 후 “좋아 굿. 확인 완료”로 IB-00000001 단일 QR 게시·조회 결과를 수락했다. 해당 단일 테스트의 사용자 검수 완료로 기록한다. 물리 프린터 출력·실물 부착·스캔을 각각 수행했다고 추정하지 않으며, 전체 업무 검수/다른 제품 공개/자동게시 활성화/운영 배포 승인을 의미하지 않는다. 자동 게시 비활성과 다른 제품 대기 상태를 유지한다. 다음 미완료 범위는 지속 게시 자격증명·자동게시 적용 범위 확정, 마지막 이카운트 연동 자료 확보 및 구현, 최종 전체 검수·회귀/원격 반영·운영 배포다.
+
+
+## Change 017 — 자동 게시 운영 준비
+
+사용자 다음 작업 시작 요청. 현재 임시 SAS 만료(2026-09-12) 대신 Azure 기존 backend 사용자할당 관리 ID 인증을 코드로 준비한다. 실제 운영 앱의 UserAssigned identity 존재를 읽기 전용 확인했다. 인증 방식 명시 선택/혼합금지/고정 storage scope/기존 SAS 호환/ETag 경계 유지. 기존 대기 제품 포함 여부는 비동기 질문 대기이며 자동 게시 활성화·추가 실사진 공개·운영 앱 배포/RBAC 변경은 아직 실행하지 않는다.
+
+구현: `AuthenticationMode` 기본값은 기존 `Sas`; 새 `ManagedIdentity` 모드는 유효한 `ManagedIdentityClientId`를 명시하고 SAS를 제거해야 한다. Azure.Identity 1.17.2(기존 전이 의존성과 같은 버전)를 직접 참조한다. 지정된 사용자할당 ID만 사용하고 개발자 계정/다른 자격증명으로 fallback하지 않는다. HEAD/조건부 PUT 양쪽에 Storage 범위 Bearer 인증을 적용하며 ReviewSafe/비활성 상태에서는 게시 요청하지 않는다. 제품번호·사진·생산·재고·게시 대상 선정 로직은 이번 변경에 포함하지 않는다.
+
+운영 적용 준비값(아직 적용하지 않음):
+
+| 설정 | 값 |
+| --- | --- |
+| `InteriorBusbar__Publication__Enabled` | 적용 범위·배포 검증 전 `false` 유지 |
+| `InteriorBusbar__Publication__AuthenticationMode` | `ManagedIdentity` |
+| `InteriorBusbar__Publication__ManagedIdentityClientId` | 배포 대상 backend에 실제 연결된 사용자할당 ID의 client ID |
+| `InteriorBusbar__Publication__SasToken` | 제거 |
+| `InteriorBusbar__Publication__PublicBaseUrl` | `https://emipmsbusbarqr.z12.web.core.windows.net/` |
+| `InteriorBusbar__Publication__BlobEndpoint` | `https://emipmsbusbarqr.blob.core.windows.net/` |
+
+실제 적용 시 해당 backend ID에 전용 저장소 `$web` 컨테이너 범위의 Blob 데이터 읽기/쓰기 권한을 부여하고, 승인된 제품 하나로 실제 ID 인증·게시를 검증한 뒤 승인된 대상 범위로 활성화한다. 현재 로컬 Testing runtime은 Azure 관리 ID를 사용하지 않으며 임시 SAS 자동 주입도 하지 않는다. 운영 backend 배포·DB migration·RBAC 변경은 각각 실제 승인 범위에서 진행한다. 향후 제품만 게시하도록 선택하면 기존 Pending 제외 기준을 먼저 구현해야 하며 현재 worker를 그대로 켜지 않는다.
+
+검증: 격리 `busbar_test` DB와 합성 데이터, fake TokenCredential/HTTP를 사용한 관련 인증·게시 테스트 29/29 통과(건너뜀 0). 잘못된 인증 설정, 토큰 획득 실패 시 전송 없음, 비활성 시 인증/전송 없음, 새 파일/기존 파일 조건부 쓰기를 포함한다. 실제 Azure 관리 ID 인증 및 운영 배포 검증은 미실행이다.
+
+독립 검토: 새 reviewer `managed_identity_review`(요청 Astra/high, 실제 모델 NOT_REPORTED)가 HEAD `4ce512d` 대비 이번 4개 파일을 읽고 계약/품질 GO, P0–P3 finding 없음으로 판정했다. reviewer의 초기 테스트 근거는 26 pass/3 skip이며, 이후 parent가 격리 DB 포함 29 pass/0 skip을 직접 확인했다. 실제 ID/RBAC 검증 미완료 경계는 동일하다. 로컬 코드 준비 완료이며 자동 활성화 범위는 사용자 응답 대기다.

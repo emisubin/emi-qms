@@ -277,3 +277,31 @@ export async function acquireAccessToken(instance: IPublicClientApplication, acc
   });
   return response.accessToken;
 }
+
+// A tab gets one automatic redirect until token acquisition succeeds. Keep this
+// across the redirect round trip so a cancelled/failed login cannot loop.
+const automaticLoginKey = 'emi-auth-automatic-login';
+
+export function isExplicitlyLoggedOut(): boolean {
+  try { return window.sessionStorage.getItem(automaticLoginKey) === 'logout'; }
+  catch { return false; }
+}
+
+export function beginLoginRedirect(automatic: boolean): boolean {
+  try {
+    if (automatic && window.sessionStorage.getItem(automaticLoginKey)) return false;
+    window.sessionStorage.setItem(automaticLoginKey, 'attempted');
+    return true;
+  } catch {
+    // Without a persistent round-trip guard only user-initiated login is safe.
+    return !automatic;
+  }
+}
+
+export function markExplicitLogout(): void {
+  try { window.sessionStorage.setItem(automaticLoginKey, 'logout'); } catch { /* Storage may be unavailable. */ }
+}
+
+export function completeLoginRedirect(): void {
+  try { window.sessionStorage.removeItem(automaticLoginKey); } catch { /* No persistent guard to clear. */ }
+}

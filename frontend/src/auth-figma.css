@@ -324,3 +324,26 @@
     outline-offset: 3px;
   }
 }
+
+/* Approved authentication and approval-pending states share the login canvas. */
+.auth-gate:is([data-auth-state='reauth'], [data-auth-state='error'], [data-auth-state='pending'])[data-auth-layout='login'] .auth-gate-extra {
+  left: 109px;
+  width: 447px;
+}
+.auth-gate[data-auth-layout='login'] .auth-status-message {
+  max-width: none;
+  width: 100%;
+  font-size: 14px;
+  color: #737373;
+  line-height: 24px;
+  margin: 0;
+  text-align: center;
+}
+@media (max-width: 860px) {
+  .auth-gate:is([data-auth-state='reauth'], [data-auth-state='error'], [data-auth-state='pending'])[data-auth-layout='login'] .auth-gate-extra {
+    left: 22px;
+    width: 257px;
+    top: 240px;
+  }
+  .auth-gate[data-auth-layout='login'] .auth-status-message { font-size: 12px; line-height: 20px; }
+}

@@ -366,7 +366,9 @@ public sealed class DbIdentityStore(
         }
         var projects = await ReadProjectAccessForUserAsync(connection, user.Id, cancellationToken);
 
-        return new UserAuthorizationProfile(user, department, roles, permissions, projects);
+        return OsanDepartmentPermissions.Apply(
+            new UserAuthorizationProfile(user, department, roles, permissions, projects),
+            connectionStringProvider.GetCurrentBusinessUnit()?.Code);
     }
 
     private static async Task<QmsUser?> ReadUserAsync(

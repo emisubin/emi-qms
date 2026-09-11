@@ -1142,8 +1142,13 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
   await expect(desktopPreview.getByText('Skipped')).toBeVisible();
   await expect(desktopPreview.getByText('PNL-1')).toBeVisible();
   await expect(desktopPreview.getByText('PNL-3')).toBeVisible();
+  const appliedResponse = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/projects/${projectId}/panel-information/import/apply`);
   await excelDialog.getByRole('button', { name: 'Excel 저장' }).click();
-  await expect(page.getByRole('button', { name: 'Excel 업로드' })).toBeVisible();
+  expect((await appliedResponse).ok()).toBe(true);
+  await expect(excelDialog).toBeHidden();
+  await expect(page.getByRole('table', { name: '설계' })).toBeVisible();
   expect(await queryDatabaseValue(`select count(*)::text from panel_information_excel_import_batches where project_id = '${projectId}';`)).toBe('1');
   expect(await queryDatabaseValue(`select panel_name from panel_placeholders where project_id = '${projectId}' and sequence_number = 2;`)).toBe('');
   expect(await queryDatabaseValue(`select panel_name from panel_placeholders where project_id = '${projectId}' and sequence_number = 3;`)).toBe('PNL-3');

@@ -9,6 +9,7 @@ import { MobileSheet } from './MobileSheet';
 import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
+import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
@@ -195,6 +196,10 @@ import type { BusinessUnitRequestState, RuntimeMode } from './api';
 import {
   acquireAccessToken,
   beginInteractiveLoginAudit,
+  beginLoginRedirect,
+  completeLoginRedirect,
+  isExplicitlyLoggedOut,
+  markExplicitLogout,
   clearInteractiveLoginAuditOwner,
   clearPendingInteractiveAuditLogin,
   clearStoredAuditSession,
@@ -1518,24 +1523,36 @@ function EntraAuthenticatedApp({
     accountSnapshotRef.current = accounts;
   }, [accountCacheKey, accounts]);
 
-  const clearTestUserSwitch = () => {
+  const redirectPendingRef = useRef(false);
+
+  const clearTestUserSwitch = useCallback(() => {
     setAdminTestUserKey(null);
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(adminTestUserStorageKey);
     }
-  };
+  }, []);
 
-  const login = () => {
+  const login = useCallback((automatic = false) => {
+    if (redirectPendingRef.current) return true;
+    if (!beginLoginRedirect(automatic)) return false;
+    redirectPendingRef.current = true;
+    setAuthGate({ kind: 'loading' });
     clearTestUserSwitch();
     const clientInteractionId = beginInteractiveLoginAudit();
-    void Promise.resolve(instance.loginRedirect({
+    void Promise.resolve().then(() => instance.loginRedirect({
       ...loginRequest,
       correlationId: clientInteractionId ?? undefined,
       redirectStartPage: typeof window === 'undefined' ? undefined : window.location.href
-    })).catch(() => clearInteractiveLoginAuditOwner(clientInteractionId));
-  };
+    })).catch(() => {
+      clearInteractiveLoginAuditOwner(clientInteractionId);
+      redirectPendingRef.current = false;
+      setAuthGate({ kind: 'reauth-required', message: '로그인을 완료하지 못했습니다. 다시 시도해 주세요.' });
+    });
+    return true;
+  }, [instance, clearTestUserSwitch]);
 
   const logout = async () => {
+    markExplicitLogout();
     const account = instance.getActiveAccount();
     clearTestUserSwitch();
     try {
@@ -1581,16 +1598,22 @@ function EntraAuthenticatedApp({
     void (async () => {
       setAuthGate({ kind: 'loading' });
 
+      if (isExplicitlyLoggedOut()) {
+        setAuthGate({ kind: 'login' });
+        return;
+      }
+
       const restoredAccount = restoreActiveAccount(instance, accountSnapshotRef.current);
       if (restoredAccount.kind === 'none') {
-        setAuthGate({ kind: 'login' });
+        if (login(true)) return;
+        setAuthGate({ kind: 'reauth-required', message: '인증이 필요합니다.' });
         return;
       }
 
       if (restoredAccount.kind === 'multiple') {
         setAuthGate({
           kind: 'reauth-required',
-          message: '로그인 계정을 선택해야 합니다. Microsoft 365로 다시 로그인해 주세요.'
+          message: '로그인할 계정을 선택해 주세요.'
         });
         return;
       }
@@ -1614,11 +1637,13 @@ function EntraAuthenticatedApp({
           setAccessTokenProvider(null);
           setAuthGate({
             kind: 'reauth-required',
-            message: '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'
+            message: '인증이 필요합니다.'
           });
           return;
         }
 
+        completeLoginRedirect();
+        redirectPendingRef.current = false;
         setAccessTokenProvider(() => acquireAccessToken(instance, account));
         const auditStartup = readAuditStartupState(account, rememberSession);
         const pendingAuditLogin = auditStartup.pendingLogin;
@@ -1644,16 +1669,17 @@ function EntraAuthenticatedApp({
 
         setAccessTokenProvider(null);
         if (isInteractionRequiredAuthError(error)) {
+          if (login(true)) return;
           setAuthGate({
             kind: 'reauth-required',
-            message: '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'
+            message: '인증이 필요합니다.'
           });
           return;
         }
 
         setAuthGate({
           kind: 'error',
-          message: 'Microsoft 365 인증 정보를 확인할 수 없습니다. 다시 로그인해 주세요.'
+          message: '로그인을 완료하지 못했습니다. 다시 시도해 주세요.'
         });
       }
     })();
@@ -1664,7 +1690,7 @@ function EntraAuthenticatedApp({
       setAccessTokenProvider(null);
       setAuditSessionHeaders(null);
     };
-  }, [accountCacheKey, inProgress, instance, rememberSession]);
+  }, [accountCacheKey, inProgress, instance, rememberSession, login]);
 
   if (!hasMsalConfiguration()) {
     return (
@@ -1696,13 +1722,10 @@ function EntraAuthenticatedApp({
 
   if (authGate.kind === 'reauth-required' || authGate.kind === 'error') {
     return (
-      <AuthGateMessage
-        state={authGate.kind === 'reauth-required' ? 'reauth' : 'error'}
-        title={authGate.kind === 'reauth-required' ? '다시 로그인이 필요합니다.' : '인증 정보를 확인할 수 없습니다.'}
+      <AuthStatusScreen
+        state={authGate.kind === 'error' ? 'error' : 'reauth'}
         message={authGate.message}
-        actionLabel={inProgress === 'none' ? 'Microsoft 365로 다시 로그인' : '로그인 진행 중'}
-        actionDisabled={inProgress !== 'none'}
-        onAction={login}
+        onAction={() => login()}
       />
     );
   }
@@ -1712,7 +1735,7 @@ function EntraAuthenticatedApp({
       <AuthLoginScreen
         rememberSession={rememberSession}
         onRememberSessionChange={onRememberSessionChange}
-        onLogin={login}
+        onLogin={() => login()}
       />
     );
   }
@@ -1721,7 +1744,7 @@ function EntraAuthenticatedApp({
     <QmsAppShell
       authMode="EntraId"
       onLogout={logout}
-      onReauthenticate={login}
+      onReauthenticate={() => login()}
     />
   );
 }
@@ -2179,13 +2202,7 @@ function QmsAppShellContent({
   if (!isDevMode && currentUser.kind !== 'ready') {
     if (isAuthenticationExpiredState(currentUser)) {
       return (
-        <AuthGateMessage
-          state="reauth"
-          title="다시 로그인이 필요합니다."
-          message={loadStateMessage(currentUser) ?? '로그인이 만료되었거나 다시 인증이 필요합니다. Microsoft 365로 다시 로그인해 주세요.'}
-          actionLabel="Microsoft 365로 다시 로그인"
-          onAction={onReauthenticate}
-        />
+        <AuthStatusScreen state="reauth" onAction={onReauthenticate} />
       );
     }
 
@@ -2233,6 +2250,14 @@ function QmsAppShellContent({
       onResetAdminTestUser={resetAdminTestUser}
     />
   );
+
+  // Ordinary pending users share the approved login canvas. Keep administrator
+  // recovery and development controls on their existing management path.
+  if (!isDevMode && currentUser.kind === 'ready'
+    && currentUser.data.isActive && !businessUnitAccess.isOverallAdministrator
+    && (currentUser.data.approvalPending || businessUnitAccess.status === 'no_membership')) {
+    return <AuthStatusScreen state="pending" onAction={onLogout} />;
+  }
 
   if (currentUser.kind === 'ready' && businessUnitAccess.status !== 'selected') {
     return (
@@ -3844,7 +3869,7 @@ function ProfileAvatar({
   );
 }
 
-type AuthGateVisualState = 'login' | 'loading' | 'reauth' | 'error' | 'configuration' | 'access';
+type AuthGateVisualState = 'login' | 'loading' | 'reauth' | 'error' | 'configuration' | 'access' | 'pending';
 
 const authLoginCanvasWidth = 1440;
 const authLoginCanvasHeight = 810;
@@ -3927,6 +3952,26 @@ export function AuthLoginScreen({
   );
 }
 
+export function AuthStatusScreen({ state, message, onAction }: {
+  state: 'reauth' | 'error' | 'pending';
+  message?: string;
+  onAction?: () => void;
+}) {
+  const statusMessage = message ?? (state === 'pending'
+    ? '관리자 승인을 기다리고 있습니다.' : '인증이 필요합니다.');
+  return (
+    <AuthGateMessage
+      state={state}
+      title="EMI PMS"
+      actionLabel={state === 'pending' ? '로그아웃' : '로그인'}
+      actionDisabled={!onAction}
+      onAction={onAction}
+    >
+      <p className="auth-status-message" role="status">{statusMessage}</p>
+    </AuthGateMessage>
+  );
+}
+
 function AuthGateMessage({
   state,
   title,
@@ -3951,7 +3996,7 @@ function AuthGateMessage({
   children?: ReactNode;
 }) {
   const showsProductTitle = title === 'EMI PMS';
-  const usesLoginLayout = state === 'login' || state === 'loading';
+  const usesLoginLayout = state === 'login' || state === 'loading' || state === 'reauth' || state === 'error' || state === 'pending';
   const loginCanvasScale = useAuthLoginCanvasScale(usesLoginLayout);
   const shell = (
     <>
@@ -3994,7 +4039,7 @@ function AuthGateMessage({
               <picture>{usesLoginLayout && <source media="(max-width: 860px)" srcSet={authMobileMicrosoft} />}<img src={usesLoginLayout ? authDesktopMicrosoft : microsoftLogo} alt="Microsoft" /></picture>
             </div>
             {message ? (
-              <p className={usesLoginLayout ? 'auth-gate-message auth-login-guidance' : 'auth-gate-message'}>
+              <p className={state === 'login' || state === 'loading' ? 'auth-gate-message auth-login-guidance' : 'auth-gate-message'}>
                 {message}
               </p>
             ) : null}
@@ -4869,6 +4914,8 @@ function BusinessUnitAccessAdministrationPage({
   onCurrentSelectionRemoved: () => void;
 }) {
   const [state, setState] = useState<LoadState<BusinessUnitAccessAdministrationResponse>>({ kind: 'loading' });
+  const [businessUnitFilter, setBusinessUnitFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [drafts, setDrafts] = useState<Record<string, IntegratedUserAccessDraft[]>>({});
   const [overallAdministratorDrafts, setOverallAdministratorDrafts] = useState<Record<string, boolean>>({});
   const [selectedUnits, setSelectedUnits] = useState<Record<string, BusinessUnitCode>>({});
@@ -5073,7 +5120,14 @@ function BusinessUnitAccessAdministrationPage({
   };
 
   const visibleUsers = state.kind === 'ready'
-    ? state.data.users.filter((directoryUser) => filter !== 'approval-pending' || directoryUser.approvalPending)
+    ? state.data.users.filter((directoryUser) => (filter !== 'approval-pending' || directoryUser.approvalPending)
+      && matchesUserAccessFilters(directoryUser, businessUnitFilter, departmentFilter))
+    : [];
+
+  const departmentOptions = state.kind === 'ready'
+    ? Array.from(new Map(state.data.businessUnits
+      .filter((unit) => !businessUnitFilter || unit.code === businessUnitFilter)
+      .flatMap((unit) => unit.departments.map((department) => [department.code, department.name] as const))).entries())
     : [];
 
   return (
@@ -5084,13 +5138,30 @@ function BusinessUnitAccessAdministrationPage({
         title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
+      <div className="user-access-filters">
+        <label>사업부 필터<select aria-label="사업부 필터" value={businessUnitFilter} onChange={(event) => {
+          setBusinessUnitFilter(event.target.value);
+          setDepartmentFilter('');
+        }}>
+          <option value="">전체 사업부</option>
+          {state.kind === 'ready' && state.data.availableBusinessUnits.map((code) =>
+            <option key={code} value={code}>{code === 'OSAN' ? '오산' : '청주'}</option>)}
+          <option value="unassigned">미지정</option>
+        </select></label>
+        <label>부서 필터<select aria-label="부서 필터" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}>
+          <option value="">전체 부서</option>
+          {departmentOptions.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          <option value="unassigned">미지정</option>
+        </select></label>
+        <button type="button" onClick={() => { setBusinessUnitFilter(''); setDepartmentFilter(''); }}>필터 초기화</button>
+      </div>
       {mutationDisabledReason ? (
         <p className="account-review-safe-note" role="status">{mutationDisabledReason}</p>
       ) : null}
       {state.kind === 'loading' ? <p role="status">사용자 접근 정보를 불러오는 중입니다.</p> : null}
       {state.kind === 'empty' || (state.kind === 'ready' && visibleUsers.length === 0) ? (
         <DsEmptyState
-          title={filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '관리할 계정이 없습니다.'}
+          title={businessUnitFilter || departmentFilter ? '필터 조건에 맞는 사용자가 없습니다.' : filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '관리할 계정이 없습니다.'}
           description={filter === 'approval-pending'
             ? '승인 준비가 필요한 사용자가 생기면 여기에 표시됩니다.'
             : '활성 디렉터리 계정이 등록되면 여기에 표시됩니다.'}

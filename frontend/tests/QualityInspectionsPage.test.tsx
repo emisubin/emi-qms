@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdaptiveLayoutProvider } from '../src/adaptive-layout';
 import { setRuntimeMutationAllowed } from '../src/api';
@@ -217,23 +217,28 @@ describe('QualityInspectionsPage', () => {
       return json({ title: 'not found' }, 404);
     }));
 
-    render(
-      <AdaptiveLayoutProvider>
-        <QualityInspectionsPage
-          developmentUserKey="dev-quality"
-          canInspect
-          initialStage="LQC"
-          initialProjectId={projectId}
-          initialPanelId={panelId}
-          onOpenIqc={vi.fn()}
-          onBack={vi.fn()}
-          onOpenPending={vi.fn()}
-        />
-      </AdaptiveLayoutProvider>
-    );
+    // Finish asynchronous detail/draft initialization before entering inspection results.
+    await act(async () => {
+      render(
+        <AdaptiveLayoutProvider>
+          <QualityInspectionsPage
+            developmentUserKey="dev-quality"
+            canInspect
+            initialStage="LQC"
+            initialProjectId={projectId}
+            initialPanelId={panelId}
+            onOpenIqc={vi.fn()}
+            onBack={vi.fn()}
+            onOpenPending={vi.fn()}
+          />
+        </AdaptiveLayoutProvider>
+      );
+    });
 
     const passButtons = await screen.findAllByRole('button', { name: '적합' });
+    expect(passButtons).toHaveLength(2);
     for (const button of passButtons) fireEvent.click(button);
+    for (const button of passButtons) expect(button).toHaveClass('selected');
     fireEvent.click(screen.getByRole('button', { name: '판정 확정' }));
     const dialog = screen.getByRole('dialog');
     expect(screen.getByText('모든 검사 항목 적합')).toBeInTheDocument();

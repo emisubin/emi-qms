@@ -285,6 +285,33 @@ public sealed partial class BusinessUnitIsolationTests
             includeDefaultDevelopmentAuthentication: true);
         using var client = factory.CreateClient();
 
+        // Business-unit-scoped department policy must reach both /me and real endpoint authorization.
+        foreach (var (department, canCreate, canProgress) in new[] {
+            ("sales", true, false), ("production-planning", true, false),
+            ("manufacturing", false, true), ("quality", false, true), ("logistics", false, false) })
+        {
+            await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
+                $"update qms_users set department_id=(select id from departments where code='{department}') where id='{SalesUserId:D}';",
+                TestContext.Current.CancellationToken);
+            using var meRequest = Request(HttpMethod.Get, "/api/me", "dev-sales", BusinessUnitCodes.Osan);
+            using var meResponse = await client.SendAsync(meRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
+            using var me = JsonDocument.Parse(await meResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            var permissions = me.RootElement.GetProperty("permissions").EnumerateArray().Select(value => value.GetString()).ToArray();
+            Assert.Contains(QmsPermissions.ProjectReadAll, permissions);
+            Assert.Equal(canCreate, permissions.Contains(QmsPermissions.ProjectCreate));
+            Assert.Equal(canProgress, permissions.Contains(QmsPermissions.ManufacturingUpdate));
+            using var createRequest = Request(HttpMethod.Get, "/api/osan/projects/import/template", "dev-sales", BusinessUnitCodes.Osan);
+            using var createResponse = await client.SendAsync(createRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(canCreate ? HttpStatusCode.OK : HttpStatusCode.Forbidden, createResponse.StatusCode);
+            using var progressRequest = Request(HttpMethod.Post, $"/api/osan/projects/{Guid.NewGuid():D}/progress/completions", "dev-sales", BusinessUnitCodes.Osan);
+            using var progressResponse = await client.SendAsync(progressRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(canProgress ? HttpStatusCode.NotFound : HttpStatusCode.Forbidden, progressResponse.StatusCode);
+        }
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
+            $"update qms_users set department_id=(select id from departments where code='sales') where id='{SalesUserId:D}';",
+            TestContext.Current.CancellationToken);
+
         using (var templateRequest = Request(
                    HttpMethod.Get,
                    "/api/osan/projects/import/template",
@@ -540,7 +567,8 @@ public sealed partial class BusinessUnitIsolationTests
                    inaccessibleDuplicateRequest,
                    TestContext.Current.CancellationToken))
         {
-            Assert.Equal(HttpStatusCode.Forbidden, inaccessibleDuplicateResponse.StatusCode);
+            // Osan approved users can read all projects without individual assignments.
+            Assert.Equal(HttpStatusCode.OK, inaccessibleDuplicateResponse.StatusCode);
         }
         using (var accessibleOriginalRequest = Request(
                    HttpMethod.Get,
@@ -595,6 +623,8 @@ public sealed partial class BusinessUnitIsolationTests
             delete from user_project_access
             where user_id='{SalesUserId:D}'
               and project_id = any(array[{string.Join(",", applied.ProjectIds.Select(id => $"'{id:D}'::uuid"))}]);
+            delete from role_permissions where role_id=(select id from roles where code='sales')
+              and permission_id=(select id from permissions where code='projects.read');
             """,
             TestContext.Current.CancellationToken);
         using (var revokedReplayRequest = Request(
@@ -3161,7 +3191,7 @@ public sealed partial class BusinessUnitIsolationTests
                    unassignedQr,
                    TestContext.Current.CancellationToken))
         {
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
         await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
@@ -3197,6 +3227,8 @@ public sealed partial class BusinessUnitIsolationTests
                     Options =
                     {
                         PossibleFormats = [ZXing.BarcodeFormat.QR_CODE],
+                        // HTTP returns a clean generated symbol, not a camera scene.
+                        PureBarcode = true,
                         TryHarder = true
                     }
                 }.Decode(image);
@@ -3643,6 +3675,8 @@ public sealed partial class BusinessUnitIsolationTests
             $"""
             delete from user_project_access
             where user_id = '{SalesUserId:D}' and project_id = '{osanProjectId:D}';
+            delete from role_permissions where role_id=(select id from roles where code='sales')
+              and permission_id=(select id from permissions where code='projects.read');
             """,
             TestContext.Current.CancellationToken);
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(
@@ -3722,6 +3756,8 @@ public sealed partial class BusinessUnitIsolationTests
             $"""
             insert into user_project_access (user_id, project_id)
             values ('{SalesUserId:D}', '{osanProjectId:D}');
+            insert into role_permissions (role_id, permission_id)
+            select r.id,p.id from roles r cross join permissions p where r.code='sales' and p.code='projects.read' on conflict do nothing;
             """,
             TestContext.Current.CancellationToken);
         using (var replayWithRestoredAccess = Request(

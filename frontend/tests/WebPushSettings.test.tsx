@@ -1,12 +1,14 @@
+import { StrictMode } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setRuntimeMutationAllowed } from '../src/api';
+import { resetBusinessUnitRequestContext, selectBusinessUnit, setRuntimeMutationAllowed } from '../src/api';
 import { WebPushFirstRunPrompt, WebPushSettings } from '../src/WebPushSettings';
 import { deactivateCurrentWebPushForLogout } from '../src/webPushLogout';
 import { webPushGuideDismissedStorageKey } from '../src/webPush';
 
 describe('WebPushSettings', () => {
   beforeEach(() => {
+    resetBusinessUnitRequestContext(true);
     setRuntimeMutationAllowed(true);
     Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true });
     Object.defineProperty(navigator, 'serviceWorker', {
@@ -32,9 +34,25 @@ describe('WebPushSettings', () => {
   });
 
   afterEach(() => {
+    resetBusinessUnitRequestContext(true);
     setRuntimeMutationAllowed(false);
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('offers Osan setup in StrictMode even when the other campus guide was dismissed', async () => {
+    selectBusinessUnit('OSAN');
+    window.localStorage.setItem(`${webPushGuideDismissedStorageKey}:CHEONGJU`, 'true');
+    const requestPermission = vi.fn();
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      enabled: true, dryRun: false, configured: true, publicKey: 'test-key', activeDeviceCount: 0
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    render(<StrictMode><WebPushFirstRunPrompt developmentUserKey="dev-quality" /></StrictMode>);
+    expect(await screen.findByRole('dialog', { name: '이 기기에서 업무 알림 받기' })).toBeInTheDocument();
+    expect(requestPermission).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '나중에' }));
+    expect(window.localStorage.getItem(`${webPushGuideDismissedStorageKey}:OSAN`)).toBe('true');
   });
 
   it('does not request permission automatically and explains browser-level blocking', async () => {
@@ -205,6 +223,52 @@ describe('WebPushSettings', () => {
     expect(await screen.findByText(/서버에서 이 기기의 푸시 연결을 해제했습니다/)).toBeInTheDocument();
     expect(screen.getByText('0개 기기 연결')).toBeInTheDocument();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['current', 'all'])('only disables selected-campus %s connections without invalidating the other campus browser subscription', async (scope) => {
+    selectBusinessUnit('OSAN');
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const unsubscribe = vi.fn(async () => { throw new Error('local unsubscribe blocked'); });
+    const subscription = { endpoint: 'https://push.example.test/current-device', unsubscribe };
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        register: vi.fn(async () => ({
+          pushManager: { getSubscription: vi.fn(async () => subscription) }
+        }))
+      }
+    });
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: vi.fn() });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/my/web-push/current-status')) {
+        return new Response(JSON.stringify({ active: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/api/my/web-push/subscriptions/deactivate-')) {
+        return new Response(JSON.stringify({ active: false, activeDeviceCount: 0, changedAtUtc: '2026-08-11T01:05:00Z' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      return new Response(JSON.stringify({
+        enabled: true,
+        dryRun: true,
+        configured: true,
+        publicKey: 'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        activeDeviceCount: 1,
+        lastChangedAtUtc: null
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    render(<WebPushSettings developmentUserKey="dev-quality" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: scope === 'current' ? '이 기기 끄기' : '모든 기기 연결 해제' }));
+    await waitFor(() => expect(screen.getByText('0개 기기 연결')).toBeInTheDocument());
+    expect(screen.getByText('0개 기기 연결')).toBeInTheDocument();
+    expect(unsubscribe).not.toHaveBeenCalled();
+    const calls = vi.mocked(fetch).mock.calls;
+    const request = calls.find(([url]) => String(url).endsWith(`/subscriptions/deactivate-${scope}`));
+    expect(new Headers(request?.[1]?.headers).get('X-Qms-Business-Unit')).toBe('OSAN');
   });
 
   it('offers an explicit retry after a configuration load error', async () => {

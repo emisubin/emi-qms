@@ -89,7 +89,7 @@ public sealed class WebPushChannelHandler(
             return NotificationChannelResult.Disabled("WebPushDisabled", "PWA 푸시 발송이 비활성화되어 있습니다.");
         }
 
-        var target = await subscriptionStore.GetDeliveryTargetAsync(message.DeliveryId, cancellationToken);
+        var target = await subscriptionStore.GetDeliveryTargetAsync(message.DeliveryId, cancellationToken, message.BusinessUnitTarget);
         if (target is null)
         {
             return NotificationChannelResult.Suppressed("WebPushSubscriptionMissing", "푸시 대상 기기를 찾을 수 없습니다.");
@@ -106,7 +106,7 @@ public sealed class WebPushChannelHandler(
                 target.SubscriptionId,
                 target.Generation,
                 "WebPushEndpointDisallowed",
-                cancellationToken);
+                cancellationToken, message.BusinessUnitTarget);
             return NotificationChannelResult.Suppressed(
                 "WebPushEndpointDisallowed",
                 "승인된 Web Push 서비스 주소가 아니어서 해당 기기 연결을 해제했습니다.");
@@ -118,7 +118,7 @@ public sealed class WebPushChannelHandler(
                 target.SubscriptionId,
                 target.Generation,
                 "WebPushSubscriptionKeysInvalid",
-                cancellationToken);
+                cancellationToken, message.BusinessUnitTarget);
             return NotificationChannelResult.Suppressed(
                 "WebPushSubscriptionKeysInvalid",
                 "푸시 암호화 키가 올바르지 않아 해당 기기 연결을 해제했습니다.");
@@ -164,32 +164,32 @@ public sealed class WebPushChannelHandler(
                     webPush.PublicKey!.Trim(),
                     webPush.PrivateKey!.Trim()),
                 cancellationToken);
-            await subscriptionStore.RecordProviderAcceptedAsync(target.SubscriptionId, target.Generation, cancellationToken);
+            await subscriptionStore.RecordProviderAcceptedAsync(target.SubscriptionId, target.Generation, cancellationToken, message.BusinessUnitTarget);
             return NotificationChannelResult.Sent("web-push-accepted");
         }
         catch (WebPushProtocolException exception) when (IsPermanent(exception.StatusCode))
         {
             var code = exception.StatusCode is null ? "WebPushPermanentFailure" : $"WebPushHttp{exception.StatusCode}";
-            await subscriptionStore.DeactivateForProviderAsync(target.SubscriptionId, target.Generation, code, cancellationToken);
+            await subscriptionStore.DeactivateForProviderAsync(target.SubscriptionId, target.Generation, code, cancellationToken, message.BusinessUnitTarget);
             logger.LogInformation("Web Push subscription {SubscriptionId} was deactivated after a permanent provider response.", target.SubscriptionId);
             return NotificationChannelResult.Suppressed(code, "푸시 서비스에서 만료되거나 유효하지 않은 기기 구독으로 응답했습니다.");
         }
         catch (WebPushProtocolException exception)
         {
             var code = exception.StatusCode is null ? exception.ErrorCode : $"WebPushHttp{exception.StatusCode}";
-            await subscriptionStore.RecordProviderFailureAsync(target.SubscriptionId, target.Generation, code, cancellationToken);
+            await subscriptionStore.RecordProviderFailureAsync(target.SubscriptionId, target.Generation, code, cancellationToken, message.BusinessUnitTarget);
             logger.LogWarning("Web Push provider call failed with {ErrorCode}.", code);
             return NotificationChannelResult.Failed(code, "PWA 푸시 서비스 요청이 실패했습니다.");
         }
         catch (HttpRequestException exception)
         {
-            await subscriptionStore.RecordProviderFailureAsync(target.SubscriptionId, target.Generation, "WebPushNetworkFailure", cancellationToken);
+            await subscriptionStore.RecordProviderFailureAsync(target.SubscriptionId, target.Generation, "WebPushNetworkFailure", cancellationToken, message.BusinessUnitTarget);
             logger.LogWarning("Web Push provider call failed with exception type {ExceptionType}.", exception.GetType().Name);
             return NotificationChannelResult.Failed("WebPushNetworkFailure", "PWA 푸시 서비스 연결에 실패했습니다.");
         }
         catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            await subscriptionStore.RecordProviderFailureAsync(target.SubscriptionId, target.Generation, "WebPushTimeout", cancellationToken);
+            await subscriptionStore.RecordProviderFailureAsync(target.SubscriptionId, target.Generation, "WebPushTimeout", cancellationToken, message.BusinessUnitTarget);
             logger.LogWarning("Web Push provider call timed out with exception type {ExceptionType}.", exception.GetType().Name);
             return NotificationChannelResult.Failed("WebPushTimeout", "PWA 푸시 서비스 요청 시간이 초과되었습니다.");
         }

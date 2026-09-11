@@ -75,6 +75,16 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         if (path.Equals("/api/my/notification-preferences", StringComparison.OrdinalIgnoreCase) && (HttpMethods.IsGet(request.Method) || HttpMethods.IsPut(request.Method))) return true;
         if (path.Equals("/api/my/notification-preferences/reset", StringComparison.OrdinalIgnoreCase) && HttpMethods.IsPost(request.Method)) return true;
 
+        // Keep the capability grant limited to the authenticated user's device lifecycle.
+        if (HttpMethods.IsGet(request.Method)
+            && path.Equals("/api/my/web-push", StringComparison.OrdinalIgnoreCase)) return true;
+        if (HttpMethods.IsPut(request.Method)
+            && path.Equals("/api/my/web-push/subscriptions", StringComparison.OrdinalIgnoreCase)) return true;
+        if (HttpMethods.IsPost(request.Method)
+            && (path.Equals("/api/my/web-push/current-status", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/my/web-push/subscriptions/deactivate-current", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/my/web-push/subscriptions/deactivate-all", StringComparison.OrdinalIgnoreCase))) return true;
+
         if (HttpMethods.IsGet(request.Method)
             && (path.Equals("/api/osan/dashboard", StringComparison.OrdinalIgnoreCase)
                 || path.Equals("/api/osan/dashboard/", StringComparison.OrdinalIgnoreCase)))

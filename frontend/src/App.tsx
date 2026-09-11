@@ -2410,7 +2410,7 @@ function QmsAppShellContent({
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
-        {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan ? (
+        {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
           <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
         ) : null}
         <header className="mobile-app-bar">

@@ -347,3 +347,19 @@ PR139 head7dd34a92b27495111583ebdd5ee43c8c6847b4c2의 CI34575126932 최종 통�
 배포 전후 secret 참조와 유효 환경값을 대조하여 DB·Gmail/provider 설정 보존을 확인했다. 실제 로그인된 공개 화면에서 오산 알림 메뉴, 기존 프로젝트의 단계 완료 수와 상태, 단계 사진·원 등록자·시각, 이전 완료·수정요청·승인 이력을 조회했다. 이전 사진을 크게 열어 컬러 이미지 로드를 직접 확인했다. 이는 기존 프로젝트 표본의 읽기 검증이며 전체 운영 레코드 전수 대조나 새 업무 알림 발송 검증을 대신하지 않는다. 메일 수신을 포함한 사용자 최종 확인은 앞선 승인 기록을 따른다.
 
 제품 main 병합·required CI·공개배포·임시 제한 복구 완료. 공개 주소 https://pms.emiinc.co.kr. 최종 배포 기록은 이 Task와 roadmap만 로컬 커밋하며 다른 WIP·검수 runtime은 보존한다.
+
+
+### 오산 PWA 푸시 연결 보정 (2026-09-11, 구현 요청)
+
+사용자가 운영 인앱/PWA 상태 확인 후 문제 해결을 요청했다. 운영 서버의 WebPush Enabled=true·DryRun=false와 키 설정을 확인했지만, 실제 오산 내 알림 설정은 business_unit_capability_disabled로 차단됐다. 기존 인앱 조회/메일 범위에 빠져 있던 오산 기기 등록 API·푸시 대기열 생성·worker의 명시적 사업부 DB target 전달을 보정한다. 기존 사업부 membership/승인/DB 분리·수신자 범위·등록 이후 알림만 전송·기기 세대와 중복 방지·메일 정책을 유지한다. 관리자 페이지는 추가하지 않는다. 실제 DB 검증에서 0097의 메일 전용 guard도 푸시 기록을 차단함을 확인하여 기존 migration을 수정하지 않고 후속 migration으로 승인된 오산 푸시 범위만 허용한다.
+
+UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결한다. 최초 안내는 StrictMode에서도 정상 표시하며 캠퍼스별로 숨김 상태를 저장한다. 캠퍼스에서 기기를 끄면 해당 캠퍼스 서버 연결만 해제하여 다른 캠퍼스가 공유하는 브라우저 구독을 끊지 않는다. 로그아웃 시 기존 브라우저 구독 해제는 유지한다. 푸시 링크의 사업부를 최초 API 요청 전에 선택하고 접근 허용은 서버에서 계속 판단한다.
+
+검증 및 최종 상태는 아래에 확정한다. 이번 보정의 원격 게시·병합·공개배포 및 실제 테스트 알림 발송은 아직 수행하지 않았다. 앞선 배포 승인·완료와 구분한다.
+
+
+보정 완료: 0098_osan_web_push_delivery.sql은 기존 함수만 교체하여 INSERT 시 실제 오산 프로젝트·RecipientOnly 알림·수신자·활성/승인 사용자·본인 기기/세대/활성화 시각을 검증한다. 0097의 메일 허용식과 기존 데이터는 유지하며 후속 상태 UPDATE를 제한하지 않는다. background dispatcher는 오산에서 푸시만 생성하고 청주용 업무/digest planner를 실행하지 않는다. 구독 조회와 provider 결과 처리에 명시적 사업부 DB target을 전달한다.
+
+검증: Backend Release build 오류/경고0, 관련15건 PASS/skip0(신규3DB통합·기존push·migration concurrency/ledger). 잘못된 경로/메서드·소속 철회·다른 사용자 기기 조회·수신자와 프로젝트/세대/채널 등6개 DB 위조 INSERT 거부, 현재 캠퍼스만 provider 성공/410 처리, 중복·재등록 후 과거알림 제외를 확인했다. 최초 합성 계정 소속 누락을 정정했고, 실제 0097 DB guard 차단은0098로 해결했다. 외부 provider는 fake, 전용 tmpfs DB/container/network cleanup 완료. Frontend 5파일60건 PASS, 타입·대상lint·build PASS(기존 bundle크기 경고). 실제 컴포넌트를 합성 설정으로 PC1440/mobile390에서 직접 보고 가로넘침 없음을 확인했다. 확인용 임시 HTML·서버는 정리했다.
+
+작성자와 분리된 gpt-6-astra/high 리뷰에서 초기 diff 및0098 추가분 모두 미해결 P0–P2 없음(요청 모델 기준). 실행 근거는 /private/tmp/osan-push-backend-tests.log, osan-push-frontend3.log, osan-push-api-tests.log와 type/lint/build 로그에 보존한다. 구현·직접 검증·독립 리뷰 완료, 사용자 검수·이번 수정본의 원격 병합/공개배포는 미실행. 운영 적용 시0098과 Backend·Frontend를 함께 release한 뒤 설치된 PWA의 알림 설정에서 현재 캠퍼스 기기 켜기/권한 허용과 실제 수신을 확인해야 한다. 현재 운영 사이트가 이미 고쳐졌다는 뜻은 아니다.

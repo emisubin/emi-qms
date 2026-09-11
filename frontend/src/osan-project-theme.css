@@ -73,3 +73,7 @@
   border-color: #eee !important;
 }
 .app-shell[data-osan-project-theme='true'] .osan-list-frame .project-list-row { border-color: #eee !important; }
+
+.user-access-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
+.user-access-filters label { display: grid; gap: 6px; min-width: 150px; }
+.user-access-filters select { min-height: 40px; }

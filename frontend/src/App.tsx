@@ -9,6 +9,7 @@ import { MobileSheet } from './MobileSheet';
 import { usePwaInstallExperience } from './pwa-install';
 import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
+import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
@@ -4913,6 +4914,8 @@ function BusinessUnitAccessAdministrationPage({
   onCurrentSelectionRemoved: () => void;
 }) {
   const [state, setState] = useState<LoadState<BusinessUnitAccessAdministrationResponse>>({ kind: 'loading' });
+  const [businessUnitFilter, setBusinessUnitFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [drafts, setDrafts] = useState<Record<string, IntegratedUserAccessDraft[]>>({});
   const [overallAdministratorDrafts, setOverallAdministratorDrafts] = useState<Record<string, boolean>>({});
   const [selectedUnits, setSelectedUnits] = useState<Record<string, BusinessUnitCode>>({});
@@ -5117,7 +5120,14 @@ function BusinessUnitAccessAdministrationPage({
   };
 
   const visibleUsers = state.kind === 'ready'
-    ? state.data.users.filter((directoryUser) => filter !== 'approval-pending' || directoryUser.approvalPending)
+    ? state.data.users.filter((directoryUser) => (filter !== 'approval-pending' || directoryUser.approvalPending)
+      && matchesUserAccessFilters(directoryUser, businessUnitFilter, departmentFilter))
+    : [];
+
+  const departmentOptions = state.kind === 'ready'
+    ? Array.from(new Map(state.data.businessUnits
+      .filter((unit) => !businessUnitFilter || unit.code === businessUnitFilter)
+      .flatMap((unit) => unit.departments.map((department) => [department.code, department.name] as const))).entries())
     : [];
 
   return (
@@ -5128,13 +5138,30 @@ function BusinessUnitAccessAdministrationPage({
         title={filter === 'approval-pending' ? '승인 대기 사용자' : '사용자 관리'}
         actions={<button type="button" onClick={load}>새로고침</button>}
       />
+      <div className="user-access-filters">
+        <label>사업부 필터<select aria-label="사업부 필터" value={businessUnitFilter} onChange={(event) => {
+          setBusinessUnitFilter(event.target.value);
+          setDepartmentFilter('');
+        }}>
+          <option value="">전체 사업부</option>
+          {state.kind === 'ready' && state.data.availableBusinessUnits.map((code) =>
+            <option key={code} value={code}>{code === 'OSAN' ? '오산' : '청주'}</option>)}
+          <option value="unassigned">미지정</option>
+        </select></label>
+        <label>부서 필터<select aria-label="부서 필터" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}>
+          <option value="">전체 부서</option>
+          {departmentOptions.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+          <option value="unassigned">미지정</option>
+        </select></label>
+        <button type="button" onClick={() => { setBusinessUnitFilter(''); setDepartmentFilter(''); }}>필터 초기화</button>
+      </div>
       {mutationDisabledReason ? (
         <p className="account-review-safe-note" role="status">{mutationDisabledReason}</p>
       ) : null}
       {state.kind === 'loading' ? <p role="status">사용자 접근 정보를 불러오는 중입니다.</p> : null}
       {state.kind === 'empty' || (state.kind === 'ready' && visibleUsers.length === 0) ? (
         <DsEmptyState
-          title={filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '관리할 계정이 없습니다.'}
+          title={businessUnitFilter || departmentFilter ? '필터 조건에 맞는 사용자가 없습니다.' : filter === 'approval-pending' ? '현재 승인 대기 중인 사용자가 없습니다.' : '관리할 계정이 없습니다.'}
           description={filter === 'approval-pending'
             ? '승인 준비가 필요한 사용자가 생기면 여기에 표시됩니다.'
             : '활성 디렉터리 계정이 등록되면 여기에 표시됩니다.'}

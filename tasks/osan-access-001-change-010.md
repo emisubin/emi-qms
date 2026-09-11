@@ -17,3 +17,6 @@ origin/main f4c630cd27a40e550f1c6e9a9e2be217c56476fb, codex/osan-department-perm
 - 합성 화면용 5194는 기존 Osan preview 소유로 확인해 보존. 새 검증 포트5196 사용. 초기 mock CORS가5173에 고정돼 실패했고 요청 origin을 사용하는 mock으로 보정. 실 API 운영 CORS 변경 없음. 화면 최종 검증 통과(아래 기록).
 
 - 최종 mock browser4/4 PASS. 사용자 관리 desktop1280 및 승인대기390px 합성 screenshot을 직접 열어 필터·행·줄바꿈을 확인. 390px page overflow 없음, 표 내부 가로스크롤 유지. 합성 증거는 /private/tmp/emi-osan-dept-browser, 비추적. 초기 mock CORS 실패는 수정된 helper에서 해소.
+
+## 원격 검증 보정
+PR138 head ec4747f, CI34547954410 Frontend 기존 QualityInspectionsPage finalize case 실패. 첫 클릭 뒤 초기 draft effect가 반영돼 첫 응답empty/둘째pass 상태, 서버호출0과 필수입력오류로 확인. mock 초기 render를 async act로 완료한 뒤 입력하고 두 항목의 selected 상태를 검증하도록 테스트만 보정. 기존 server error/atomic payload/중복재시도 assertions 유지. 관련4PASS. 독립 reviewer 원인/보정 타당 확인. 로컬 초기 frontend 전체409PASS도 확인. 원격 새 후보 전체 검증 예정.

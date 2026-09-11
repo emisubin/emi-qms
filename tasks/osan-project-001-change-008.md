@@ -328,3 +328,11 @@ Backend 전체 실행: 제품 backend 소스 `3d2f722`와 기존 Release assembl
 원격 PR139 최초 CI34574644216에서 frontend420/422 통과, 제조 양식 저장 후 GET이 이전 fixture를 반환하는 검사와 관리자 전환/채널 결과 로드를 기다리지 않는 Web Push 검사가 실패했다. 저장 이후 fixture를 갱신하고 계정 전환 및 실제 결과 행 로드를 기다리도록 테스트만 보정했다. 관련3파일101개·타입·lint 통과, 제품 추가 변경 없음. 후속 required CI로 확인한다.
 
 배포 독립검토에서0096 snapshot 후 구 backend 저장이 새 현재기록에 빠질 수 있는 전환구간을 확인했다. 기존 frontend의 동일 이미지에 임시 기동 guard를 적용해 오산 POST/PUT/PATCH/DELETE만503으로 제한하고 기존 인증경계·조회·청주업무·health를 유지한다. guard는 replica재시작에도 유지되며 정상전환/구revision종료후 migration을 시작한다. 동일nginx digest/UID101에서 HTTP12개와재시작12개,기본기동해제를 검증했다. exactmain migration→backend/frontend Healthy후 원래기동설정으로복구한다. migration후 구backend로롤백되면 guard를유지하고 새기록정합성을보정한뒤해제한다. Gmail참조는image-only배포에서보존한다.
+
+### 후속 main 병합 완료 및 배포 전 운영 제한 승인 차단 (2026-09-11)
+
+PR139 head7dd34a92b27495111583ebdd5ee43c8c6847b4c2의 CI34575126932 최종 통과. Backend642·Frontend422·mock16·일반Full-stack64·사업부1·오산1 및 CI Gate 성공. 첫 통합 시도는 일반64/사업부1 성공 후 오산 검증 서버가 readiness 전 종료됐고 시작로그는 기존cleanup에서 삭제됐다. 제품변경 없이 임시진단을 넣은 로컬 오산1건이 성공했고 자원cleanup도 확인했다. 진단삽입은 원복했으며 실패한 원격job만 재실행해66건과Gate 성공을 확보했다. 최초시작실패의 세부원인은 확정하지 않았다.
+
+사용자 승인에 따라 정상 main f96fa5490e452d9505a6e4f5a8d97c67ad64b7d5로 병합했고 후보/main tree 동일, main CI34579226825도 성공했다. 보호규칙 변경·예외 없음.
+
+배포 전 임시 frontend 기동 guard 적용 명령은 실행 전에 자동 승인 심사에서 거부됐다. 확인된 이유는 공개배포 승인을 /api/osan의 모든 쓰기 요청을503으로 잠시 중단하는 구체적인 운영 조치의 승인으로 인정하지 않았기 때문이다. 우회·설정변경·동일행동 재시도 없음. guard·migration·image배포·workflow dispatch는 실행하지 않았고 Backend mail-20260911/Frontend38 latest=ready 유지 확인. 새 Gmail 설정과 실제 데이터는 보존된다. 사용자의 구체적인 오산 저장 임시중단·정상전환후재개 승인이 필요한 상태다. guard 원본과 동일기반 반례결과는 /private/tmp/osan-release-20260911/guard-review, 운영복구 metadata는 같은상위폴더 apps-before.json에 보존했다. 승인 후 exactmain 수동 release와 배포후검증을 이어간다.

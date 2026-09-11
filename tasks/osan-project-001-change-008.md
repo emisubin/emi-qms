@@ -368,3 +368,14 @@ UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결
 ### PWA 보정 병합·공개배포 승인 (2026-09-11)
 
 사용자가 PWA 알림 수정본의 main 병합·공개배포를 명시 승인했다. 범위는6372296의 오산 PWA 연결과0098 guard 보정이다. 메일 발송 현황 조회 기능 추가와 관리자 페이지는 제외한다. 원격 required CI 후 exact main으로 기존 수동 release를 실행하고 provider/DB 연결과 기존 데이터를 보존한다.0098은 함수만 교체하며 snapshot/backfill이 없고 기존 메일 predicate를 유지하므로 이전0096 전환의 임시 저장 제한을 반복 적용하지 않는다. 실제 기기 알림 수신은 설치·기기 권한에 따라 별도 확인한다.
+
+
+### PWA 보정 공개배포 완료 (2026-09-11)
+
+[PR140](https://github.com/emisubin/emi-qms/pull/140) 후보7980faebd46a4b908f6ae4a196b5ca3a0bb59590의 required CI34586312267이 모두 통과했다. Backend643·Frontend428·mock16·일반full-stack64·사업부1·오산1 PASS. main94b67922df4750eaf39b29fb636978c135002403로 정상 병합했고 후보/main tree 동일 및 main CI34589203858 성공을 확인했다. 보호규칙 변경·예외 없음.
+
+[배포34589284351](https://github.com/emisubin/emi-qms/actions/runs/34589284351)이 성공했다. 첫 환경 승인 명령은 자동 심사에서0098이 사용자 승인 범위에 포함되지 않는다는 이유로 실행 전 거부됐다. 앞선 사용자에게 DB 보정 포함 수정본을 설명한 답변, 이후 병합·배포 승인, exactmain의0098 함수 변경 범위를 읽기 전용으로 대조해 동일 동작의 재심사를 요청했고 승인됐다. 사용자 추가 승인이나 정책 설정 변경·우회는 없다. 다음 공식 환경 승인 후0098과 Backend51·Frontend43으로 정상 전환했다. bootstrap·membership backfill·inspection·데이터 초기화·저장 중단은 실행하지 않았다.
+
+공개 https://pms.emiinc.co.kr 의 health200·익명api/me401, 두 서버 latest=ready를 확인했다. 배포 전후 유효 환경값과 비밀 참조가 동일하여 기존 DB·Gmail/provider 설정을 보존했다. 실제 로그인된 Chrome에서 /notification-settings?businessUnit=OSAN을 열어 이전 사업부 기능 차단 오류가 사라지고 정상 기기 설정이 표시됨을 확인했다. 확인 계정의 오산 연결기기0개, 일반 브라우저에서는 설치된 앱에서 설정하도록 안내한다. 실제 기기 등록·권한 허용·실제 푸시 수신은 사용자 기기에서 후속 확인하며 새 테스트 알림을 발송하지 않았다. 메일 발송 현황 조회 추가는 배포 범위에 포함하지 않았다.
+
+제품 병합·required CI·공개배포 완료. 최종 기록은 Task와 roadmap만 로컬 커밋하며 사용자 WIP는 보존한다. 검증 로그는 /private/tmp/osan-pwa-final-ci.log 및 osan-pwa-release.log, 설정 비교 자료는 osan-pwa-apps-before.json / osan-pwa-apps-after.json에 보존했다.

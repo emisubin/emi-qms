@@ -284,3 +284,25 @@ PR136 최종 head e6ece3e8205e097bbe6cb4afc7271f0d95ccefe3의 CI34489631395가 �
 검증: 사업부/알림 UI 25개와 선택 export 4개 통과, TypeScript/대상 ESLint/Release build 통과. 실제 분리 3DB HTTP 알림 export 시나리오 1개가 파일내용·행수·헤더·수신권한·사업부격리·screen조작 거부·성공 감사 기록을 확인했다. 독립 리뷰에서 발견한 프로젝트 일괄 읽음 오류 피드백 누락을 수정하고 실패 응답 테스트를 추가했다. 재검토 후 미해결 P0–P2 없음.
 
 직접 확인: 승인 HTML을 로컬5206에서 열어 비교했고 실제5204에서 PC1366×900/모바일390×844 목록·상세·필터·메뉴 위치 및 가로넘침 없음을 확인했다. 합성 알림 한 건의 선택 내보내기에서 파일 생성 성공 메시지를 확인했다. 첫 실제내보내기 실행은 검수 API contentRoot가 저장소루트여서 동봉폰트를 찾지 못해 실패했고, 전용 실행스크립트의 contentRoot를 실제 API폴더로 정정 후 재실행 성공했다. 검수주소 http://127.0.0.1:5204/notifications, API5112, 기존합성DB 보존. 승인본 예시문구/데이터 대신 실제 저장된 알림내용을 표시한다. 외부 메일·원격push/merge·공개배포·운영DB 변경 없음. 사용자 재검수 대기.
+
+
+### 실사용 검수 병행 및 최종 후보 회귀 (2026-09-11)
+
+사용자가 “검수는 실제 사용하면서 하자. 다음 작업 시작하자”로 최종 후보 회귀 진행을 요청했다. 실사용 검수는 계속하며 사용자 검수 완료나 원격 push·병합·배포 승인으로 해석하지 않는다. 제품 기준은 `3d2f722`, branch `codex/osan-project-management`이다. 검수 서버 5204/API 5112와 기존 합성 DB는 보존한다.
+
+Frontend 최초 결과: 전체 unit 최초 413/417 통과. 실패 4건은 구정책의 요청자 전용 편집 기대 2건과 테스트 환경의 dialog 메서드 누락 2건이다. 확정된 공유 1회 저장 정책과 별도 단계 이력 조회에 맞춰 테스트를 보정했으며 해당 2파일 17건 통과, 이전 사진·코멘트·처리자·초기화 사유를 조회하는 독립 테스트 1건을 추가해 통과했다. 이 테스트 보정에서는 제품 동작을 변경하지 않았다. 전체 모의 브라우저 16건, TypeScript, ESLint(오류 0, 기존 main.tsx 경고 1), CI 분류/게이트 검사와 Azure 정적 검사 통과. 실제 DB backend 전체 및 일반/사업부/오산 전용 브라우저 회귀 결과는 아래에 확정한다. 외부 메일 발송 검증과 원격 required CI는 이 로컬 회귀에 포함하지 않는다.
+
+
+회귀 보정: 일반 브라우저 최초 64건 중 63건 통과/1건 실패. 청주 제조 양식의 초기 조회가 StrictMode에서 중복 실행되고 늦은 응답이 편집 중 입력을 조회 상태로 되돌리는 기존 결함을 확인했다. `ProductionControlTemplateWorkspace`에 조회 generation/cleanup을 적용하여 폐기된 조회와 이전 사용자·domain 응답을 무시한다. 저장 성공 후 의도한 편집 종료는 보존한다. 반례는 보정 전 실패를 확인한 뒤 보정 후 StrictMode·사용자 전환·domain 전환·정상 저장 4건 통과. root가 구현 담당자와 분리하여 diff/반례를 검토했고 미해결 P0–P2 없음. 실패했던 실제 브라우저 시나리오 1건 재검증 통과.
+
+브라우저 최종: 일반 64개(최초 실패 1개 보정 후 통과), 사업부 접근 1개, 오산 등록 1개로 고유 66개 통과, skip 없음. 오산 등록 첫 시도는 새 unit의 잘못된 `exact` 옵션으로 TypeScript 빌드가 실패하여 제품 시나리오가 실행되지 않았다. 옵션 제거 후 새 임시 환경에서 build와 시나리오를 통과했다. 최종 frontend production build/TypeScript·변경 파일 lint 통과. frontend unit은 기존 417개 중 최초 실패 4개 보정 후 해당 17개 통과, 별도 이력 1개와 조회 경쟁 반례 4개 추가 통과로 최종 고유 422개를 검증했다. 전체 suite를 불필요하게 반복하지 않고 변경·실패 범위를 재확인했다.
+
+환경 정리: 일반/사업부/오산/실패 재검증은 서로 다른 tmpfs DB·bounded role·포트만 사용했으며 각 환경의 DB/role/process/container/network cleanup을 확인했다. 회귀가 갱신한 117개 tracked 이미지와 1개 생성 Excel은 `/private/tmp/osan-final-regression-screenshots-20260911/manifest.json`에 따라 임시 증거로 보존한 뒤 원래 파일로 복구했고 신규 생성 이미지 5개도 임시 증거로 옮겼다. 사용자 WIP와 기존 검수 환경에는 변경하지 않았다.
+
+
+Backend 전체 실행: 제품 backend 소스 `3d2f722`와 기존 Release assembly의 최신 상태를 확인한 뒤 전용 tmpfs `osan_stage_backend_final_20260911_01`에서 총 642건을 1회 실행했다. 최초 641건 통과/1건 실패/skip 0(49.2분). 유일한 실패는 `MigrationRelationCoverage_ExactlyClassifiesEverySchemaRelation`의 제외 relation 합계 기대값 61이었다. 0096/0097의 `osan_stage_records`·`osan_project_completion_notifications`는 이미 명시 분류돼 missing/stale/중복 검사를 통과했으며 합계만 63으로 보정했다. root가 두 분류와 diff를 독립 확인했다. 전체 실행의 DB·container·network 정리를 확인했다. 원본 결과는 `/private/tmp/osan-stage-backend-final-20260911-01/backend-full.trx`와 `run.log`, 실행 source/assembly 근거는 같은 폴더 `source-manifest.json`에 보존한다.
+
+
+최종 확정: 제외 relation 합계 보정 후 Release 재빌드와 해당 실패 검사 1/1 재검증 통과. Backend 고유 642개, frontend unit 고유 422개, 모의 브라우저 16개, 실제 브라우저 고유 66개를 최초 결과와 필요한 재검증을 합쳐 확인했으며 미해결 실패와 skip은 없다. backend 제품 소스·migration 변경은 없다. 재빌드 전후 API DLL 해시는 동일하지 않아 바이너리 동일성을 주장하지 않으며, 초기 실행 manifest와 최종 source 기준을 구분한다. 최종 빌드·형식·타입·로컬 CI 정적 검사 및 필요한 독립 검토 완료. 검수 화면 5204와 API 5112는 최종 HTTP 200 응답을 확인했다.
+
+현재 완료 범위는 로컬 구현·회귀·결함 보정이다. 사용자는 실사용 검수를 이어간다. 원격 push/PR/required CI/main 병합/공개배포/운영 DB 적용은 실행하지 않았다. 실제 메일 수신은 기존 발송 인증 설정 재입력 이후 별도 확인하며 물리 모바일 카메라·스와이프는 실사용 검수 대상으로 유지한다. 다음 원격 반영은 해당 범위 승인 후 원격 CI와 사용자 검수 상태를 확인하여 진행한다.

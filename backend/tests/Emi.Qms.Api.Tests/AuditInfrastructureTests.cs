@@ -184,7 +184,7 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(98, trackedRelations.Count);
-        Assert.Equal(61, excludedRelations.Length);
+        Assert.Equal(63, excludedRelations.Length);
     }
 
     [Fact]

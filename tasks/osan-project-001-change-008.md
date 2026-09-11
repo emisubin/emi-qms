@@ -324,3 +324,7 @@ Backend 전체 실행: 제품 backend 소스 `3d2f722`와 기존 Release assembl
 ### 후속 기능 최종 검수 및 공개배포 승인 (2026-09-11)
 
 사용자가 남은 확인을 모두 완료했으며 main 병합·공개배포를 모두 명시 승인했다. 후속 단계 기록·반려·초기화·사진/코멘트·이력·인앱/메일 알림과 회귀 보정을 원격 PR로 올리고 required CI 후 정상 병합한다. 운영은 기존 수동 release로 정확한 main의 additive 0096/0097 migration 및 Backend·Frontend를 배포한다. 관리자 페이지·관리자 체계 신규 전환은 제외하며 기존 권한/3DB/실데이터/새 Gmail과 provider 설정을 보존한다. 이전 1회 보호규칙 예외 승인은 재사용하지 않는다. 배포 결과는 실행 후 기록한다.
+
+원격 PR139 최초 CI34574644216에서 frontend420/422 통과, 제조 양식 저장 후 GET이 이전 fixture를 반환하는 검사와 관리자 전환/채널 결과 로드를 기다리지 않는 Web Push 검사가 실패했다. 저장 이후 fixture를 갱신하고 계정 전환 및 실제 결과 행 로드를 기다리도록 테스트만 보정했다. 관련3파일101개·타입·lint 통과, 제품 추가 변경 없음. 후속 required CI로 확인한다.
+
+배포 독립검토에서0096 snapshot 후 구 backend 저장이 새 현재기록에 빠질 수 있는 전환구간을 확인했다. 기존 frontend의 동일 이미지에 임시 기동 guard를 적용해 오산 POST/PUT/PATCH/DELETE만503으로 제한하고 기존 인증경계·조회·청주업무·health를 유지한다. guard는 replica재시작에도 유지되며 정상전환/구revision종료후 migration을 시작한다. 동일nginx digest/UID101에서 HTTP12개와재시작12개,기본기동해제를 검증했다. exactmain migration→backend/frontend Healthy후 원래기동설정으로복구한다. migration후 구backend로롤백되면 guard를유지하고 새기록정합성을보정한뒤해제한다. Gmail참조는image-only배포에서보존한다.

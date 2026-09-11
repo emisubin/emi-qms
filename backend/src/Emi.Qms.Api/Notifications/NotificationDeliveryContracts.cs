@@ -11,6 +11,7 @@ public static class NotificationDeliveryChannels
 
 public static class NotificationDeliveryTypes
 {
+    public const string OsanWorkflow = "OsanWorkflow";
     public const string WorkItemCreated = "WorkItemCreated";
     public const string ReferenceDigest = "ReferenceDigest";
     public const string UrgentBlocking = "UrgentBlocking";
@@ -81,6 +82,7 @@ public static class NotificationVisibilityScopes
 
 public static class NotificationSourceKinds
 {
+    public const string OsanWorkflow = "OsanWorkflow";
     public const string Automatic = "Automatic";
     public const string Manual = "Manual";
     public const string ChannelNotice = "ChannelNotice";
@@ -252,7 +254,8 @@ public sealed record NotificationDeliveryMessage(
     string? TeamsActivityTopicValue = null,
     string? ProjectName = null,
     string? WorkItemTitle = null,
-    string? WorkflowStageName = null);
+    string? WorkflowStageName = null,
+    bool IsHtml = false);
 
 public sealed record NotificationChannelResult(
     string Status,

@@ -28,7 +28,8 @@ public sealed record SmtpMailSendRequest(
     string Subject,
     string Body,
     string? CorrelationId,
-    int TimeoutSeconds);
+    int TimeoutSeconds,
+    bool IsHtml = false);
 
 public sealed class SmtpMailClient(
     IOptionsMonitor<NotificationOptions> options,
@@ -61,7 +62,7 @@ public sealed class SmtpMailClient(
             payload.Subject,
             payload.Body,
             payload.CorrelationId,
-            Math.Clamp(smtp.TimeoutSeconds, 5, 120));
+            Math.Clamp(smtp.TimeoutSeconds, 5, 120), payload.IsHtml);
 
         try
         {
@@ -107,7 +108,7 @@ public sealed class MailKitSmtpMailTransport : ISmtpMailTransport
         message.From.Add(new MailboxAddress(request.SenderDisplayName, request.SenderAddress));
         message.To.Add(MailboxAddress.Parse(request.RecipientEmail));
         message.Subject = request.Subject;
-        message.Body = new TextPart("plain")
+        message.Body = new TextPart(request.IsHtml ? "html" : "plain")
         {
             Text = request.Body
         };

@@ -46,7 +46,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(17, endpoints.Length);
+        Assert.Equal(20, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -704,7 +704,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                  + (select count(*) from project_procurement_items where project_id=@project_id)
                  + (select count(*) from work_items where project_id=@project_id)
                  + (select count(*) from pending_issues where project_id=@project_id)
-                 + (select count(*) from notification_deliveries where project_id=@project_id);
+                 + (select count(*) from notification_deliveries where project_id=@project_id and delivery_type <> 'OsanWorkflow');
             """,
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
@@ -1058,7 +1058,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Batch,
                 1,
                 partialTargets.Select(id => new OsanProgressTargetRequest(id, 1)).ToArray(),
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, partialResult.Status);
@@ -1076,7 +1076,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                         OsanCompletionModes.Individual,
                         stage,
                         [new OsanProgressTargetRequest(targetId, version)],
-                        []),
+                        [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
                     UserId,
                     TestContext.Current.CancellationToken);
                 Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
@@ -1309,7 +1309,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                     new OsanProgressTargetRequest(targetIds[0], 1),
                     new OsanProgressTargetRequest(targetIds[1], 2)
                 ],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Conflict, stale.Status);
@@ -1330,7 +1330,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Batch,
                 2,
                 [new OsanProgressTargetRequest(targetIds[0], 1)],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Conflict, skipPredecessor.Status);
@@ -1441,7 +1441,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Individual,
                 2,
                 [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, firstTargetStageTwo.Status);
@@ -1455,7 +1455,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Batch,
                 3,
                 targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Conflict, mixedPrerequisiteBatch.Status);
@@ -1476,7 +1476,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Individual,
                 2,
                 [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, secondTargetStageTwo.Status);
@@ -1489,7 +1489,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Batch,
                 7,
                 targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Conflict, prematurePacking.Status);
@@ -1504,7 +1504,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                     OsanCompletionModes.Batch,
                     stage,
                     targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
-                    []),
+                    [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
                 UserId,
                 TestContext.Current.CancellationToken);
             Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
@@ -1521,7 +1521,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Individual,
                 6,
                 [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, firstTargetStageSix.Status);
@@ -1535,7 +1535,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Batch,
                 7,
                 targetIds.Select(id => new OsanProgressTargetRequest(id, versions[id])).ToArray(),
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Conflict, mixedPacking.Status);
@@ -1556,7 +1556,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Individual,
                 6,
                 [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, secondTargetStageSix.Status);
@@ -1569,7 +1569,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 OsanCompletionModes.Individual,
                 7,
                 [new OsanProgressTargetRequest(targetIds[0], versions[targetIds[0]])],
-                []),
+                [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Success, firstPacking.Status);
@@ -1584,7 +1584,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             OsanCompletionModes.Individual,
             7,
             [new OsanProgressTargetRequest(targetIds[1], versions[targetIds[1]])],
-            []);
+            [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]);
         var concurrentLastPacking = await Task.WhenAll(
             progressStore.CompleteAsync(
                 projectId,
@@ -1619,7 +1619,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(0L, await database.ReadScalarAsync<long>(
             """
             select (select count(*) from pending_issues where project_id=@project_id)
-                 + (select count(*) from notification_deliveries where project_id=@project_id)
+                 + (select count(*) from notification_deliveries where project_id=@project_id and delivery_type <> 'OsanWorkflow')
                  + (select count(*) from logistics_packing_units where project_id=@project_id)
                  + (select count(*) from panel_quality_inspection_attempts where project_id=@project_id);
             """,
@@ -1860,7 +1860,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var completion = await store.CompleteAsync(
             Guid.NewGuid(),
             new CompleteOsanProgressInput(
-                Guid.NewGuid(), OsanCompletionModes.Batch, 1, [null], []),
+                Guid.NewGuid(), OsanCompletionModes.Batch, 1, [null], [new OsanProgressPhotoInput("fixture.png", "image/png", [1,2,3], new string('b',64))]),
             UserId,
             TestContext.Current.CancellationToken);
         Assert.Equal(OsanProgressMutationStatus.Validation, completion.Status);

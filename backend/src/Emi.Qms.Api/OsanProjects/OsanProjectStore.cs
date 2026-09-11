@@ -4,6 +4,7 @@ using System.Text.Json;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.Projects;
 using Npgsql;
+using Emi.Qms.Api.Notifications;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
@@ -178,6 +179,7 @@ public sealed partial class OsanProjectStore
                 await InsertCreatorAccessAsync(connection, transaction, projectId, userId, cancellationToken);
                 await InsertTargetsAndStepsAsync(connection, transaction, projectId, row.Input, cancellationToken);
                 await InsertProjectEventAsync(connection, transaction, projectId, userId, cancellationToken);
+            await OsanNotificationWriter.WriteAsync(connection,transaction,projectId,projectId,OsanNotificationKind.ProjectCreated,userId,DateTimeOffset.UtcNow,cancellationToken);
                 await CompleteOperationAsync(
                     connection,
                     transaction,
@@ -400,6 +402,7 @@ public sealed partial class OsanProjectStore
             await InsertCreatorAccessAsync(connection, transaction, projectId, userId, cancellationToken);
             await InsertTargetsAndStepsAsync(connection, transaction, projectId, input, cancellationToken);
             await InsertProjectEventAsync(connection, transaction, projectId, userId, cancellationToken);
+            await OsanNotificationWriter.WriteAsync(connection,transaction,projectId,projectId,OsanNotificationKind.ProjectCreated,userId,DateTimeOffset.UtcNow,cancellationToken);
             await CompleteOperationAsync(
                 connection,
                 transaction,

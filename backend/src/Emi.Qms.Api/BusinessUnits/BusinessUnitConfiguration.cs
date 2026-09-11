@@ -106,7 +106,7 @@ public sealed class BusinessUnitConfiguration
             BusinessUnitCodes.Osan,
             BusinessUnitDatabaseKind.Business,
             BusinessSchemaVersion,
-            externalNotificationsEnabled: false,
+            externalNotificationsEnabled: true,
             escalationWorkerEnabled: false,
             adminDeletionWorkerEnabled: false,
             errors);

@@ -389,7 +389,7 @@ type View =
   | { kind: 'admin-notification-preference-audit' }
   | { kind: 'admin-audit-events' }
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
-  | { kind: 'osan-progress'; projectId?: string; targetId?: string }
+  | { kind: 'osan-progress'; projectId?: string; targetId?: string; stage?: string }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
@@ -835,7 +835,7 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/progress') {
-    return { kind: 'osan-progress', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined, targetId: new URLSearchParams(window.location.search).get('targetId') ?? undefined };
+    return { kind: 'osan-progress', projectId: new URLSearchParams(window.location.search).get('projectId') ?? undefined, targetId: new URLSearchParams(window.location.search).get('targetId') ?? undefined, stage: new URLSearchParams(window.location.search).get('stage') ?? undefined };
   }
 
   const adminNotificationPreferencesMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/notification-settings$/);
@@ -1162,6 +1162,7 @@ function viewFromProjectLink(projectId: string, linkUrl?: string | null): View {
 
   try {
     const url = new URL(linkUrl, window.location.origin);
+    if (url.pathname === '/progress') return { kind: 'osan-progress', projectId, targetId: url.searchParams.get('targetId') ?? undefined, stage: url.searchParams.get('stage') ?? undefined };
     if (url.pathname === '/materials/receipts') {
       return {
         kind: 'materials-receipts',
@@ -1458,7 +1459,7 @@ function pathForView(view: View) {
         level: view.level ?? undefined
       })}`;
     case 'osan-progress':
-      return `/progress${queryString({ projectId: view.projectId, targetId: view.targetId })}`;
+      return `/progress${queryString({ projectId: view.projectId, targetId: view.targetId, stage: view.stage })}`;
     case 'panel':
       return `/projects/${view.projectId}/panels/${view.panelId}${view.section && view.section !== 'summary' ? `?tab=${view.section}` : ''}`;
     case 'list':
@@ -1884,7 +1885,6 @@ function QmsAppShellContent({
   const hasSelectedBusinessUnit = businessUnitAccess.status === 'selected';
   const isAccessBlocked = isOperationalAccessBlocked(user);
   const canLoadBusinessData = hasSelectedBusinessUnit
-    && !isOsan
     && (isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked));
   const displayedShellBadges = canLoadBusinessData
     ? shellBadges
@@ -2039,7 +2039,7 @@ function QmsAppShellContent({
 
   const refreshShellBadges = useCallback(() => {
     Promise.all([
-      getMyWorkSummary(developmentUserKey),
+      isOsan ? Promise.resolve({ requestedCount: 0 }) : getMyWorkSummary(developmentUserKey),
       getNotificationSummary(developmentUserKey)
     ])
       .then(([workSummary, notificationSummary]) => {
@@ -2051,7 +2051,7 @@ function QmsAppShellContent({
       .catch(() => {
         setShellBadges({ requestedWorkCount: 0, unreadNotificationCount: 0 });
       });
-  }, [developmentUserKey]);
+  }, [developmentUserKey, isOsan]);
 
   useEffect(() => {
     loadShell();
@@ -2388,7 +2388,8 @@ function QmsAppShellContent({
     ? [
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
+        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
+        { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications' || view.kind === 'teams-notification-detail', group: '공통 조회', badge: displayedShellBadges.unreadNotificationCount }
       ]
     : cheongjuNavigationItems;
 
@@ -2401,6 +2402,7 @@ function QmsAppShellContent({
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
       data-osan-project-theme={isOsan && (view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
+      data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
@@ -2693,6 +2695,7 @@ function QmsAppShellContent({
           key={`${selectedBusinessUnit}:${view.projectId}`}
           projectId={view.projectId}
           initialTargetId={view.targetId}
+          initialStage={view.stage}
           developmentUserKey={developmentUserKey}
           mutationAllowed={mutationEnabled && canUpdateManufacturing}
           onBack={() => setView({ kind: 'osan-progress' })}
@@ -3072,7 +3075,7 @@ function QmsAppShellContent({
         <TeamsActivityNotificationDetailPage
           developmentUserKey={developmentUserKey}
           notificationId={view.notificationId}
-          onBack={() => setView({ kind: 'teams-activity' })}
+          onBack={() => setView({ kind: isOsan ? 'notifications' : 'teams-activity' })}
           onOpenProject={(projectId, linkUrl) => setView(viewFromProjectLink(projectId, linkUrl))}
         />
       ) : null}
@@ -5466,7 +5469,10 @@ function isOsanViewAllowed(view: View) {
     || view.kind === 'create'
     || view.kind === 'detail'
     || view.kind === 'osan-progress'
-    || view.kind === 'osan-qr') {
+    || view.kind === 'osan-qr'
+    || view.kind === 'notifications'
+    || view.kind === 'notification-preferences'
+    || view.kind === 'teams-notification-detail') {
     return true;
   }
   return false;

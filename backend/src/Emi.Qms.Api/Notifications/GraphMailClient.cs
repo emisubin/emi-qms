@@ -189,7 +189,7 @@ public sealed record GraphSendMailRequest(
             new GraphMailMessage(
                 payload.Subject,
                 new GraphMailBody(
-                    "Text",
+                    payload.IsHtml ? "HTML" : "Text",
                     payload.Body),
                 new[]
                 {

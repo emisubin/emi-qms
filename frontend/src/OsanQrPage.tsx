@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError, getOsanProject } from './api';
 import type { OsanProjectDetail } from './projects';
 import { getOsanProgress, osanStageNames, type OsanProgressDetail } from './osanProgress';
-import { SavedPhoto } from './OsanProgressPage';
+import { SavedPhoto } from './OsanPhotoGallery';
 import { OsanStageGuidance } from './OsanStageGuidance';
 import { formatOsanDday, useKoreaDate } from './osanDday';
 import logo from './assets/emi-qr-logo.png';

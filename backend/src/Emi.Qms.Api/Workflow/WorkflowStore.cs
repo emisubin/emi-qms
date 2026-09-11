@@ -2994,6 +2994,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "DailyDigest" => "일일 요약",
             "Escalation" => "에스컬레이션",
             "System" => "시스템 알림",
+            "OsanWorkflow" => "오산 진행 알림",
             _ => "자동 알림"
         };
     }

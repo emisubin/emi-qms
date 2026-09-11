@@ -36,7 +36,7 @@ public static class OsanProgressEndpointExtensions
             }
 
             var value = await store.GetAsync(projectId, cancellationToken);
-            return value is null ? Results.NotFound() : Results.Ok(value);
+            return value is null ? Results.NotFound() : Results.Ok(value with { CanManageStages = user.IsInRole(QmsRoles.SystemAdministrator) });
         })
         .RequireAuthorization()
         .WithName("GetOsanProgress");
@@ -74,11 +74,11 @@ public static class OsanProgressEndpointExtensions
                 return Results.ValidationProblem(parsed.Errors);
             }
 
-            return ToResult(await store.CompleteAsync(
-                projectId,
-                parsed.Input,
-                actorId.Value,
-                cancellationToken));
+            var result = await store.CompleteAsync(projectId, parsed.Input, actorId.Value,
+                cancellationToken, user.IsInRole(QmsRoles.SystemAdministrator));
+            if(result.Value is not null) result=result with { Value=result.Value with {
+                Project=result.Value.Project with {CanManageStages=user.IsInRole(QmsRoles.SystemAdministrator)} } };
+            return ToResult(result);
         })
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
         .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
@@ -271,6 +271,16 @@ public static class OsanProgressEndpointExtensions
         {
             errors["photos"] = ["같은 사진을 중복해서 첨부할 수 없습니다."];
         }
+        var comment = form["comment"].ToString();
+        if (comment.Length > 1000) errors["comment"] = ["코멘트는 1000자 이하여야 합니다."];
+        Guid[] retained = [];
+        if (!string.IsNullOrWhiteSpace(form["retainedPhotoIds"]))
+        {
+            try { retained = JsonSerializer.Deserialize<Guid[]>(form["retainedPhotoIds"].ToString()) ?? []; }
+            catch (JsonException) { errors["retainedPhotoIds"] = ["유지할 사진 목록을 확인해 주세요."]; }
+        }
+        if (retained.Length > 5 || retained.Distinct().Count() != retained.Length)
+            errors["retainedPhotoIds"] = ["유지할 사진 목록을 확인해 주세요."];
         if (errors.Count > 0 || targets is null)
         {
             return (null, errors);
@@ -281,7 +291,7 @@ public static class OsanProgressEndpointExtensions
             completionMode,
             stageSequence,
             targets,
-            photos), errors);
+            photos, comment, retained), errors);
     }
 
     private static IResult ToResult(OsanProgressMutationResult result) =>

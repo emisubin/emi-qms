@@ -77,7 +77,8 @@ public sealed record MailDeliveryPayload(
     string? SenderUserId,
     string? SenderAddress,
     bool SaveToSentItems = false,
-    string? CorrelationId = null);
+    string? CorrelationId = null,
+    bool IsHtml = false);
 
 public sealed class TeamsWebhookClient(HttpClient httpClient) : ITeamsWebhookClient
 {
@@ -323,7 +324,7 @@ public sealed class MailChannelHandler(
                 message.SenderUserId ?? mail.SenderUserId,
                 message.SenderAddress ?? mail.SenderAddress,
                 message.SaveToSentItems,
-                message.CorrelationId),
+                message.CorrelationId, message.IsHtml),
             cancellationToken);
     }
 }

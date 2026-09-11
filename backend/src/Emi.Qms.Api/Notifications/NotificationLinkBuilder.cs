@@ -67,6 +67,8 @@ public sealed class NotificationLinkBuilder(IConfiguration configuration)
         return BuildUrl($"/teams/activity/deliveries/{deliveryId:D}");
     }
 
+    public string? BuildBusinessUrl(string path) => path.StartsWith("/") && !path.StartsWith("//") ? BuildUrl(path) : null;
+
     private string? BuildUrl(string path)
     {
         var baseUrl = ResolveBaseUrl();

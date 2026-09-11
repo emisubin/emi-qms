@@ -77,11 +77,29 @@ public static class OsanManagementEndpointExtensions
             var parsed = await OsanProgressEndpointExtensions.ReadCompletionAsync(request, ct);
             if (parsed.Input is null) return Results.ValidationProblem(parsed.Errors);
             return Result(await store.SaveAsync(projectId, requestId, parsed.Input,
-                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct));
+                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, user.IsInRole(QmsRoles.SystemAdministrator)));
         }).RequireAuthorization(QmsPolicies.ManufacturingUpdate)
           .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
           .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
           .WithName("SaveOsanProgressPhotoEdit");
+        api.MapGet("/progress/steps/{stepId:guid}/history", async (Guid projectId,Guid stepId,OsanProgressStore store,
+            OsanProjectStore projects,DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+        {
+            var denied=await Guard(projectId,projects,db,user,false,ct);
+            if(denied is not null)return denied;
+            var items=await store.HistoryAsync(projectId,stepId,ct);
+            return items is null?Results.NotFound():Results.Ok(items);
+        });
+        foreach(var action in new[]{"reject","reset"})
+        {
+            var kind=action=="reject"?"Reject":"Reset";
+            api.MapPost("/progress/steps/{stepId:guid}/"+action, async (Guid projectId,Guid stepId,OsanStageActionRequest request,
+                OsanProgressStore store,OsanProjectStore projects,DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+            {
+                var denied=await Guard(projectId,projects,db,user,true,ct);
+                return denied??Result(await store.StageActionAsync(projectId,stepId,request,kind,ProjectEndpointExtensions.GetCurrentUserId(user)!.Value,ct));
+            }).WithName("OsanStage"+kind);
+        }
         return app;
     }
 

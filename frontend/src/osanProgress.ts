@@ -9,7 +9,7 @@ export interface OsanProgressStep {
   stepId: string; sequenceNumber: number; stepCode: string; stepName: string; status: string;
   startedAtUtc: string | null; completedByUserId: string | null; canCompleteIndividual: boolean; canCompleteBatch: boolean;
   guidanceDescription: string | null; guidancePhotos: { photoId: string; altText: string }[];
-  completedAtUtc: string | null; completedByDisplayName: string | null; photos: OsanProgressPhoto[];
+  completedAtUtc: string | null; completedByDisplayName: string | null; photos: OsanProgressPhoto[]; comment?: string | null; editOpen?: boolean; rejected?: boolean;
 }
 export interface OsanProgressTarget {
   targetId: string; sequenceNumber: number; displayName: string; status: string; version: number; steps: OsanProgressStep[];
@@ -17,13 +17,13 @@ export interface OsanProgressTarget {
 }
 export interface OsanProgressDetail {
   projectId: string; title: string; projectCode: string; status: string;
-  completedStepCount: number; totalStepCount: number; targets: OsanProgressTarget[];
+  canManageStages?: boolean; completedStepCount: number; totalStepCount: number; targets: OsanProgressTarget[];
 }
 export interface OsanProgressMutation { operationId: string; replayed: boolean; project: OsanProgressDetail }
 export interface OsanProgressSelection { targetId: string; expectedVersion: number }
 export interface OsanCompletionRequest {
   operationId: string; completionMode: 'individual' | 'batch'; stageSequence: number;
-  targets: OsanProgressSelection[]; photos: File[];
+  targets: OsanProgressSelection[]; photos: File[]; comment?: string;
 }
 const projectPath = (projectId: string) => `/api/osan/projects/${encodeURIComponent(projectId)}/progress`;
 export function getOsanProgress(projectId: string, userKey?: string, signal?: AbortSignal) {
@@ -35,6 +35,7 @@ export function completeOsanProgress(projectId: string, request: OsanCompletionR
   body.set('completionMode', request.completionMode);
   body.set('stageSequence', String(request.stageSequence));
   body.set('targets', JSON.stringify(request.targets));
+  body.set('comment', request.comment ?? '');
   request.photos.forEach(file => body.append('photos', file, file.name));
   return fetchJson<OsanProgressMutation>(`${projectPath(projectId)}/completions`, userKey, { method: 'POST', body });
 }
@@ -57,5 +58,15 @@ export function completionUnavailable(targets: OsanProgressTarget[], stageSequen
     const step = target.steps.find(item => item.sequenceNumber === stageSequence);
     if (!step || !(mode === 'individual' ? step.canCompleteIndividual : step.canCompleteBatch)) return `${target.displayName}: 현재 이 단계를 완료할 수 없습니다. 새로고침하여 상태를 확인해 주세요.`;
   }
+  return null;
+}
+
+export function validateOsanRecord(photos: readonly File[], comment: string, canManage: boolean, retained: readonly OsanProgressPhoto[] = []): string | null {
+  const error = validateOsanPhotos(photos);
+  if (error) return error;
+  if (comment.length > 1000) return '코멘트는 최대 1000자입니다.';
+  if (photos.length + retained.length > 5) return '사진은 최대 5장입니다.';
+  if (photos.reduce((sum, f) => sum + f.size, 0) + retained.reduce((sum, f) => sum + f.sizeBytes, 0) > 15 * 1024 * 1024) return '사진의 전체 용량은 15MiB 이하여야 합니다.';
+  if (!photos.length && !retained.length && !(canManage && comment.trim())) return canManage ? '사진이 없으면 코멘트를 입력해 주세요.' : '사진을 1장 이상 첨부해 주세요.';
   return null;
 }

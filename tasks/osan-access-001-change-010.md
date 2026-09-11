@@ -20,3 +20,7 @@ origin/main f4c630cd27a40e550f1c6e9a9e2be217c56476fb, codex/osan-department-perm
 
 ## 원격 검증 보정
 PR138 head ec4747f, CI34547954410 Frontend 기존 QualityInspectionsPage finalize case 실패. 첫 클릭 뒤 초기 draft effect가 반영돼 첫 응답empty/둘째pass 상태, 서버호출0과 필수입력오류로 확인. mock 초기 render를 async act로 완료한 뒤 입력하고 두 항목의 selected 상태를 검증하도록 테스트만 보정. 기존 server error/atomic payload/중복재시도 assertions 유지. 관련4PASS. 독립 reviewer 원인/보정 타당 확인. 로컬 초기 frontend 전체409PASS도 확인. 원격 새 후보 전체 검증 예정.
+
+CI34548342390 frontend409+browser16PASS, full-stack64+BU1+Osan1PASS. Backend629/630PASS, 실제HTTP QR 이미지 ZXing 위치탐지 결과null1건. 독립 reviewer 입력이 순수 생성 심볼임을 확인. 고정 seed20260911 합성URL1,000개를 실제 PNG로 만들어 비교: 일반TryHarder 위치탐지31건null, PureBarcode 모드1,000개 모두 정확URL해독PASS. HTTP 경계 테스트 reader만 입력형태에 맞는 PureBarcode=true로 보정; 실제 응답bytes/독립해독/non-null/exactURL/대상2개구분 assertion 유지. 기존 renderer 일반탐지 테스트는 변경하지 않음. 제품QR 생성 코드 변경 없음. 진단코드·통계는 /private/tmp 비추적 보존. 실패한3DB case 재검증 후 최종 원격CI 예정.
+
+QR 보정 후 실제3DB ThreeDatabaseBoundary1/1PASS 및 소유 DB/container/network 정리 완료. 독립 reviewer 최종 delta GO.

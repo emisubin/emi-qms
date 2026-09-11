@@ -3227,6 +3227,8 @@ public sealed partial class BusinessUnitIsolationTests
                     Options =
                     {
                         PossibleFormats = [ZXing.BarcodeFormat.QR_CODE],
+                        // HTTP returns a clean generated symbol, not a camera scene.
+                        PureBarcode = true,
                         TryHarder = true
                     }
                 }.Decode(image);

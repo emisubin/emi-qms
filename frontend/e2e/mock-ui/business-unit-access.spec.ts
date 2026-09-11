@@ -290,6 +290,11 @@ test('integrated approval-pending filter shows its matching title, rows, and emp
   await expect(page.getByRole('heading', { name: '승인 대기 사용자' })).toBeVisible();
   await expect(page.getByText('Synthetic New User')).toBeVisible();
   await expect(page.getByRole('table').getByText('Synthetic Overall Admin')).toHaveCount(0);
+  await page.getByRole('combobox', { name: '사업부 필터' }).selectOption('OSAN');
+  await expect(page.getByText('필터 조건에 맞는 사용자가 없습니다.')).toBeVisible();
+  await page.getByRole('combobox', { name: '사업부 필터' }).selectOption('unassigned');
+  await page.getByRole('combobox', { name: '부서 필터' }).selectOption('unassigned');
+  await expect(page.getByText('Synthetic New User')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('approval-pending-list-desktop.png'), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -297,6 +302,7 @@ test('integrated approval-pending filter shows its matching title, rows, and emp
   await expect(page.locator('.business-unit-access-table-scroll')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('approval-pending-list-mobile.png'), fullPage: true });
 
+  await page.getByRole('button', { name: '필터 초기화' }).click();
   hasPendingUser = false;
   await page.reload();
   await expect(page.getByRole('heading', { name: '승인 대기 사용자' })).toBeVisible();
@@ -466,7 +472,7 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
     status,
     contentType: 'application/json',
     headers: {
-      'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
+      'Access-Control-Allow-Origin': route.request().headers().origin ?? 'http://127.0.0.1:5173',
       'Access-Control-Allow-Headers': 'Content-Type, X-Dev-User, X-Qms-Business-Unit'
     },
     body: JSON.stringify(body)

@@ -486,6 +486,13 @@ describe('business-unit access shell', () => {
     expect(adminRow).not.toBeNull();
     expect(within(adminRow!).getByText('총괄')).toBeInTheDocument();
 
+    fireEvent.change(screen.getByRole('combobox', { name: '사업부 필터' }), { target: { value: 'OSAN' } });
+    expect(screen.queryByText('Synthetic New User')).not.toBeInTheDocument();
+    expect(screen.getByText('Synthetic Overall Admin')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: '부서 필터' }), { target: { value: 'unassigned' } });
+    expect(screen.getByText('필터 조건에 맞는 사용자가 없습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '필터 초기화' }));
+
     const newUserRow = (await screen.findByText('Synthetic New User')).closest('tr');
     expect(newUserRow).not.toBeNull();
     expect(within(newUserRow!).getByText('new-user@example.invalid')).toBeInTheDocument();

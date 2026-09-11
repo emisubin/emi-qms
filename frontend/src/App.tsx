@@ -2387,9 +2387,9 @@ function QmsAppShellContent({
   const navigationItems: NavigationItem[] = isOsan
     ? [
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
+        { label: '알림', view: { kind: 'notifications' }, active: ['notifications', 'teams-notification-detail', 'notification-preferences'].includes(view.kind), group: '내 업무', badge: displayedShellBadges.unreadNotificationCount },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
-        { label: '알림', view: { kind: 'notifications' }, active: view.kind === 'notifications' || view.kind === 'teams-notification-detail', group: '공통 조회', badge: displayedShellBadges.unreadNotificationCount }
+        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
       ]
     : cheongjuNavigationItems;
 

@@ -336,3 +336,14 @@ PR139 head7dd34a92b27495111583ebdd5ee43c8c6847b4c2의 CI34575126932 최종 통�
 사용자 승인에 따라 정상 main f96fa5490e452d9505a6e4f5a8d97c67ad64b7d5로 병합했고 후보/main tree 동일, main CI34579226825도 성공했다. 보호규칙 변경·예외 없음.
 
 배포 전 임시 frontend 기동 guard 적용 명령은 실행 전에 자동 승인 심사에서 거부됐다. 확인된 이유는 공개배포 승인을 /api/osan의 모든 쓰기 요청을503으로 잠시 중단하는 구체적인 운영 조치의 승인으로 인정하지 않았기 때문이다. 우회·설정변경·동일행동 재시도 없음. guard·migration·image배포·workflow dispatch는 실행하지 않았고 Backend mail-20260911/Frontend38 latest=ready 유지 확인. 새 Gmail 설정과 실제 데이터는 보존된다. 사용자의 구체적인 오산 저장 임시중단·정상전환후재개 승인이 필요한 상태다. guard 원본과 동일기반 반례결과는 /private/tmp/osan-release-20260911/guard-review, 운영복구 metadata는 같은상위폴더 apps-before.json에 보존했다. 승인 후 exactmain 수동 release와 배포후검증을 이어간다.
+
+
+### 공개배포 및 오산 저장 재개 완료 (2026-09-11)
+
+이전 차단 기록 이후 사용자가 안전한 배포와 임시 오산 저장 제한·복구를 승인했고, 재개 요청에 따라 실행했다. main `f96fa5490e452d9505a6e4f5a8d97c67ad64b7d5`의 [배포 실행 34579964572](https://github.com/emisubin/emi-qms/actions/runs/34579964572)이 성공했다. 공식 release migration 및 Backend·Frontend·PublicSecurity 검증 PASS. database bootstrap·membership backfill·inspection은 실행하지 않았다. 운영 DB 초기화·삭제와 관리자 체계 전환은 없다.
+
+이력 snapshot 전환 구간은 동일 frontend 이미지의 임시 guard로 오산 쓰기만 제한하고 구 revision 종료를 확인한 뒤 배포했다. Backend50 및 Frontend40 정상 전환 후 기본 기동 설정을 복구했다. 최초 CLI 빈 문자열 해제는 command/args에 빈 문자열 배열을 저장하여 Frontend41이 준비되지 않았다. 현재 설정의 나머지 필드를 유지하면서 command/args를 빈 배열로 복구했고 Frontend42만 active·Healthy, latest=ready를 확인했다. 존재하지 않는 오산 경로의 POST는 임시503 대신 정상 인증401을 반환했다. 실제 업무 데이터 생성 없이 제한 해제를 확인했다. 공개 health200·익명 api/me401 유지.
+
+배포 전후 secret 참조와 유효 환경값을 대조하여 DB·Gmail/provider 설정 보존을 확인했다. 실제 로그인된 공개 화면에서 오산 알림 메뉴, 기존 프로젝트의 단계 완료 수와 상태, 단계 사진·원 등록자·시각, 이전 완료·수정요청·승인 이력을 조회했다. 이전 사진을 크게 열어 컬러 이미지 로드를 직접 확인했다. 이는 기존 프로젝트 표본의 읽기 검증이며 전체 운영 레코드 전수 대조나 새 업무 알림 발송 검증을 대신하지 않는다. 메일 수신을 포함한 사용자 최종 확인은 앞선 승인 기록을 따른다.
+
+제품 main 병합·required CI·공개배포·임시 제한 복구 완료. 공개 주소 https://pms.emiinc.co.kr. 최종 배포 기록은 이 Task와 roadmap만 로컬 커밋하며 다른 WIP·검수 runtime은 보존한다.

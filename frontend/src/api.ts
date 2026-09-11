@@ -675,6 +675,11 @@ function clearBusinessUnitSelection(forceInvalidate: boolean) {
 
 function readStoredBusinessUnit(): BusinessUnitCode | null {
   if (typeof window === 'undefined') return null;
+  const linkedUnit = new URLSearchParams(window.location.search).get('businessUnit');
+  if (linkedUnit === 'CHEONGJU' || linkedUnit === 'OSAN') {
+    window.sessionStorage.setItem(businessUnitStorageKey, linkedUnit);
+    return linkedUnit;
+  }
   const value = window.sessionStorage.getItem(businessUnitStorageKey);
   return value === 'CHEONGJU' || value === 'OSAN' ? value : null;
 }

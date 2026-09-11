@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Notifications;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -252,21 +253,21 @@ public sealed class WebPushChannelHandlerTests
         public int FailureCount { get; private set; }
         public string? DeactivatedReason { get; private set; }
 
-        public Task<WebPushDeliveryTarget?> GetDeliveryTargetAsync(Guid deliveryId, CancellationToken cancellationToken) => Task.FromResult(Target);
+        public Task<WebPushDeliveryTarget?> GetDeliveryTargetAsync(Guid deliveryId, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null) => Task.FromResult(Target);
 
-        public Task RecordProviderAcceptedAsync(Guid subscriptionId, long expectedGeneration, CancellationToken cancellationToken)
+        public Task RecordProviderAcceptedAsync(Guid subscriptionId, long expectedGeneration, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
         {
             AcceptedCount++;
             return Task.CompletedTask;
         }
 
-        public Task RecordProviderFailureAsync(Guid subscriptionId, long expectedGeneration, string failureCode, CancellationToken cancellationToken)
+        public Task RecordProviderFailureAsync(Guid subscriptionId, long expectedGeneration, string failureCode, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
         {
             FailureCount++;
             return Task.CompletedTask;
         }
 
-        public Task DeactivateForProviderAsync(Guid subscriptionId, long expectedGeneration, string reason, CancellationToken cancellationToken)
+        public Task DeactivateForProviderAsync(Guid subscriptionId, long expectedGeneration, string reason, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
         {
             DeactivatedReason = reason;
             return Task.CompletedTask;

@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ProductionPlanning;
+using Microsoft.AspNetCore.WebUtilities;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -30,33 +31,39 @@ public sealed class NotificationDeliveryStore(
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         var created = 0;
-        created += await InsertUrgentMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
-        created += await InsertLifecycleMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
-        created += await InsertProjectFinalCompletionMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
-        created += await InsertWorkItemTeamsPersonalDeliveriesAsync(
-            connection,
-            transaction,
-            dedupeAfter,
-            batchWindowSeconds,
-            teamsActivityPersonal: true,
-            cancellationToken);
-        created += await InsertUrgentTeamsActivityDeliveriesAsync(
-            connection,
-            transaction,
-            dedupeAfter,
-            batchWindowSeconds,
-            cancellationToken);
-        created += await InsertPlannedTeamsActivityDeliveriesAsync(
-            connection,
-            transaction,
-            dedupeAfter,
-            batchWindowSeconds,
-            cancellationToken);
+        var osanOnly = (target ?? connectionStringProvider.GetCurrentBusinessUnit())?.Code == BusinessUnitCodes.Osan;
+        // Osan mail is enqueued by its workflow transaction. Never run Cheongju planners here.
+        if (!osanOnly)
+        {
+            created += await InsertUrgentMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
+            created += await InsertLifecycleMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
+            created += await InsertProjectFinalCompletionMailDeliveriesAsync(connection, transaction, dedupeAfter, batchWindowSeconds, cancellationToken);
+            created += await InsertWorkItemTeamsPersonalDeliveriesAsync(
+                connection,
+                transaction,
+                dedupeAfter,
+                batchWindowSeconds,
+                teamsActivityPersonal: true,
+                cancellationToken);
+            created += await InsertUrgentTeamsActivityDeliveriesAsync(
+                connection,
+                transaction,
+                dedupeAfter,
+                batchWindowSeconds,
+                cancellationToken);
+            created += await InsertPlannedTeamsActivityDeliveriesAsync(
+                connection,
+                transaction,
+                dedupeAfter,
+                batchWindowSeconds,
+                cancellationToken);
+        }
 
         created += await InsertWebPushDeliveriesAsync(
             connection,
             transaction,
             options.WebPush.Enabled,
+            osanOnly,
             batchWindowSeconds,
             cancellationToken);
 
@@ -1574,7 +1581,19 @@ public sealed class NotificationDeliveryStore(
             return RenderManualMessage(delivery);
         }
 
-        return RenderAutomaticMessage(delivery);
+        var message = RenderAutomaticMessage(delivery);
+        var businessUnit = target ?? connectionStringProvider.GetCurrentBusinessUnit();
+        if (delivery.Channel == NotificationDeliveryChannels.WebPush
+            && connectionStringProvider.BusinessUnits.Enabled
+            && businessUnit is not null)
+        {
+            message = message with
+            {
+                BusinessUnitTarget = businessUnit,
+                LinkUrl = QueryHelpers.AddQueryString(message.LinkUrl ?? "/notifications", "businessUnit", businessUnit.Code)
+            };
+        }
+        return message;
     }
 
     private NotificationDeliveryMessage RenderAutomaticMessage(NotificationDeliveryRecord delivery)
@@ -2055,6 +2074,7 @@ public sealed class NotificationDeliveryStore(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         bool channelEnabled,
+        bool osanOnly,
         int batchWindowSeconds,
         CancellationToken cancellationToken)
     {
@@ -2079,7 +2099,10 @@ public sealed class NotificationDeliveryStore(
                 from notifications n
                 join qms_users users
                   on users.is_active = true
-                 and n.source_kind <> 'OsanWorkflow'
+                 and (
+                    (@osan_only and n.source_kind = 'OsanWorkflow' and n.visibility_scope = 'RecipientOnly')
+                    or (not @osan_only and n.source_kind <> 'OsanWorkflow')
+                 )
                  and (
                     users.auth_provider <> 'EntraId'
                     or exists (
@@ -2109,6 +2132,7 @@ public sealed class NotificationDeliveryStore(
                  and subscription.activated_at_utc <= n.created_at_utc
                 left join projects on projects.id = n.project_id
                 where n.visibility_scope in ('RecipientOnly', 'Authenticated')
+                  and (not @osan_only or projects.project_profile = 'Osan')
             )
             insert into notification_deliveries (
                 notification_id, notification_recipient_id, recipient_user_id,
@@ -2150,6 +2174,7 @@ public sealed class NotificationDeliveryStore(
             on conflict do nothing;
             """;
         command.Parameters.AddWithValue("channel_enabled", channelEnabled);
+        command.Parameters.AddWithValue("osan_only", osanOnly);
         command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
         command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
         return await command.ExecuteNonQueryAsync(cancellationToken);

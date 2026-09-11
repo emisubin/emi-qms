@@ -1,3 +1,5 @@
+using Emi.Qms.Api.BusinessUnits;
+
 namespace Emi.Qms.Api.Notifications;
 
 public sealed record WebPushSubscriptionKeysRequest(string P256dh, string Auth);
@@ -36,11 +38,11 @@ public sealed record WebPushDeliveryTarget(
 
 public interface IWebPushSubscriptionDeliveryStore
 {
-    Task<WebPushDeliveryTarget?> GetDeliveryTargetAsync(Guid deliveryId, CancellationToken cancellationToken);
+    Task<WebPushDeliveryTarget?> GetDeliveryTargetAsync(Guid deliveryId, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null);
 
-    Task RecordProviderAcceptedAsync(Guid subscriptionId, long expectedGeneration, CancellationToken cancellationToken);
+    Task RecordProviderAcceptedAsync(Guid subscriptionId, long expectedGeneration, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null);
 
-    Task RecordProviderFailureAsync(Guid subscriptionId, long expectedGeneration, string failureCode, CancellationToken cancellationToken);
+    Task RecordProviderFailureAsync(Guid subscriptionId, long expectedGeneration, string failureCode, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null);
 
-    Task DeactivateForProviderAsync(Guid subscriptionId, long expectedGeneration, string reason, CancellationToken cancellationToken);
+    Task DeactivateForProviderAsync(Guid subscriptionId, long expectedGeneration, string reason, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null);
 }

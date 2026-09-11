@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 namespace Emi.Qms.Api.Notifications;
 
 public static class NotificationDeliveryChannels
@@ -255,7 +256,8 @@ public sealed record NotificationDeliveryMessage(
     string? ProjectName = null,
     string? WorkItemTitle = null,
     string? WorkflowStageName = null,
-    bool IsHtml = false);
+    bool IsHtml = false,
+    BusinessUnitDatabaseTarget? BusinessUnitTarget = null);
 
 public sealed record NotificationChannelResult(
     string Status,

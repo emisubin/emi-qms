@@ -65,13 +65,11 @@ public sealed class NotificationDispatcher(
         BusinessUnitDatabaseTarget? target,
         CancellationToken cancellationToken)
     {
-        // Osan business transactions already enqueue the approved mail snapshots. Cheongju's
-        // work assignments/digests must not create unrelated deliveries in the Osan database.
-        if (target?.Code == BusinessUnitCodes.Osan)
-            return new NotificationDispatchSummary(0, 0,
-                await SendDueDeliveriesAsync(currentOptions, cancellationToken, target));
         var created = await deliveryStore.CreateImmediateDeliveriesAsync(currentOptions, cancellationToken, target);
-        var digests = await deliveryStore.CreateDailyDigestDeliveriesIfDueAsync(currentOptions, cancellationToken, target);
+        // Osan mail comes from workflow snapshots; Cheongju digests remain outside its contract.
+        var digests = target?.Code == BusinessUnitCodes.Osan
+            ? 0
+            : await deliveryStore.CreateDailyDigestDeliveriesIfDueAsync(currentOptions, cancellationToken, target);
         var processed = await SendDueDeliveriesAsync(currentOptions, cancellationToken, target);
         return new NotificationDispatchSummary(created, digests, processed);
     }
@@ -180,6 +178,9 @@ public sealed class NotificationDispatcher(
         try
         {
             var message = preparedMessage ?? await deliveryStore.RenderMessageAsync(delivery, cancellationToken, target);
+            // A background worker has no request-selected database. Carry the validated target
+            // through both subscription lookup and provider-result updates.
+            message = message with { BusinessUnitTarget = target ?? connectionStringProvider.GetCurrentBusinessUnit() };
             NotificationChannelResult result;
             if (handler is IProviderCallAwareNotificationChannelHandler providerCallAwareHandler)
             {

@@ -4,6 +4,7 @@ import {
   deactivateAllWebPushSubscriptions,
   deactivateCurrentWebPushSubscription,
   getCurrentWebPushStatus,
+  getBusinessUnitRequestState,
   getWebPushConfiguration,
   saveCurrentWebPushSubscription
 } from './api';
@@ -27,6 +28,7 @@ export function WebPushSettings({ developmentUserKey }: { developmentUserKey: st
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const businessUnit = getBusinessUnitRequestState().selectedBusinessUnit;
   const browserSupported = supportsWebPush();
   const canManageCurrentDevice = state.kind === 'ready'
     && browserSupported
@@ -95,7 +97,7 @@ export function WebPushSettings({ developmentUserKey }: { developmentUserKey: st
         activeDeviceCount = result.activeDeviceCount;
         setState({ kind: 'ready', configuration: { ...state.configuration, activeDeviceCount }, currentActive: false, localAccessError: false });
         try {
-          await subscription.unsubscribe();
+          if (!businessUnit) await subscription.unsubscribe();
           setFeedback({ tone: 'success', message: '이 기기의 푸시 알림을 껐습니다.' });
         } catch {
           setFeedback({ tone: 'success', message: '서버에서 이 기기의 푸시 연결을 해제했습니다. 브라우저의 로컬 알림 정보는 정리하지 못했지만 다시 알림이 발송되지는 않습니다.' });
@@ -112,7 +114,7 @@ export function WebPushSettings({ developmentUserKey }: { developmentUserKey: st
   };
 
   const disableAll = async () => {
-    if (state.kind !== 'ready' || !window.confirm('로그인한 모든 기기의 푸시 연결을 해제할까요?')) return;
+    if (state.kind !== 'ready' || !window.confirm(businessUnit ? '현재 캠퍼스의 모든 기기 푸시 연결을 해제할까요?' : '로그인한 모든 기기의 푸시 연결을 해제할까요?')) return;
     setBusy(true);
     setFeedback(null);
     try {
@@ -120,7 +122,7 @@ export function WebPushSettings({ developmentUserKey }: { developmentUserKey: st
       setState({ kind: 'ready', configuration: { ...state.configuration, activeDeviceCount: 0 }, currentActive: false, localAccessError: false });
       try {
         const subscription = await getCurrentBrowserSubscription();
-        await subscription?.unsubscribe();
+        if (!businessUnit) await subscription?.unsubscribe();
         setFeedback({ tone: 'success', message: '모든 기기의 푸시 연결을 해제했습니다. 다른 기기의 Microsoft 365 로그인은 유지됩니다.' });
       } catch {
         setFeedback({ tone: 'success', message: '서버의 모든 기기 푸시 연결을 해제했습니다. 이 브라우저의 로컬 알림 정보는 브라우저 정책 때문에 정리하지 못했지만 다시 알림이 발송되지는 않습니다.' });
@@ -163,6 +165,7 @@ export function WebPushSettings({ developmentUserKey }: { developmentUserKey: st
       </header>
       <p>인앱 알림과 같은 내용을 이 기기의 알림으로 받습니다. 여러 휴대폰과 태블릿에서 동시에 켤 수 있습니다.</p>
 
+      {businessUnit ? <small>기기 연결과 해제는 현재 캠퍼스에 적용됩니다.</small> : null}
       {statusMessage ? <p className="web-push-state" role="status">{statusMessage}</p> : null}
       {state.kind === 'ready' && state.localAccessError ? (
         <div className="web-push-state web-push-error-state" role="alert">
@@ -212,16 +215,16 @@ export function WebPushFirstRunPrompt({ developmentUserKey }: { developmentUserK
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const checkedRef = useRef(false);
+  const businessUnit = getBusinessUnitRequestState().selectedBusinessUnit;
+  const guideStorageKey = businessUnit ? `${webPushGuideDismissedStorageKey}:${businessUnit}` : webPushGuideDismissedStorageKey;
   const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (checkedRef.current || !supportsWebPush() || !isInstalledPwa()) return;
-    checkedRef.current = true;
+    if (!supportsWebPush() || !isInstalledPwa()) return;
     let cancelled = false;
     void getWebPushConfiguration(developmentUserKey).then(async (result) => {
       if (cancelled || !result.configured) return;
-      const dismissed = window.localStorage.getItem(webPushGuideDismissedStorageKey) === 'true';
+      const dismissed = window.localStorage.getItem(guideStorageKey) === 'true';
       const existing = await getCurrentBrowserSubscription();
       const current = existing
         ? await getCurrentWebPushStatus(developmentUserKey, existing.endpoint)
@@ -232,7 +235,7 @@ export function WebPushFirstRunPrompt({ developmentUserKey }: { developmentUserK
       }
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [developmentUserKey]);
+  }, [developmentUserKey, guideStorageKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -240,7 +243,7 @@ export function WebPushFirstRunPrompt({ developmentUserKey }: { developmentUserK
     dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      window.localStorage.setItem(webPushGuideDismissedStorageKey, 'true');
+      window.localStorage.setItem(guideStorageKey, 'true');
       setOpen(false);
     };
     document.addEventListener('keydown', onKeyDown);
@@ -248,11 +251,11 @@ export function WebPushFirstRunPrompt({ developmentUserKey }: { developmentUserK
       document.removeEventListener('keydown', onKeyDown);
       previousFocus?.focus();
     };
-  }, [open]);
+  }, [open, guideStorageKey]);
 
   if (!open || !configuration) return null;
   const close = () => {
-    window.localStorage.setItem(webPushGuideDismissedStorageKey, 'true');
+    window.localStorage.setItem(guideStorageKey, 'true');
     setOpen(false);
   };
   const enable = async () => {
@@ -270,7 +273,7 @@ export function WebPushFirstRunPrompt({ developmentUserKey }: { developmentUserK
       if (!registration || !configuration.publicKey) throw new Error('푸시 알림을 준비할 수 없습니다.');
       const subscription = await getOrCreateBrowserSubscription(registration, configuration.publicKey);
       await saveCurrentWebPushSubscription(developmentUserKey, toWebPushRequest(subscription));
-      window.localStorage.setItem(webPushGuideDismissedStorageKey, 'true');
+      window.localStorage.setItem(guideStorageKey, 'true');
       setOpen(false);
     } catch (error) {
       setFeedback(errorMessage(error, '푸시 알림을 켤 수 없습니다.'));

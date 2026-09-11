@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using Npgsql;
@@ -289,9 +290,9 @@ public sealed class WebPushSubscriptionStore(
 
     public async Task<WebPushDeliveryTarget?> GetDeliveryTargetAsync(
         Guid deliveryId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var command = dataSource.CreateCommand("""
             select
                 subscription.id,
@@ -326,19 +327,19 @@ public sealed class WebPushSubscriptionStore(
             reader.GetBoolean(6));
     }
 
-    public Task RecordProviderAcceptedAsync(Guid subscriptionId, long expectedGeneration, CancellationToken cancellationToken)
+    public Task RecordProviderAcceptedAsync(Guid subscriptionId, long expectedGeneration, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
     {
-        return UpdateProviderStateAsync(subscriptionId, expectedGeneration, true, null, false, cancellationToken);
+        return UpdateProviderStateAsync(subscriptionId, expectedGeneration, true, null, false, cancellationToken, target);
     }
 
-    public Task RecordProviderFailureAsync(Guid subscriptionId, long expectedGeneration, string failureCode, CancellationToken cancellationToken)
+    public Task RecordProviderFailureAsync(Guid subscriptionId, long expectedGeneration, string failureCode, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
     {
-        return UpdateProviderStateAsync(subscriptionId, expectedGeneration, false, failureCode, false, cancellationToken);
+        return UpdateProviderStateAsync(subscriptionId, expectedGeneration, false, failureCode, false, cancellationToken, target);
     }
 
-    public Task DeactivateForProviderAsync(Guid subscriptionId, long expectedGeneration, string reason, CancellationToken cancellationToken)
+    public Task DeactivateForProviderAsync(Guid subscriptionId, long expectedGeneration, string reason, CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
     {
-        return UpdateProviderStateAsync(subscriptionId, expectedGeneration, false, reason, true, cancellationToken);
+        return UpdateProviderStateAsync(subscriptionId, expectedGeneration, false, reason, true, cancellationToken, target);
     }
 
     private async Task UpdateProviderStateAsync(
@@ -347,10 +348,10 @@ public sealed class WebPushSubscriptionStore(
         bool accepted,
         string? failureCode,
         bool deactivate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, BusinessUnitDatabaseTarget? target = null)
     {
         var now = timeProvider.GetUtcNow();
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateDataSource(target);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         Guid? userId = null;
@@ -487,9 +488,11 @@ public sealed class WebPushSubscriptionStore(
         return normalized.Length <= 100 ? normalized : normalized[..100];
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
     {
-        var connectionString = connectionStringProvider.GetConnectionString();
+        var connectionString = target is null
+            ? connectionStringProvider.GetConnectionString()
+            : connectionStringProvider.GetConnectionString(target);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");

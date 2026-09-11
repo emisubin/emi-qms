@@ -328,3 +328,43 @@ Backend 전체 실행: 제품 backend 소스 `3d2f722`와 기존 Release assembl
 원격 PR139 최초 CI34574644216에서 frontend420/422 통과, 제조 양식 저장 후 GET이 이전 fixture를 반환하는 검사와 관리자 전환/채널 결과 로드를 기다리지 않는 Web Push 검사가 실패했다. 저장 이후 fixture를 갱신하고 계정 전환 및 실제 결과 행 로드를 기다리도록 테스트만 보정했다. 관련3파일101개·타입·lint 통과, 제품 추가 변경 없음. 후속 required CI로 확인한다.
 
 배포 독립검토에서0096 snapshot 후 구 backend 저장이 새 현재기록에 빠질 수 있는 전환구간을 확인했다. 기존 frontend의 동일 이미지에 임시 기동 guard를 적용해 오산 POST/PUT/PATCH/DELETE만503으로 제한하고 기존 인증경계·조회·청주업무·health를 유지한다. guard는 replica재시작에도 유지되며 정상전환/구revision종료후 migration을 시작한다. 동일nginx digest/UID101에서 HTTP12개와재시작12개,기본기동해제를 검증했다. exactmain migration→backend/frontend Healthy후 원래기동설정으로복구한다. migration후 구backend로롤백되면 guard를유지하고 새기록정합성을보정한뒤해제한다. Gmail참조는image-only배포에서보존한다.
+
+### 후속 main 병합 완료 및 배포 전 운영 제한 승인 차단 (2026-09-11)
+
+PR139 head7dd34a92b27495111583ebdd5ee43c8c6847b4c2의 CI34575126932 최종 통과. Backend642·Frontend422·mock16·일반Full-stack64·사업부1·오산1 및 CI Gate 성공. 첫 통합 시도는 일반64/사업부1 성공 후 오산 검증 서버가 readiness 전 종료됐고 시작로그는 기존cleanup에서 삭제됐다. 제품변경 없이 임시진단을 넣은 로컬 오산1건이 성공했고 자원cleanup도 확인했다. 진단삽입은 원복했으며 실패한 원격job만 재실행해66건과Gate 성공을 확보했다. 최초시작실패의 세부원인은 확정하지 않았다.
+
+사용자 승인에 따라 정상 main f96fa5490e452d9505a6e4f5a8d97c67ad64b7d5로 병합했고 후보/main tree 동일, main CI34579226825도 성공했다. 보호규칙 변경·예외 없음.
+
+배포 전 임시 frontend 기동 guard 적용 명령은 실행 전에 자동 승인 심사에서 거부됐다. 확인된 이유는 공개배포 승인을 /api/osan의 모든 쓰기 요청을503으로 잠시 중단하는 구체적인 운영 조치의 승인으로 인정하지 않았기 때문이다. 우회·설정변경·동일행동 재시도 없음. guard·migration·image배포·workflow dispatch는 실행하지 않았고 Backend mail-20260911/Frontend38 latest=ready 유지 확인. 새 Gmail 설정과 실제 데이터는 보존된다. 사용자의 구체적인 오산 저장 임시중단·정상전환후재개 승인이 필요한 상태다. guard 원본과 동일기반 반례결과는 /private/tmp/osan-release-20260911/guard-review, 운영복구 metadata는 같은상위폴더 apps-before.json에 보존했다. 승인 후 exactmain 수동 release와 배포후검증을 이어간다.
+
+
+### 공개배포 및 오산 저장 재개 완료 (2026-09-11)
+
+이전 차단 기록 이후 사용자가 안전한 배포와 임시 오산 저장 제한·복구를 승인했고, 재개 요청에 따라 실행했다. main `f96fa5490e452d9505a6e4f5a8d97c67ad64b7d5`의 [배포 실행 34579964572](https://github.com/emisubin/emi-qms/actions/runs/34579964572)이 성공했다. 공식 release migration 및 Backend·Frontend·PublicSecurity 검증 PASS. database bootstrap·membership backfill·inspection은 실행하지 않았다. 운영 DB 초기화·삭제와 관리자 체계 전환은 없다.
+
+이력 snapshot 전환 구간은 동일 frontend 이미지의 임시 guard로 오산 쓰기만 제한하고 구 revision 종료를 확인한 뒤 배포했다. Backend50 및 Frontend40 정상 전환 후 기본 기동 설정을 복구했다. 최초 CLI 빈 문자열 해제는 command/args에 빈 문자열 배열을 저장하여 Frontend41이 준비되지 않았다. 현재 설정의 나머지 필드를 유지하면서 command/args를 빈 배열로 복구했고 Frontend42만 active·Healthy, latest=ready를 확인했다. 존재하지 않는 오산 경로의 POST는 임시503 대신 정상 인증401을 반환했다. 실제 업무 데이터 생성 없이 제한 해제를 확인했다. 공개 health200·익명 api/me401 유지.
+
+배포 전후 secret 참조와 유효 환경값을 대조하여 DB·Gmail/provider 설정 보존을 확인했다. 실제 로그인된 공개 화면에서 오산 알림 메뉴, 기존 프로젝트의 단계 완료 수와 상태, 단계 사진·원 등록자·시각, 이전 완료·수정요청·승인 이력을 조회했다. 이전 사진을 크게 열어 컬러 이미지 로드를 직접 확인했다. 이는 기존 프로젝트 표본의 읽기 검증이며 전체 운영 레코드 전수 대조나 새 업무 알림 발송 검증을 대신하지 않는다. 메일 수신을 포함한 사용자 최종 확인은 앞선 승인 기록을 따른다.
+
+제품 main 병합·required CI·공개배포·임시 제한 복구 완료. 공개 주소 https://pms.emiinc.co.kr. 최종 배포 기록은 이 Task와 roadmap만 로컬 커밋하며 다른 WIP·검수 runtime은 보존한다.
+
+
+### 오산 PWA 푸시 연결 보정 (2026-09-11, 구현 요청)
+
+사용자가 운영 인앱/PWA 상태 확인 후 문제 해결을 요청했다. 운영 서버의 WebPush Enabled=true·DryRun=false와 키 설정을 확인했지만, 실제 오산 내 알림 설정은 business_unit_capability_disabled로 차단됐다. 기존 인앱 조회/메일 범위에 빠져 있던 오산 기기 등록 API·푸시 대기열 생성·worker의 명시적 사업부 DB target 전달을 보정한다. 기존 사업부 membership/승인/DB 분리·수신자 범위·등록 이후 알림만 전송·기기 세대와 중복 방지·메일 정책을 유지한다. 관리자 페이지는 추가하지 않는다. 실제 DB 검증에서 0097의 메일 전용 guard도 푸시 기록을 차단함을 확인하여 기존 migration을 수정하지 않고 후속 migration으로 승인된 오산 푸시 범위만 허용한다.
+
+UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결한다. 최초 안내는 StrictMode에서도 정상 표시하며 캠퍼스별로 숨김 상태를 저장한다. 캠퍼스에서 기기를 끄면 해당 캠퍼스 서버 연결만 해제하여 다른 캠퍼스가 공유하는 브라우저 구독을 끊지 않는다. 로그아웃 시 기존 브라우저 구독 해제는 유지한다. 푸시 링크의 사업부를 최초 API 요청 전에 선택하고 접근 허용은 서버에서 계속 판단한다.
+
+검증 및 최종 상태는 아래에 확정한다. 이번 보정의 원격 게시·병합·공개배포 및 실제 테스트 알림 발송은 아직 수행하지 않았다. 앞선 배포 승인·완료와 구분한다.
+
+
+보정 완료: 0098_osan_web_push_delivery.sql은 기존 함수만 교체하여 INSERT 시 실제 오산 프로젝트·RecipientOnly 알림·수신자·활성/승인 사용자·본인 기기/세대/활성화 시각을 검증한다. 0097의 메일 허용식과 기존 데이터는 유지하며 후속 상태 UPDATE를 제한하지 않는다. background dispatcher는 오산에서 푸시만 생성하고 청주용 업무/digest planner를 실행하지 않는다. 구독 조회와 provider 결과 처리에 명시적 사업부 DB target을 전달한다.
+
+검증: Backend Release build 오류/경고0, 관련15건 PASS/skip0(신규3DB통합·기존push·migration concurrency/ledger). 잘못된 경로/메서드·소속 철회·다른 사용자 기기 조회·수신자와 프로젝트/세대/채널 등6개 DB 위조 INSERT 거부, 현재 캠퍼스만 provider 성공/410 처리, 중복·재등록 후 과거알림 제외를 확인했다. 최초 합성 계정 소속 누락을 정정했고, 실제 0097 DB guard 차단은0098로 해결했다. 외부 provider는 fake, 전용 tmpfs DB/container/network cleanup 완료. Frontend 5파일60건 PASS, 타입·대상lint·build PASS(기존 bundle크기 경고). 실제 컴포넌트를 합성 설정으로 PC1440/mobile390에서 직접 보고 가로넘침 없음을 확인했다. 확인용 임시 HTML·서버는 정리했다.
+
+작성자와 분리된 gpt-6-astra/high 리뷰에서 초기 diff 및0098 추가분 모두 미해결 P0–P2 없음(요청 모델 기준). 실행 근거는 /private/tmp/osan-push-backend-tests.log, osan-push-frontend3.log, osan-push-api-tests.log와 type/lint/build 로그에 보존한다. 구현·직접 검증·독립 리뷰 완료, 사용자 검수·이번 수정본의 원격 병합/공개배포는 미실행. 운영 적용 시0098과 Backend·Frontend를 함께 release한 뒤 설치된 PWA의 알림 설정에서 현재 캠퍼스 기기 켜기/권한 허용과 실제 수신을 확인해야 한다. 현재 운영 사이트가 이미 고쳐졌다는 뜻은 아니다.
+
+
+### PWA 보정 병합·공개배포 승인 (2026-09-11)
+
+사용자가 PWA 알림 수정본의 main 병합·공개배포를 명시 승인했다. 범위는6372296의 오산 PWA 연결과0098 guard 보정이다. 메일 발송 현황 조회 기능 추가와 관리자 페이지는 제외한다. 원격 required CI 후 exact main으로 기존 수동 release를 실행하고 provider/DB 연결과 기존 데이터를 보존한다.0098은 함수만 교체하며 snapshot/backfill이 없고 기존 메일 predicate를 유지하므로 이전0096 전환의 임시 저장 제한을 반복 적용하지 않는다. 실제 기기 알림 수신은 설치·기기 권한에 따라 별도 확인한다.

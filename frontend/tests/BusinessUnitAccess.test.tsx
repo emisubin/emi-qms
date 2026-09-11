@@ -864,4 +864,34 @@ describe('business-unit access shell', () => {
     expect(window.location.pathname).toBe('/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   });
 
+  it('uses approved Osan notification rows and shared read/detail actions', async () => {
+    selectBusinessUnit('OSAN');
+    window.history.replaceState(null, '', '/notifications');
+    let wasRead = false;
+    const item = {notificationId:'77000000-0000-0000-0000-000000000001',projectId:'80000000-0000-0000-0000-000000000001',projectTitle:'검수 장비',projectCode:'OS-TEST',projectItem:null,workItemId:null,workItemTitle:null,workflowStageCode:null,workflowStageName:null,notificationType:'Information',notificationTypeLabel:'정보',severity:'Information',severityLabel:'정보',visibilityScope:'Project',visibilityScopeLabel:'프로젝트',sourceKind:'OsanWorkflow',sourceKindLabel:'오산 진행',title:'입고검사 완료',message:'예시 작업자님이 단계를 완료했습니다.\nCode: OS-TEST',linkUrl:'/progress?projectId=80000000-0000-0000-0000-000000000001&stage=1',createdAtUtc:'2026-09-11T05:00:00Z',readAtUtc:null};
+    const fallback=shellFetch(selectedUser({status:'selected',selectedBusinessUnit:'OSAN',allowedBusinessUnits:['OSAN'],isOverallAdministrator:false,errorCode:null}));
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit) => {
+      const url=new URL(String(input));
+      if(url.pathname.includes('/projects/') && url.pathname.endsWith('/read-all'))return json({message:'읽음 처리에 실패했습니다.'},500);
+      if(url.pathname.endsWith('/read') && init?.method==='POST'){wasRead=true;return json({...item,readAtUtc:'2026-09-11T06:00:00Z'});}
+      if(url.pathname==='/api/notifications/summary')return json({unreadCount:wasRead?0:1,blockingCount:0});
+      if(url.pathname==='/api/notifications')return json({items:wasRead?[]:[item]});
+      if(url.pathname===`/api/notifications/${item.notificationId}`)return json({...item,readAtUtc:wasRead?'2026-09-11T06:00:00Z':null});
+      return fallback(input,init);
+    }));
+    render(<App/>);
+    expect(await screen.findByRole('button',{name:'입고검사 완료'})).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:/컬럼 선택/})).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab').map(el=>el.textContent)).toEqual(['읽지 않음','전체','읽음']);
+    fireEvent.click(screen.getByRole('button',{name:'이 프로젝트 모두 읽음'}));
+    expect(await screen.findByText(/프로젝트 알림 읽음 처리에 실패했습니다|읽음 처리에 실패했습니다/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'상세'}));
+    expect(await screen.findByRole('heading',{name:'알림 상세'})).toBeInTheDocument();
+    expect(await screen.findByRole('heading',{name:'입고검사 완료'})).toBeInTheDocument();
+    expect(wasRead).toBe(true);
+    expect(screen.getByRole('button',{name:'관련 화면으로 이동'})).toBeInTheDocument();
+    expect(screen.queryByText('내부 추적값')).not.toBeInTheDocument();
+  });
+
 });

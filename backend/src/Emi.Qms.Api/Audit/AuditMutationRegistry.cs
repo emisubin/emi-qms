@@ -78,6 +78,7 @@ public static partial class AuditMutationRegistry
         POST /api/audit/site-access/end
         POST /api/audit/site-access/signals
         POST /api/data-exports/selected
+        POST /api/notifications/export
         POST /api/deleted-projects/purge-all
         POST /api/deleted-projects/{projectId:guid}/restore
         POST /api/form-templates/export
@@ -240,6 +241,7 @@ public static partial class AuditMutationRegistry
         POST /api/audit/site-access/end
         POST /api/audit/site-access/signals
         POST /api/data-exports/selected
+        POST /api/notifications/export
         POST /api/form-templates/export
         POST /api/my/web-push/current-status
         POST /api/my/web-push/subscriptions/deactivate-all

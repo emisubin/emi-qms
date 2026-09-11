@@ -273,6 +273,30 @@ public static class DataExportEndpointExtensions
         .RequireAuthorization()
         .WithName("ExportSelectedRows");
 
+        app.MapPost("/api/notifications/export", async (
+            SelectedExportRequest request,
+            HttpContext httpContext,
+            SelectedExcelExportService exportService,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var actorUserId = ProjectEndpointExtensions.GetCurrentUserId(user);
+            if (actorUserId is null) return Results.Unauthorized();
+            const string screen = SelectedExportScreens.Notifications;
+            if (request.Screen is not null && request.Screen.Trim() != screen)
+                return UnsupportedFilter("screen");
+            if (!exportService.TryResolveColumns(screen, user, request.Columns, out var columns))
+                return InvalidSelectedColumns();
+            var validation = ValidateSelectedIds(request.Ids);
+            if (validation.Error is not null) return validation.Error;
+            var result = await exportService.ExportAsync(
+                screen, validation.Ids!, request.Filters ?? new Dictionary<string, string?>(),
+                actorUserId.Value, user, columns, cancellationToken);
+            return ToResult(result, httpContext);
+        })
+        .RequireAuthorization()
+        .WithName("ExportSelectedNotifications");
+
         return app;
     }
 

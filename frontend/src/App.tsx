@@ -119,6 +119,7 @@ import {
   getMyTeamsActivityDelivery,
   getMyWorkSummary,
   getNotificationSummary,
+  exportOsanNotificationsExcel,
   removeOwnProfilePhoto,
   reprocessFailedAdminNotificationDeliveries,
   getMaterialReceipts,
@@ -3038,6 +3039,7 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notifications' ? (
         <NotificationsPage
+          osan={isOsan}
           developmentUserKey={developmentUserKey}
           onOpenPreferences={() => setView({ kind: 'notification-preferences' })}
           onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
@@ -3073,6 +3075,7 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'teams-notification-detail' ? (
         <TeamsActivityNotificationDetailPage
+          osan={isOsan}
           developmentUserKey={developmentUserKey}
           notificationId={view.notificationId}
           onBack={() => setView({ kind: isOsan ? 'notifications' : 'teams-activity' })}
@@ -9473,11 +9476,13 @@ function TeamsActivityPage({
 }
 
 function TeamsActivityNotificationDetailPage({
+  osan = false,
   developmentUserKey,
   notificationId,
   onBack,
   onOpenProject
 }: {
+  osan?: boolean;
   developmentUserKey: string;
   notificationId: string;
   onBack: () => void;
@@ -9508,6 +9513,21 @@ function TeamsActivityNotificationDetailPage({
       setMessage(friendlyErrorMessage(error, '알림 읽음 처리에 실패했습니다.'));
     }
   };
+
+  if (osan) return <section className="osan-notifications">
+    <button className="on-back" type="button" onClick={onBack}>‹ 알림 목록</button>
+    <h1>알림 상세</h1><p className="on-description">알림 내용과 연결된 프로젝트를 확인합니다.</p>
+    {state.kind === 'loading' ? <p role="status" className="on-empty">알림 상세를 불러오는 중입니다.</p> : null}
+    {message && <ActionFeedback message={message} tone={message.includes('실패') ? 'error' : 'success'} />}
+    {state.kind !== 'ready' && state.kind !== 'loading' && <div className="on-empty" role="alert"><p>{loadStateMessage(state) ?? '알림을 표시할 수 없습니다.'}</p><button type="button" onClick={load}>다시 불러오기</button></div>}
+    {state.kind === 'ready' && <article className="on-detail" aria-label="인앱 알림 상세">
+      <span className="on-badge">{osanNotificationLabel(state.data)}</span><span className="on-meta">{state.data.readAtUtc ? '읽음' : '읽지 않음'} · {formatDateTime(state.data.createdAtUtc)}</span>
+      <h2>{state.data.title}</h2>
+      <div className="on-facts"><strong>{state.data.projectTitle}</strong><br/>{state.data.projectCode}{osanNotificationActor(state.data) && <><br/>처리자 · {osanNotificationActor(state.data)}</>}</div>
+      <p className="on-detail-body">{osanNotificationBody(state.data)}</p>
+      <div className="on-actions">{state.data.projectId && <button type="button" className="on-primary" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>관련 화면으로 이동</button>}{!state.data.readAtUtc && <button type="button" onClick={() => void markRead()}>읽음 처리</button>}<button type="button" onClick={onBack}>목록으로</button></div>
+    </article>}
+  </section>;
 
   return (
     <section className="page-surface workflow-page teams-activity-page">
@@ -9667,12 +9687,14 @@ const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
 ];
 
 function NotificationsPage({
+  osan = false,
   developmentUserKey,
   onOpenPreferences,
   onOpenNotification,
   onOpenProject,
   onBadgeRefresh
 }: {
+  osan?: boolean;
   developmentUserKey: string;
   onOpenPreferences: () => void;
   onOpenNotification: (notificationId: string) => void;
@@ -9803,6 +9825,46 @@ function NotificationsPage({
   const allNotificationsBusy = actions.isBusy('notifications:all');
   const anyNotificationBusy = actions.hasBusyPrefix('notification:');
   const notificationGroups = itemsState.kind === 'ready' ? groupNotificationsByProject(itemsState.data.items) : [];
+
+  const pageFeedback = allNotificationsFeedback ?? latestRowFeedback ?? (
+    actions.latestFeedback?.scope.startsWith('notifications:project:')
+      && !notificationGroups.some(group => actions.latestFeedback?.scope === `notifications:project:${group.projectId}`)
+      ? actions.latestFeedback : null
+  );
+
+  if (osan) return <section className="osan-notifications">
+    <header className="on-heading"><div><h1>알림</h1><p className="on-description">프로젝트와 진행 단계에 대한 알림을 확인합니다.</p></div><div className="on-actions">
+      <button type="button" onClick={onOpenPreferences}>알림 설정</button><button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</button><button type="button" onClick={refresh}>새로고침</button>
+    </div></header>
+    <div className="on-summary" aria-label="알림 요약"><div><span>읽지 않음</span><strong>{summary?.unreadCount ?? '-'}</strong></div><div><span>긴급/차단</span><strong>{summary?.blockingCount ?? '-'}</strong></div></div>
+    <div className="on-filters" role="tablist" aria-label="알림 읽음 상태">{(['unread','All','read'] as NotificationTab[]).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : undefined} onClick={() => selectTab(tab)}>{tab === 'unread' ? '읽지 않음' : tab === 'All' ? '전체' : '읽음'}</button>)}</div>
+    {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && <StateMessage state={summaryState}/>}
+    {pageFeedback && <ActionFeedback message={pageFeedback.message} tone={pageFeedback.tone} focusOnAttention/>}
+    {itemsState.kind === 'ready' && <SelectedExportTray compact exportFile={() => exportOsanNotificationsExcel(developmentUserKey, [...notificationSelection.selectedIds], activeTab === 'All' ? undefined : activeTab)} developmentUserKey={developmentUserKey} screen="notifications" label="선택 내보내기" visibleIds={visibleNotificationIds} selectedIds={notificationSelection.selectedIds} allSelected={notificationSelection.allSelected} busy={notificationSelection.busy} filters={{readStatus: activeTab === 'All' ? undefined : activeTab}} onBusyChange={notificationSelection.setBusy} onToggleAll={notificationSelection.toggleAll} onClear={notificationSelection.clear}/>}
+    {itemsState.kind === 'loading' && <p className="on-empty" role="status">알림을 불러오는 중입니다.</p>}
+    {itemsState.kind === 'empty' && <p className="on-empty">표시할 알림이 없습니다.</p>}
+    {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' && <StateMessage state={itemsState}/>}
+    {notificationGroups.map(group => {
+      const expanded = expandedGroups.has(group.groupKey);
+      const projectFeedback = actions.feedbackFor(`notifications:project:${group.projectId}`);
+      return <section className="on-group" key={group.groupKey} aria-label={`${group.projectTitle} 알림`}>
+        <header className="on-grouphead"><div><strong>{group.projectTitle}</strong><div className="on-meta">{group.projectCode} · 알림 {group.items.length}건 · 읽지 않음 {group.unreadCount}건</div></div><div className="on-actions">
+          {group.projectId && group.unreadCount > 0 && <button type="button" disabled={actions.isBusy(`notifications:project:${group.projectId}`)} onClick={() => void readProject(group)}>{actions.isBusy(`notifications:project:${group.projectId}`) ? '정리 중' : '이 프로젝트 모두 읽음'}</button>}
+          {group.projectId && <button type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</button>}
+        </div></header>
+        {projectFeedback && <div className="on-group-feedback"><ActionFeedback message={projectFeedback.message} tone={projectFeedback.tone} focusOnAttention/></div>}
+        {(expanded ? group.items : group.items.slice(0,3)).map(item => <article className="on-row" key={item.notificationId}>
+          <SelectionCheckbox label={`${item.title} 선택`} checked={notificationSelection.selectedIds.has(item.notificationId)} disabled={notificationSelection.busy} onChange={checked => notificationSelection.toggle(item.notificationId,checked)}/>
+          <div><button type="button" className="on-title" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>{!item.readAtUtc && <span className="on-dot"/>}{item.title}</button><div className="on-bodycopy"><span className="on-badge">{osanNotificationLabel(item)}</span>{osanNotificationBody(item)}</div></div>
+          <div className="on-time">{formatDateTime(item.createdAtUtc)}<br/>{item.readAtUtc ? '읽음' : '읽지 않음'}</div>
+          <div className="on-actions"><button type="button" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>상세</button>{item.projectId && <button type="button" onClick={() => void openNotification(item, () => onOpenProject(item.projectId!,item.linkUrl))}>이동</button>}{!item.readAtUtc && <button type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>{actions.isBusy(`notification:${item.notificationId}`) ? '처리 중' : '읽음'}</button>}</div>
+          {(() => { const feedback=actions.feedbackFor(`notification:${item.notificationId}`);return feedback && (feedback.tone === 'loading' || feedback.tone === 'error') ? <div className="on-row-feedback"><ActionFeedback message={feedback.message} tone={feedback.tone}/></div> : null; })()}
+        </article>)}
+        {group.items.length > 3 && <button type="button" className="on-more" aria-expanded={expanded} onClick={() => setExpandedGroups(current => {const next=new Set(current);if(next.has(group.groupKey))next.delete(group.groupKey);else next.add(group.groupKey);return next;})}>{expanded ? '접기' : '알림 더 보기'}</button>}
+      </section>;
+    })}
+    {itemsState.kind === 'ready' && <nav className="on-pagination" aria-label="알림 페이지"><button type="button" aria-label="이전 페이지" disabled>‹</button><span>1 / 1</span><button type="button" aria-label="다음 페이지" disabled>›</button></nav>}
+  </section>;
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
@@ -10002,6 +10064,19 @@ function NotificationsPage({
       ) : null}
     </section>
   );
+}
+
+function osanNotificationLabel(item: NotificationItem) {
+  if (item.title.includes('반려')) return '단계 반려';
+  if (item.title.includes('수정')) return '수정 완료';
+  if (item.title.includes('프로젝트')) return item.title.includes('등록') ? '프로젝트 생성' : '프로젝트 완료';
+  return '단계 완료';
+}
+function osanNotificationActor(item: NotificationItem) {
+  return item.message.match(/(?:^|\n)(.+?)님이 /)?.[1] ?? '';
+}
+function osanNotificationBody(item: NotificationItem) {
+  return operationalDetailLines(item.message, '').filter(line => !line.startsWith('Code:') && !/\(한국 시간\)$/.test(line)).join('\n');
 }
 
 function NotificationStatusBadges({ item }: { item: NotificationItem }) {

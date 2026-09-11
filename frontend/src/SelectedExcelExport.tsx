@@ -45,6 +45,7 @@ export function SelectionCheckbox({
 }
 
 export function SelectedExportTray({
+  compact = false,
   developmentUserKey,
   screen,
   visibleIds,
@@ -59,6 +60,7 @@ export function SelectedExportTray({
   onToggleAll,
   onClear
 }: {
+  compact?: boolean;
   developmentUserKey: string | undefined;
   screen: SelectedExportScreen;
   visibleIds: readonly string[];
@@ -73,7 +75,7 @@ export function SelectedExportTray({
   onToggleAll: (selected: boolean) => void;
   onClear: () => void;
 }) {
-  const pickerEnabled = screen !== 'form-templates';
+  const pickerEnabled = !compact && screen !== 'form-templates';
   const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const pickerPanelRef = useRef<HTMLDivElement>(null);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -160,7 +162,7 @@ export function SelectedExportTray({
     : '기본 컬럼';
 
   return (
-    <section className="selected-export-tray" aria-label={ariaLabel}>
+    <section className={compact ? "selected-export-tray selected-export-tray--compact" : "selected-export-tray"} aria-label={ariaLabel}>
       <label className="selected-export-all">
         <SelectionCheckbox
           checked={allSelected}
@@ -169,11 +171,11 @@ export function SelectedExportTray({
           label="현재 목록 전체 선택"
           onChange={onToggleAll}
         />
-        <span>전체선택</span>
+        <span>{compact ? '현재 목록 전체 선택' : '전체선택'}</span>
       </label>
       <div className="selected-export-summary" aria-live="polite">
         <strong>{selectedIds.size}개 선택</strong>
-        <small>현재 목록 {visibleIds.length}건 중 선택</small>
+        {!compact && <small>현재 목록 {visibleIds.length}건 중 선택</small>}
       </div>
       {pickerEnabled ? (
         <div className="selected-export-column-picker">
@@ -271,9 +273,9 @@ export function SelectedExportTray({
           onBusyChange(nextBusy);
         }}
       />
-      <button type="button" className="selected-export-clear" disabled={busy || selectedIds.size === 0} onClick={onClear}>
+      {!compact && <button type="button" className="selected-export-clear" disabled={busy || selectedIds.size === 0} onClick={onClear}>
         선택 해제
-      </button>
+      </button>}
     </section>
   );
 }

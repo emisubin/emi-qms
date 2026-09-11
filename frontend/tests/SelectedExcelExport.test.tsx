@@ -54,6 +54,16 @@ describe('SelectedExportTray column picker', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps compact notification export wired to its scoped download without column selection', async () => {
+    const exportFile = vi.fn(async () => ({blob: new Blob(['xlsx']), fileName:'notifications.xlsx', rowCount:1}));
+    render(<SelectedExportTray compact developmentUserKey="synthetic-user" screen="notifications" label="선택 내보내기" visibleIds={['n1']} selectedIds={new Set(['n1'])} allSelected busy={false} exportFile={exportFile} onBusyChange={vi.fn()} onToggleAll={vi.fn()} onClear={vi.fn()}/>);
+    expect(screen.queryByRole('button',{name:/컬럼 선택/})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'선택 내보내기'}));
+    expect(await screen.findByText('Excel 파일 생성을 완료했습니다')).toBeInTheDocument();
+    expect(exportFile).toHaveBeenCalledOnce();
+    expect(exportSelectedRowsExcel).not.toHaveBeenCalled();
+  });
+
   it('loads server metadata, locks required columns, and exports a server-ordered subset', async () => {
     renderTray();
 

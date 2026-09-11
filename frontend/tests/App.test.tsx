@@ -1421,13 +1421,13 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('채널'), { target: { value: 'WebPush' } });
     expect(await screen.findByText('PWA 푸시')).toBeInTheDocument();
     expect(screen.getAllByText('인앱 연동 PWA 푸시').length).toBeGreaterThan(0);
-    expect(screen.getByText('푸시 서비스 접수')).toBeInTheDocument();
+    expect(await screen.findByText('푸시 서비스 접수')).toBeInTheDocument();
     expect(screen.getByText((content, element) => element?.tagName === 'SMALL' && content.startsWith('서비스 접수'))).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '기기 푸시 알림' }));
     expect(await screen.findByRole('heading', { name: '알림 발송 상세' })).toBeInTheDocument();
-    expect(screen.getAllByText('푸시 서비스 접수').length).toBeGreaterThan(0);
-    expect(screen.getByText('서비스 접수')).toBeInTheDocument();
+    expect((await screen.findAllByText('푸시 서비스 접수')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('서비스 접수')).toBeInTheDocument();
   });
 
   it('shows field-level department validation errors', async () => {

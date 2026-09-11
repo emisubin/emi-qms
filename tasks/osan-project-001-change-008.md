@@ -363,3 +363,8 @@ UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결
 검증: Backend Release build 오류/경고0, 관련15건 PASS/skip0(신규3DB통합·기존push·migration concurrency/ledger). 잘못된 경로/메서드·소속 철회·다른 사용자 기기 조회·수신자와 프로젝트/세대/채널 등6개 DB 위조 INSERT 거부, 현재 캠퍼스만 provider 성공/410 처리, 중복·재등록 후 과거알림 제외를 확인했다. 최초 합성 계정 소속 누락을 정정했고, 실제 0097 DB guard 차단은0098로 해결했다. 외부 provider는 fake, 전용 tmpfs DB/container/network cleanup 완료. Frontend 5파일60건 PASS, 타입·대상lint·build PASS(기존 bundle크기 경고). 실제 컴포넌트를 합성 설정으로 PC1440/mobile390에서 직접 보고 가로넘침 없음을 확인했다. 확인용 임시 HTML·서버는 정리했다.
 
 작성자와 분리된 gpt-6-astra/high 리뷰에서 초기 diff 및0098 추가분 모두 미해결 P0–P2 없음(요청 모델 기준). 실행 근거는 /private/tmp/osan-push-backend-tests.log, osan-push-frontend3.log, osan-push-api-tests.log와 type/lint/build 로그에 보존한다. 구현·직접 검증·독립 리뷰 완료, 사용자 검수·이번 수정본의 원격 병합/공개배포는 미실행. 운영 적용 시0098과 Backend·Frontend를 함께 release한 뒤 설치된 PWA의 알림 설정에서 현재 캠퍼스 기기 켜기/권한 허용과 실제 수신을 확인해야 한다. 현재 운영 사이트가 이미 고쳐졌다는 뜻은 아니다.
+
+
+### PWA 보정 병합·공개배포 승인 (2026-09-11)
+
+사용자가 PWA 알림 수정본의 main 병합·공개배포를 명시 승인했다. 범위는6372296의 오산 PWA 연결과0098 guard 보정이다. 메일 발송 현황 조회 기능 추가와 관리자 페이지는 제외한다. 원격 required CI 후 exact main으로 기존 수동 release를 실행하고 provider/DB 연결과 기존 데이터를 보존한다.0098은 함수만 교체하며 snapshot/backfill이 없고 기존 메일 predicate를 유지하므로 이전0096 전환의 임시 저장 제한을 반복 적용하지 않는다. 실제 기기 알림 수신은 설치·기기 권한에 따라 별도 확인한다.

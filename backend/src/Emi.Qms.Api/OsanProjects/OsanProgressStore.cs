@@ -2,11 +2,12 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Npgsql;
+using Emi.Qms.Api.Notifications;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider connectionStringProvider)
 {
     public async Task<OsanProgressResponse?> GetAsync(
         Guid projectId,
@@ -54,9 +55,11 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         Guid projectId,
         CompleteOsanProgressInput input,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool isAdministrator = false)
     {
         var errors = ValidateCompletion(input);
+        foreach (var error in OsanStageRecords.ValidateContent(input, isAdministrator)) errors[error.Key] = error.Value;
+        if (input.RetainedPhotoIds?.Count > 0) errors["retainedPhotoIds"] = ["최초 완료에는 새 사진을 등록해 주세요."];
         if (errors.Count > 0)
         {
             return OsanProgressMutationResult.Validation(errors);
@@ -73,6 +76,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
             ProjectId = projectId,
             input.CompletionMode,
             input.StageSequence,
+            input.Comment,
             Targets = targets.Select(target => new { target.TargetId, target.ExpectedVersion }),
             Photos = input.Photos.Select((photo, index) => new
             {
@@ -140,6 +144,17 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     targetConflict.Value.Code,
                     targetConflict.Value.Message,
                     cancellationToken);
+            }
+
+            await using (var rejectedCommand = connection.CreateCommand())
+            {
+                rejectedCommand.Transaction = transaction;
+                rejectedCommand.CommandText = "select 1 from osan_active_project_target_steps where project_id=@project and target_id=any(@targets) and sequence_number=@stage and rejected";
+                rejectedCommand.Parameters.AddWithValue("project",projectId);
+                rejectedCommand.Parameters.AddWithValue("targets",targets.Select(t=>t.TargetId).ToArray());
+                rejectedCommand.Parameters.AddWithValue("stage",input.StageSequence);
+                if(await rejectedCommand.ExecuteScalarAsync(cancellationToken) is not null)
+                    return OsanProgressMutationResult.Conflict("osan_stage_rejected", "반려된 단계는 수정 저장으로 다시 등록해 주세요.");
             }
 
             var steps = await LockStepsAsync(
@@ -224,6 +239,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     cancellationToken);
             }
 
+            var savedPhotoIds = new List<Guid>();
             for (var photoIndex = 0; photoIndex < input.Photos.Count; photoIndex += 1)
             {
                 var photoId = await InsertPhotoAsync(
@@ -235,6 +251,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     photoIndex + 1,
                     actorUserId,
                     cancellationToken);
+                savedPhotoIds.Add(photoId);
                 foreach (var completedStep in completedSteps)
                 {
                     await LinkPhotoAsync(
@@ -249,7 +266,10 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                 }
             }
 
-            if (input.StageSequence == 7)
+            foreach (var completedStep in completedSteps)
+                await OsanStageRecords.AddAsync(connection, transaction, projectId, completedStep.StepId,
+                    input.OperationId, "Complete", actorUserId, input.Comment, null, savedPhotoIds.ToArray(), cancellationToken);
+
             {
                 await CompleteProjectWhenAllTargetsCompletedAsync(
                     connection,
@@ -260,6 +280,12 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
 
             var progress = await ReadProgressAsync(connection, transaction, projectId, cancellationToken)
                 ?? throw new InvalidOperationException("The updated Osan project was not readable before commit.");
+            await OsanNotificationWriter.WriteAsync(connection,transaction,projectId,input.OperationId,
+                OsanNotificationKind.StepCompleted,actorUserId,DateTimeOffset.UtcNow,cancellationToken,
+                progress.Targets[0].Steps[input.StageSequence-1].StepName,targets.Select(t=>t.TargetId).ToArray(),input.Comment,input.Photos.Count);
+            if(progress.Status=="Completed")
+                await OsanNotificationWriter.WriteAsync(connection,transaction,projectId,input.OperationId,
+                    OsanNotificationKind.ProjectCompleted,actorUserId,DateTimeOffset.UtcNow,cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return OsanProgressMutationResult.Success(
                 new OsanProgressMutationResponse(input.OperationId, false, progress));
@@ -712,7 +738,9 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     starter.display_name,
                     step.id, step.sequence_number, step.step_code, step.step_name, step.status,
                     step.started_at_utc, step.completed_at_utc, step.completed_by_user_id,
-                    completer.display_name
+                    completer.display_name,step.comment,step.rejected,
+                    exists(select 1 from osan_photo_edit_requests r where r.step_id=step.id and r.approved_at is not null
+                        and r.used_at is null and r.invalidated_at is null)
                 from osan_active_project_targets target
                 join osan_active_project_target_steps step on step.target_id = target.id
                 left join qms_users starter on starter.id = target.started_by_user_id
@@ -747,7 +775,7 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                     reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12),
                     reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13),
                     reader.IsDBNull(14) ? null : reader.GetGuid(14),
-                    reader.IsDBNull(15) ? null : reader.GetString(15)));
+                    reader.IsDBNull(15) ? null : reader.GetString(15), reader.GetString(16), reader.GetBoolean(17), reader.GetBoolean(18)));
             }
         }
 
@@ -888,10 +916,10 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                 startedByDisplayName,
                 Steps.Select((step, index) => step.ToResponse(
                     projectedStatus != "Completed"
-                        && step.Status != "Completed"
+                        && step.Status != "Completed" && !step.Rejected
                         && Steps.Take(index).All(previous => previous.Status == "Completed"),
                     projectedStatus != "Completed"
-                        && step.Status != "Completed"
+                        && step.Status != "Completed" && !step.Rejected
                         && Steps.Take(index).All(previous => previous.Status == "Completed")))
                     .ToArray());
         }
@@ -906,11 +934,12 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
         DateTimeOffset? startedAtUtc,
         DateTimeOffset? completedAtUtc,
         Guid? completedByUserId,
-        string? completedByDisplayName)
+        string? completedByDisplayName, string comment, bool rejected, bool editOpen)
     {
         public Guid StepId { get; } = stepId;
         public int SequenceNumber { get; } = sequenceNumber;
         public string Status { get; } = status;
+        public bool Rejected { get; } = rejected;
         public List<OsanProgressPhotoResponse> Photos { get; } = [];
 
         public OsanProgressStepResponse ToResponse(
@@ -930,6 +959,6 @@ public sealed class OsanProgressStore(DatabaseConnectionStringProvider connectio
                 canCompleteBatch,
                 null,
                 [],
-                Photos);
+                Photos, comment, editOpen, Rejected);
     }
 }

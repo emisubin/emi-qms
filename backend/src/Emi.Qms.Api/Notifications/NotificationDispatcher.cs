@@ -65,6 +65,11 @@ public sealed class NotificationDispatcher(
         BusinessUnitDatabaseTarget? target,
         CancellationToken cancellationToken)
     {
+        // Osan business transactions already enqueue the approved mail snapshots. Cheongju's
+        // work assignments/digests must not create unrelated deliveries in the Osan database.
+        if (target?.Code == BusinessUnitCodes.Osan)
+            return new NotificationDispatchSummary(0, 0,
+                await SendDueDeliveriesAsync(currentOptions, cancellationToken, target));
         var created = await deliveryStore.CreateImmediateDeliveriesAsync(currentOptions, cancellationToken, target);
         var digests = await deliveryStore.CreateDailyDigestDeliveriesIfDueAsync(currentOptions, cancellationToken, target);
         var processed = await SendDueDeliveriesAsync(currentOptions, cancellationToken, target);

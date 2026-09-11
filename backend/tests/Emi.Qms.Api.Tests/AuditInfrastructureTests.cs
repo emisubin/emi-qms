@@ -46,10 +46,10 @@ public sealed class AuditInfrastructureTests
                 procurement_excel_import_batch_projects procurement_excel_import_batches
                 production_planning_excel_import_batches sales_billing_request_download_events
                 sales_billing_request_operations sales_monthly_billing_operations
-                sales_settlement_operations ul891_set_operations osan_project_create_operations
+                sales_settlement_operations ul891_set_operations osan_project_create_operations osan_project_completion_notifications
                 """),
             ["AppendOnlyOsanProgressEvidence"] = ParseRelationNames("""
-                osan_progress_operations osan_progress_photos osan_progress_step_photos osan_photo_revision_files
+                osan_progress_operations osan_progress_photos osan_progress_step_photos osan_photo_revision_files osan_stage_records
                 """),
             ["SeedReferenceData"] = ParseRelationNames("""
                 permissions roles
@@ -184,7 +184,7 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(98, trackedRelations.Count);
-        Assert.Equal(61, excludedRelations.Length);
+        Assert.Equal(63, excludedRelations.Length);
     }
 
     [Fact]

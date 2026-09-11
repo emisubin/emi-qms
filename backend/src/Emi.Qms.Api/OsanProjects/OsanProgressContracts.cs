@@ -13,7 +13,9 @@ public sealed record CompleteOsanProgressInput(
     string CompletionMode,
     int StageSequence,
     IReadOnlyList<OsanProgressTargetRequest?> Targets,
-    IReadOnlyList<OsanProgressPhotoInput> Photos);
+    IReadOnlyList<OsanProgressPhotoInput> Photos,
+    string Comment = "",
+    IReadOnlyList<Guid>? RetainedPhotoIds = null);
 
 public sealed record OsanProgressPhotoInput(
     string FileName,
@@ -28,7 +30,8 @@ public sealed record OsanProgressResponse(
     string Status,
     int CompletedStepCount,
     int TotalStepCount,
-    IReadOnlyList<OsanProgressTargetResponse> Targets);
+    IReadOnlyList<OsanProgressTargetResponse> Targets,
+    bool CanManageStages = false);
 
 public sealed record OsanProgressTargetResponse(
     Guid TargetId,
@@ -55,7 +58,8 @@ public sealed record OsanProgressStepResponse(
     bool CanCompleteBatch,
     string? GuidanceDescription,
     IReadOnlyList<OsanGuidancePhotoResponse> GuidancePhotos,
-    IReadOnlyList<OsanProgressPhotoResponse> Photos);
+    IReadOnlyList<OsanProgressPhotoResponse> Photos,
+    string Comment = "", bool EditOpen = false, bool Rejected = false);
 
 public sealed record OsanGuidancePhotoResponse(Guid PhotoId, string AltText);
 
@@ -108,3 +112,7 @@ public sealed record OsanProgressPhotoDownload(
     string FileName,
     string ContentType,
     byte[] Content);
+
+public sealed record OsanStageActionRequest(Guid OperationId, string Reason, int ExpectedVersion);
+public sealed record OsanStageHistoryItem(Guid Id, string EventType, string ActorDisplayName,
+    DateTimeOffset OccurredAtUtc, string Comment, string? Reason, IReadOnlyList<OsanProgressPhotoResponse> Photos);

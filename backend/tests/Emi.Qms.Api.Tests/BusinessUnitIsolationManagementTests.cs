@@ -71,6 +71,30 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
+        Guid stepId;
+        using (var getProgress=Request(HttpMethod.Get,$"/api/osan/projects/{projectId:D}/progress","dev-manufacturing",BusinessUnitCodes.Osan))
+        using (var response=await client.SendAsync(getProgress,cancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+            using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            stepId=body.RootElement.GetProperty("targets").EnumerateArray().Single(t=>t.GetProperty("targetId").GetGuid()==completedTargetId)
+                .GetProperty("steps")[0].GetProperty("stepId").GetGuid();
+        }
+        foreach(var action in new[]{"reject","reset"})
+        foreach(var pair in new[]{("dev-manufacturing",BusinessUnitCodes.Osan),("dev-admin",BusinessUnitCodes.Cheongju)})
+        {
+            using var request=Request(HttpMethod.Post,$"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/{action}",pair.Item1,pair.Item2);
+            request.Content=JsonContent.Create(new {operationId=Guid.NewGuid(),reason="denied",expectedVersion=2});
+            using var response=await client.SendAsync(request,cancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+        }
+        foreach(var unit in new[]{BusinessUnitCodes.Osan,BusinessUnitCodes.Cheongju})
+        {
+            using var request=Request(HttpMethod.Get,$"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/history","dev-admin",unit);
+            using var response=await client.SendAsync(request,cancellationToken);
+            Assert.Equal(unit==BusinessUnitCodes.Osan?HttpStatusCode.OK:HttpStatusCode.Forbidden,response.StatusCode);
+        }
+
         var requestId = Guid.NewGuid();
         for (var replay = 0; replay < 2; replay++)
         {
@@ -150,7 +174,7 @@ public sealed partial class BusinessUnitIsolationTests
         using (var differentUserSave = Request(
                    HttpMethod.Post,
                    $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/save",
-                   "dev-admin",
+                   "dev-sales",
                    BusinessUnitCodes.Osan))
         {
             differentUserSave.Content = SaveContent();
@@ -228,6 +252,8 @@ public sealed partial class BusinessUnitIsolationTests
             $"select count(*) from osan_photo_revision_files where request_id='{requestId:D}';",
             cancellationToken));
 
+        await AssertRejectedStageOverallRecipientsAsync(databases,client,projectId,completedTargetId,stepId);
+
         Guid deleteProjectId;
         using (var create = Request(HttpMethod.Post, "/api/osan/projects", "dev-admin", BusinessUnitCodes.Osan))
         {
@@ -278,6 +304,66 @@ public sealed partial class BusinessUnitIsolationTests
             using var response = await client.SendAsync(delete, cancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
+    }
+
+    private static async Task AssertRejectedStageOverallRecipientsAsync(IsolationDatabaseSet databases,HttpClient client,
+        Guid projectId,Guid targetId,Guid stepId)
+    {
+        var ct=TestContext.Current.CancellationToken;
+        var activeOverall=Guid.NewGuid();var inactiveOverall=Guid.NewGuid();var inactiveIdentity=Guid.NewGuid();var campusAdmin=Guid.NewGuid();
+        await databases.ExecuteAsync("DIRECTORY",BusinessUnitConnectionPurpose.Migration,$"""
+            insert into directory_identities(user_id,auth_provider,external_subject,is_active) values
+              ('{activeOverall:D}','Dev','rejection-active-overall',true),
+              ('{inactiveOverall:D}','Dev','rejection-inactive-overall',true),
+              ('{inactiveIdentity:D}','Dev','rejection-inactive-identity',false),
+              ('{campusAdmin:D}','Dev','rejection-campus-admin',true);
+            insert into directory_overall_administrators(user_id,is_active) values
+              ('{activeOverall:D}',true),('{inactiveOverall:D}',false),('{inactiveIdentity:D}',true);
+            insert into directory_business_unit_memberships(user_id,business_unit_code,is_active)
+              values('{campusAdmin:D}','OSAN',true);
+            """,ct);
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Migration,$"""
+            insert into qms_users(id,development_user_key,display_name,email,auth_provider,is_active) values
+              ('{activeOverall:D}','rejection-active-overall','Explicit overall Admin','active-overall@example.invalid','Dev',true),
+              ('{inactiveOverall:D}','rejection-inactive-overall','Inactive overall','inactive-overall@example.invalid','Dev',true),
+              ('{inactiveIdentity:D}','rejection-inactive-identity','Inactive directory identity','inactive-identity@example.invalid','Dev',true),
+              ('{campusAdmin:D}','rejection-campus-admin','Campus Admin','campus-admin@example.invalid','Dev',true);
+            insert into user_roles(user_id,role_id,assignment_source)
+              select u.id,r.id,'explicit' from qms_users u cross join roles r
+              where u.id in ('{activeOverall:D}','{inactiveOverall:D}','{inactiveIdentity:D}','{campusAdmin:D}') and r.code='system-administrator';
+            """,ct);
+        Assert.Equal(0L,await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Migration,$"""
+            select count(*) from osan_stage_records where step_id='{stepId:D}' and event_type in ('Complete','Edit')
+              and actor_user_id in ('{activeOverall:D}','{inactiveOverall:D}','{inactiveIdentity:D}','{campusAdmin:D}');
+            """,ct));
+        var contributors=await databases.ReadColumnAsync(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Migration,
+            $"select distinct actor_user_id::text from osan_stage_records where step_id='{stepId:D}' and event_type in ('Complete','Edit')",ct);
+        Assert.NotEmpty(contributors);
+        var version=await databases.ReadScalarAsync<int>(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Migration,
+            $"select version from osan_project_targets where id='{targetId:D}'",ct);
+        var operation=Guid.NewGuid();
+        using(var request=Request(HttpMethod.Post,$"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/reject","dev-admin",BusinessUnitCodes.Osan))
+        {
+            request.Content=JsonContent.Create(new{operationId=operation,reason="Synthetic rejection recipient boundary",expectedVersion=version});
+            using var response=await client.SendAsync(request,ct);
+            Assert.True(response.StatusCode==HttpStatusCode.OK,await response.Content.ReadAsStringAsync(ct));
+        }
+        var key=$"osan:project:{projectId:D}:StepRejected:{operation:D}";
+        var recipients=await databases.ReadColumnAsync(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Migration,$"""
+            select r.user_id::text from notification_recipients r join notifications n on n.id=r.notification_id
+            where n.idempotency_key='{key}' order by r.user_id;
+            """,ct);
+        Assert.Contains(activeOverall.ToString("D"),recipients);
+        Assert.All(contributors,contributor=>Assert.Contains(contributor,recipients));
+        Assert.DoesNotContain(inactiveOverall.ToString("D"),recipients);
+        Assert.DoesNotContain(inactiveIdentity.ToString("D"),recipients);
+        Assert.DoesNotContain(campusAdmin.ToString("D"),recipients);
+        Assert.Equal(recipients.Count,recipients.Distinct().Count());
+        var mailRecipients=await databases.ReadColumnAsync(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Migration,$"""
+            select d.recipient_user_id::text from notification_deliveries d join notifications n on n.id=d.notification_id
+            where n.idempotency_key='{key}' and d.channel='Mail' order by d.recipient_user_id;
+            """,ct);
+        Assert.Equal(recipients,mailRecipients);
     }
 
     private static Task<long> CountPhotoEditAuditEventsAsync(

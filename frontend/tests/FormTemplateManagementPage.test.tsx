@@ -261,7 +261,7 @@ describe('FormTemplateManagementPage', () => {
         return json({ templates: [{ family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }] });
       }
       if (url.pathname === '/api/production-control/templates' && method === 'GET') {
-        return json(productionControlCatalog(false));
+        return json(manufacturingSaveCount >= 2 ? productionControlCatalogWithReplacedManufacturing() : productionControlCatalog(false));
       }
       if (url.pathname === '/api/production-control/templates/manufacturing/product-ul67/versions/manufacturing-v1' && method === 'PUT') {
         manufacturingSaveCount += 1;

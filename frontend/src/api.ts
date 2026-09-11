@@ -3571,6 +3571,18 @@ export async function exportSelectedRowsExcel(
   );
 }
 
+export async function exportOsanNotificationsExcel(
+  developmentUserKey: string | undefined,
+  ids: readonly string[],
+  readStatus?: string
+): Promise<ExcelExportDownload> {
+  return downloadExcelExport('/api/notifications/export', developmentUserKey, 'EMI_오산_알림.xlsx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, filters: { readStatus } })
+  });
+}
+
 export async function listNotices(
   developmentUserKey: string | undefined,
   page = 1,

@@ -844,8 +844,8 @@ public sealed class WorkItemEscalationStore(
 
     private bool CanUseExternalNotifications(BusinessUnitDatabaseTarget? target)
     {
-        return !connectionStringProvider.BusinessUnits.Enabled
-            || connectionStringProvider.ExternalNotificationsEnabled(target);
+        return (target ?? connectionStringProvider.GetCurrentBusinessUnit())?.Code != BusinessUnitCodes.Osan
+            && (!connectionStringProvider.BusinessUnits.Enabled || connectionStringProvider.ExternalNotificationsEnabled(target));
     }
 
     private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)

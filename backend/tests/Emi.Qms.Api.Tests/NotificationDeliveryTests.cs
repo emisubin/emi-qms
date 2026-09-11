@@ -15,6 +15,13 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class NotificationDeliveryTests
 {
+    [Fact]
+    public async Task OsanNotifications_write_once_preserve_recipients_and_rollback_atomically()
+    {
+        await using var context = await NotificationDeliveryTestContext.CreateAsync();
+        await context.TestOsanWriterAsync();
+    }
+
     private static readonly Guid DevAdminUserId = new("50000000-0000-0000-0000-000000000001");
     private static readonly Guid DevSalesUserId = new("50000000-0000-0000-0000-000000000002");
     private static readonly Guid DevProductionUserId = new("50000000-0000-0000-0000-000000000003");
@@ -1700,8 +1707,10 @@ public sealed class NotificationDeliveryTests
         Assert.Equal(NotificationDeliveryStatuses.DryRunSent, result.Status);
     }
 
-    [Fact]
-    public async Task SmtpMailClient_SendsMailThroughTransport()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SmtpMailClient_SendsMailThroughTransport(bool isHtml)
     {
         var transport = new CapturingSmtpMailTransport();
         var client = new SmtpMailClient(
@@ -1731,12 +1740,13 @@ public sealed class NotificationDeliveryTests
                 "Correlation ID: ABC123",
                 null,
                 "sender@example.test",
-                CorrelationId: "ABC123"),
+                CorrelationId: "ABC123", IsHtml: isHtml),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(NotificationDeliveryStatuses.Sent, result.Status);
         Assert.Equal("smtp-sent;client-request-id=ABC123", result.ProviderMessageId);
         Assert.NotNull(transport.Request);
+        Assert.Equal(isHtml,transport.Request.IsHtml);
         Assert.Equal("smtp.gmail.com", transport.Request.Host);
         Assert.Equal(587, transport.Request.Port);
         Assert.Equal("StartTls", transport.Request.Security);
@@ -3571,6 +3581,75 @@ public sealed class NotificationDeliveryTests
         private QmsWebApplicationFactory Factory { get; }
 
         public MutableTimeProvider TimeProvider { get; }
+
+        public async Task TestOsanWriterAsync()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var config = Database.CreateConfiguration(new Dictionary<string, string?>());
+            await using var source = NpgsqlDataSource.Create(new DatabaseConnectionStringProvider(config).GetConnectionString() ?? throw new InvalidOperationException("Test database unavailable"));
+            await using var connection = await source.OpenConnectionAsync(ct);
+            await using (var update = connection.CreateCommand())
+            {
+                update.CommandText = """
+                    update projects set project_profile='Osan',osan_quantity=1,osan_product_name='Test Part',delivery_date=current_date where id=@id;
+                    insert into qms_database_identity(singleton,database_kind,business_unit_code,schema_contract)
+                    values(true,'business','OSAN','0086_business_unit_database_identity');
+                    """;
+                update.Parameters.AddWithValue("id", DemoProjectId);
+                await update.ExecuteNonQueryAsync(ct);
+            }
+            var operation = Guid.NewGuid();
+            await using (var tx = await connection.BeginTransactionAsync(ct))
+            {
+                for (var i=0;i<2;i++)
+                    await OsanNotificationWriter.WriteAsync(connection,tx,DemoProjectId,operation,
+                        OsanNotificationKind.StepRejected,DevAdminUserId,TimeProvider.GetUtcNow(),ct,
+                        stepName:"배선검사",comment:"다시 확인",recipientIds:[DevSalesUserId,DevSalesUserId]);
+                await tx.CommitAsync(ct);
+            }
+            await using (var tx = await connection.BeginTransactionAsync(ct))
+            {
+                await OsanNotificationWriter.WriteAsync(connection,tx,DemoProjectId,Guid.NewGuid(),
+                    OsanNotificationKind.ProjectCreated,DevAdminUserId,TimeProvider.GetUtcNow(),ct);
+                await tx.RollbackAsync(ct);
+            }
+            await using (var tx = await connection.BeginTransactionAsync(ct))
+            {
+                for(var i=0;i<2;i++)
+                    await OsanNotificationWriter.WriteAsync(connection,tx,DemoProjectId,Guid.NewGuid(),
+                        OsanNotificationKind.ProjectCompleted,DevAdminUserId,TimeProvider.GetUtcNow(),ct,
+                        recipientIds:[DevSalesUserId]);
+                await tx.CommitAsync(ct);
+            }
+            Assert.Equal(2L,await Database.ReadScalarAsync<long>("select count(*) from notifications where source_kind='OsanWorkflow'",ct));
+            Assert.Equal(2L,await Database.ReadScalarAsync<long>("select count(*) from notification_deliveries where delivery_type='OsanWorkflow'",ct));
+            Assert.Equal(0L,await Database.ReadScalarAsync<long>($"select count(*) from notification_recipients r join notifications n on n.id=r.notification_id where n.source_kind='OsanWorkflow' and r.user_id<>'{DevSalesUserId}'",ct));
+            // Osan permits the new workflow mail only, not unrelated external messages.
+            await using (var tx = await connection.BeginTransactionAsync(ct))
+            {
+                await using var deny = connection.CreateCommand();
+                deny.Transaction=tx;
+                deny.CommandText="insert into notification_deliveries(channel,delivery_type,dedupe_key) values('Mail','ManualTest','not-allowed')";
+                var error=await Assert.ThrowsAsync<PostgresException>(()=>deny.ExecuteNonQueryAsync(ct));
+                Assert.Equal("42501",error.SqlState);
+                await tx.RollbackAsync(ct);
+            }
+            using var unauthorized = CreateClient("dev-production");
+            var response = await unauthorized.GetAsync("/api/notifications",ct);
+            Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+            var body = await response.Content.ReadAsStringAsync(ct);
+            Assert.DoesNotContain("다시 확인",body);
+            var notificationId=await Database.ReadScalarAsync<Guid>("select id from notifications where source_kind='OsanWorkflow' and title='배선검사 반려'",ct);
+            using var allowed=CreateClient("dev-sales");
+            Assert.Equal(HttpStatusCode.OK,(await allowed.GetAsync($"/api/notifications/{notificationId}",ct)).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await unauthorized.GetAsync($"/api/notifications/{notificationId}",ct)).StatusCode);
+            var deliveries=await ClaimDueRecordsAsync();
+            var delivery=Assert.Single(deliveries,item=>item.NotificationId==notificationId);
+            var rendered=await DeliveryStore.RenderMessageAsync(delivery,ct);
+            Assert.True(rendered.IsHtml);
+            Assert.Contains("배선검사 반려",rendered.Subject);
+            Assert.Contains("다시 확인",rendered.Body);
+        }
 
         public NotificationDispatcher Dispatcher => Factory.Services.GetRequiredService<NotificationDispatcher>();
 

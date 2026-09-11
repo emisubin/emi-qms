@@ -133,6 +133,7 @@ public sealed class NotificationDeliveryStore(
                         where nr.user_id = u.id
                           and nr.read_at_utc is null
                           and n.notification_type in ('Reference', 'Info')
+              and n.source_kind <> 'OsanWorkflow'
                     )
                     or exists (
                         select 1
@@ -1551,6 +1552,18 @@ public sealed class NotificationDeliveryStore(
         {
             throw new BusinessUnitContextUnavailableException("external_notifications_disabled");
         }
+        if (delivery.DeliveryType == NotificationDeliveryTypes.OsanWorkflow)
+        {
+            var snapshot = JsonSerializer.Deserialize<OsanNotificationSnapshot>(delivery.ManualPayloadJson
+                ?? throw new InvalidOperationException("Osan notification snapshot is missing."))
+                ?? throw new InvalidOperationException("Osan notification snapshot is invalid.");
+            var link = new NotificationLinkBuilder(configuration).BuildBusinessUrl(delivery.LinkUrl ?? "/progress");
+            var content = OsanNotificationTemplates.Render(snapshot, link);
+            return new NotificationDeliveryMessage(delivery.DeliveryId, delivery.Channel, delivery.DeliveryType,
+                content.Subject, content.HtmlBody, link, delivery.RecipientDisplayName, delivery.RecipientEmail,
+                RecipientUserId: delivery.RecipientUserId, RecipientUserIsActive: delivery.RecipientUserIsActive,
+                ProjectName: snapshot.ProjectName, IsHtml: true);
+        }
         if (delivery.DeliveryType == NotificationDeliveryTypes.DailyDigest && delivery.RecipientUserId is not null)
         {
             return await RenderDailyDigestAsync(delivery, cancellationToken, target);
@@ -1985,6 +1998,7 @@ public sealed class NotificationDeliveryStore(
             where nr.user_id = @user_id
               and nr.read_at_utc is null
               and n.notification_type in ('Reference', 'Info')
+              and n.source_kind <> 'OsanWorkflow'
             order by n.created_at_utc desc
             limit 10;
             """,
@@ -2065,6 +2079,7 @@ public sealed class NotificationDeliveryStore(
                 from notifications n
                 join qms_users users
                   on users.is_active = true
+                 and n.source_kind <> 'OsanWorkflow'
                  and (
                     users.auth_provider <> 'EntraId'
                     or exists (
@@ -3190,6 +3205,7 @@ public sealed class NotificationDeliveryStore(
             NotificationDeliveryTypes.UrgentBlocking => "긴급 알림",
             NotificationDeliveryTypes.DailyDigest => "일일 업무 요약",
             NotificationDeliveryTypes.ProjectCompletion => "프로젝트 완료 알림",
+            NotificationDeliveryTypes.OsanWorkflow => "오산 진행 알림",
             NotificationDeliveryTypes.ManualTest => "수동 알림",
             NotificationDeliveryTypes.DueSoonL0 => "예정일 임박 알림",
             NotificationDeliveryTypes.OverdueL1

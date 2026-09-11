@@ -1413,13 +1413,14 @@ describe('App', () => {
   it('labels Web Push as provider acceptance in the admin monitor', async () => {
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('개발 사용자'), { target: { value: 'dev-admin' } });
+    await switchToDevelopmentUser('dev-admin');
     window.history.pushState(null, '', '/admin/system/notification-deliveries');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
     expect(await screen.findByRole('heading', { name: '알림 발송 상태' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('채널'), { target: { value: 'WebPush' } });
-    expect(await screen.findByText('PWA 푸시')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '기기 푸시 알림' })).toBeInTheDocument();
+    expect(screen.getAllByText('PWA 푸시').length).toBeGreaterThan(0);
     expect(screen.getAllByText('인앱 연동 PWA 푸시').length).toBeGreaterThan(0);
     expect(await screen.findByText('푸시 서비스 접수')).toBeInTheDocument();
     expect(screen.getByText((content, element) => element?.tagName === 'SMALL' && content.startsWith('서비스 접수'))).toBeInTheDocument();

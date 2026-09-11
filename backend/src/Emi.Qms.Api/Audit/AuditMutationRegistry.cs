@@ -78,6 +78,7 @@ public static partial class AuditMutationRegistry
         POST /api/audit/site-access/end
         POST /api/audit/site-access/signals
         POST /api/data-exports/selected
+        POST /api/notifications/export
         POST /api/deleted-projects/purge-all
         POST /api/deleted-projects/{projectId:guid}/restore
         POST /api/form-templates/export
@@ -121,6 +122,8 @@ public static partial class AuditMutationRegistry
         POST /api/osan/projects/import/apply
         POST /api/osan/projects/import/preview
         POST /api/osan/projects/
+        POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/reject
+        POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/reset
         POST /api/osan/projects/{projectId:guid}/progress/completions
         POST /api/osan/projects/{projectId:guid}/progress/photo-edits
         POST /api/osan/projects/{projectId:guid}/progress/photo-edits/{requestId:guid}/approve
@@ -238,6 +241,7 @@ public static partial class AuditMutationRegistry
         POST /api/audit/site-access/end
         POST /api/audit/site-access/signals
         POST /api/data-exports/selected
+        POST /api/notifications/export
         POST /api/form-templates/export
         POST /api/my/web-push/current-status
         POST /api/my/web-push/subscriptions/deactivate-all

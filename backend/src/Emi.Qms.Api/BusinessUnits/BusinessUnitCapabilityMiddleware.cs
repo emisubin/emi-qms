@@ -66,6 +66,15 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
     private static bool IsOsanAllowedRequest(HttpRequest request)
     {
         var path = request.Path;
+        if (path.StartsWithSegments("/api/notifications", out var notificationPath))
+        {
+            var parts = (notificationPath.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (HttpMethods.IsGet(request.Method) && (parts.Length == 0 || (parts.Length == 1 && (parts[0] == "summary" || Guid.TryParse(parts[0], out _))))) return true;
+            if (HttpMethods.IsPost(request.Method) && ((parts.Length == 1 && (parts[0] == "read-all" || parts[0] == "export")) || (parts.Length == 2 && Guid.TryParse(parts[0], out _) && parts[1] == "read") || (parts.Length == 3 && parts[0] == "projects" && Guid.TryParse(parts[1], out _) && parts[2] == "read-all"))) return true;
+        }
+        if (path.Equals("/api/my/notification-preferences", StringComparison.OrdinalIgnoreCase) && (HttpMethods.IsGet(request.Method) || HttpMethods.IsPut(request.Method))) return true;
+        if (path.Equals("/api/my/notification-preferences/reset", StringComparison.OrdinalIgnoreCase) && HttpMethods.IsPost(request.Method)) return true;
+
         if (HttpMethods.IsGet(request.Method)
             && (path.Equals("/api/osan/dashboard", StringComparison.OrdinalIgnoreCase)
                 || path.Equals("/api/osan/dashboard/", StringComparison.OrdinalIgnoreCase)))
@@ -128,6 +137,12 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         {
             return false;
         }
+
+        if (segments.Length == 5 && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "steps", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(segments[3], out _))
+            return (HttpMethods.IsGet(method) && string.Equals(segments[4], "history", StringComparison.OrdinalIgnoreCase))
+                || (HttpMethods.IsPost(method) && (string.Equals(segments[4], "reject", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(segments[4], "reset", StringComparison.OrdinalIgnoreCase)));
 
         if (HttpMethods.IsGet(method))
         {

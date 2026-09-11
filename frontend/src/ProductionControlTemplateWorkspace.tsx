@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ensureProductionControlCurrent,
   getProductionControlTemplateCatalog,
@@ -16,6 +16,7 @@ type Domain = 'manufacturing' | 'planning';
 type State = { kind: 'loading' } | { kind: 'ready'; data: ProductionControlTemplateCatalog } | { kind: 'error'; message: string };
 
 export function ProductionControlTemplateWorkspace({ developmentUserKey, domain }: { developmentUserKey: string | undefined; domain: Domain }) {
+  const loadGeneration = useRef(0);
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [selectedProductTypeId, setSelectedProductTypeId] = useState('');
   const [selectedVersionId, setSelectedVersionId] = useState('');
@@ -45,15 +46,22 @@ export function ProductionControlTemplateWorkspace({ developmentUserKey, domain 
   }, [domain, selectedProductTypeId]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setState({ kind: 'loading' });
     try {
-      applyCatalog(await getProductionControlTemplateCatalog(developmentUserKey));
+      const data = await getProductionControlTemplateCatalog(developmentUserKey);
+      if (generation === loadGeneration.current) applyCatalog(data);
     } catch (error) {
+      if (generation !== loadGeneration.current) return;
       setState({ kind: 'error', message: error instanceof Error ? error.message : '생산계획 양식을 불러오지 못했습니다.' });
     }
   }, [applyCatalog, developmentUserKey]);
 
-  useEffect(() => { queueMicrotask(() => void load()); }, [developmentUserKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    return () => { active = false; loadGeneration.current += 1; };
+  }, [developmentUserKey, domain]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const catalog = state.kind === 'ready' ? state.data : null;
   const selectedItem = catalog?.items.find((item) => item.productTypeId === selectedProductTypeId) ?? null;

@@ -86,7 +86,7 @@ public sealed partial class BusinessUnitIsolationTests
 
         Assert.True(businessUnits.IsValid);
         var osan = businessUnits.GetBusiness(BusinessUnitCodes.Osan);
-        Assert.False(osan.ExternalNotificationsEnabled);
+        Assert.True(osan.ExternalNotificationsEnabled);
         Assert.False(osan.EscalationWorkerEnabled);
         Assert.False(osan.AdminDeletionWorkerEnabled);
         Assert.Empty(businessUnits.ValidateOperationConnections(
@@ -4746,7 +4746,8 @@ public sealed partial class BusinessUnitIsolationTests
             preparedMessage: null,
             retryCount: 1,
             cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Equal(NotificationDeliveryStatuses.Disabled, dispatch.Status);
+        Assert.Equal(NotificationDeliveryStatuses.Failed, dispatch.Status);
+        Assert.Equal("NotificationDeliveryClaimUnavailable", dispatch.ErrorCode);
         Assert.Equal(0, handler.CallCount);
     }
 

@@ -1,8 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Npgsql;
 using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.Projects;
+using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
@@ -16,6 +17,81 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadProgressAsync(connection, null, projectId, cancellationToken);
+    }
+
+    public async Task<OsanRelatedPanelsResponse?> ListRelatedPanelsAsync(
+        Guid sourceProjectId,
+        ProjectAccessScope accessScope,
+        CancellationToken cancellationToken)
+    {
+        await using var dataSource = CreateDataSource();
+        var accessCondition = accessScope.HasProjectReadAll
+            ? string.Empty
+            : accessScope.ProjectKeys.Count == 0
+                ? "and false"
+                : "and candidate.project_key = any(@project_keys)";
+        await using var command = dataSource.CreateCommand($"""
+            select
+                source.osan_work_order_number,
+                candidate.id,
+                candidate.project_code,
+                candidate.project_title,
+                target.id,
+                target.sequence_number,
+                target.display_name,
+                target.status
+            from projects source
+            left join projects candidate
+              on nullif(btrim(source.osan_work_order_number), '') is not null
+             and candidate.osan_work_order_number = source.osan_work_order_number
+             and candidate.project_profile = 'Osan'
+             and candidate.deleted_at_utc is null
+             {accessCondition}
+            left join osan_active_project_targets target
+              on target.project_id = candidate.id
+            where source.id = @source_project_id
+              and source.project_profile = 'Osan'
+              and source.deleted_at_utc is null
+            order by
+                (candidate.id = source.id) desc,
+                candidate.project_code,
+                candidate.id,
+                target.sequence_number;
+            """);
+        command.Parameters.AddWithValue("source_project_id", sourceProjectId);
+        if (!accessScope.HasProjectReadAll && accessScope.ProjectKeys.Count > 0)
+        {
+            command.Parameters.Add(new NpgsqlParameter<string[]>(
+                "project_keys",
+                accessScope.ProjectKeys.ToArray()));
+        }
+
+        string? workOrderNumber = null;
+        var foundSource = false;
+        var panels = new List<OsanRelatedPanelResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            foundSource = true;
+            workOrderNumber = reader.IsDBNull(0) ? null : reader.GetString(0);
+            if (reader.IsDBNull(1) || reader.IsDBNull(4))
+            {
+                continue;
+            }
+
+            panels.Add(new OsanRelatedPanelResponse(
+                reader.GetGuid(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetGuid(4),
+                reader.GetInt32(5),
+                reader.GetString(6),
+                reader.GetString(7)));
+        }
+
+        return foundSource
+            ? new OsanRelatedPanelsResponse(sourceProjectId, workOrderNumber, panels)
+            : null;
     }
 
     public async Task<OsanProgressPhotoDownload?> GetPhotoAsync(

@@ -6,13 +6,14 @@ import { OsanPhotoGallery } from './OsanPhotoGallery';
 import { OsanStageHistory } from './OsanStageHistory';
 import { OsanStageGuidance } from './OsanStageGuidance';
 import {
-  completeOsanProgress, completionUnavailable, getOsanProgress, osanStageNames,
+  completeOsanProgress, completionUnavailable, getOsanProgress, getOsanRelatedPanels, osanStageNames,
   validateOsanPhotos, validateOsanRecord,
-  type OsanCompletionRequest, type OsanProgressDetail, type OsanProgressTarget
+  type OsanCompletionRequest, type OsanProgressDetail, type OsanProgressTarget, type OsanRelatedPanel
 } from './osanProgress';
 
 export interface OsanProgressPageProps {
   projectId: string; initialTargetId?: string; initialStage?: string; developmentUserKey: string | undefined; mutationAllowed: boolean; onBack?: () => void;
+  onOpenTarget?: (projectId: string, targetId: string) => void;
 }
 export function OsanProgressPage(props: OsanProgressPageProps) {
   return <OsanProgressWorkspace key={`${props.projectId}:${props.initialTargetId ?? ''}:${props.initialStage ?? ''}:${props.developmentUserKey ?? ''}`} {...props} />;
@@ -23,8 +24,9 @@ function Preview({ file }: { file: File }) {
   useEffect(() => { const objectUrl = URL.createObjectURL(file); setUrl(objectUrl); return () => URL.revokeObjectURL(objectUrl); }, [file]);
   return url ? <img src={url} alt={`${file.name} 미리보기`} /> : null;
 }
-function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, developmentUserKey, mutationAllowed, onBack }: OsanProgressPageProps) {
+function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, developmentUserKey, mutationAllowed, onBack, onOpenTarget }: OsanProgressPageProps) {
   const [project, setProject] = useState<OsanProgressDetail>();
+  const [relatedPanels, setRelatedPanels] = useState<OsanRelatedPanel[]>([]);
   const [loadError, setLoadError] = useState('');
   const [loadStatus, setLoadStatus] = useState<number>();
   const [reload, setReload] = useState(0);
@@ -56,16 +58,19 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
   useEffect(() => {
     let current = true;
     const controller = new AbortController();
-    getOsanProgress(projectId, developmentUserKey, controller.signal).then(result => {
+    Promise.all([
+      getOsanProgress(projectId, developmentUserKey, controller.signal),
+      getOsanRelatedPanels(projectId, developmentUserKey, controller.signal)
+    ]).then(([result, related]) => {
       if (!current) return;
-      setProject(result); setLoadError(''); setLoadStatus(undefined); setRefreshing(false);
+      setProject(result); setRelatedPanels(related.panels.filter(panel => panel.projectId !== result.projectId)); setLoadError(''); setLoadStatus(undefined); setRefreshing(false);
       setSelectedIds(ids => ids.length ? ids.filter(id => result.targets.some(target => target.targetId === id)) : result.targets.slice(0, 1).map(target => target.targetId));
     }).catch(error => {
       if (!current) return;
       setRefreshing(false); setLoadError(message(error));
       setLoadStatus(error instanceof ApiError ? error.status : undefined);
       if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
-        setProject(undefined); setSelectedIds([]); setFiles([]);
+        setProject(undefined); setRelatedPanels([]); setSelectedIds([]); setFiles([]);
         setModalOpen(false); setStageOpen(false); setSelectorOpen(false); setPhotoTargetId(null);
         pendingCompletion.current = null;
       }
@@ -106,6 +111,11 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     setSelectedIds(ids); setMode(nextMode); setError(''); setSuccess('');
     setPhotoTargetId(null);
     pendingCompletion.current = null; setFiles([]); setComment(''); setFileError('');
+  }
+  function openRelatedPanel(panel: OsanRelatedPanel) {
+    if (busyRef.current || !onOpenTarget) return;
+    setSelectorOpen(false);
+    onOpenTarget(panel.projectId, panel.targetId);
   }
   function selectFiles(next: FileList | null, append = false) {
     if (busyRef.current || !next) return;
@@ -162,6 +172,17 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
         {selectorOpen && <div id="osan-target-options" className="osan-progress-selector" role="group" aria-label="패널 선택">
           <label><input type="checkbox" aria-label="전체 선택" checked={selectedIds.length === project.targets.length && selectedIds.length > 0} onChange={event => changeSelection(event.target.checked ? project.targets.map(target => target.targetId) : [], project.targets.length === 1 ? 'individual' : 'batch')} /><span>(모두 선택)</span></label>
           {project.targets.map(target => <label key={target.targetId}><input type="checkbox" checked={selectedIds.includes(target.targetId)} onChange={event => { const ids = event.target.checked ? [...selectedIds, target.targetId] : selectedIds.filter(id => id !== target.targetId); changeSelection(ids, ids.length === 1 ? 'individual' : 'batch'); }} /><span>{target.displayName}</span></label>)}
+          {relatedPanels.length > 0 && <div className="osan-progress-related-panels" aria-label="동일 W/O의 다른 프로젝트 패널">
+            {relatedPanels.map(panel => <button
+              type="button"
+              key={`${panel.projectId}:${panel.targetId}`}
+              disabled={busy || !onOpenTarget}
+              aria-label={`${panel.projectCode} ${panel.displayName}로 이동`}
+              title={`${panel.projectTitle} · ${panel.projectCode} · ${panel.displayName}`}
+              onClick={() => openRelatedPanel(panel)}>
+              <span>{panel.displayName}</span><small>{panel.projectCode}</small>
+            </button>)}
+          </div>}
         </div>}
       </div>
       {desktop ? <nav className="osan-progress-stage-overview" aria-label="전체 진행 단계">

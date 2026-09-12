@@ -33,6 +33,20 @@ public sealed record OsanProgressResponse(
     IReadOnlyList<OsanProgressTargetResponse> Targets,
     bool CanManageStages = false);
 
+public sealed record OsanRelatedPanelsResponse(
+    Guid SourceProjectId,
+    string? WorkOrderNumber,
+    IReadOnlyList<OsanRelatedPanelResponse> Panels);
+
+public sealed record OsanRelatedPanelResponse(
+    Guid ProjectId,
+    string ProjectCode,
+    string ProjectTitle,
+    Guid TargetId,
+    int SequenceNumber,
+    string DisplayName,
+    string Status);
+
 public sealed record OsanProgressTargetResponse(
     Guid TargetId,
     int SequenceNumber,

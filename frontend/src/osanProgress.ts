@@ -19,6 +19,13 @@ export interface OsanProgressDetail {
   projectId: string; title: string; projectCode: string; status: string;
   canManageStages?: boolean; completedStepCount: number; totalStepCount: number; targets: OsanProgressTarget[];
 }
+export interface OsanRelatedPanel {
+  projectId: string; projectCode: string; projectTitle: string;
+  targetId: string; sequenceNumber: number; displayName: string; status: string;
+}
+export interface OsanRelatedPanelsResponse {
+  sourceProjectId: string; workOrderNumber: string | null; panels: OsanRelatedPanel[];
+}
 export interface OsanProgressMutation { operationId: string; replayed: boolean; project: OsanProgressDetail }
 export interface OsanProgressSelection { targetId: string; expectedVersion: number }
 export interface OsanCompletionRequest {
@@ -28,6 +35,9 @@ export interface OsanCompletionRequest {
 const projectPath = (projectId: string) => `/api/osan/projects/${encodeURIComponent(projectId)}/progress`;
 export function getOsanProgress(projectId: string, userKey?: string, signal?: AbortSignal) {
   return fetchJson<OsanProgressDetail>(projectPath(projectId), userKey, { signal });
+}
+export function getOsanRelatedPanels(projectId: string, userKey?: string, signal?: AbortSignal) {
+  return fetchJson<OsanRelatedPanelsResponse>(`${projectPath(projectId)}/related-panels`, userKey, { signal });
 }
 export function completeOsanProgress(projectId: string, request: OsanCompletionRequest, userKey?: string) {
   const body = new FormData();

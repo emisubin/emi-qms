@@ -21,9 +21,9 @@ describe('오산 진행 현황', () => {
     const rendered = render(<OsanDashboardPage view={view} onOpen={vi.fn()} />);
     await act(async () => {});
     const title = document.querySelector('.osan-dashboard-project-title')!;
-    expect(title).toHaveTextContent('오산 검수 프로젝트D-1');
+    expect(title).toHaveTextContent('오산 검수 프로젝트패널D-1');
     await act(async () => { vi.advanceTimersByTime(1); });
-    expect(title).toHaveTextContent('오산 검수 프로젝트D-Day');
+    expect(title).toHaveTextContent('오산 검수 프로젝트패널D-Day');
     rendered.unmount();
   });
   it('현재 페이지 행 수가 아닌 서버 전체 집계와 부분 완료 진행률을 표시하고 상세를 연결한다', async () => {
@@ -93,12 +93,13 @@ describe('오산 진행 현황', () => {
 describe('오산 홈 분리', () => {
   it('홈 전용 조회와 납기를 표시하고 진행 현황 전환 시 조회 범위를 초기화한다', async () => {
     const view = render(<OsanDashboardPage view="home" onOpen={vi.fn()} />);
-    await screen.findByText('납기 2026-10-01 · 진행 중');
+    await screen.findByText('납기 2026-10-01');
+    expect(screen.getByText('W/O WO-KEY').tagName).toBe('STRONG');
     expect(screen.getByRole('heading', { name: '오산 홈' })).toBeInTheDocument();
     expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 1, view: 'home' }, expect.any(AbortSignal));
     view.rerender(<OsanDashboardPage onOpen={vi.fn()} />);
     await screen.findByRole('button', { name: '오산 검수 프로젝트 진행 상세 열기' });
-    expect(screen.queryByText('납기 2026-10-01 · 진행 중')).not.toBeInTheDocument();
+    expect(screen.queryByText('납기 2026-10-01')).not.toBeInTheDocument();
     expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, { search: '', customer: '', status: 'All', page: 1 }, expect.any(AbortSignal));
   });
 });
@@ -134,4 +135,21 @@ it.each(['home', 'progress'] as const)('%s 고객사와 상태를 함께 적용�
   await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ customer: '고객 A', status: 'Completed', page: 1 }), expect.any(AbortSignal)));
   fireEvent.click(screen.getByRole('button', { name: '초기화' }));
   await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ customer: '', status: 'All', page: 1 }), expect.any(AbortSignal)));
+});
+
+
+it('완료·부분 완료·미완료와 초기화된 단계를 실제 집계대로 표시한다', async () => {
+  const data = fixture();
+  data.items[0].stages = [
+    { sequenceNumber: 1, stepCode: 'INCOMING', stepName: '입고검사', completedTargetCount: 0, totalTargetCount: 2 },
+    { sequenceNumber: 2, stepCode: 'LAYOUT', stepName: '배치검사', completedTargetCount: 2, totalTargetCount: 2 },
+    { sequenceNumber: 3, stepCode: 'WIRING', stepName: '배선검사', completedTargetCount: 1, totalTargetCount: 2 }
+  ];
+  vi.mocked(api.getOsanDashboard).mockResolvedValue(data);
+  render(<OsanDashboardPage onOpen={vi.fn()} />);
+  expect(await screen.findByLabelText('입고검사 0/2 완료')).toHaveClass('empty');
+  expect(screen.getByLabelText('배치검사 2/2 완료')).toHaveClass('done');
+  expect(screen.getByLabelText('배선검사 1/2 완료')).toHaveClass('partial');
+  expect(screen.getByText('WO-KEY').tagName).toBe('STRONG');
+  expect([...document.querySelectorAll('.osan-dashboard-project-meta dt')].map(node => node.textContent)).toEqual(['part 분류', '수량', '고객사', 'W/O', '코드', '납기일']);
 });

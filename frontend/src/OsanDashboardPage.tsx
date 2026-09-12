@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { ApiError } from './api';
 import { getOsanDashboard, type OsanDashboardResponse, type OsanDashboardStatus } from './osanDashboard';
 import { OsanListFrame } from './OsanListFrame';
@@ -7,10 +7,6 @@ import backIcon from './assets/osan-dashboard-back.png';
 import forwardIcon from './assets/osan-dashboard-forward.png';
 import './osan-dashboard.css';
 
-const statuses: { value: OsanDashboardStatus; label: string }[] = [
-  { value: 'All', label: '전체' }, { value: 'NotStarted', label: '시작 전' },
-  { value: 'InProgress', label: '진행 중' }, { value: 'Completed', label: '완료' }
-];
 type State = { kind: 'loading' } | { kind: 'ready'; data: OsanDashboardResponse } | { kind: 'error'; message: string; forbidden: boolean };
 
 export function OsanDashboardPage(props: { view?: 'home' | 'progress'; developmentUserKey?: string; onOpen: (projectId: string) => void }) {
@@ -72,19 +68,23 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
       </div>}
       {data && <ul className="osan-dashboard-list" aria-label="프로젝트 진행 목록">{data.items.map(project => <li key={project.projectId}>
         <button type="button" className="osan-dashboard-project" onClick={() => onOpen(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
-          <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-dday">{formatOsanDday(project.deliveryDate, today)}</span></span>
-          {isHome && <span className="osan-home-deadline">납기 {project.deliveryDate} · {statuses.find(status => status.value === project.status)?.label}</span>}
-          <span className="osan-dashboard-stages">{project.stages.map(stage => <span key={stage.sequenceNumber} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>
-            <span>{stage.stepName}</span><span>{stage.completedTargetCount}/{stage.totalTargetCount}</span>
-          </span>)}</span>
-          <span className="osan-dashboard-bar" role="progressbar" aria-label={`${project.title} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={project.progressPercent}><span style={{ width: `${project.progressPercent}%` }} /></span>
-          <span className="osan-dashboard-percent">{project.progressPercent}%</span>
+          <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className="osan-dashboard-dday">{formatOsanDday(project.deliveryDate, today)}</span></span>
+          {isHome && <span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
+          <span className="osan-dashboard-stages">{project.stages.map(stage => {
+            const ratio = stage.totalTargetCount > 0 ? Math.min(1, Math.max(0, stage.completedTargetCount / stage.totalTargetCount)) : 0;
+            const status = ratio === 1 ? 'done' : ratio > 0 ? 'partial' : 'empty';
+            return <span key={stage.sequenceNumber} className={`osan-dashboard-stage ${status}`} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>
+              <span className="osan-dashboard-stage-circle" style={{ '--stage-fill': `${ratio * 100}%` } as CSSProperties} aria-hidden="true"><span>{status === 'done' ? '✓' : stage.sequenceNumber}</span></span>
+              <span>{stage.stepName}</span><span className="osan-dashboard-stage-count">{stage.completedTargetCount}/{stage.totalTargetCount}</span>
+            </span>;
+          })}</span>
+          <span className="osan-dashboard-percent" role="progressbar" aria-label={`${project.title} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={project.progressPercent}>{project.progressPercent}%</span>
         </button>
-        <dl className="osan-dashboard-project-meta">
-          <div><dt>코드</dt><dd>{project.projectCode}</dd></div><div><dt>고객사</dt><dd>{project.customerName}</dd></div>
+        {!isHome && <dl className="osan-dashboard-project-meta">
           <div><dt>part 분류</dt><dd>{project.productName}</dd></div><div><dt>수량</dt><dd>{project.quantity}</dd></div>
-          <div><dt>납기일</dt><dd>{project.deliveryDate}</dd></div><div><dt>상태</dt><dd>{statuses.find(status => status.value === project.status)?.label ?? '시작 전'}</dd></div>
-        </dl>
+          <div><dt>고객사</dt><dd>{project.customerName}</dd></div><div><dt>W/O</dt><dd><strong>{project.workOrderNumber || '—'}</strong></dd></div>
+          <div><dt>코드</dt><dd>{project.projectCode}</dd></div><div><dt>납기일</dt><dd>{project.deliveryDate}</dd></div>
+        </dl>}
       </li>)}</ul>}
     </div>
     {data && <nav className="osan-dashboard-pagination" aria-label="진행 현황 페이지">

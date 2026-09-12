@@ -41,6 +41,35 @@ public static class OsanProgressEndpointExtensions
         .RequireAuthorization()
         .WithName("GetOsanProgress");
 
+        progress.MapGet("/related-panels", async (
+            Guid projectId,
+            OsanProgressStore store,
+            OsanProjectStore projectStore,
+            DatabaseConnectionStringProvider connectionStringProvider,
+            ClaimsPrincipal user,
+            CancellationToken cancellationToken) =>
+        {
+            var denied = await AuthorizeProjectAsync(
+                projectId,
+                QmsPermissions.ProjectRead,
+                projectStore,
+                connectionStringProvider,
+                user,
+                cancellationToken);
+            if (denied is not null)
+            {
+                return denied;
+            }
+
+            var value = await store.ListRelatedPanelsAsync(
+                projectId,
+                ProjectEndpointExtensions.GetProjectAccessScope(user),
+                cancellationToken);
+            return value is null ? Results.NotFound() : Results.Ok(value);
+        })
+        .RequireAuthorization()
+        .WithName("GetOsanRelatedPanels");
+
         progress.MapPost("/completions", async (
             Guid projectId,
             HttpRequest request,

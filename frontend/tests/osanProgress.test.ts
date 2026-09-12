@@ -59,3 +59,20 @@ describe('사진 완료 API 전송', () => {
     } finally { fetchMock.mockRestore(); resetBusinessUnitRequestContext(); }
   });
 });
+
+describe('동일 W/O 패널 API', () => {
+  it('현재 프로젝트 ID로 관련 패널 조회를 보내고 업무 컨텍스트를 유지한다', async () => {
+    const { getOsanRelatedPanels } = await import('../src/osanProgress');
+    const { resetBusinessUnitRequestContext, selectBusinessUnit } = await import('../src/api');
+    const { vi } = await import('vitest');
+    resetBusinessUnitRequestContext(); selectBusinessUnit('OSAN');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ sourceProjectId: 'project', workOrderNumber: 'WO-001', panels: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    try {
+      await getOsanRelatedPanels('project/unsafe', 'dev-user');
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(String(url)).toContain('/api/osan/projects/project%2Funsafe/progress/related-panels');
+      expect(new Headers(options?.headers).get('X-Qms-Business-Unit')).toBe('OSAN');
+      expect(new Headers(options?.headers).get('X-Dev-User')).toBe('dev-user');
+    } finally { fetchMock.mockRestore(); resetBusinessUnitRequestContext(); }
+  });
+});

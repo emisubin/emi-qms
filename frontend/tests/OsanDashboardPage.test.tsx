@@ -147,9 +147,13 @@ it('완료·부분 완료·미완료와 초기화된 단계를 실제 집계대�
   ];
   vi.mocked(api.getOsanDashboard).mockResolvedValue(data);
   render(<OsanDashboardPage onOpen={vi.fn()} />);
-  expect(await screen.findByLabelText('입고검사 0/2 완료')).toHaveClass('empty');
-  expect(screen.getByLabelText('배치검사 2/2 완료')).toHaveClass('done');
-  expect(screen.getByLabelText('배선검사 1/2 완료')).toHaveClass('partial');
+  expect(await screen.findByLabelText('입고검사 0/2 완료')).toHaveTextContent('입고검사0/2');
+  expect(screen.getByLabelText('배치검사 2/2 완료')).toHaveTextContent('배치검사2/2');
+  expect(screen.getByLabelText('배선검사 1/2 완료')).toHaveTextContent('배선검사1/2');
+  const circles = document.querySelectorAll('.osan-dashboard-stepper .osan-dashboard-stage');
+  expect(circles[0]).toHaveClass('empty');
+  expect(circles[1]).toHaveClass('done');
+  expect(circles[2]).toHaveClass('partial');
   expect(screen.getByText('WO-KEY').tagName).toBe('STRONG');
   expect([...document.querySelectorAll('.osan-dashboard-project-meta dt')].map(node => node.textContent)).toEqual(['part 분류', '수량', '고객사', 'W/O', '코드', '납기일']);
 });

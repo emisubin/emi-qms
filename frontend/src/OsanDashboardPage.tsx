@@ -70,12 +70,14 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
         <button type="button" className="osan-dashboard-project" onClick={() => onOpen(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
           <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className="osan-dashboard-dday">{formatOsanDday(project.deliveryDate, today)}</span></span>
           {isHome && <span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
-          <span className="osan-dashboard-stages">{project.stages.map(stage => {
+          <span className="osan-dashboard-stages">{project.stages.map(stage => <span key={stage.sequenceNumber} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>
+            <span>{stage.stepName}</span><span className="osan-dashboard-stage-count">{stage.completedTargetCount}/{stage.totalTargetCount}</span>
+          </span>)}</span>
+          <span className="osan-dashboard-stepper" aria-hidden="true">{project.stages.map(stage => {
             const ratio = stage.totalTargetCount > 0 ? Math.min(1, Math.max(0, stage.completedTargetCount / stage.totalTargetCount)) : 0;
             const status = ratio === 1 ? 'done' : ratio > 0 ? 'partial' : 'empty';
-            return <span key={stage.sequenceNumber} className={`osan-dashboard-stage ${status}`} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>
+            return <span key={stage.sequenceNumber} className={`osan-dashboard-stage ${status}`}>
               <span className="osan-dashboard-stage-circle" style={{ '--stage-fill': `${ratio * 100}%` } as CSSProperties} aria-hidden="true"><span>{status === 'done' ? '✓' : stage.sequenceNumber}</span></span>
-              <span>{stage.stepName}</span><span className="osan-dashboard-stage-count">{stage.completedTargetCount}/{stage.totalTargetCount}</span>
             </span>;
           })}</span>
           <span className="osan-dashboard-percent" role="progressbar" aria-label={`${project.title} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={project.progressPercent}>{project.progressPercent}%</span>

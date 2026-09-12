@@ -138,3 +138,14 @@
   .app-shell .osan-dashboard-project-meta dt, .app-shell .osan-dashboard-project-meta dd { font-size: 9px !important; font-weight: 400 !important; line-height: 14px; }
 }
 .app-shell .osan-dashboard-stage-circle, .app-shell .osan-dashboard-stage-circle > span { border-radius: 50% !important; }
+
+/* Keep stage names and counts together; replace the former bottom progress bar. */
+.app-shell .osan-dashboard-stepper { position: absolute; left: 10px; right: 30px; bottom: 3px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.app-shell .osan-dashboard-stepper > span { display: flex; justify-content: center; }
+.app-shell .osan-dashboard-percent { top: auto; bottom: 5.25px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stepper { left: 14px; right: 43px; bottom: 6px; }
+.app-shell .osan-home-dashboard .osan-dashboard-percent { top: auto; bottom: 10px; }
+@media (min-width: 861px) {
+  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-stepper { bottom: 1px; }
+  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-percent { top: auto; bottom: 5.25px; }
+}

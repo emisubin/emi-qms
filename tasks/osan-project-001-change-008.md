@@ -407,3 +407,14 @@ UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결
 PR141 최초 CI34733911221에서 frontend439건은 통과했으나 mock browser는 새 related-panels 응답과 W/O 열 기대값이 빠져 실패했다. 제품 코드는 유지하고 해당 fixture·열 개수/공용 셀 대응만 보정했으며 관련 browser3건 PASS. 후속 PR CI에서 전체 검증을 확인한다.
 
 PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은 통과했으나 오산 상세 진입에서 신규 related-panels GET이 capability 허용 목록에 빠진 결함을 발견했다. 정확한 프로젝트 GUID 아래 해당 GET만 허용하도록 보정했다. 전용 합성 3DB full-stack1건에서 상세 진입, 동일 W/O 패널 조회200, 청주·POST·추가 경로403을 검증했고 임시 DB/역할/process/container/network 정리를 확인했다. 독립 reviewer 추가 P0–P2 없음. 근거 /private/tmp/osan-mobile-real-gate-fix.log. 최신 후보의 required CI 성공 후 병합·배포한다.
+
+
+### 모바일 탐색·QR·W/O·스텝퍼 공개배포 완료 (2026-09-13)
+
+[PR141](https://github.com/emisubin/emi-qms/pull/141)의 최종 후보 c193610314baed87c34ff6916aeb354d140612b6에서 [required CI34735541792](https://github.com/emisubin/emi-qms/actions/runs/34735541792)가 모두 통과했다. Backend644·Frontend439·mock16·일반full-stack64·사업부1·오산1 PASS. 기존 승인·사용자 화면 검수와 독립 검토 뒤 정상 main d76790e37d8f17c2e7359af38e889f35e5c585bf로 병합했다. 후보/main tree 동일, main CI34736861114 성공. 보호규칙 변경·관리자 예외 없음.
+
+[공식 Azure 배포34736903149](https://github.com/emisubin/emi-qms/actions/runs/34736903149) 성공. 승인된 exact main의 Backend52→Frontend44가 모두 latest=ready이고 Single 모드를 유지한다. 기존 migration 확인 단계 성공, 신규 SQL 없음. bootstrap·membership backfill·inspection·reset·임시 저장 제한은 실행하지 않았다. 배포 전후 두 앱의 환경값·비밀 참조가 동일하여 DB·Gmail·PWA/provider 설정을 보존했다. 공개 health200·익명api/me401과 기존 CSP 유지, 앱 내 QR 스캔용 camera=(self)를 확인했다. 실제 데이터 수정·시험 메일/푸시 발송은 하지 않았다.
+
+로그인된 공개 Chrome에서 재인증 후 홈·프로젝트·진행 현황을 정상 조회했다. PC와390px 모바일에서 막대+단계 원형, 제목 part/D-day, W/O 표시·프로젝트 표 열, 작은 펼침 메뉴를 직접 확인했다. 동일 W/O의 다른 프로젝트 패널이 선택 목록에 나타나고 선택한 프로젝트/패널로 정상 이동하는 것을 확인했다. 확인 후 브라우저 viewport를 원래 크기로 복원했다. 배포 전후 화면 프로젝트 집계121/시작전62/진행중59/완료0 동일. 이는 확인 화면 기준이며 전체 운영 데이터의 개별 전수 대조를 수행했다는 뜻은 아니다.
+
+구현·자동 검증·사용자 화면 검수·원격 main 병합·공개배포 완료. 실제 아이폰 설치 PWA의 후면 카메라 권한·물리 QR 스캔은 실기기 후속 확인으로 남는다. 공정별 이상/특이사항 알림은 제외했다. 검증 근거는 /private/tmp/osan-mobile-final-backend.log, osan-mobile-final-frontend.log, osan-mobile-final-fullstack.log, osan-mobile-release.log와 앱 before/after 설정 비교에 보존한다. 마지막 Task·roadmap 기록만 별도 로컬 커밋하고 원본 checkout과 다른 작업 WIP는 보존한다.

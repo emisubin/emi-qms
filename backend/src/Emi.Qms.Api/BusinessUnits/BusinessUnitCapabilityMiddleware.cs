@@ -163,7 +163,8 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
                     && Guid.TryParse(segments[2], out _)
                     && string.Equals(segments[3], "qr", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 3 && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase))
+                    && (string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(segments[2], "related-panels", StringComparison.OrdinalIgnoreCase)))
                 || (segments.Length == 2
                     && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 4

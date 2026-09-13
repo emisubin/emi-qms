@@ -46,7 +46,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(20, endpoints.Length);
+        Assert.Equal(21, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -74,6 +74,11 @@ public sealed partial class OsanProjectRegistrationApiTests
             completion.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
         Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/photos/{photoId:guid}"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Get,
+                StringComparer.OrdinalIgnoreCase) == true);
+        Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/related-panels"
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
                 StringComparer.OrdinalIgnoreCase) == true);

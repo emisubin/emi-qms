@@ -144,6 +144,7 @@ describe('Osan project registration', () => {
       if (url.pathname === '/api/osan/projects') return json({ items: [data] });
       if (url.pathname === `/api/osan/projects/${projectId}`) return json(data);
       if (url.pathname === `/api/osan/projects/${projectId}/progress`) return json({ ...data, targets: data.targets.map(target => ({ ...target, version: 2, steps: target.steps.map(step => ({ ...step, photos: [], canCompleteIndividual: true, canCompleteBatch: true })) })) });
+      if (url.pathname === `/api/osan/projects/${projectId}/progress/related-panels`) return json({ sourceProjectId: projectId, workOrderNumber: data.workOrderNumber, panels: [] });
       return undefined;
     });
     vi.stubGlobal('fetch', fetchMock); render(<App />);
@@ -178,6 +179,7 @@ describe('Osan project registration', () => {
         'projects.read', 'Project.Read.All', ...(allowed ? ['manufacturing.update'] : [])
       ]));
       if (url.pathname === `/api/osan/projects/${projectId}/progress`) return json(progress);
+      if (url.pathname === `/api/osan/projects/${projectId}/progress/related-panels`) return json({ sourceProjectId: projectId, workOrderNumber: project.workOrderNumber, panels: [] });
       return undefined;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -211,18 +213,18 @@ describe('Osan project registration', () => {
     const sharedList = table.closest('[data-presentation-contract="project-list-v1"]');
     expect(sharedList).not.toBeNull();
     expect(sharedList).toHaveAttribute('data-presentation-layout', 'desktop');
-    expect(sharedList).toHaveAttribute('data-presentation-column-count', '8');
+    expect(sharedList).toHaveAttribute('data-presentation-column-count', '9');
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveClass('project-list-head');
-    expect(within(rows[0]).getAllByRole('columnheader').map(el => el.textContent)).toEqual(['선택', '장비명', 'part 분류', '고객사', 'Code', '수량', '납기일', '상태', '진행률']);
+    expect(within(rows[0]).getAllByRole('columnheader').map(el => el.textContent)).toEqual(['선택', '장비명', 'part 분류', '고객사', 'W/O', 'Code', '수량', '납기일', '상태', '진행률']);
     expect(within(rows[0]).getByRole('columnheader', { name: '장비명' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '상태' })).toBeInTheDocument();
     expect(within(rows[0]).getByRole('columnheader', { name: '진행률' })).toBeInTheDocument();
 
     const projectRow = within(table).getByRole('row', { name: '저장된 Title 상세 열기' });
     expect(projectRow).toHaveClass('project-list-row');
-    expect(within(projectRow).getAllByRole('cell')).toHaveLength(9);
+    expect(within(projectRow).getAllByRole('cell')).toHaveLength(10);
     expect(projectRow).toHaveAttribute('data-presentation-row', 'project');
     const listCode = projectRow.querySelector('.project-code-value');
     expect(listCode).toHaveTextContent('AbC  001', { normalizeWhitespace: false });

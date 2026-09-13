@@ -368,3 +368,42 @@ UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결
 ### PWA 보정 병합·공개배포 승인 (2026-09-11)
 
 사용자가 PWA 알림 수정본의 main 병합·공개배포를 명시 승인했다. 범위는6372296의 오산 PWA 연결과0098 guard 보정이다. 메일 발송 현황 조회 기능 추가와 관리자 페이지는 제외한다. 원격 required CI 후 exact main으로 기존 수동 release를 실행하고 provider/DB 연결과 기존 데이터를 보존한다.0098은 함수만 교체하며 snapshot/backfill이 없고 기존 메일 predicate를 유지하므로 이전0096 전환의 임시 저장 제한을 반복 적용하지 않는다. 실제 기기 알림 수신은 설치·기기 권한에 따라 별도 확인한다.
+
+
+### PWA 보정 공개배포 완료 (2026-09-11)
+
+[PR140](https://github.com/emisubin/emi-qms/pull/140) 후보7980faebd46a4b908f6ae4a196b5ca3a0bb59590의 required CI34586312267이 모두 통과했다. Backend643·Frontend428·mock16·일반full-stack64·사업부1·오산1 PASS. main94b67922df4750eaf39b29fb636978c135002403로 정상 병합했고 후보/main tree 동일 및 main CI34589203858 성공을 확인했다. 보호규칙 변경·예외 없음.
+
+[배포34589284351](https://github.com/emisubin/emi-qms/actions/runs/34589284351)이 성공했다. 첫 환경 승인 명령은 자동 심사에서0098이 사용자 승인 범위에 포함되지 않는다는 이유로 실행 전 거부됐다. 앞선 사용자에게 DB 보정 포함 수정본을 설명한 답변, 이후 병합·배포 승인, exactmain의0098 함수 변경 범위를 읽기 전용으로 대조해 동일 동작의 재심사를 요청했고 승인됐다. 사용자 추가 승인이나 정책 설정 변경·우회는 없다. 다음 공식 환경 승인 후0098과 Backend51·Frontend43으로 정상 전환했다. bootstrap·membership backfill·inspection·데이터 초기화·저장 중단은 실행하지 않았다.
+
+공개 https://pms.emiinc.co.kr 의 health200·익명api/me401, 두 서버 latest=ready를 확인했다. 배포 전후 유효 환경값과 비밀 참조가 동일하여 기존 DB·Gmail/provider 설정을 보존했다. 실제 로그인된 Chrome에서 /notification-settings?businessUnit=OSAN을 열어 이전 사업부 기능 차단 오류가 사라지고 정상 기기 설정이 표시됨을 확인했다. 확인 계정의 오산 연결기기0개, 일반 브라우저에서는 설치된 앱에서 설정하도록 안내한다. 실제 기기 등록·권한 허용·실제 푸시 수신은 사용자 기기에서 후속 확인하며 새 테스트 알림을 발송하지 않았다. 메일 발송 현황 조회 추가는 배포 범위에 포함하지 않았다.
+
+제품 병합·required CI·공개배포 완료. 최종 기록은 Task와 roadmap만 로컬 커밋하며 사용자 WIP는 보존한다. 검증 로그는 /private/tmp/osan-pwa-final-ci.log 및 osan-pwa-release.log, 설정 비교 자료는 osan-pwa-apps-before.json / osan-pwa-apps-after.json에 보존했다.
+
+### 모바일 탐색·QR 스캔·단계 요약 및 W/O 패널 연결 (2026-09-12)
+
+사용자가 구현을 승인했다. 시작 기준은 로컬 d79432a이며 origin/main 94b6792의 직전 공개 제품과 후속 문서 기록을 보존한다. 기존 작업 경로 /private/tmp/emi-osan-photo-upload-fix, codex/osan-project-management를 이어간다. 별도 원본 checkout WIP는 변경하지 않는다.
+
+확정 범위: 홈 제목에 장비명·part 분류·빨간 D-day, 아래 bold W/O·납기일. 프로젝트 표 고객사 뒤 W/O. 진행 목록 제목 동일, 단계 아래 part 분류·수량·고객사·bold W/O·코드·납기일. 기존 카드/행 크기의 작은 원형 7단계 스텝퍼와 단계별 완료 대상 수, 원형과 수평 정렬된 bold 전체 진행률. 우측 하단 44px 원형 메뉴, 146px 펼침 메뉴(홈·프로젝트·진행 현황·알림·QR 스캔). 기존 확정 시안은 이 대화의 osan-inline-stepper.html, osan-floating-menu.html, osan-qr-scan.html이다.
+
+아이폰 외부 카메라 QR은 브라우저로 열리는 관측을 반영하여 내부 QR 스캔으로 확정했다. 후면 카메라, 기기 안에서 QR 해독, 기존 패널 QR 조회 route로 이동, 권한/없는 대상 처리는 기존 서버 조회 기준. 다른 도메인·임의 경로 QR로 외부 이동하지 않으며 카메라 종료·권한 거부·재시도·백그라운드 중단을 처리한다. 공개 frontend 응답의 기존 camera=()가 이를 차단하므로 nginx 양쪽 템플릿을 camera=(self)로 한정 보정한다. 마이크/위치 등 다른 제한은 유지한다. 배포나 운영 설정 적용은 이번 범위에 포함하지 않는다.
+
+같은 비어 있지 않은 W/O를 갖는 권한 내 오산 프로젝트의 패널을 진행 상세 선택창에서 함께 제공한다. 목록 카드를 합치거나 데이터를 병합하지 않는다. 다른 프로젝트 패널 선택은 해당 프로젝트의 상세로 이동하며 일괄 쓰기 선택 범위는 현재 프로젝트 내부로 유지한다. 기존 데이터·이력·QR 소유·DB 분리 보존. 검증과 독립 검토 결과는 작업 종료 시 아래에 기록한다.
+
+구현·직접 검증 완료: Frontend 관련 6파일 60건 PASS, 타입·대상 lint·production build PASS(기존 bundle 크기 경고). 독립 생성한 합성 QR 이미지의 실제 jsQR 해독과 카메라 거부·재시도·늦은 권한 응답·백그라운드 중단·성공 후 정리를 확인했다. Backend 전용 disposable DB에서 관련 패널의 정확한 W/O/접근 범위와 endpoint catalog 2건 PASS, DB/container/network 정리 완료. Azure 정적 검증 PASS. 신규 endpoint의 HTTP 권한 거부 전체 조합은 이번에 별도 실행하지 않았으며 기존 서버 권한 helper와 store 접근 범위를 검토했다.
+
+합성 데이터로 실제 App의 PC 1440 및 모바일 390 화면을 확인했다. 기존 카드 높이와 스텝퍼 크기, 메뉴·QR 대화상자, 관련 패널 선택 및 프로젝트 W/O 열을 확인했다. 최종 확인에서 표 grid의 열 수 누락으로 진행률이 다음 줄로 밀리는 문제를 보정하고 다시 직접 확인했다. 독립 reviewer의 미해결 P0–P2 없음(요청 gpt-6-astra/high, 실제 모델 값은 도구에서 미보고). 검증 근거는 /private/tmp/osan-mobile-targeted.log, osan-related-backend.log, osan-mobile-build-final.log 및 관련 합성 화면에 보존한다.
+
+현재 상태: 로컬 구현·직접 검증 완료, 사용자 검수·실제 아이폰 PWA 카메라 스캔·최종 후보 전체 회귀·원격 CI/병합·공개배포는 미실행. 실제 데이터나 운영 설정을 변경하지 않았다. 다음은 사용자 검수와 아이폰에서 후면 카메라 허용 후 기존 패널 QR 조회 연결 확인이다.
+
+2026-09-12 검수 서버 열기: 사용자 요청으로 최신 fec98be frontend를 http://127.0.0.1:5212, API를5113에 별도 기동했다. 기존 API5112는 migration ledger 미일치 상태였으며 작업 전용 합성 3DB에 공식 migrate-only를 적용한 뒤 새 API의 실제 오산 dashboard200과 브라우저 홈 표시를 확인했다. 기존 합성 프로젝트 보존, reset/bootstrap/seed 미실행, 외부 provider 비활성화. 기존5204/5112는 종료하지 않았다. 기동 스크립트 /private/tmp/osan-mobile-api-ready.sh, 로그 osan-mobile-api-ready.log 및 osan-mobile-preview.log. 이 주소는 같은 컴퓨터 전용이며 실물 아이폰 카메라 검수 주소가 아니다.
+
+2026-09-12 스텝퍼 위치 보정: 사용자 요청대로 홈·진행 현황의 단계명/완료 수량을 위쪽에 붙여 유지하고 원형 스텝퍼는 기존 하단 진행률 막대 위치로 분리했다. 전체 진행률은 원형의 중심과 수평 정렬. 실제 검수 API 화면390/1440px에서 홈126px·진행39/52px 높이 보존과 겹침/정렬 확인, 관련 테스트13건 PASS. 검수 서버5212에 반영, 원격/공개배포 없음.
+
+2026-09-13 확정 막대+원형 시안 구현: 실제 전체 진행률로 채워지는 연속 막대 위에 단계 원형을 겹쳐 표시한다. 홈은 단계명·수량을 스텝퍼 가까이 배치하고 진행 현황은 단계 그리드와 동일한 좌우 경계로 입고검사부터 원형 중심을 맞췄다. 완료/부분 완료/미완료 집계 보존. 실제5212 검수 화면 PC1440·mobile390에서 홈126px/진행52·39px 유지 및 전체 진행률 중심 정렬 확인, 관련13건 PASS, diff check PASS. 로컬 화면 반영 완료, 원격 병합·공개배포 없음.
+
+2026-09-13 병합·공개배포 승인: 사용자 최종 변경 요약 확인 후 이번 후보의 원격 main 병합·공개배포를 명시 요청했다. 공정별 이상/특이사항 알림은 제외. 확정 화면과 기존 검수 이력을 기준으로 최종 후보 전체 회귀는 PR CI가 책임 실행하며 Backend·Frontend·mock·일반 full-stack·사업부·오산 전용 suite의 실제 성공을 확인한다. 최신 main94b6792를 제품 변경 없이 병합 이력으로 통합했다. 최종26afc03 delta 독립 검토 추가 P0–P2 없음. 신규 migration이나 provider 설정 변경은 없으며 Backend→Frontend 공식 release 순서를 유지한다. 실제 아이폰 PWA 카메라 확인은 배포 후 실기기 검수로 남는다.
+
+PR141 최초 CI34733911221에서 frontend439건은 통과했으나 mock browser는 새 related-panels 응답과 W/O 열 기대값이 빠져 실패했다. 제품 코드는 유지하고 해당 fixture·열 개수/공용 셀 대응만 보정했으며 관련 browser3건 PASS. 후속 PR CI에서 전체 검증을 확인한다.
+
+PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은 통과했으나 오산 상세 진입에서 신규 related-panels GET이 capability 허용 목록에 빠진 결함을 발견했다. 정확한 프로젝트 GUID 아래 해당 GET만 허용하도록 보정했다. 전용 합성 3DB full-stack1건에서 상세 진입, 동일 W/O 패널 조회200, 청주·POST·추가 경로403을 검증했고 임시 DB/역할/process/container/network 정리를 확인했다. 독립 reviewer 추가 P0–P2 없음. 근거 /private/tmp/osan-mobile-real-gate-fix.log. 최신 후보의 required CI 성공 후 병합·배포한다.

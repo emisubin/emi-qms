@@ -11,6 +11,7 @@ import { MaterialIqcPage, MaterialReceivingPage } from './MaterialsWorkspace';
 import { ManufacturingPage } from './ManufacturingPage';
 import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
+import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
@@ -2294,7 +2295,8 @@ function QmsAppShellContent({
   if (view.kind === 'osan-qr') {
     if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
     if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
-    return <OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />;
+    return <><OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />
+      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
   }
 
   const permissions = user?.permissions ?? [];
@@ -2407,6 +2409,7 @@ function QmsAppShellContent({
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
+      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
@@ -2414,7 +2417,7 @@ function QmsAppShellContent({
           <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
         ) : null}
         <header className="mobile-app-bar">
-          <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
+          {!isOsan && <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />}
           <div className="mobile-app-brand">
             <button
               type="button"
@@ -2700,6 +2703,7 @@ function QmsAppShellContent({
           developmentUserKey={developmentUserKey}
           mutationAllowed={mutationEnabled && canUpdateManufacturing}
           onBack={() => setView({ kind: 'osan-progress' })}
+          onOpenTarget={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })}
         /> : <OsanDashboardPage
           developmentUserKey={developmentUserKey}
           onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })}
@@ -4492,6 +4496,7 @@ function OsanProjectListPage({
             { label: '장비명', align: 'left' },
             { label: 'part 분류', align: 'left' },
             { label: '고객사', align: 'left' },
+            { label: 'W/O', align: 'left' },
             { label: 'Code', align: 'center' },
             { label: '수량', align: 'center' },
             { label: '납기일', align: 'center' },
@@ -4509,6 +4514,7 @@ function OsanProjectListPage({
               { value: <strong>{project.title}</strong>, align: 'left' },
               { value: project.productName, align: 'left' },
               { value: project.customerName, align: 'left' },
+              { value: project.workOrderNumber || '—', align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
               { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
@@ -4518,6 +4524,7 @@ function OsanProjectListPage({
             mobileFields: [
               { label: 'part 분류', value: project.productName },
               { label: '고객사', value: project.customerName },
+              { label: 'W/O', value: project.workOrderNumber || '—' },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
               { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span> },

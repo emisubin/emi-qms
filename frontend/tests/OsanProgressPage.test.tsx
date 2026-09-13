@@ -4,7 +4,7 @@ import { OsanProgressPage } from '../src/OsanProgressPage';
 import * as api from '../src/osanProgress';
 import { ApiError, fetchJson } from '../src/api';
 vi.mock('../src/api', async original => ({ ...await original<typeof import('../src/api')>(), fetchJson: vi.fn() }));
-vi.mock('../src/osanProgress', async importOriginal => ({ ...await importOriginal<typeof import('../src/osanProgress')>(), getOsanProgress: vi.fn(), completeOsanProgress: vi.fn(), getOsanProgressPhoto: vi.fn() }));
+vi.mock('../src/osanProgress', async importOriginal => ({ ...await importOriginal<typeof import('../src/osanProgress')>(), getOsanProgress: vi.fn(), getOsanRelatedPanels: vi.fn(), completeOsanProgress: vi.fn(), getOsanProgressPhoto: vi.fn() }));
 function project(id = 'project-a'): api.OsanProgressDetail {
   return { projectId: id, title: id, projectCode: 'TEST', completedStepCount: 0, totalStepCount: 14, status: 'Active', targets: [1, 2].map(index => ({ targetId: `target-${index}`, sequenceNumber: index, displayName: `제품 ${index}`, status: 'InProgress', version: 1, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null, steps: api.osanStageNames.map((stepName, i) => ({ stepId: `${index}-${i}`, stepCode: String(i), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: i + 1, stepName, status: 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) })) };
 }
@@ -14,6 +14,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(fetchJson).mockResolvedValue({ canApprove: false, currentUserId: 'dev-user', items: [] });
   vi.mocked(api.getOsanProgress).mockResolvedValue(project());
+  vi.mocked(api.getOsanRelatedPanels).mockResolvedValue({ sourceProjectId: 'project-a', workOrderNumber: 'WO-001', panels: [] });
   vi.mocked(api.completeOsanProgress).mockResolvedValue({ operationId: 'operation', replayed: false, project: project() });
   HTMLDialogElement.prototype.showModal = function() { this.open = true; };
   HTMLDialogElement.prototype.close = function() { this.open = false; };
@@ -92,6 +93,22 @@ describe('오산 진행 상세', () => {
     expect(screen.getByLabelText('제품 2')).toBeChecked();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByRole('button', { name: '2개 대상 선택' })).toHaveAttribute('aria-expanded', 'false');
+  });
+  it('동일 W/O의 다른 프로젝트 패널을 선택하면 해당 프로젝트와 패널로 이동한다', async () => {
+    vi.mocked(api.getOsanRelatedPanels).mockResolvedValue({
+      sourceProjectId: 'project-a',
+      workOrderNumber: 'WO-001',
+      panels: [
+        { projectId: 'project-a', projectCode: 'CURRENT', projectTitle: '현재 프로젝트', targetId: 'target-1', sequenceNumber: 1, displayName: '제품 1', status: 'InProgress' },
+        { projectId: 'project-b', projectCode: 'RELATED', projectTitle: '관련 프로젝트', targetId: 'target-b', sequenceNumber: 1, displayName: '패널 B', status: 'NotStarted' }
+      ]
+    });
+    const onOpenTarget = vi.fn();
+    render(<OsanProgressPage projectId="project-a" developmentUserKey="dev-user" mutationAllowed onOpenTarget={onOpenTarget} />);
+    fireEvent.click(await screen.findByRole('button', { name: '제품 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'RELATED 패널 B로 이동' }));
+    expect(onOpenTarget).toHaveBeenCalledWith('project-b', 'target-b');
+    expect(api.completeOsanProgress).not.toHaveBeenCalled();
   });
   it('재조회에서 권한이 거부되면 이전 프로젝트와 사진을 화면에서 제거한다', async () => {
     renderPage();

@@ -102,6 +102,17 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect(detail.targets).toHaveLength(2);
   expect(detail.targets.every((target) => target.steps.length === 7)).toBe(true);
 
+  const relatedUrl = `${backendUrl}/api/osan/projects/${osanItems.items[0].projectId}/progress/related-panels`;
+  const relatedResponse = await request.get(relatedUrl, { headers: requestHeaders('OSAN') });
+  expect(relatedResponse.status()).toBe(200);
+  const related = await relatedResponse.json();
+  expect(related.workOrderNumber).toBe('000-W/O');
+  expect(related.panels).toHaveLength(2);
+  expect(related.panels.every((panel: { projectId: string }) => panel.projectId === osanItems.items[0].projectId)).toBe(true);
+  expect((await request.get(relatedUrl, { headers: requestHeaders('CHEONGJU') })).status()).toBe(403);
+  expect((await request.post(relatedUrl, { headers: requestHeaders('OSAN') })).status()).toBe(403);
+  expect((await request.get(`${relatedUrl}/extra`, { headers: requestHeaders('OSAN') })).status()).toBe(403);
+
   const cheongjuAfter = await request.get(`${backendUrl}/api/projects`, {
     headers: requestHeaders('CHEONGJU')
   });

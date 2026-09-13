@@ -177,7 +177,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(mobileList.getByText('시작 전')).toBeVisible();
   await expect(mobileList.getByText('0%')).toBeVisible();
-  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['part 분류', '고객사', 'Code', '수량', '납기일', '상태', '진행률']);
+  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['part 분류', '고객사', 'W/O', 'Code', '수량', '납기일', '상태', '진행률']);
   const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
@@ -210,10 +210,10 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(desktopList).toHaveClass(/project-list-desktop/);
   await expect(mobileList).toBeHidden();
   await expect(desktopList.getByRole('row')).toHaveCount(2);
-  await expect(desktopList.getByRole('columnheader')).toHaveCount(9);
+  await expect(desktopList.getByRole('columnheader')).toHaveCount(10);
   const desktopProjectRow = desktopList.getByRole('row', { name: '저장된 Title 상세 열기' });
   await expect(desktopProjectRow).toHaveClass(/project-list-row/);
-  await expect(desktopProjectRow.getByRole('cell')).toHaveCount(9);
+  await expect(desktopProjectRow.getByRole('cell')).toHaveCount(10);
   await expect(desktopProjectRow.getByRole('checkbox', { name: '저장된 Title QR 선택' })).toBeVisible();
   const desktopListCode = desktopProjectRow.locator('.project-code-value');
   expect(await desktopListCode.textContent()).toBe('AbC  001');
@@ -261,7 +261,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(cheongjuDesktopListContract.geometry.headerBodyAligned).toBe(true);
   // 오산 QR 선택 열을 제외하고 승인된 part 분류/고객사/Code 순서의 공용 데이터 셀을 비교한다.
   expect(cheongjuDesktopListContract.structure).toEqual({ ...osanDesktopListContract.structure,
-    commonCells: [1, 3, 4, 2, 5, 6, 7, 8].map(index => osanDesktopListContract.structure.commonCells[index]) });
+    commonCells: [1, 3, 5, 2, 6, 7, 8, 9].map(index => osanDesktopListContract.structure.commonCells[index]) });
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-desktop-1440.png'), fullPage: true });
 
@@ -543,6 +543,11 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
       }, 201);
     }
     if (path === `/api/osan/projects/${projectId}/progress`) return fulfillJson(route, projectDetail());
+    if (path === `/api/osan/projects/${projectId}/progress/related-panels`) return fulfillJson(route, {
+      sourceProjectId: projectId,
+      workOrderNumber: projectDetail().workOrderNumber,
+      panels: []
+    });
     if (path === `/api/osan/projects/${projectId}/management`) return fulfillJson(route, { canManage: false, editToken: '' });
     if (path === `/api/osan/projects/${projectId}`) return fulfillJson(route, projectDetail());
     unexpectedRequests.push(`${request.method()} ${path}`);

@@ -73,7 +73,7 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
           <span className="osan-dashboard-stages">{project.stages.map(stage => <span key={stage.sequenceNumber} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>
             <span>{stage.stepName}</span><span className="osan-dashboard-stage-count">{stage.completedTargetCount}/{stage.totalTargetCount}</span>
           </span>)}</span>
-          <span className="osan-dashboard-stepper" aria-hidden="true">{project.stages.map(stage => {
+          <span className="osan-dashboard-stepper" style={{ '--progress-fill': `${Math.min(100, Math.max(0, project.progressPercent))}%` } as CSSProperties} aria-hidden="true">{project.stages.map(stage => {
             const ratio = stage.totalTargetCount > 0 ? Math.min(1, Math.max(0, stage.completedTargetCount / stage.totalTargetCount)) : 0;
             const status = ratio === 1 ? 'done' : ratio > 0 ? 'partial' : 'empty';
             return <span key={stage.sequenceNumber} className={`osan-dashboard-stage ${status}`}>

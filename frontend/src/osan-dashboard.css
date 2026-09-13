@@ -139,13 +139,23 @@
 }
 .app-shell .osan-dashboard-stage-circle, .app-shell .osan-dashboard-stage-circle > span { border-radius: 50% !important; }
 
-/* Keep stage names and counts together; replace the former bottom progress bar. */
-.app-shell .osan-dashboard-stepper { position: absolute; left: 10px; right: 30px; bottom: 3px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+/* Continuous progress bar with stage markers aligned to their labels. */
+.app-shell .osan-dashboard-stepper { position: absolute; left: 100px; right: 30px; bottom: 4.5px; height: 10px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: center; }
+.app-shell .osan-dashboard-stepper::before { content: ''; position: absolute; left: 0; right: 0; top: calc(50% - .5px); height: 1px; background: linear-gradient(to right, #da2127 var(--progress-fill), #c7c7c7 var(--progress-fill)); }
 .app-shell .osan-dashboard-stepper > span { display: flex; justify-content: center; }
-.app-shell .osan-dashboard-percent { top: auto; bottom: 5.25px; }
-.app-shell .osan-home-dashboard .osan-dashboard-stepper { left: 14px; right: 43px; bottom: 6px; }
-.app-shell .osan-home-dashboard .osan-dashboard-percent { top: auto; bottom: 10px; }
+.app-shell .osan-dashboard-stepper .osan-dashboard-stage::after { content: none; }
+.app-shell .osan-dashboard-stepper .osan-dashboard-stage-circle { position: relative; width: 10px; height: 10px; font-size: 6px; line-height: 10px; box-shadow: 0 0 0 2px #fff !important; }
+.app-shell .osan-dashboard-stepper .osan-dashboard-stage.partial .osan-dashboard-stage-circle > span { width: 7px; height: 7px; line-height: 7px; }
+.app-shell .osan-dashboard-percent { top: auto; bottom: 5.75px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stages { top: 73px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stepper { left: 14px; right: 43px; bottom: 9.5px; height: 14px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stepper::before { top: calc(50% - 1.5px); height: 3px; border-radius: 2px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stepper .osan-dashboard-stage-circle { width: 14px; height: 14px; font-size: 8px; line-height: 14px; }
+.app-shell .osan-home-dashboard .osan-dashboard-stepper .osan-dashboard-stage.partial .osan-dashboard-stage-circle > span { width: 11px; height: 11px; line-height: 11px; }
+.app-shell .osan-home-dashboard .osan-dashboard-percent { top: auto; bottom: 11.5px; }
 @media (min-width: 861px) {
-  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-stepper { bottom: 1px; }
-  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-percent { top: auto; bottom: 5.25px; }
+  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-stepper { left: 210px; bottom: 3.5px; height: 12px; }
+  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-stepper .osan-dashboard-stage-circle { width: 12px; height: 12px; line-height: 12px; font-size: 7px; }
+  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-stepper .osan-dashboard-stage.partial .osan-dashboard-stage-circle > span { width: 9px; height: 9px; line-height: 9px; }
+  .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-percent { top: auto; bottom: 5.75px; }
 }

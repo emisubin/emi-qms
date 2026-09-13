@@ -405,3 +405,5 @@ UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결
 2026-09-13 병합·공개배포 승인: 사용자 최종 변경 요약 확인 후 이번 후보의 원격 main 병합·공개배포를 명시 요청했다. 공정별 이상/특이사항 알림은 제외. 확정 화면과 기존 검수 이력을 기준으로 최종 후보 전체 회귀는 PR CI가 책임 실행하며 Backend·Frontend·mock·일반 full-stack·사업부·오산 전용 suite의 실제 성공을 확인한다. 최신 main94b6792를 제품 변경 없이 병합 이력으로 통합했다. 최종26afc03 delta 독립 검토 추가 P0–P2 없음. 신규 migration이나 provider 설정 변경은 없으며 Backend→Frontend 공식 release 순서를 유지한다. 실제 아이폰 PWA 카메라 확인은 배포 후 실기기 검수로 남는다.
 
 PR141 최초 CI34733911221에서 frontend439건은 통과했으나 mock browser는 새 related-panels 응답과 W/O 열 기대값이 빠져 실패했다. 제품 코드는 유지하고 해당 fixture·열 개수/공용 셀 대응만 보정했으며 관련 browser3건 PASS. 후속 PR CI에서 전체 검증을 확인한다.
+
+PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은 통과했으나 오산 상세 진입에서 신규 related-panels GET이 capability 허용 목록에 빠진 결함을 발견했다. 정확한 프로젝트 GUID 아래 해당 GET만 허용하도록 보정했다. 전용 합성 3DB full-stack1건에서 상세 진입, 동일 W/O 패널 조회200, 청주·POST·추가 경로403을 검증했고 임시 DB/역할/process/container/network 정리를 확인했다. 독립 reviewer 추가 P0–P2 없음. 근거 /private/tmp/osan-mobile-real-gate-fix.log. 최신 후보의 required CI 성공 후 병합·배포한다.

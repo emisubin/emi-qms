@@ -192,6 +192,7 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             var body = new Dictionary<string, object> { [order ? "SaleOrderList" : "SaleList"] = new[] { new { BulkDatas = row } } };
             var path = order ? "SaleOrder/SaveSaleOrder" : "Sale/SaveSale";
             using var response = await PostAsync($"https://{host}/OAPI/V2/{path}?SESSION_ID={Uri.EscapeDataString(session!)}", body, cancellationToken);
+            LogSaveShape(response.RootElement);
             var result = ParseSave(response.RootElement);
             if (result.State == "Succeeded") lastSuccess = timeProvider.GetUtcNow();
             return result;
@@ -201,6 +202,24 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             // A lost or malformed response does not prove that the ERP rejected the row.
             return new("Unknown");
         }
+    }
+
+    private void LogSaveShape(JsonElement root)
+    {
+        // Only fixed field names, JSON types, bounded counts and booleans. Never response text.
+        static JsonElement Field(JsonElement e, string name) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) ? v : default;
+        static string Shape(JsonElement e) => e.ValueKind switch
+        {
+            JsonValueKind.Array => $"Array({Math.Min(e.GetArrayLength(), 100)})",
+            JsonValueKind.Number when e.TryGetInt32(out var n) && n is >= 0 and <= 100 => $"Number({n})",
+            _ => e.ValueKind.ToString()
+        };
+        var data = Field(root, "Data");
+        var details = Field(data, "ResultDetails");
+        var detail = details.ValueKind == JsonValueKind.Array && details.GetArrayLength() > 0 ? details[0] : default;
+        logger?.LogInformation("Ecount save schema Status={Status} Data={Data} Success={Success} Failure={Failure} Details={Details} IsSuccess={IsSuccess} Errors={Errors} Slips={Slips}",
+            Shape(Field(root,"Status")), Shape(data), Shape(Field(data,"SuccessCnt")), Shape(Field(data,"FailCnt")),
+            Shape(details), Shape(Field(detail,"IsSuccess")), Shape(Field(detail,"Errors")), Shape(Field(data,"SlipNos")));
     }
 
     private static JsonElement Envelope(JsonElement root)

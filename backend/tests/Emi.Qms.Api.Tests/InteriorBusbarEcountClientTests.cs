@@ -228,6 +228,22 @@ public sealed class InteriorBusbarEcountClientTests
     }
 
     [Fact]
+    public async Task SaveDiagnosticsNeverLogProviderText()
+    {
+        var response=JsonSerializer.Serialize(new { Status="200", Data=new {
+            SuccessCnt="synthetic-private-value", FailCnt=999, ResultDetails=new[]{new { IsSuccess=true,Errors=new[]{new { Message=Session }}}},
+            SlipNos=Enumerable.Repeat(Session,101).ToArray() }});
+        using var handler=new Handler(Zone,Login,response);
+        using var http=new HttpClient(handler);
+        var logger=new DiagnosticLogger();
+        var client=new InteriorBusbarEcountClient(Options(),new Clock(),http,logger);
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("Unknown",(await client.SendAsync(Attempt(),TestContext.Current.CancellationToken)).State);
+        Assert.Contains(logger.Messages,x=>x.Contains("Slips=Array(100)",StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Messages,x=>x.Contains(Session,StringComparison.Ordinal)||x.Contains("synthetic-private-value",StringComparison.Ordinal)||x.Contains("999",StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ExplicitIoTypeIsSentAndSessionExpiresSinceLastSuccessfulOperation()
     {
         using var handler = new Handler(Zone, Login, Success);

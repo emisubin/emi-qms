@@ -409,3 +409,6 @@ Envelope은 숫자200 또는 문자열200과 Error 생략/null을 허용하도�
 
 
 09:11:37UTC 재개 진단은 ZoneHost에서 종료되어 실제 로그인 요청 전 실패임을 확인했다. 인증키 없는 별도 .NET Zone 조회에서 JsonContent를 버퍼링하지 않으면 Data에 EMPTY_ZONE만 오고, 전송 전 본문을 읽어 버퍼링하면 정상 ZONE/DOMAIN이 반환되는 것을 재현했다. 실제 adapter를 UTF-8 application/json StringContent로 바꿔 Content-Length를 제공했다. 같은 직렬화 옵션·소수·필드 매핑은 유지한다. fake handler가 본문 읽기 전 ContentLength를 검사하게 해 테스트 자체 버퍼링이 실제 문제를 가리던 부분을 보정했다. 합성74/74, Release0warnings/0errors 및 고정 길이 실제 Zone 조회 정상 응답 확인. 독립 reviewer GO. 해당 local runtime 반영·재개했고09:21:37UTC 이전 로그인 재시도는 차단된 채 유지한다.
+
+
+09:21:40UTC 실제 Zone은 통과했으며 다음 실패는 LoginCode로 확인했다. 공식 로그인 Result 표는 Data에 COM_CODE/USER_ID/SESSION_ID를 직접 나열하고 과거 Example은 Code00+Datas로 감싸고 있어 두 구조를 지원하도록 보정했다. nested 또는 Code가 존재하면 반드시 문자열00이어야 하며 성공 envelope·정확한 회사/사용자·유효 세션 검증은 공통으로 유지한다. Datas가 잘못되면 flat로 대체하지 않는다. 실제 응답 분별용 로그는 해당 필드의 존재 여부·JSON형식만 기록한다. 합성80/80(0skip), Release0warnings/0errors, 독립검토 GO. local 적용·재개했으며09:31:40UTC 이전 재로그인 제한을 유지한다. 로그인 성공과 전표번호는 아직 대기다.

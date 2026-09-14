@@ -110,8 +110,23 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             }
             var login = Envelope(loginResponse.RootElement);
             AuthenticationStage = "LoginCode";
-            if (login.GetProperty("Code").GetString() != "00") return false;
-            var data = login.GetProperty("Datas");
+            // Report only shapes of documented fields, never their values.
+            logger?.LogWarning("Ecount login response shape: Code={CodeType}, Datas={DataType}, FlatCompany={FlatCompany}, FlatUser={FlatUser}, FlatSession={FlatSession}",
+                login.TryGetProperty("Code", out var loginCode) ? loginCode.ValueKind.ToString() : "Missing",
+                login.TryGetProperty("Datas", out var loginData) ? loginData.ValueKind.ToString() : "Missing",
+                login.TryGetProperty("COM_CODE", out _), login.TryGetProperty("USER_ID", out _), login.TryGetProperty("SESSION_ID", out _));
+            // The manual's Result table puts identity/session directly under Data;
+            // its legacy example wraps them in Datas with Code=00. Both still need
+            // the successful envelope and exact company/user/session proof below.
+            var nested = login.TryGetProperty("Datas", out var data);
+            if (nested || login.TryGetProperty("Code", out _))
+            {
+                if (!login.TryGetProperty("Code", out var resultCode)
+                    || resultCode.ValueKind != JsonValueKind.String || resultCode.GetString() != "00") return false;
+            }
+            AuthenticationStage = "LoginData";
+            if (!nested) data = login;
+            AuthenticationStage = "LoginToken";
             var token = data.GetProperty("SESSION_ID").GetString();
             AuthenticationStage = "LoginCompany";
             if (data.GetProperty("COM_CODE").GetString() != options.CompanyCode) return false;

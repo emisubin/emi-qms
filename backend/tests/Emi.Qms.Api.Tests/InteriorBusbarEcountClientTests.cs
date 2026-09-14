@@ -170,6 +170,34 @@ public sealed class InteriorBusbarEcountClientTests
         Assert.False(client.HasSession);
     }
 
+    [Theory]
+    [InlineData("SYN001", "synthetic-user", true)]
+    [InlineData("OTHER", "synthetic-user", false)]
+    [InlineData("SYN001", "other-user", false)]
+    public async Task DocumentedDirectDataSessionRequiresExactIdentity(string company, string user, bool expected)
+    {
+        var login = JsonSerializer.Serialize(new { Status=200, Data=new { COM_CODE=company, USER_ID=user, SESSION_ID=Session } });
+        using var handler = new Handler(Zone, login);
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.Equal(expected, await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(expected, client.HasSession);
+    }
+
+    [Theory]
+    [InlineData("{\"COM_CODE\":\"SYN001\",\"USER_ID\":\"synthetic-user\",\"SESSION_ID\":\"synthetic-session\",\"Code\":\"99\"}")]
+    [InlineData("{\"Datas\":{\"COM_CODE\":\"SYN001\",\"USER_ID\":\"synthetic-user\",\"SESSION_ID\":\"synthetic-session\"}}")]
+    [InlineData("{\"COM_CODE\":\"SYN001\",\"USER_ID\":\"synthetic-user\",\"SESSION_ID\":\"synthetic-session\",\"Code\":\"00\",\"Datas\":null}")]
+    public async Task DirectDataCannotBypassCodeOrMalformedNestedResponse(string data)
+    {
+        using var handler = new Handler(Zone, "{\"Status\":200,\"Data\":" + data + "}");
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.False(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.False(client.HasSession);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
     [Fact]
     public async Task ExplicitIoTypeIsSentAndSessionExpiresSinceLastSuccessfulOperation()
     {

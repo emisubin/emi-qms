@@ -343,10 +343,12 @@ public sealed class InteriorBusbarStoreTests
                 if (applyCommercialMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0093_interior_busbar_commercial_data.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0094_interior_busbar_ecount_queue.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0095_interior_busbar_ecount_runtime.sql")), c).ExecuteNonQueryAsync();
+                await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0096_interior_busbar_project_creator.sql")), c).ExecuteNonQueryAsync();
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
+            await f.Store.EcountEmployee(new(f.Actor, "SYN-EMP", "Synthetic setup"), f.Actor);
             return f;
         }
         public async Task<decimal> Balance(string kind, Guid item)

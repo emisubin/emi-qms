@@ -33,7 +33,7 @@ public sealed class InteriorBusbarEcountClientTests
     }
 
     private static BusbarEcountAttempt Attempt(string kind = "Order") => new(Guid.NewGuid(), Guid.NewGuid(), kind,
-        """{"projectId":"00000000-0000-0000-0000-000000000001","projectName":"Synthetic","workOrderNumber":"SYN-WO","purchaseOrderNumber":"","productCode":"SYN-P","customerCode":"SYN-C","warehouseCode":"SYN-W","commonProjectCode":"SYN-PJT","quantity":3,"unitPrice":12345.123,"supplyAmount":37035.369,"vatAmount":3703.5369,"totalAmount":40738.9059,"ioDate":"20260915","dueDate":"2026-10-01","currency":"KRW","vatRate":0.1}""");
+        """{"projectId":"00000000-0000-0000-0000-000000000001","projectName":"Synthetic","employeeCode":"SYN-EMP","workOrderNumber":"SYN-WO","purchaseOrderNumber":"","productCode":"SYN-P","customerCode":"SYN-C","warehouseCode":"SYN-W","commonProjectCode":"SYN-PJT","quantity":3,"unitPrice":12345.123,"supplyAmount":37035.369,"vatAmount":3703.5369,"totalAmount":40738.9059,"ioDate":"20260915","dueDate":"2026-10-01","currency":"KRW","vatRate":0.1}""");
 
     private sealed class Clock : TimeProvider
     {
@@ -91,6 +91,7 @@ public sealed class InteriorBusbarEcountClientTests
             var row = Assert.Single(json.RootElement.GetProperty(order ? "SaleOrderList" : "SaleList").EnumerateArray()).GetProperty("BulkDatas");
             Assert.Equal("1", row.GetProperty("UPLOAD_SER_NO").GetString());
             Assert.Equal("20260915", row.GetProperty("IO_DATE").GetString());
+            Assert.Equal("SYN-EMP", row.GetProperty("EMP_CD").GetString());
             Assert.Equal("SYN-C", row.GetProperty("CUST").GetString());
             Assert.Equal("SYN-W", row.GetProperty("WH_CD").GetString());
             Assert.Equal("SYN-PJT", row.GetProperty("PJT_CD").GetString());
@@ -101,7 +102,7 @@ public sealed class InteriorBusbarEcountClientTests
             Assert.Equal(3703.5369m, row.GetProperty("VAT_AMT").GetDecimal());
             Assert.False(row.TryGetProperty("U_MEMO1", out _));
             Assert.False(row.TryGetProperty("IO_TYPE", out _));
-            Assert.Equal(order ? 12 : 10, row.EnumerateObject().Count());
+            Assert.Equal(order ? 13 : 11, row.EnumerateObject().Count());
             if (order)
             {
                 Assert.Equal("SYN-WO", row.GetProperty("U_MEMO2").GetString());

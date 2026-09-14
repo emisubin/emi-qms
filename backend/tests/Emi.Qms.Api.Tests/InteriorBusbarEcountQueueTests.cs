@@ -6,6 +6,72 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class InteriorBusbarEcountQueueTests
 {
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task CreatorAndEmployeeSnapshotSurviveEditsAndMappingChanges()
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var (family, project) = await Setup(f);
+        var other = Guid.NewGuid();
+        await using (var c = new Npgsql.NpgsqlConnection(f.Connection))
+        {
+            await c.OpenAsync(TestContext.Current.CancellationToken);
+            await InteriorBusbarStore.Exec(c, "insert into qms_users(id,display_name) values(@id,'Different editor')", ("id",other));
+            await InteriorBusbarStore.Exec(c, "update qms_users set display_name='Renamed creator' where id=@id", ("id",f.Actor));
+        }
+        await f.Store.Project(new(project,"Edited","SYN-WO",family,60,"Destination",new(2026,10,1),"Edit"),other);
+        var job=(await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();
+        var attempt=(await f.Store.ClaimEcountJob(job))!;
+        var frozen=JsonDocument.Parse(attempt.Payload).RootElement;
+        Assert.Equal("Synthetic manager",frozen.GetProperty("registeredByName").GetString());
+        Assert.Equal("SYN-EMP",frozen.GetProperty("employeeCode").GetString());
+        await f.Store.FinishEcountAttempt(attempt.Id,new("Succeeded","SYN-ORDER"));
+        await f.Store.EcountEmployee(new(f.Actor,"SYN-NEW","Employee mapping corrected"),other);
+        Assert.True((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        Assert.Null(await f.Store.ClaimEcountJob(job));
+        Assert.Equal(1,await f.Scalar("select count(*) from busbar_ecount_attempts where payload->>'employeeCode'='SYN-EMP'"));
+    }
+
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task MissingEmployeeHoldsWithoutSendingAndCanBeConfigured()
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var (_,project)=await Setup(f);
+        await using (var c=new Npgsql.NpgsqlConnection(f.Connection))
+        {
+            await c.OpenAsync(TestContext.Current.CancellationToken);
+            await InteriorBusbarStore.Exec(c,"delete from busbar_ecount_employees");
+        }
+        var job=(await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();
+        Assert.Null(await f.Store.ClaimEcountJob(job));
+        Assert.Equal("Held",(await Job(f.Store,project,"Order")).GetProperty("state").GetString());
+        Assert.Equal(0,await f.Scalar("select count(*) from busbar_ecount_attempts"));
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.EcountEmployee(new(f.Actor,new string('X',31),"Invalid"),f.Actor));
+        await f.Store.EcountEmployee(new(f.Actor,"SYN-EMP","Verified mapping"),f.Actor);
+        await f.Store.RetryEcount(job,"Mapping supplied",f.Actor);
+        Assert.NotNull(await f.Store.ClaimEcountJob(job));
+    }
+
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task LegacyCreatorRecoveryRequiresUniqueCreationEvidence()
+    {
+        await using var f=await InteriorBusbarStoreTests.Fixture.Create();
+        var (family,good)=await Setup(f);
+        var duplicate=await f.Store.Project(new(null,"Duplicate","",family,1,"D",new(2026,10,1)),f.Actor);
+        var noAudit=await f.Store.Project(new(null,"No audit","",family,1,"D",new(2026,10,1)),f.Actor);
+        await using var c=new Npgsql.NpgsqlConnection(f.Connection);
+        await c.OpenAsync(TestContext.Current.CancellationToken);
+        await InteriorBusbarStore.Exec(c,"update busbar_projects set registered_by=null,registered_by_name=null,registered_by_source=null");
+        await InteriorBusbarStore.Exec(c,"delete from busbar_audit where entity_id=@id",("id",noAudit));
+        await InteriorBusbarStore.Exec(c,"insert into busbar_audit select @newid,entity_kind,entity_id,reason,changed_by,changed_at_utc,before_value,after_value from busbar_audit where entity_id=@id",("newid",Guid.NewGuid()),("id",duplicate));
+        var root=AppContext.BaseDirectory;
+        while(!Directory.Exists(Path.Combine(root,"database","migrations"))) root=Directory.GetParent(root)!.FullName;
+        var sql=await File.ReadAllTextAsync(Path.Combine(root,"database/migrations/0096_interior_busbar_project_creator.sql"),TestContext.Current.CancellationToken);
+        await InteriorBusbarStore.Exec(c,sql[sql.IndexOf("with proven",StringComparison.Ordinal)..]);
+        Assert.Equal(1,await f.Scalar("select count(*) from busbar_projects where registered_by is not null and registered_by_source='CreationAuditCurrentName'"));
+        var restored=await InteriorBusbarStore.Rows(c,"select registered_by from busbar_projects where id=@id",("id",good));
+        Assert.Equal(f.Actor,(Guid)restored[0]["registeredBy"]!);
+    }
+
     public static bool HasDatabase => InteriorBusbarStoreTests.HasDatabase;
     private static async Task<(Guid family, Guid project)> Setup(InteriorBusbarStoreTests.Fixture f)
     {

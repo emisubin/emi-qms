@@ -174,6 +174,7 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             if (ioType is not null && (ioType.Length != 2 || ioType.Any(char.IsControl))) return new("Unknown");
             var row = new Dictionary<string, object?>
             {
+                ["EMP_CD"] = p.GetProperty("employeeCode").GetString(),
                 ["UPLOAD_SER_NO"] = "1",
                 ["IO_DATE"] = ioDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
                 ["CUST"] = p.GetProperty("customerCode").GetString(), ["WH_CD"] = p.GetProperty("warehouseCode").GetString(),

@@ -69,6 +69,7 @@ public static class InteriorBusbarEndpointExtensions
                 id = await s.Master(captured, r, Actor(u))
             }));
         }
+        api.MapPut("/ecount-employees", async (BusbarEcountEmployeeRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { id = await s.EcountEmployee(r, Actor(u)) }));
         api.MapPut("/settings", async (BusbarSettingsRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
         {
             id = await s.Settings(r, Actor(u))

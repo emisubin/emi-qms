@@ -17,6 +17,7 @@ export type BusbarProject = {
   id: string;
   name: string;
   customerJobNumber: string;
+  registeredByName?: string;
   commonProjectCode: string;
   productFamilyId: string;
   requestedQuantity: number;
@@ -78,6 +79,7 @@ export type BusbarWorkspace = {
   };
   publicationOutstandingCount?: number;
   canWrite: boolean;
+  ecountEmployees?: Array<{ userId: string; displayName: string; employeeCode?: string }>;
   settings: { commonProjectCode: string; ecountCustomerCode?: string; ecountWarehouseCode?: string };
   productFamilies: BusbarMaster[];
   materials: BusbarMaster[];
@@ -121,6 +123,8 @@ export type BusbarImport = {
 };
 export type BusbarEcountStatus = { transmissionEnabled: boolean; paused?: boolean; environment?: string; connectionMessage?: string | null; jobs: Array<{ id: string; kind: "Order" | "Sale"; state: "Pending" | "Held" | "InFlight" | "Succeeded" | "Failed" | "Unknown"; needsReview: boolean; message: string | null; slipNumber: string | null; attemptCount: number }> };
 export type BusbarCommercialPreview = {
+  registeredByName?: string;
+  employeeCode?: string;
   unitPrice: number | null; quantity: number; supplyAmount: number | null;
   vatAmount: number | null; totalAmount: number | null; missingFields: string[];
   customerCode: string; warehouseCode: string; productCode: string | null;

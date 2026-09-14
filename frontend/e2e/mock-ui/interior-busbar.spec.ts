@@ -1183,3 +1183,23 @@ test("ecount connection resumes separately and manual verification records check
   expect(writes.find(w=>w.path.endsWith("/reconcile"))?.body).toEqual({outcome:"Recorded",slipNumber:"SYN-ORDER-001",reason:"합성 이카운트 전표 조회 확인"});
   expect(writes.filter(w=>w.path.endsWith("/retry"))).toHaveLength(0);
 });
+
+
+test("employee mapping editor uses PMS identity and fits both widths", async ({page}) => {
+  const data=fixture();
+  data.ecountEmployees=[{userId:workerId,displayName:"합성 등록자",employeeCode:"SYN-EMP"}];
+  const writes=await mock(page,data);
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab",{name:"기준정보",exact:true}).click();
+  await expect(page.getByRole("cell",{name:"합성 등록자",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"담당자 연결",exact:true}).click();
+  await page.getByLabel("이카운트 담당자 코드",{exact:true}).fill("SYN-NEW");
+  await page.getByLabel("정정 사유",{exact:true}).fill("합성 연결 변경");
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.screenshot({path:`/private/tmp/emi-busbar-employee-${width}.png`,fullPage:true});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  }
+  await page.getByRole("button",{name:"저장",exact:true}).click();
+  expect(writes.some(w=>JSON.stringify(w).includes("SYN-NEW")&&JSON.stringify(w).includes(workerId))).toBe(true);
+});

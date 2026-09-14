@@ -1125,6 +1125,17 @@ export function InteriorBusbarPage({
               )}
             </DsToolbar>
             <p>{data.settings.commonProjectCode || "설정 전"}</p>
+            <h4>이카운트 담당자 연결</h4>
+            <p>프로젝트 최초 등록자의 담당자 코드를 주문서·판매 전표에 사용합니다.</p>
+            <Table headings={["PMS 사용자", "이카운트 담당자 코드", "설정"]}
+              rows={(data.ecountEmployees ?? []).map((employee) => [
+                employee.displayName, employee.employeeCode || "연결 필요",
+                writeButton("담당자 연결", () => open({
+                  title: `${employee.displayName} 담당자 연결`, path: "/ecount-employees", method: "PUT",
+                  fields: [{ key: "employeeCode", label: "이카운트 담당자 코드", value: employee.employeeCode }, reasonField],
+                  makeBody: (v) => ({ ...v, userId: employee.userId }),
+                })),
+              ])} />
           </DsSurface>
           {(
             [
@@ -1318,6 +1329,7 @@ function CommercialPreview({ userId, projectId, revision }: { userId: string; pr
   if (!state.data) return <p role="status">{state.error || "금액 확인 중…"}</p>;
   const p = state.data;
   return <div><h4>주문·판매 금액 확인</h4>
+    <p>담당자: {p.registeredByName || "최초 등록자 확인 필요"} · {p.employeeCode || "담당자 코드 연결 필요"}</p>
     <Table headings={["제품군 단가", "공급가액", "부가세 (10%)", "합계"]}
       rows={[[p.unitPrice, p.supplyAmount, p.vatAmount, p.totalAmount].map((v) => v == null ? "미설정" : `${n(v)}원`)]} />
     <p className="busbar-note">원화·부가세 별도{!p.transmissionEnabled && " · 실제 전송 연결 전입니다."}{p.missingFields.length > 0 ? ` 설정 필요: ${p.missingFields.join(", ")}` : " 전송에 필요한 코드와 단가가 입력되어 있습니다."}</p>

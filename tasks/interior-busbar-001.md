@@ -392,3 +392,12 @@ FE 구현·관련 검증 완료, 기존 5197 서버에 반영. 공용 팝업 안
 독립 runtime 검토에서 launcher의 AdminDeletionPurge 명시 비활성 누락(P1)을 발견했다. 기본값에 의존하지 않도록 AdminDeletionPurge__Enabled=false를 추가하고 해당 backend만 재기동했다. 인증된 runtime-mode 응답에서 adminDeletionPurgeWorkerEnabled=false·backgroundWorkersEnabled=false를 확인했다. backup을 복원하지 않고 COPY 행 수만 현재 DB와 대조해 사용자12→12, 부서10→10, 휴일0→0, 부스바 프로젝트1→1, 제품65→65로 삭제 영향 없음을 확인했다. 공통 코드'a'는 비어 있지 않아 자동 차단 대상이 아니므로, 실제 코드로 먼저 변경한 뒤 신규 프로젝트를 등록해야 한다고 안내한다. 신규 프로젝트는 당시 공통 코드를 보존하므로 나중에 기준정보만 바꿔도 기존 프로젝트 코드가 자동 변경되지 않는다.
 
 독립 reviewer ecount_connection_review가 보정된 실행기·loopback listener·비밀파일 권한과 실행자가 제공한 runtime/보존 증거를 재검토하여 Change023 로컬 연결 준비 GO, 열린 차단 finding 없음으로 판정했다. 실제 ERP 인증·전표 검증은 아직 대기다.
+
+
+## Change 024 — 최초 사용자 등록 확인과 실제 응답 형식 보정
+
+사용자 '생성 완료' 후 신규 'pms 테스트'(수량1) 등록과 Order Pending1건을 확인했다. 시도0·전표번호 없음. 인증 worker는2026-09-14 08:47 UTC에 중지되었다. 실제 읽기 전용 Zone 응답은 Status 숫자200·Error 생략인데 adapter가 문자열200·Error:null만 허용해 로그인 전에 실패한 원인을 확인했다. 비밀값·원시 응답은 기록하지 않는다.
+
+Envelope은 숫자200 또는 문자열200과 Error 생략/null을 허용하도록 최소 보정했다. 그 외 상태·타입·nonnull Error는 거부하며 회사·사용자·세션·호스트 검증과 저장 성공 증거·Unknown/재시도 경계는 유지한다. 합성 회귀6건 추가 후 adapter69/69(0skip), Release build 경고0/오류0, diff check 통과. 최초 테스트의 실행기 소켓 sandbox 제한은 승인된 로컬 실행으로 해소했다. 작성과 분리된 기존 reviewer ecount_connection_review가 이번 diff와 결과를 재검토해 GO·열린 finding 없음으로 확정했다.
+
+수정을 해당 로컬5097에 적용했으며 영속 전송 중지는 유지한다. 실제 인증 성공·전표 생성은 여전히 미확인이다. 사용자 신규 건의 제품군 품목코드/단가가 미설정이고 프로젝트 공통코드는'a'여서 실제 사용할 세 값을 요청했다. 사용자가 기준정보의 공통코드만 변경해도 이미 등록한 프로젝트는 자동 갱신되지 않으므로 승인된 실제 코드 확인 후 해당 등록 건의 보정 경로를 확인한다. 승인되지 않은 추측 코드·가격으로 전송하거나 프로젝트를 다시 만들어 중복 대기를 만들지 않는다. 원격/merge/운영 배포 없음.

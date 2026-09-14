@@ -147,7 +147,11 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
 
     private static JsonElement Envelope(JsonElement root)
     {
-        if (root.GetProperty("Status").GetString() != "200" || root.GetProperty("Error").ValueKind != JsonValueKind.Null)
+        var status = root.GetProperty("Status");
+        var succeeded = status.ValueKind == JsonValueKind.Number
+            ? status.TryGetInt32(out var code) && code == 200
+            : status.ValueKind == JsonValueKind.String && status.GetString() == "200";
+        if (!succeeded || (root.TryGetProperty("Error", out var error) && error.ValueKind != JsonValueKind.Null))
             throw new InvalidOperationException("이카운트 응답 확인 필요");
         return root.GetProperty("Data");
     }

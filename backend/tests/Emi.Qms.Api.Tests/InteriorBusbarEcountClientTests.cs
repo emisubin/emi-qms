@@ -111,6 +111,35 @@ public sealed class InteriorBusbarEcountClientTests
         }
     }
 
+    [Theory]
+    [InlineData("200", false)]
+    [InlineData("200", true)]
+    [InlineData("\"200\"", false)]
+    public async Task LiveNumericEnvelopeAndOmittedErrorAuthenticateAndSave(string status, bool includeError)
+    {
+        string Wire(string fixture) => fixture.Replace("\"Status\":\"200\"", "\"Status\":" + status)
+            .Replace("\"Error\":null,", includeError ? "\"Error\":null," : "");
+        using var handler = new Handler(Wire(Zone), Wire(Login), Wire(Success));
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("Succeeded", (await client.SendAsync(Attempt(), TestContext.Current.CancellationToken)).State);
+    }
+
+    [Theory]
+    [InlineData("500", "null")]
+    [InlineData("true", "null")]
+    [InlineData("200", "{}")]
+    public async Task InvalidLiveEnvelopeCannotAuthenticate(string status, string error)
+    {
+        var zone = Zone.Replace("\"Status\":\"200\"", "\"Status\":" + status).Replace("\"Error\":null", "\"Error\":" + error);
+        using var handler = new Handler(zone);
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.False(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Single(handler.Requests);
+    }
+
     [Fact]
     public async Task ExplicitIoTypeIsSentAndSessionExpiresSinceLastSuccessfulOperation()
     {

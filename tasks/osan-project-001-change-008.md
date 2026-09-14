@@ -407,3 +407,42 @@ UI는 기존 기기 설정을 재사용하고 오산 첫 실행 안내를 연결
 PR141 최초 CI34733911221에서 frontend439건은 통과했으나 mock browser는 새 related-panels 응답과 W/O 열 기대값이 빠져 실패했다. 제품 코드는 유지하고 해당 fixture·열 개수/공용 셀 대응만 보정했으며 관련 browser3건 PASS. 후속 PR CI에서 전체 검증을 확인한다.
 
 PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은 통과했으나 오산 상세 진입에서 신규 related-panels GET이 capability 허용 목록에 빠진 결함을 발견했다. 정확한 프로젝트 GUID 아래 해당 GET만 허용하도록 보정했다. 전용 합성 3DB full-stack1건에서 상세 진입, 동일 W/O 패널 조회200, 청주·POST·추가 경로403을 검증했고 임시 DB/역할/process/container/network 정리를 확인했다. 독립 reviewer 추가 P0–P2 없음. 근거 /private/tmp/osan-mobile-real-gate-fix.log. 최신 후보의 required CI 성공 후 병합·배포한다.
+
+
+### 모바일 탐색·QR·W/O·스텝퍼 공개배포 완료 (2026-09-13)
+
+[PR141](https://github.com/emisubin/emi-qms/pull/141)의 최종 후보 c193610314baed87c34ff6916aeb354d140612b6에서 [required CI34735541792](https://github.com/emisubin/emi-qms/actions/runs/34735541792)가 모두 통과했다. Backend644·Frontend439·mock16·일반full-stack64·사업부1·오산1 PASS. 기존 승인·사용자 화면 검수와 독립 검토 뒤 정상 main d76790e37d8f17c2e7359af38e889f35e5c585bf로 병합했다. 후보/main tree 동일, main CI34736861114 성공. 보호규칙 변경·관리자 예외 없음.
+
+[공식 Azure 배포34736903149](https://github.com/emisubin/emi-qms/actions/runs/34736903149) 성공. 승인된 exact main의 Backend52→Frontend44가 모두 latest=ready이고 Single 모드를 유지한다. 기존 migration 확인 단계 성공, 신규 SQL 없음. bootstrap·membership backfill·inspection·reset·임시 저장 제한은 실행하지 않았다. 배포 전후 두 앱의 환경값·비밀 참조가 동일하여 DB·Gmail·PWA/provider 설정을 보존했다. 공개 health200·익명api/me401과 기존 CSP 유지, 앱 내 QR 스캔용 camera=(self)를 확인했다. 실제 데이터 수정·시험 메일/푸시 발송은 하지 않았다.
+
+로그인된 공개 Chrome에서 재인증 후 홈·프로젝트·진행 현황을 정상 조회했다. PC와390px 모바일에서 막대+단계 원형, 제목 part/D-day, W/O 표시·프로젝트 표 열, 작은 펼침 메뉴를 직접 확인했다. 동일 W/O의 다른 프로젝트 패널이 선택 목록에 나타나고 선택한 프로젝트/패널로 정상 이동하는 것을 확인했다. 확인 후 브라우저 viewport를 원래 크기로 복원했다. 배포 전후 화면 프로젝트 집계121/시작전62/진행중59/완료0 동일. 이는 확인 화면 기준이며 전체 운영 데이터의 개별 전수 대조를 수행했다는 뜻은 아니다.
+
+구현·자동 검증·사용자 화면 검수·원격 main 병합·공개배포 완료. 실제 아이폰 설치 PWA의 후면 카메라 권한·물리 QR 스캔은 실기기 후속 확인으로 남는다. 공정별 이상/특이사항 알림은 제외했다. 검증 근거는 /private/tmp/osan-mobile-final-backend.log, osan-mobile-final-frontend.log, osan-mobile-final-fullstack.log, osan-mobile-release.log와 앱 before/after 설정 비교에 보존한다. 마지막 Task·roadmap 기록만 별도 로컬 커밋하고 원본 checkout과 다른 작업 WIP는 보존한다.
+
+### 단계 안내 사진·납기 HOLD·모바일 진입 및 QR 보정 (2026-09-14, 로컬 검수 대기)
+
+사용자가 6항목 구현을 승인했다. 단계 공통 예시7장(입고 Rack/Box2장, 배치·배선·8계통·동작·출하 각1장, 포장 미제공), 완료 단계 연회색, 모바일 제목 전체 노출, 프로젝트 최초 진입 시 가장 앞선 미완료 단계/패널 선택(동률 기존 패널순서, QR는 지정 패널, 전부 완료는 포장), QR 카메라 영상은 열리나 해독 안 되는 문제를 보정한다. 납기 HOLD는 기존 프로젝트 수정 권한·흐름을 그대로 사용한다. 납기와 기록 보존, 홈 목록/KPI 제외, 다른 목록 HOLD 표시, 작업 계속 허용, 처리 이력 보존. 반려/초기화도 미완료, 명시 단계 링크 우선. 공개배포 승인 없음. 기준41a7a69 및 배포main d76790e. 기존WIP/runtime 보존, 관련 검증과 독립 검토 후 로컬 검수로 제공한다. 물리 아이폰 QR 확인은 별도 실제 기기 근거가 필요하다.
+
+
+로컬 구현·검증: 안내 사진 7장 원본을 별도 공통 자산으로 연결하고 PC·모바일 확대/닫기를 제공했다. 포장 사진은 미제공 상태로 유지한다. HOLD는 기존 프로젝트 수정 API·권한·수정 토큰을 사용하며 변경 사유와 처리자/시각/전후 값은 같은 transaction 이력에 보존한다. 사용자 요청의 권한 기준은 기존 프로젝트 수정 권한과 동일이며 별도 HOLD 관리자 제한을 추가하지 않았다(현행 프로젝트 수정 자체의 관리자 guard는 보존). additive migration0099는 boolean 기본 false만 추가한다. 최초 모바일 진입은 가장 앞선 미완료 단계, QR는 지정 패널, 명시 단계 우선이며 삭제/없는 QR 패널은 다른 대상 대신 명확한 오류를 표시한다. QR 중앙 원본 해상도 해독+전체 축소 영상 fallback을 추가했고 카메라 영상 외부 전송은 없다.
+
+자동 검증: 관련 frontend 61건 PASS, HOLD 전용 합성 PostgreSQL 통합 테스트 PASS(사유·저장/해제·홈 집계 제외·납기 보존·경쟁 토큰·작업 계속·이력 확인), 수정 frontend lint/typecheck 및 frontend/backend build PASS. 기존 bundle 크기 경고는 남는다. 독립 reviewer의 QR 패널 없음 오류 P2를 수정하고 실제 반례 테스트25건 통과 후 종결, 미해결 P0–P2 없음. 전체 제품 회귀/required CI는 이번 로컬 구현 단계에서 실행하지 않았으며 사용자 검수 후 최종 병합 후보에서 수행한다.
+
+실제 화면: 로컬 API5113/frontend5212에 작업 전용 합성3DB migration을 적용하고 기존 데이터는 reset/seed 없이 보존했다. 외부 provider 비활성화 유지. PC1440·mobile390에서 안내 사진 컬러 원본 확대, 완료 단계 연회색, 입고 완료 후 배치검사 자동 진입, 긴 장비명/part 전체 노출과 페이지 가로 넘침 없음(390/390)을 확인했다. 기존 합성 검수 프로젝트에서 HOLD 저장 후 홈4→3/카드 제외, 해제와 원납기 보존을 확인했다. 이 프로젝트의 입고검사는 검수 코멘트로 완료하여 다음 단계 진입을 검증했고 긴 이름 검증 뒤 원래 이름을 복원했다. 운영 데이터는 변경하지 않았다.
+
+검수 주소 http://127.0.0.1:5212/?businessUnit=OSAN (같은 컴퓨터 전용). 실제 아이폰 설치 PWA/인쇄 QR 인식은 미확인이다. 해독 취약점은 독립 인코더 합성 영상으로 재현·보정했으나 실제 사용자 장애의 유일 원인으로 확정하지 않는다. 로컬 구현·관련 자동 검증·독립 검토 완료, 사용자 검수·원격 반영·공개배포 미실행. 근거 /private/tmp/osan-followup-tests-final.log, hold-test.log, hold-ui-test.log, osan-progress-final.log, osan-followup-lint.log, osan-followup-type.log, osan-followup-frontend-build.log, osan-followup-backend-build.log. 새 공개배포 승인 없음.
+
+
+2026-09-14 완료 사진 배경 재보정: 사용자 확인 요청으로 공개 모바일 완료 단계는 설명을 숨기고 사진 영역은 #FFC0C0임을 실제 화면에서 확인했다. 앞선 변경은 바깥 단계 카드만 회색으로 바꿔 사진 영역 배경을 누락했고 모바일 완료 설명을 노출하는 불필요한 변경도 있었다. 사용자 수정 요청에 따라 모바일 완료 단계 설명/안내 사진 숨김을 복원하고 실제 .osan-progress-photo-region 배경을 #F1F2F3으로 수정했다. PC 설명 접기와 미완료 단계 안내 사진은 유지. 관련 진행 상세25건 PASS. 작업 전용 합성 검수 프로젝트 배치검사에 파란 체크무늬 검증 PNG를 저장하여 390px 모바일에서 사진 로딩 완료 후 회색 사진/버튼 영역과 설명 숨김을 직접 확인했다. 운영 데이터 변경 없음. 변경 범위는 이 두 표시 보정이며 로컬 커밋/서버 반영, 원격·배포 미실행.
+
+
+2026-09-14 기존 디자인 복원: 사용자 확인 후 모바일 진행 목록의 카드 높이/제목/단계 배치 조정만 예외로 승인되었다. 그 외 완료 단계 바깥 카드, PC 단계 목록 및 QR 단계 색상 override를 제거하고 앱 스캔 후 기존 QR 전용 조회 경로를 복원했다. 인식 보정, HOLD, 안내 사진, 모바일 일반 진행현황 미완료 단계 자동 진입은 유지한다. 공개 d76790e 대비 osan-progress.css 차이는 사진 영역 #FFC0C0 → #F1F2F3 한 줄뿐이며 기존 크기/간격/배치가 보존된다. 로컬 합성 완료 사진 화면에서 바깥 카드·완료 기록 흰색, 사진 영역 회색, 모바일 설명 숨김을 직접 확인했다. 진행 상세·QR 스캐너 관련33건 PASS(/private/tmp/osan-design-restore.log). 원격/공개배포 없음.
+
+2026-09-14 완료 문구 간격: 사용자 요청대로 모바일 작업 완료 문구와 사진 영역 사이 하단 여백을17px→29px로12px 늘렸다. 다른 크기/배치 및 PC 팝업의 기존16px 여백은 유지한다. 실제390px 화면에서29px 간격 확인, diff check PASS. 작은 스타일 보정으로 제품 테스트 반복 없이 시각 확인했다. 로컬 반영, 공개배포 없음.
+
+2026-09-14 단계 카드 하단 여백: 사용자 요청으로 모바일 단계 카드의 기존 최소높이657px을 제거하고 마지막 내용 아래 padding24px을 적용했다. 완료 안내문과 미완료 완료버튼 모두 내용 끝을 따라 테두리가 내려간다. 실제390px에서 완료/미완료 두 상태의 마지막내용→테두리25px(안쪽24+테두리1), min-height0과 서로 다른 자동 카드높이를 확인했다. 기존 다른 배치 보존, diff check PASS. 작은 스타일 변경으로 별도 제품 테스트 반복 없음. 로컬 반영, 원격·배포 없음.
+
+## 통합 공개배포 승인 및 후보 (2026-09-14)
+- 사용자 두 변경 함께 원격 main 병합·공개배포 명시 승인. 사진 Change 002와 통합, 기존 공개 main d76790e 기준.
+- HOLD 0099 유지, 미배포 사진 migration 번호를 0100(40MiB), 0101(HEIC)로 정리. 충돌 2파일 해소, 자동 병합 endpoint 계약 확인.
+- 통합 FE44개·typecheck 및 격리 DB/API26개 통과(실패/skip0). 독립 코드 검토 GO. Linux HEIC·실제 ClamAV 한도 및 required CI 확인 후 배포.

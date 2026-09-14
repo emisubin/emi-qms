@@ -4517,7 +4517,7 @@ function OsanProjectListPage({
               { value: project.workOrderNumber || '—', align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
@@ -4527,7 +4527,7 @@ function OsanProjectListPage({
               { label: 'W/O', value: project.workOrderNumber || '—' },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span> },
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span> },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
@@ -4859,6 +4859,7 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
           <section className="osan-detail-deadline" aria-label="납기일">
             <h3>납기일</h3>
             <time dateTime={project.deliveryDate}>{project.deliveryDate}</time>
+            {project.deliveryHold && <strong>HOLD · 납기 보류</strong>}
           </section>
         </div>
       </section>

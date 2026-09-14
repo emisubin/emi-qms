@@ -3662,6 +3662,8 @@ public sealed partial class BusinessUnitIsolationTests
                 StringComparison.Ordinal);
         }
 
+        await AssertMobilePhotoHttpAsync(client);
+
         await AssertOsanManagementHttpAsync(
             databases,
             client,
@@ -3701,6 +3703,12 @@ public sealed partial class BusinessUnitIsolationTests
                    BusinessUnitCodes.Osan))
         {
             var response = await client.SendAsync(getRevokedProgress, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using (var revokedPreview = Request(HttpMethod.Post,
+                   $"/api/osan/projects/{osanProjectId:D}/progress/photo-preview", "dev-sales", BusinessUnitCodes.Osan))
+        {
+            using var response = await client.SendAsync(revokedPreview, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
         using (var getRevokedPhoto = Request(

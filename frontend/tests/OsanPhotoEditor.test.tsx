@@ -148,9 +148,9 @@ describe('오산 사진 수정 승인', () => {
     vi.mocked(fetchJson).mockResolvedValue(state([{ ...editRequest(), approvedAt: '2026-09-10T01:00:00Z' }]));
     show();
     fireEvent.click(await screen.findByRole('button', { name: '사진 수정' }));
-    fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [new File(['heic'], 'camera.heic', { type: 'image/heic' })] } });
+    fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [new File(['heic'], 'camera.gif', { type: 'image/gif' })] } });
     expect(screen.getByRole('button', { name: '사진 변경 저장' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('HEIC는 지원하지 않습니다.');
+    expect(screen.getByRole('alert')).toHaveTextContent('JPEG·PNG·HEIC 사진을 선택해 주세요.');
     expect(fetchJson).toHaveBeenCalledTimes(1);
     fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [new File(['jpeg'], 'camera.jpg', { type: 'image/jpeg' })] } });
     vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(422, '손상된 사진입니다.'));
@@ -180,7 +180,7 @@ describe('오산 단계 저장 이력', () => {
     fireEvent.click(original.querySelector('summary')!);
     expect(screen.getByText('최초 검사 기록')).toBeVisible();
     expect(await screen.findByRole('img', { name: '사진 1' })).toBeVisible();
-    expect(getOsanProgressPhoto).toHaveBeenCalledWith('project-a', 'previous-photo', 'other-worker', expect.any(AbortSignal));
+    expect(getOsanProgressPhoto).toHaveBeenCalledWith('project-a', 'previous-photo', 'other-worker', expect.any(AbortSignal), false);
     expect(fetchJson).toHaveBeenCalledWith('/api/osan/projects/project-a/progress/steps/step-a/history', 'other-worker', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 });

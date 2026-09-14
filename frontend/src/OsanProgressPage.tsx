@@ -1,3 +1,5 @@
+import { nextOsanWork } from './osanNextWork';
+import { OsanPhotoPreview } from './OsanPhotoPreview';
 import { dismissOnBackdrop } from './dialogBackdrop';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
@@ -19,12 +21,9 @@ export function OsanProgressPage(props: OsanProgressPageProps) {
   return <OsanProgressWorkspace key={`${props.projectId}:${props.initialTargetId ?? ''}:${props.initialStage ?? ''}:${props.developmentUserKey ?? ''}`} {...props} />;
 }
 function message(error: unknown) { return error instanceof Error ? error.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.'; }
-function Preview({ file }: { file: File }) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => { const objectUrl = URL.createObjectURL(file); setUrl(objectUrl); return () => URL.revokeObjectURL(objectUrl); }, [file]);
-  return url ? <img src={url} alt={`${file.name} 미리보기`} /> : null;
-}
 function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, developmentUserKey, mutationAllowed, onBack, onOpenTarget }: OsanProgressPageProps) {
+  const initialized = useRef(false);
+  const entryIsMobile = useRef(!(window.matchMedia?.('(min-width: 861px)').matches ?? false));
   const [project, setProject] = useState<OsanProgressDetail>();
   const [relatedPanels, setRelatedPanels] = useState<OsanRelatedPanel[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -63,8 +62,20 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       getOsanRelatedPanels(projectId, developmentUserKey, controller.signal)
     ]).then(([result, related]) => {
       if (!current) return;
+      if (initialTargetId && !result.targets.some(target => target.targetId === initialTargetId)) {
+        setProject(undefined); setSelectedIds([]); setLoadError('해당 패널을 찾을 수 없습니다. QR이 유효한지 확인해 주세요.'); setLoadStatus(undefined); setRefreshing(false); return;
+      }
       setProject(result); setRelatedPanels(related.panels.filter(panel => panel.projectId !== result.projectId)); setLoadError(''); setLoadStatus(undefined); setRefreshing(false);
-      setSelectedIds(ids => ids.length ? ids.filter(id => result.targets.some(target => target.targetId === id)) : result.targets.slice(0, 1).map(target => target.targetId));
+      if (!initialized.current) {
+        initialized.current = true;
+        const entry = nextOsanWork(result.targets, initialTargetId);
+        const explicitStage = osanStageNames.includes(initialStage as typeof osanStageNames[number]) || /^[1-7]$/.test(initialStage ?? '');
+        if (entryIsMobile.current && !explicitStage && entry) {
+          setStage(entry.stage); setSelectedIds([entry.targetId]);
+        } else {
+          setSelectedIds(initialTargetId ? result.targets.filter(t => t.targetId === initialTargetId).map(t => t.targetId) : result.targets.slice(0, 1).map(t => t.targetId));
+        }
+      } else setSelectedIds(ids => ids.filter(id => result.targets.some(target => target.targetId === id)));
     }).catch(error => {
       if (!current) return;
       setRefreshing(false); setLoadError(message(error));
@@ -76,7 +87,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       }
     });
     return () => { current = false; controller.abort(); };
-  }, [projectId, developmentUserKey, reload]);
+  }, [projectId, developmentUserKey, reload, initialTargetId, initialStage]);
   useEffect(() => { if (modalOpen) modal.current?.showModal(); else modal.current?.close(); }, [modalOpen]);
   useEffect(() => {
     const media = window.matchMedia?.('(min-width: 861px)');
@@ -218,14 +229,14 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     <dialog ref={modal} className="osan-progress-completion-modal" aria-labelledby="osan-completion-title" onClick={event => dismissOnBackdrop(event, () => { if (!busy) setModalOpen(false); })} onCancel={event => { if (busy) event.preventDefault(); else setModalOpen(false); }}>
       <h2 id="osan-completion-title">해당 진행 단계를 완료하셨나요?</h2>
       {files.length === 0 && <div className="osan-progress-photo-placeholder" aria-label="완료 사진을 선택할 영역"><span aria-hidden="true">+</span></div>}
-      <div className="osan-progress-previews">{files.map((file, index) => <figure key={`${file.name}:${file.lastModified}:${index}`}><Preview file={file} /><figcaption>{file.name}</figcaption><button type="button" disabled={busy} onClick={() => { pendingCompletion.current = null; setFiles(current => current.filter((_, position) => position !== index)); setError(''); setFileError(''); }}>사진 제거</button></figure>)}</div>
+      <div className="osan-progress-previews">{files.map((file, index) => <figure key={`${file.name}:${file.lastModified}:${index}`}><OsanPhotoPreview file={file} projectId={projectId} userKey={developmentUserKey} /><figcaption>{file.name}</figcaption><button type="button" disabled={busy} onClick={() => { pendingCompletion.current = null; setFiles(current => current.filter((_, position) => position !== index)); setError(''); setFileError(''); }}>사진 제거</button></figure>)}</div>
       <div className="osan-progress-photo-inputs"><button type="button" disabled={busy} onClick={() => cameraInput.current?.click()}>촬영</button><button type="button" disabled={busy} onClick={() => albumInput.current?.click()}>업로드</button></div>
       <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" aria-label="카메라 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files, true); event.target.value = ''; }} />
-      <input ref={albumInput} hidden type="file" accept="image/jpeg,image/png" multiple aria-label="기존 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files); event.target.value = ''; }} />
+      <input ref={albumInput} hidden type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="기존 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files); event.target.value = ''; }} />
       <p className="osan-progress-photo-instruction">{project.canManageStages ? '관리자는 사진 없이 코멘트만으로 저장할 수 있습니다.' : '사진을 1장 이상 첨부해 주세요.'} {selectionLabel} · {osanStageNames[stage - 1]}</p>
       <label className="osan-comment-input">코멘트 <small>{!files.length && project.canManageStages ? '사진 미첨부 시 필수' : '선택'}</small><textarea value={comment} maxLength={1000} disabled={busy} onChange={e => {setComment(e.target.value);pendingCompletion.current=null;}}/><span>{comment.length} / 1000자</span></label>
       {mode === 'batch' && <p>같은 사진과 코멘트가 선택한 {selected.length}개 대상에 모두 적용됩니다.</p>}
-      <p className="osan-progress-photo-limits">JPEG·PNG 최대 5장, 장당 5MiB, 전체 15MiB. 원본을 저장합니다.</p>
+      <p className="osan-progress-photo-limits">JPEG·PNG·HEIC 최대 5장, 전체 40MiB. 원본을 저장합니다.</p>
       {(error || fileError) && <p role="alert">{error || fileError}</p>}
       {fileError && <button type="button" disabled={busy} onClick={() => { setFiles([]); setFileError(''); setError(''); pendingCompletion.current = null; }}>선택한 사진 비우기</button>}
       <button className="osan-progress-submit" type="button" disabled={busy || refreshing || !mutationAllowed || !!fileError} aria-label="업로드하고 단계 완료" onClick={() => void complete()}>{busy ? '저장 중…' : '업로드'}</button>

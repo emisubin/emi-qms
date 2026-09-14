@@ -91,12 +91,12 @@ builder.Services.Configure<UploadSecurityOptions>(
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit =
-        Math.Max(1024, uploadSecurityConfiguration.MaximumFileBytes + (2 * 1024 * 1024));
+        Math.Max(OsanProgressPhotoValidator.MaximumMultipartBytes, uploadSecurityConfiguration.MaximumFileBytes + (2 * 1024 * 1024));
 });
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.Limits.MaxRequestBodySize =
-        Math.Max(1024, uploadSecurityConfiguration.MaximumFileBytes + (2 * 1024 * 1024));
+        Math.Max(OsanProgressPhotoValidator.MaximumMultipartBytes, uploadSecurityConfiguration.MaximumFileBytes + (2 * 1024 * 1024));
 });
 builder.Services.AddSingleton<IUploadMalwareScanner, ClamAvUploadMalwareScanner>();
 

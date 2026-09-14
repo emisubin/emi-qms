@@ -34,7 +34,7 @@ export function OsanQrPage({ projectId, targetId, userKey }: { projectId: string
     <header className="osan-qr-appbar"><img src={logo} alt="EMI" /><span>오산 · 프로젝트 조회</span></header>
     {!data ? <section className="osan-qr-content">{error ? <><p role="alert">{error}</p><button onClick={() => setRevision(v => v + 1)}>다시 시도</button></> : <p role="status">프로젝트를 불러오는 중…</p>}</section> : <article className="osan-qr-content">
       <p className="osan-qr-eyebrow">PROJECT OVERVIEW</p>
-      <div className="osan-qr-title"><div><h1>{data.project.title}</h1><p>{data.project.projectCode}</p></div><strong>{formatOsanDday(data.project.deliveryDate, today)}</strong></div>
+      <div className="osan-qr-title"><div><h1>{data.project.title}</h1><p>{data.project.projectCode}</p></div><strong>{data.project.deliveryHold ? 'HOLD' : formatOsanDday(data.project.deliveryDate, today)}</strong></div>
       <span className="osan-qr-status">{data.project.status === 'Completed' ? '완료' : data.project.status === 'InProgress' ? '진행 중' : '시작 전'}</span>
       <dl className="osan-qr-facts"><div><dt>고객사</dt><dd>{data.project.customerName}</dd></div><div><dt>part 분류</dt><dd>{data.project.productName}</dd></div><div><dt>수량</dt><dd>{data.project.quantity}대</dd></div><div><dt>납기일</dt><dd>{data.project.deliveryDate}</dd></div></dl>
       <details className="osan-qr-documents"><summary>PO · W/O 정보 보기</summary><p>PO No. {data.project.poNumber || '없음'}<br />W/O No. {data.project.workOrderNumber || '없음'}</p></details>

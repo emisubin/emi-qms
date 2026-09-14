@@ -55,7 +55,8 @@ public sealed record OsanDashboardProjectResponse(
     int CompletedStepCount,
     int TotalStepCount,
     int ProgressPercent,
-    IReadOnlyList<OsanDashboardStageResponse> Stages);
+    IReadOnlyList<OsanDashboardStageResponse> Stages,
+    bool DeliveryHold = false);
 
 public sealed record OsanDashboardStageResponse(
     int SequenceNumber,

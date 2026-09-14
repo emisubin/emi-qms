@@ -6,6 +6,7 @@ export interface OsanDashboardStage {
   completedTargetCount: number; totalTargetCount: number;
 }
 export interface OsanDashboardProject {
+  deliveryHold?: boolean;
   projectId: string; title: string; projectCode: string; customerName: string;
   productName: string; poNumber: string | null; workOrderNumber: string | null;
   quantity: number; deliveryDate: string; status: string;

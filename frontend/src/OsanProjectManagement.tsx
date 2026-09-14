@@ -14,6 +14,7 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
   const [mode, setMode] = useState<'edit'|'delete'|null>(null);
   const [draft, setDraft] = useState<Record<string,string>>({});
   const [reason, setReason] = useState('');
+  const [deliveryHold, setDeliveryHold] = useState(false);
   const [busy,setBusy]=useState(false); const [error,setError]=useState('');
   const path=`/api/osan/projects/${encodeURIComponent(project.projectId)}`;
   useEffect(()=>{const c=new AbortController();setAccess(undefined);
@@ -21,7 +22,7 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
       .catch((e:unknown)=>{if(!c.signal.aborted)setError(e instanceof Error?e.message:'관리 권한을 확인할 수 없습니다.');});
     return()=>c.abort();},[path,userKey,project]);
   const started=project.targets.some(t=>t.status!=='NotStarted'||t.steps.some(s=>s.status!=='NotStarted'));
-  const open=(next:'edit'|'delete')=>{setDraft(Object.fromEntries(fields.map(([key])=>[key,String(project[key]??'')])));setMode(next);setError('');setReason('');};
+  const open=(next:'edit'|'delete')=>{setDraft(Object.fromEntries(fields.map(([key])=>[key,String(project[key]??'')])));setMode(next);setDeliveryHold(project.deliveryHold ?? false);setError('');setReason('');};
   async function save(){
     if(!access||busy||!mutationAllowed)return;
     if(!project.editToken){setError('프로젝트를 새로고침한 후 다시 수정해 주세요.');return;}
@@ -29,7 +30,7 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
     try{
       await fetchJson(path,userKey,{method:mode==='delete'?'DELETE':'PUT',body:JSON.stringify(mode==='delete'
         ?{expectedToken:project.editToken,reason}
-        :{expectedToken:project.editToken,fields:{...draft,quantity:Number(draft.quantity),operationId:crypto.randomUUID()}})});
+        :{expectedToken:project.editToken,deliveryHold,holdReason:reason,fields:{...draft,quantity:Number(draft.quantity),operationId:crypto.randomUUID()}})});
       setMode(null);if(mode==='delete')onDeleted();else onSaved();
     }catch(e){setError(e instanceof Error?e.message:'저장하지 못했습니다. 다시 시도해 주세요.');}finally{setBusy(false);}
   }
@@ -45,6 +46,9 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
             min={key==='quantity'?1:undefined} max={key==='quantity'?500:undefined}
             maxLength={key==='title'||key==='customerName'?200:key==='projectCode'?80:100}
             value={draft[key]??''} onChange={e=>setDraft({...draft,[key]:e.target.value})}/></label>)}</div>
+          <label><input type="checkbox" checked={deliveryHold} disabled={busy} onChange={e=>setDeliveryHold(e.target.checked)}/> 납기 HOLD</label>
+          <p>HOLD 중에는 홈에서 숨겨지며 진행 작업은 계속 등록할 수 있습니다. 기존 납기일은 유지됩니다.</p>
+          {deliveryHold !== (project.deliveryHold ?? false) && <label>납기 HOLD 변경 사유<textarea required maxLength={500} disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/></label>}
           {started&&<p>진행이 시작된 프로젝트의 수량은 변경할 수 없습니다.</p>}</>
         :<><p>홈·프로젝트·진행 현황에서 숨깁니다. 진행 이력과 사진은 보존됩니다.</p><label>삭제 사유<textarea aria-label="삭제 사유" required maxLength={500} disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/></label></>}
         {error&&<p role="alert">{error}</p>}

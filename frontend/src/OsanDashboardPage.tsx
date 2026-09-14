@@ -51,7 +51,7 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
   return <OsanListFrame
     className={isHome ? 'osan-home-dashboard' : ''}
     title={isHome ? '오산 홈' : '진행 현황'}
-    description={isHome ? '납기가 빠른 순서입니다. 납기가 지난 완료 프로젝트는 홈에서 자동으로 제외됩니다.' : '프로젝트를 선택하면 해당 프로젝트의 진행 작업만 표시됩니다.'}
+    description={isHome ? '납기가 빠른 순서입니다. 납기 HOLD와 납기가 지난 완료 프로젝트는 홈에서 자동으로 제외됩니다.' : '프로젝트를 선택하면 해당 프로젝트의 진행 작업만 표시됩니다.'}
     counts={counts} search={draft} onSearchChange={setDraft}
     onSearch={() => setQuery({ ...query, search: draft.trim(), page: 1 })}
     status={query.status} onStatusChange={value => setQuery({ ...query, status: value as OsanDashboardStatus, page: 1 })}
@@ -68,7 +68,7 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
       </div>}
       {data && <ul className="osan-dashboard-list" aria-label="프로젝트 진행 목록">{data.items.map(project => <li key={project.projectId}>
         <button type="button" className="osan-dashboard-project" onClick={() => onOpen(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
-          <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className="osan-dashboard-dday">{formatOsanDday(project.deliveryDate, today)}</span></span>
+          <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className={`osan-dashboard-dday${project.deliveryHold ? ' is-hold' : ''}`}>{project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)}</span></span>
           {isHome && <span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
           <span className="osan-dashboard-stages">{project.stages.map(stage => <span key={stage.sequenceNumber} aria-label={`${stage.stepName} ${stage.completedTargetCount}/${stage.totalTargetCount} 완료`}>
             <span>{stage.stepName}</span><span className="osan-dashboard-stage-count">{stage.completedTargetCount}/{stage.totalTargetCount}</span>

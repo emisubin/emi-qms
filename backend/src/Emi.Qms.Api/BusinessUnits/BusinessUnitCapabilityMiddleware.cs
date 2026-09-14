@@ -186,7 +186,8 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             && segments.Length == 3
             && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
             && (string.Equals(segments[2], "start", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(segments[2], "completions", StringComparison.OrdinalIgnoreCase));
+                || string.Equals(segments[2], "completions", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(segments[2], "photo-preview", StringComparison.OrdinalIgnoreCase));
     }
 
     private static Task DenyAsync(HttpContext context, string errorCode)

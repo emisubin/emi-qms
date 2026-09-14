@@ -57,7 +57,7 @@ describe('오산 프로젝트 관리', () => {
   it('승인된 필드 순서로 수정하고 저장 중 입력과 중복 제출을 잠근다', async () => {
     const { onSaved, onDeleted } = show();
     fireEvent.click(await screen.findByRole('button', { name: '프로젝트 정보 수정' }));
-    expect(Array.from(document.querySelectorAll('input')).map(input => input.getAttribute('aria-label')))
+    expect(Array.from(document.querySelectorAll('.osan-management-fields input')).map(input => input.getAttribute('aria-label')))
       .toEqual(['장비명 수정', '프로젝트 코드 수정', 'part 분류 수정', '수량 수정', '고객사 수정', 'PO No 수정', 'W/O No 수정', '납기일 수정']);
     expect(screen.getByLabelText('프로젝트 코드 수정')).toHaveValue('001 CODE');
     fireEvent.change(screen.getByLabelText('장비명 수정'), { target: { value: '수정 장비' } });
@@ -78,6 +78,34 @@ describe('오산 프로젝트 관리', () => {
     await act(async () => resolve({}));
     expect(onSaved).toHaveBeenCalledOnce();
     expect(onDeleted).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('납기 HOLD 상태 %s를 전환할 때 사유를 받아 기존 납기일과 함께 저장한다', async held => {
+    const { onSaved } = show({ ...project, deliveryHold: held });
+    fireEvent.click(await screen.findByRole('button', { name: '프로젝트 정보 수정' }));
+    const checkbox = screen.getByRole('checkbox', { name: '납기 HOLD' });
+    expect(checkbox).toHaveProperty('checked', held);
+    expect(screen.queryByLabelText('납기 HOLD 변경 사유')).not.toBeInTheDocument();
+    fireEvent.click(checkbox);
+    const reason = screen.getByLabelText('납기 HOLD 변경 사유');
+    expect(reason).toBeRequired();
+    fireEvent.click(screen.getByRole('button', { name: '변경 저장' }));
+    expect(fetchJson).toHaveBeenCalledTimes(1);
+    fireEvent.change(reason, { target: { value: held ? '납기 재개' : '고객 요청 보류' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경 저장' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    const payload = JSON.parse(vi.mocked(fetchJson).mock.calls[1][2]!.body as string);
+    expect(payload).toMatchObject({ deliveryHold: !held, holdReason: held ? '납기 재개' : '고객 요청 보류',
+      expectedToken: project.editToken, fields: { deliveryDate: project.deliveryDate } });
+  });
+  it('HOLD 상태를 유지하며 다른 정보를 수정할 때 변경 사유를 요구하지 않는다', async () => {
+    const { onSaved } = show({ ...project, deliveryHold: true });
+    fireEvent.click(await screen.findByRole('button', { name: '프로젝트 정보 수정' }));
+    fireEvent.change(screen.getByLabelText('장비명 수정'), { target: { value: '장비명 보정' } });
+    expect(screen.queryByLabelText('납기 HOLD 변경 사유')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '변경 저장' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(JSON.parse(vi.mocked(fetchJson).mock.calls[1][2]!.body as string)).toMatchObject({
+      deliveryHold: true, fields: { title: '장비명 보정', deliveryDate: project.deliveryDate } });
   });
   it('이미 완료된 단계가 있으면 수량을 고정하고 다른 정보는 수정할 수 있다', async () => {
     show({ ...project, targets: [{ ...project.targets[0], steps: [{ ...project.targets[0].steps[0], status: 'Completed' }] }] });

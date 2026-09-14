@@ -31,7 +31,7 @@ public static class OsanManagementEndpointExtensions
             var (input, errors) = OsanProjectInputNormalizer.Normalize(request.Fields);
             if (input is null) return Results.ValidationProblem(errors);
             return Result(await store.ManageAsync(projectId, request.ExpectedToken, input, null,
-                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct));
+                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, request.DeliveryHold, request.HoldReason));
         }).RequireAuthorization(QmsPolicies.ProjectUpdate)
           .WithName("UpdateOsanProject");
         api.MapDelete("", async (Guid projectId, [FromBody] DeleteOsanProjectRequest request,
@@ -80,6 +80,7 @@ public static class OsanManagementEndpointExtensions
                 ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, user.IsInRole(QmsRoles.SystemAdministrator)));
         }).RequireAuthorization(QmsPolicies.ManufacturingUpdate)
           .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+        .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
           .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
           .WithName("SaveOsanProgressPhotoEdit");
         api.MapGet("/progress/steps/{stepId:guid}/history", async (Guid projectId,Guid stepId,OsanProgressStore store,

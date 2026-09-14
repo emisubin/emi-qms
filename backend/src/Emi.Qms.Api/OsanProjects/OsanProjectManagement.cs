@@ -5,7 +5,7 @@ using Npgsql;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed record UpdateOsanProjectRequest(CreateOsanProjectRequest Fields, string ExpectedToken);
+public sealed record UpdateOsanProjectRequest(CreateOsanProjectRequest Fields, string ExpectedToken, bool? DeliveryHold = null, string? HoldReason = null);
 public sealed record DeleteOsanProjectRequest(string ExpectedToken, string Reason);
 public sealed record OsanManagementResult(int Status, object? Value = null, string? Message = null);
 
@@ -13,10 +13,10 @@ public sealed partial class OsanProjectStore
 {
     public static string EditToken(OsanProjectDetailResponse p) => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { p.Title, p.ProjectCode, p.CustomerName,
-            p.PoNumber, p.WorkOrderNumber, p.DeliveryDate, p.ProductName, p.Quantity }))));
+            p.PoNumber, p.WorkOrderNumber, p.DeliveryDate, p.ProductName, p.Quantity, p.DeliveryHold }))));
 
     public async Task<OsanManagementResult> ManageAsync(Guid id, string expectedToken,
-        NormalizedCreateOsanProjectInput? input, string? deleteReason, Guid actor, CancellationToken ct)
+        NormalizedCreateOsanProjectInput? input, string? deleteReason, Guid actor, CancellationToken ct, bool? deliveryHold = null, string? holdReason = null)
     {
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(ct);
@@ -31,6 +31,10 @@ public sealed partial class OsanProjectStore
         if (current is null) return new(404);
         if (!string.Equals(expectedToken, EditToken(current), StringComparison.Ordinal))
             return new(409, Message: "다른 사용자가 정보를 변경했습니다. 새로고침 후 다시 확인해 주세요.");
+        var nextHold = deliveryHold ?? current.DeliveryHold;
+        var holdChanged = input is not null && nextHold != current.DeliveryHold;
+        if (holdChanged && (string.IsNullOrWhiteSpace(holdReason) || holdReason.Trim().Length > 500))
+            return new(400, Message: "납기 HOLD 변경 사유를 1~500자로 입력해 주세요.");
         // The same project lock is acquired by progress completion, so quantity cannot race with first work.
         if (input is not null && input.Quantity != current.Quantity)
         {
@@ -72,10 +76,11 @@ public sealed partial class OsanProjectStore
             command.Parameters.AddWithValue("date", input.DeliveryDate);
             command.Parameters.AddWithValue("part", input.ProductName);
             command.Parameters.AddWithValue("quantity", input.Quantity);
+            command.Parameters.AddWithValue("hold", nextHold);
             command.CommandText = """
                 update projects set project_title=@title, project_code=@code, customer_name=@customer,
                   osan_po_number=@po, osan_work_order_number=@wo, delivery_date=@date,
-                  osan_product_name=@part, osan_quantity=@quantity, updated_at_utc=now() where id=@id;
+                  osan_product_name=@part, osan_quantity=@quantity, osan_delivery_hold=@hold, updated_at_utc=now() where id=@id;
                 update osan_project_targets set display_name=@part || ' ' || sequence_number::text,
                   updated_at_utc=now() where project_id=@id;
                 """;
@@ -87,7 +92,7 @@ public sealed partial class OsanProjectStore
             """;
         command.Parameters.AddWithValue("action", input is null ? "Delete" : "Update");
         command.Parameters.AddWithValue("before", JsonSerializer.Serialize(current));
-        command.Parameters.AddWithValue("after", JsonSerializer.Serialize(input));
+        command.Parameters.AddWithValue("after", JsonSerializer.Serialize(new { Fields = input, DeliveryHold = nextHold, HoldReason = holdChanged ? holdReason!.Trim() : null }));
         await command.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
         return new(200, new { saved = true });

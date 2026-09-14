@@ -259,7 +259,7 @@ public sealed partial class OsanProjectStore
                 end,
                 progress.completed_step_count,
                 progress.total_step_count,
-                projects.created_at_utc
+                projects.created_at_utc, projects.osan_delivery_hold
             from projects
             cross join lateral (
                 select
@@ -1179,7 +1179,7 @@ public sealed partial class OsanProjectStore
                     end,
                     progress.completed_step_count,
                     progress.total_step_count,
-                    projects.created_at_utc
+                    projects.created_at_utc, projects.osan_delivery_hold
                 from projects
                 cross join lateral (
                     select
@@ -1266,7 +1266,7 @@ public sealed partial class OsanProjectStore
             project.CompletedStepCount,
             project.TotalStepCount,
             project.CreatedAtUtc,
-            targets);
+            targets, project.DeliveryHold);
     }
 
     private static OsanProjectListItemResponse ReadListItem(NpgsqlDataReader reader)
@@ -1284,7 +1284,7 @@ public sealed partial class OsanProjectStore
             reader.GetString(9),
             reader.GetInt32(10),
             reader.GetInt32(11),
-            reader.GetFieldValue<DateTimeOffset>(12));
+            reader.GetFieldValue<DateTimeOffset>(12), reader.GetBoolean(13));
     }
 
     private static void AddAccessScope(

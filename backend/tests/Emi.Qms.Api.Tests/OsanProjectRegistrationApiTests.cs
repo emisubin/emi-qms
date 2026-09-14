@@ -1279,6 +1279,52 @@ public sealed partial class OsanProjectRegistrationApiTests
     }
 
     [Fact]
+    public async Task PhotoTotal40MiB_PersistsLargeOriginalAndRevisionWithCombinedBudget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAndVerifyAsync(ct);
+        await database.ExecuteAsync($"""
+            insert into departments(id,code,name,is_active,sort_order) values
+            ('89000000-0000-0000-0000-000000000010','photo-size','Photo Size',true,1);
+            insert into qms_users(id,development_user_key,display_name,department_id,is_active) values
+            ('{UserId:D}','photo-size','Photo Size','89000000-0000-0000-0000-000000000010',true);
+            """, ct);
+        var created = await new OsanProjectStore(provider).CreateAsync(
+            Normalize(ValidRequest(projectCode: "PHOTO-40", quantity: 1)), UserId, ct);
+        var project = created.Value!.Project;
+        var target = project.Targets[0].TargetId;
+        var originalBytes = OsanPhotoSizeTests.PngOfSize(20 * 1024 * 1024);
+        var (original, error) = await OsanProgressPhotoValidator.ValidateAsync("original.png", "image/png", originalBytes, ct);
+        Assert.Null(error);
+        var store = new OsanProgressStore(provider);
+        var completed = await store.CompleteAsync(project.ProjectId, new CompleteOsanProgressInput(
+            Guid.NewGuid(), OsanCompletionModes.Individual, 1, [new OsanProgressTargetRequest(target, 1)], [original!]), UserId, ct);
+        Assert.Equal(OsanProgressMutationStatus.Success, completed.Status);
+        var progress = completed.Value!.Project.Targets[0];
+        var photoId = progress.Steps[0].Photos[0].PhotoId;
+        Assert.Equal(originalBytes, await database.ReadScalarAsync<byte[]>("select content from osan_progress_photos where id=@id", ct, ("id", photoId)));
+        var edits = new OsanPhotoEditStore(provider);
+        var request = Guid.NewGuid();
+        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId, new OsanPhotoEditRequest(request, target, 1), UserId, ct)).Status);
+        Assert.Equal(200, (await edits.ApproveAsync(project.ProjectId, request, UserId, ct)).Status);
+        var extraBytes = OsanPhotoSizeTests.PngOfSize(20 * 1024 * 1024 + 1);
+        var extra = (await OsanProgressPhotoValidator.ValidateAsync("extra.png", "image/png", extraBytes, ct)).Photo!;
+        var input = new CompleteOsanProgressInput(request, OsanCompletionModes.Individual, 1,
+            [new OsanProgressTargetRequest(target, progress.Version)], [extra], RetainedPhotoIds: [photoId]);
+        Assert.Equal(400, (await edits.SaveAsync(project.ProjectId, request, input, UserId, ct)).Status);
+        var newBytes = OsanPhotoSizeTests.PngOfSize(20 * 1024 * 1024);
+        // Distinct valid ancillary content avoids the intentional duplicate-photo guard.
+        newBytes = InsertPngChunkBefore(CreateStructurallyValidPng(), "vpAg"u8, new byte[20 * 1024 * 1024 - CreateStructurallyValidPng().Length - 12]);
+        var replacement = (await OsanProgressPhotoValidator.ValidateAsync("new.png", "image/png", newBytes, ct)).Photo!;
+        Assert.NotEqual(original!.Sha256, replacement.Sha256);
+        Assert.Equal(200, (await edits.SaveAsync(project.ProjectId, request, input with { Photos = [replacement] }, UserId, ct)).Status);
+        Assert.Equal(newBytes, await database.ReadScalarAsync<byte[]>("select content from osan_photo_revision_files where request_id=@id", ct, ("id", request)));
+    }
+
+    [Fact]
     public async Task ProgressStore_EnforcesAtomicStaleReplayPhotoAndLastPackingContracts()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -1716,8 +1762,8 @@ public sealed partial class OsanProjectRegistrationApiTests
             "photo.jpg", "image/jpeg", valid)).Error, StringComparison.Ordinal);
         Assert.Contains("올바른", (await ValidatePhotoAsync(
             "photo.png", "image/png", [1, 2, 3])).Error, StringComparison.Ordinal);
-        Assert.Contains("5MiB", (await ValidatePhotoAsync(
-            "large.png", "image/png", new byte[OsanProgressPhotoValidator.MaximumPhotoBytes + 1])).Error,
+        Assert.Contains("40MiB", (await ValidatePhotoAsync(
+            "large.png", "image/png", new byte[OsanProgressPhotoValidator.MaximumTotalBytes + 1])).Error,
             StringComparison.Ordinal);
 
         var corruptCrc = valid.ToArray();

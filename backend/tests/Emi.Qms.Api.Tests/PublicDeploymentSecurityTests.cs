@@ -464,6 +464,21 @@ public sealed class PublicDeploymentSecurityTests
         Assert.Equal(expectedStatus, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/completions")]
+    [InlineData("/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-edits/91000000-0000-0000-0000-000000000002/save")]
+    public async Task UploadSecurity_OsanMultipart40MiBReachesScanner(string path)
+    {
+        var scanner = new FixedUploadMalwareScanner(UploadMalwareScanStatus.Infected);
+        using var factory = UploadFactory(scanner);
+        using var client = CreateUploadClient(factory);
+        using var body = new MultipartFormDataContent();
+        body.Add(new ByteArrayContent(new byte[40 * 1024 * 1024]), "photos", "large.png");
+        var response = await client.PostAsync(path, body, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(1, scanner.CallCount);
+    }
+
     [Fact]
     public async Task UploadSecurity_AllowsCleanFileToReachEndpointRouting()
     {

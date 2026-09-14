@@ -8,8 +8,7 @@ namespace Emi.Qms.Api.OsanProjects;
 public static class OsanProgressPhotoValidator
 {
     public const int MaximumPhotoCount = 5;
-    public const int MaximumPhotoBytes = 5 * 1024 * 1024;
-    public const int MaximumTotalBytes = 15 * 1024 * 1024;
+    public const int MaximumTotalBytes = 40 * 1024 * 1024;
     public const long MaximumMultipartBytes = MaximumTotalBytes + (2 * 1024 * 1024);
     private static readonly Lazy<bool> DecoderLimitsConfigured = new(ConfigureDecoderResourceLimitsCore);
 
@@ -21,9 +20,14 @@ public static class OsanProgressPhotoValidator
         byte[] content,
         CancellationToken cancellationToken = default)
     {
-        if (content.Length is < 1 or > MaximumPhotoBytes)
+        if (content.Length < 1)
         {
-            return (null, "사진은 장당 5MiB 이하여야 합니다.");
+            return (null, "빈 사진 파일은 첨부할 수 없습니다.");
+        }
+
+        if (content.Length > MaximumTotalBytes)
+        {
+            return (null, "사진 전체 크기는 40MiB 이하여야 합니다.");
         }
 
         string? normalizedMime;

@@ -225,7 +225,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       <p className="osan-progress-photo-instruction">{project.canManageStages ? '관리자는 사진 없이 코멘트만으로 저장할 수 있습니다.' : '사진을 1장 이상 첨부해 주세요.'} {selectionLabel} · {osanStageNames[stage - 1]}</p>
       <label className="osan-comment-input">코멘트 <small>{!files.length && project.canManageStages ? '사진 미첨부 시 필수' : '선택'}</small><textarea value={comment} maxLength={1000} disabled={busy} onChange={e => {setComment(e.target.value);pendingCompletion.current=null;}}/><span>{comment.length} / 1000자</span></label>
       {mode === 'batch' && <p>같은 사진과 코멘트가 선택한 {selected.length}개 대상에 모두 적용됩니다.</p>}
-      <p className="osan-progress-photo-limits">JPEG·PNG 최대 5장, 장당 5MiB, 전체 15MiB. 원본을 저장합니다.</p>
+      <p className="osan-progress-photo-limits">JPEG·PNG 최대 5장, 전체 40MiB. 원본을 저장합니다.</p>
       {(error || fileError) && <p role="alert">{error || fileError}</p>}
       {fileError && <button type="button" disabled={busy} onClick={() => { setFiles([]); setFileError(''); setError(''); pendingCompletion.current = null; }}>선택한 사진 비우기</button>}
       <button className="osan-progress-submit" type="button" disabled={busy || refreshing || !mutationAllowed || !!fileError} aria-label="업로드하고 단계 완료" onClick={() => void complete()}>{busy ? '저장 중…' : '업로드'}</button>

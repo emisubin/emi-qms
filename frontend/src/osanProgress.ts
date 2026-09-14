@@ -55,8 +55,8 @@ export function getOsanProgressPhoto(projectId: string, photoId: string, userKey
 export function validateOsanPhotos(files: readonly File[]): string | null {
   if (files.length > 5) return '사진은 최대 5장까지 선택할 수 있습니다.';
   if (files.some(file => !['image/jpeg', 'image/png'].includes(file.type))) return 'JPEG 또는 PNG 사진을 선택해 주세요. HEIC는 지원하지 않습니다.';
-  if (files.some(file => file.size === 0 || file.size > 5 * 1024 * 1024)) return '사진은 빈 파일이 아닌 장당 5MiB 이하 파일이어야 합니다.';
-  if (files.reduce((total, file) => total + file.size, 0) > 15 * 1024 * 1024) return '선택한 사진의 전체 용량은 15MiB 이하여야 합니다.';
+  if (files.some(file => file.size === 0)) return '빈 파일은 첨부할 수 없습니다.';
+  if (files.reduce((total, file) => total + file.size, 0) > 40 * 1024 * 1024) return '선택한 사진의 전체 용량은 40MiB 이하여야 합니다.';
   return null;
 }
 export function completionUnavailable(targets: OsanProgressTarget[], stageSequence: number, mode: 'individual' | 'batch'): string | null {
@@ -76,7 +76,7 @@ export function validateOsanRecord(photos: readonly File[], comment: string, can
   if (error) return error;
   if (comment.length > 1000) return '코멘트는 최대 1000자입니다.';
   if (photos.length + retained.length > 5) return '사진은 최대 5장입니다.';
-  if (photos.reduce((sum, f) => sum + f.size, 0) + retained.reduce((sum, f) => sum + f.sizeBytes, 0) > 15 * 1024 * 1024) return '사진의 전체 용량은 15MiB 이하여야 합니다.';
+  if (photos.reduce((sum, f) => sum + f.size, 0) + retained.reduce((sum, f) => sum + f.sizeBytes, 0) > 40 * 1024 * 1024) return '사진의 전체 용량은 40MiB 이하여야 합니다.';
   if (!photos.length && !retained.length && !(canManage && comment.trim())) return canManage ? '사진이 없으면 코멘트를 입력해 주세요.' : '사진을 1장 이상 첨부해 주세요.';
   return null;
 }

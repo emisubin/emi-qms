@@ -406,7 +406,7 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
         }
         if (input.Photos.Sum(photo => (long)photo.Content.Length) > OsanProgressPhotoValidator.MaximumTotalBytes)
         {
-            errors[nameof(input.Photos)] = ["사진 전체 크기는 15MiB 이하여야 합니다."];
+            errors[nameof(input.Photos)] = ["사진 전체 크기는 40MiB 이하여야 합니다."];
         }
         if (input.Photos.Select(photo => photo.Sha256).Distinct(StringComparer.Ordinal).Count() != input.Photos.Count)
         {

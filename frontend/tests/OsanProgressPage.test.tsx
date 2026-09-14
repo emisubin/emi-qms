@@ -69,6 +69,18 @@ describe('오산 진행 상세', () => {
     await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].targets).toEqual([{ targetId: 'target-2', expectedVersion: 1 }]);
   });
+  it('5MiB 초과 갤러리 사진 두 장을 미리보고 원본 그대로 전송한다', async () => {
+    renderPage(); await openCompletion();
+    const originals = [8590934, 9710149].map((size, i) => new File([new Uint8Array(size)], `gallery-${i}.jpg`, { type: 'image/jpeg' }));
+    fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: originals } });
+    expect(await screen.findByRole('img', { name: 'gallery-0.jpg 미리보기' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'gallery-1.jpg 미리보기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '업로드하고 단계 완료' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
+    const sent = vi.mocked(api.completeOsanProgress).mock.calls[0][1].photos;
+    expect(sent[0]).toBe(originals[0]); expect(sent[1]).toBe(originals[1]);
+  });
   it('촬영 버튼은 카메라 전용 입력을 직접 열고 촬영 원본을 재선택 없이 저장한다', async () => {
     renderPage(); await openCompletion();
     const camera = screen.getByLabelText('카메라 사진 선택');

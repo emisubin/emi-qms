@@ -243,15 +243,15 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
         var detail = details[0];
         var ok = detail.GetProperty("IsSuccess").GetBoolean();
         var errors = detail.GetProperty("Errors");
-        if (errors.ValueKind != JsonValueKind.Array) return new("Unknown");
+        if (errors.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null)) return new("Unknown");
         var slips = data.GetProperty("SlipNos");
-        if (success == 1 && failure == 0 && ok && errors.GetArrayLength() == 0
+        if (success == 1 && failure == 0 && ok && (errors.ValueKind == JsonValueKind.Null || errors.GetArrayLength() == 0)
             && slips.ValueKind == JsonValueKind.Array && slips.GetArrayLength() == 1)
         {
             var slip = slips[0].GetString();
             if (!string.IsNullOrWhiteSpace(slip) && slip.Length <= 200 && !slip.Any(char.IsControl)) return new("Succeeded", slip);
         }
-        if (success == 0 && failure == 1 && !ok && errors.GetArrayLength() > 0 && errors.EnumerateArray().All(IsValidationError)
+        if (success == 0 && failure == 1 && !ok && errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0 && errors.EnumerateArray().All(IsValidationError)
             && (slips.ValueKind == JsonValueKind.Null || (slips.ValueKind == JsonValueKind.Array && slips.GetArrayLength() == 0)))
             return new("Failed");
         return new("Unknown");

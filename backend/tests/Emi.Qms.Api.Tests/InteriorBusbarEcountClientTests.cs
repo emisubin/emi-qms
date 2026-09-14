@@ -227,6 +227,20 @@ public sealed class InteriorBusbarEcountClientTests
             || x.Contains("synthetic-private-value", StringComparison.Ordinal) || x.Contains('\n'));
     }
 
+    [Theory]
+    [InlineData("Order")]
+    [InlineData("Sale")]
+    public async Task SuccessfulLiveEnvelopeAllowsNullErrorList(string kind)
+    {
+        using var handler=new Handler(Zone,Login,Success.Replace("\"Errors\":[]","\"Errors\":null"));
+        using var http=new HttpClient(handler);
+        var client=new InteriorBusbarEcountClient(Options(),new Clock(),http);
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        var result=await client.SendAsync(Attempt(kind),TestContext.Current.CancellationToken);
+        Assert.Equal("Succeeded",result.State);
+        Assert.Equal("SYN-SLIP",result.SlipNumber);
+    }
+
     [Fact]
     public async Task SaveDiagnosticsNeverLogProviderText()
     {
@@ -360,7 +374,9 @@ public sealed class InteriorBusbarEcountClientTests
         yield return [Success.Replace("\"FailCnt\":0", "\"FailCnt\":1"), "Unknown"];
         yield return [Success.Replace("\"SuccessCnt\":1", "\"SuccessCnt\":0"), "Unknown"];
         yield return [Success.Replace("\"Errors\":[]", "\"Errors\":[{}]"), "Unknown"];
-        yield return [Success.Replace("\"Errors\":[]", "\"Errors\":null"), "Unknown"];
+        yield return [Success.Replace("\"Errors\":[]", "\"Errors\":null"), "Succeeded"];
+        yield return [Success.Replace("\"Errors\":[]", "\"Errors\":null").Replace("[\"SYN-SLIP\"]", "null"), "Unknown"];
+        yield return [Success.Replace("\"Errors\":[]", "\"Errors\":null").Replace("\"SuccessCnt\":1", "\"SuccessCnt\":0").Replace("\"FailCnt\":0", "\"FailCnt\":1").Replace("true", "false"), "Unknown"];
         yield return [Success.Replace("\"Errors\":[]", "\"Other\":[]"), "Unknown"];
         yield return [Success.Replace("\"IsSuccess\":true", "\"IsSuccess\":false"), "Unknown"];
         yield return [Success.Replace("\"SlipNos\":[\"SYN-SLIP\"]", "\"SlipNos\":[]"), "Unknown"];

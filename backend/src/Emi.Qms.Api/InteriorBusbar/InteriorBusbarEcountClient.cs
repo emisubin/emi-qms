@@ -58,7 +58,7 @@ internal interface IInteriorBusbarEcountClient
 
 // The worker owns serialization, persistent rate limits and failure pauses. This adapter
 // never retries, logs raw provider data, or authenticates as a side effect of sending.
-internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions options, TimeProvider timeProvider, HttpClient client)
+internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions options, TimeProvider timeProvider, HttpClient client, ILogger<InteriorBusbarEcountClient>? logger = null)
     : IInteriorBusbarEcountClient
 {
     private string? session;
@@ -67,40 +67,74 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
     public bool HasSession => options.Enabled && session is not null && host is not null
         && timeProvider.GetUtcNow() < lastSuccess.AddMinutes(options.SessionIdleMinutes);
 
+    internal string AuthenticationStage { get; private set; } = "NotStarted";
+
     public async Task<bool> AuthenticateAsync(CancellationToken cancellationToken)
     {
         session = null;
         host = null;
         if (!options.Enabled) return false;
+        AuthenticationStage = "ZoneRequest";
         try
         {
             var prefix = options.Environment == "Test" ? "sboapi" : "oapi";
             using var zoneResponse = await PostAsync($"https://{prefix}.ecount.com/OAPI/V2/Zone", new { COM_CODE = options.CompanyCode }, cancellationToken);
+            AuthenticationStage = "ZoneEnvelope";
             var zoneData = Envelope(zoneResponse.RootElement);
+            AuthenticationStage = "ZoneHost";
             var zone = zoneData.GetProperty("ZONE").GetString();
             if (zone is null || zone.Length is < 1 or > 2 || zone.Any(c => !char.IsAsciiLetter(c))
                 || zoneData.GetProperty("DOMAIN").GetString() != ".ecount.com") return false;
             var resolvedHost = $"{prefix}{zone.ToLowerInvariant()}.ecount.com";
+            AuthenticationStage = "LoginRequest";
             using var loginResponse = await PostAsync($"https://{resolvedHost}/OAPI/V2/OAPILogin", new
             {
                 COM_CODE = options.CompanyCode, USER_ID = options.UserId, API_CERT_KEY = options.ApiKey,
                 LAN_TYPE = "ko-KR", ZONE = zone
             }, cancellationToken);
+            AuthenticationStage = "LoginEnvelope";
+            if (loginResponse.RootElement.TryGetProperty("Error", out var loginError)
+                && loginError.ValueKind == JsonValueKind.Object
+                && loginError.TryGetProperty("Code", out var errorCode))
+            {
+                var codeText = errorCode.ValueKind == JsonValueKind.Number ? errorCode.GetRawText()
+                    : errorCode.ValueKind == JsonValueKind.String ? errorCode.GetString() : null;
+                AuthenticationStage = codeText switch
+                {
+                    "201" => "LoginInvalidKey", "204" => "LoginKeyEnvironment", "205" => "LoginIpNotAllowed",
+                    "20" or "99" => "LoginAccountRejected", "21" or "24" or "25" => "LoginAccessBlocked",
+                    "22" or "23" => "LoginTimeRestricted", "98" => "LoginAccountLocked",
+                    _ => "LoginProviderError"
+                };
+                return false;
+            }
             var login = Envelope(loginResponse.RootElement);
+            AuthenticationStage = "LoginCode";
             if (login.GetProperty("Code").GetString() != "00") return false;
             var data = login.GetProperty("Datas");
             var token = data.GetProperty("SESSION_ID").GetString();
-            if (data.GetProperty("COM_CODE").GetString() != options.CompanyCode || data.GetProperty("USER_ID").GetString() != options.UserId
-                || string.IsNullOrWhiteSpace(token) || token.Length > 1024 || token.Any(char.IsControl)) return false;
+            AuthenticationStage = "LoginCompany";
+            if (data.GetProperty("COM_CODE").GetString() != options.CompanyCode) return false;
+            AuthenticationStage = "LoginUser";
+            if (data.GetProperty("USER_ID").GetString() != options.UserId) return false;
+            AuthenticationStage = "LoginSession";
+            if (string.IsNullOrWhiteSpace(token) || token.Length > 1024 || token.Any(char.IsControl)) return false;
             host = resolvedHost;
             session = token;
             lastSuccess = timeProvider.GetUtcNow();
+            AuthenticationStage = "Succeeded";
             return true;
         }
         catch (Exception)
         {
             // Provider exceptions may include credentials, URL query strings, or response data.
             return false;
+        }
+        finally
+        {
+            // Only local constant stage names: never log provider text, exceptions or credentials.
+            if (AuthenticationStage != "Succeeded")
+                logger?.LogWarning("Ecount authentication stopped at {Stage}", AuthenticationStage);
         }
     }
 

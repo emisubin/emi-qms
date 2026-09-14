@@ -140,6 +140,33 @@ public sealed class InteriorBusbarEcountClientTests
         Assert.Single(handler.Requests);
     }
 
+    [Theory]
+    [InlineData("SYN001", "different-user", "LoginUser")]
+    [InlineData("OTHER", "synthetic-user", "LoginCompany")]
+    public async Task AuthenticationDiagnosticsContainOnlyLocalStage(string company, string user, string expected)
+    {
+        using var handler = new Handler(Zone, Login.Replace("SYN001", company).Replace("synthetic-user", user));
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.False(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(expected, client.AuthenticationStage);
+        Assert.False(client.HasSession);
+    }
+
+    [Theory]
+    [InlineData("201", "LoginInvalidKey")]
+    [InlineData("\"205\"", "LoginIpNotAllowed")]
+    [InlineData("\"synthetic-secret\"", "LoginProviderError")]
+    public async Task ProviderAuthErrorsMapToLocalConstantsWithoutProviderText(string code, string stage)
+    {
+        using var handler = new Handler(Zone, "{\"Status\":200,\"Data\":null,\"Error\":{\"Code\":" + code + ",\"Message\":\"synthetic-secret\"}}");
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.False(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(stage, client.AuthenticationStage);
+        Assert.False(client.HasSession);
+    }
+
     [Fact]
     public async Task ExplicitIoTypeIsSentAndSessionExpiresSinceLastSuccessfulOperation()
     {

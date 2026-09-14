@@ -92,7 +92,8 @@ internal static class InteriorBusbarEcountRegistration
         services.AddSingleton(InteriorBusbarEcountOptions.Load(configuration));
         services.AddSingleton<IInteriorBusbarEcountClient>(provider => new InteriorBusbarEcountClient(
             provider.GetRequiredService<InteriorBusbarEcountOptions>(), provider.GetRequiredService<TimeProvider>(),
-            new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) }));
+            new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) },
+            provider.GetRequiredService<ILogger<InteriorBusbarEcountClient>>()));
         services.AddHostedService<InteriorBusbarEcountWorker>();
         return services;
     }

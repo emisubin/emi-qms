@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.InteriorBusbar;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -196,6 +197,33 @@ public sealed class InteriorBusbarEcountClientTests
         Assert.False(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
         Assert.False(client.HasSession);
         Assert.Equal(2, handler.Requests.Count);
+    }
+
+    private sealed class DiagnosticLogger : ILogger<InteriorBusbarEcountClient>
+    {
+        public List<string> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
+    }
+
+    [Theory]
+    [InlineData("\"201\"", "201")]
+    [InlineData("\"synthetic-private-value\"", "Unrecognized")]
+    [InlineData("\"2\\n01\"", "Unrecognized")]
+    [InlineData("201", "Unrecognized")]
+    public async Task LoggedProtocolCodeIsBoundedAndNeverIncludesResponseMessage(string code, string expected)
+    {
+        var response = Login.Replace("\"Code\":\"00\"", "\"Code\":" + code);
+        using var handler = new Handler(Zone, response);
+        using var http = new HttpClient(handler);
+        var logger = new DiagnosticLogger();
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http, logger);
+        Assert.False(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("Ecount login rejected with protocol code " + expected, logger.Messages);
+        Assert.DoesNotContain(logger.Messages, x => x.Contains(Session, StringComparison.Ordinal)
+            || x.Contains("synthetic-private-value", StringComparison.Ordinal) || x.Contains('\n'));
     }
 
     [Fact]

@@ -412,3 +412,6 @@ Envelope은 숫자200 또는 문자열200과 Error 생략/null을 허용하도�
 
 
 09:21:40UTC 실제 Zone은 통과했으며 다음 실패는 LoginCode로 확인했다. 공식 로그인 Result 표는 Data에 COM_CODE/USER_ID/SESSION_ID를 직접 나열하고 과거 Example은 Code00+Datas로 감싸고 있어 두 구조를 지원하도록 보정했다. nested 또는 Code가 존재하면 반드시 문자열00이어야 하며 성공 envelope·정확한 회사/사용자·유효 세션 검증은 공통으로 유지한다. Datas가 잘못되면 flat로 대체하지 않는다. 실제 응답 분별용 로그는 해당 필드의 존재 여부·JSON형식만 기록한다. 합성80/80(0skip), Release0warnings/0errors, 독립검토 GO. local 적용·재개했으며09:31:40UTC 이전 재로그인 제한을 유지한다. 로그인 성공과 전표번호는 아직 대기다.
+
+
+09:31:44UTC 응답의 Code=String/Datas=Object와 flat 필드 없음이 확인되었으며 LoginCode 실패가 지속됐다. 실제 성공 코드 불일치를 구분하도록 Data.Code만 최대10자 ASCII영숫자/_/-로 제한해 진단한다. 그 외 값은 Unrecognized로 표시하고 응답 메시지·세션·키는 기록하지 않는다. logger capture4건을 추가해 총84/84(0skip), Release0warnings/0errors, 독립 reviewer GO. auth조건을 변경하지 않고09:41:44 이후1회 확인하도록 local반영·재개했다. 아직 전송 시도와 전표 생성은0이다.

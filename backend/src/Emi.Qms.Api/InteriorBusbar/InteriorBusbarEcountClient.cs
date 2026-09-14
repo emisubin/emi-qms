@@ -122,7 +122,15 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             if (nested || login.TryGetProperty("Code", out _))
             {
                 if (!login.TryGetProperty("Code", out var resultCode)
-                    || resultCode.ValueKind != JsonValueKind.String || resultCode.GetString() != "00") return false;
+                    || resultCode.ValueKind != JsonValueKind.String || resultCode.GetString() != "00")
+                {
+                    // A short protocol code is diagnostic, never log the response Message.
+                    var code = resultCode.ValueKind == JsonValueKind.String ? resultCode.GetString() : null;
+                    var safeCode = code is { Length: > 0 and <= 10 }
+                        && code.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-') ? code : "Unrecognized";
+                    logger?.LogWarning("Ecount login rejected with protocol code {Code}", safeCode);
+                    return false;
+                }
             }
             AuthenticationStage = "LoginData";
             if (!nested) data = login;

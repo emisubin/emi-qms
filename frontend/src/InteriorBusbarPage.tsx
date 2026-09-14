@@ -54,7 +54,6 @@ type EditorSpec = {
   path: string;
   method?: string;
   makeBody: (values: Values) => unknown;
-  onFieldChange?: (key: string, value: string, values: Values) => Values;
   after?: (result: { id: string }) => void;
   note?: string;
 };
@@ -304,12 +303,7 @@ export function InteriorBusbarPage({
     open({
       title: row ? "납품 프로젝트 정정" : "납품 프로젝트 등록",
       path: "/projects",
-      note: `공통 프로젝트 코드: ${data?.settings.commonProjectCode || "기준정보에서 먼저 설정하세요."} · 원화, 부가세 별도 10%. 등록한 단가는 기준 단가가 바뀌어도 유지됩니다.`,
-      onFieldChange: (key, value, values) => {
-        if (key !== "productFamilyId" || row) return { ...values, [key]: value };
-        const price = data?.productFamilies.find((family) => family.id === value)?.standardUnitPrice;
-        return { ...values, [key]: value, unitPrice: price == null ? "" : String(price) };
-      },
+      note: `공통 프로젝트 코드: ${data?.settings.commonProjectCode || "기준정보에서 먼저 설정하세요."} · 원화, 부가세 별도 10%. 단가는 제품군 기준정보에서 관리합니다.`,
       fields: [
         { key: "name", label: "프로젝트명", value: row?.name },
         {
@@ -319,7 +313,6 @@ export function InteriorBusbarPage({
           optional: true,
         },
         familyField(row?.productFamilyId),
-        { key: "unitPrice", label: "적용 단가 (원·부가세 별도)", type: "number", min: 0, step: "0.0001", value: row?.unitPrice == null ? "" : String(row.unitPrice), optional: true },
         {
           key: "requestedQuantity",
           label: "요청 수량",
@@ -345,7 +338,6 @@ export function InteriorBusbarPage({
         ...v,
         id: row?.id ?? null,
         requestedQuantity: Number(v.requestedQuantity),
-        unitPrice: v.unitPrice === "" ? null : Number(v.unitPrice),
       }),
     });
   }
@@ -754,7 +746,7 @@ export function InteriorBusbarPage({
                   <div><dt>누적 출하</dt><dd>{n(selectedProject.shippedQuantity)}개</dd></div>
                   <div><dt>납품 잔여</dt><dd>{n(selectedRemaining)}개</dd></div>
                 </dl>
-                <CommercialPreview key={`${user}:${selectedProject.id}:${selectedProject.unitPrice}:${selectedProject.requestedQuantity}:${data.settings.commonProjectCode}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} userId={user} projectId={selectedProject.id} revision={`${selectedProject.unitPrice}:${selectedProject.requestedQuantity}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} />
+                <CommercialPreview key={`${user}:${selectedProject.id}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.standardUnitPrice}:${selectedProject.requestedQuantity}:${data.settings.commonProjectCode}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} userId={user} projectId={selectedProject.id} revision={`${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.standardUnitPrice}:${selectedProject.requestedQuantity}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} />
                 <div>
                   <h4>해당 제품군 날짜별 생산계획</h4>
                   <Table headings={["생산일", "계획", "완료", "미완료", "재고"]}
@@ -1289,7 +1281,7 @@ function CommercialPreview({ userId, projectId, revision }: { userId: string; pr
   if (!state.data) return <p role="status">{state.error || "금액 확인 중…"}</p>;
   const p = state.data;
   return <div><h4>주문·판매 금액 확인</h4>
-    <Table headings={["적용 단가", "공급가액", "부가세 (10%)", "합계"]}
+    <Table headings={["제품군 단가", "공급가액", "부가세 (10%)", "합계"]}
       rows={[[p.unitPrice, p.supplyAmount, p.vatAmount, p.totalAmount].map((v) => v == null ? "미설정" : `${n(v)}원`)]} />
     <p className="busbar-note">원화·부가세 별도 · 실제 전송 연결 전입니다.{p.missingFields.length > 0 ? ` 설정 필요: ${p.missingFields.join(", ")}` : " 전송에 필요한 코드와 단가가 입력되어 있습니다."}</p>
   </div>;
@@ -1378,7 +1370,7 @@ function Editor({
                     disabled={f.disabled}
                     value={values[f.key]}
                     onChange={(e) =>
-                      setValues(spec.onFieldChange?.(f.key, e.target.value, values) ?? { ...values, [f.key]: e.target.value })
+                      setValues({ ...values, [f.key]: e.target.value })
                     }
                   >
                     <option value="">선택하세요</option>
@@ -1719,7 +1711,6 @@ function ImportBox({
     id: "등록 식별자",
     name: "프로젝트명",
     customerJobNumber: "W/O No",
-    unitPrice: "적용 단가 (원·부가세 별도)",
     productFamilyId: "제품군",
     requestedQuantity: "요청 수량",
     destination: "도착지",

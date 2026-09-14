@@ -23,7 +23,6 @@ export type BusbarProject = {
   shippedQuantity: number;
   destination: string;
   dueDate: string;
-  unitPrice?: number | null;
 };
 export type BusbarPlan = {
   id: string;

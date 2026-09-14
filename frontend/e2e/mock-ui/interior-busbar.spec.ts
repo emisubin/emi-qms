@@ -1090,11 +1090,10 @@ test("worker correction is in photo dialog and publication retry stays in extern
 });
 
 
-test("commercial price defaults can be overridden and preview stays read only", async ({page}) => {
+test("commercial price is family only and preview stays read only", async ({page}) => {
   const data=fixture();
   data.productFamilies[0].standardUnitPrice=12500;
   data.productFamilies[0].ecountProductCode="SYN-P";
-  data.projects[0].unitPrice=12500;
   const writes=await mock(page,data);
   await page.goto("/interior-busbar");
   await page.getByRole("tab",{name:"기준정보",exact:true}).click();
@@ -1102,10 +1101,9 @@ test("commercial price defaults can be overridden and preview stays read only", 
   await page.getByRole("tab",{name:"납품 프로젝트",exact:true}).click();
   await page.getByRole("button",{name:"프로젝트 등록",exact:true}).click();
   await page.getByRole("combobox",{name:"제품군",exact:true}).selectOption(familyId);
-  await expect(page.getByLabel("적용 단가 (원·부가세 별도)")).toHaveValue("12500");
+  await expect(page.getByLabel("적용 단가 (원·부가세 별도)")).toHaveCount(0);
   await page.getByLabel("프로젝트명",{exact:true}).fill("합성 가격 확인");
   await page.getByLabel("W/O No (고객 업무번호)").fill("SYN-WO");
-  await page.getByLabel("적용 단가 (원·부가세 별도)").fill("12000");
   await page.getByLabel("요청 수량",{exact:true}).fill("60");
   await page.getByLabel("도착지 / 업체명",{exact:true}).fill("합성 도착지");
   for (const width of [1440,390]) {
@@ -1115,7 +1113,8 @@ test("commercial price defaults can be overridden and preview stays read only", 
   }
   await page.getByRole("button",{name:"저장",exact:true}).click();
   await expect.poll(()=>writes.filter(w=>w.path.endsWith("/projects")).length).toBe(1);
-  expect(writes.find(w=>w.path.endsWith("/projects"))?.body).toMatchObject({unitPrice:12000,customerJobNumber:"SYN-WO"});
+  expect(writes.find(w=>w.path.endsWith("/projects"))?.body).toMatchObject({customerJobNumber:"SYN-WO"});
+  expect(writes.find(w=>w.path.endsWith("/projects"))?.body).not.toHaveProperty("unitPrice");
   await page.getByText("합성 납품 현장",{exact:true}).click();
   await expect(page.getByText("825,000원",{exact:true})).toBeVisible();
   for (const width of [1440,390]) {

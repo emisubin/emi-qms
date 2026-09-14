@@ -203,7 +203,7 @@ public static class InteriorBusbarEndpointExtensions
     {
         using var book = new XLWorkbook();
         var sheet = book.AddWorksheet("업로드");
-        var headers = purchase ? new[] { "발주ID", "발주번호", "자재코드", "수량", "발주일", "정정사유" } : new[] { "등록건ID", "프로젝트명", "W/O No", "제품군코드", "요청수량", "도착지", "납품예정일", "정정사유", "단가(원·부가세별도)" };
+        var headers = purchase ? new[] { "발주ID", "발주번호", "자재코드", "수량", "발주일", "정정사유" } : new[] { "등록건ID", "프로젝트명", "W/O No", "제품군코드", "요청수량", "도착지", "납품예정일", "정정사유" };
         for (var i = 0; i < headers.Length; i++)
         {
             sheet.Cell(1, i + 1).Value = headers[i];
@@ -249,7 +249,7 @@ public static class InteriorBusbarEndpointExtensions
                     var raw = cells.Cell(1).GetString().Trim();
                     Guid? id = raw.Length == 0 ? null : Guid.Parse(raw);
                     if (purchase) rows.Add(new BusbarPurchaseRequest(id, cells.Cell(2).GetString(), await store.ResolveCode("Material", cells.Cell(3).GetString()), cells.Cell(4).GetValue<decimal>(), DateOnly.FromDateTime(cells.Cell(5).GetDateTime()), id is null ? null : cells.Cell(6).GetString()));
-                    else rows.Add(new BusbarProjectRequest(id, cells.Cell(2).GetString(), cells.Cell(3).GetString(), await store.ResolveCode("Finished", cells.Cell(4).GetString()), cells.Cell(5).GetValue<int>(), cells.Cell(6).GetString(), DateOnly.FromDateTime(cells.Cell(7).GetDateTime()), id is null ? null : cells.Cell(8).GetString(), cells.Cell(9).IsEmpty() ? null : cells.Cell(9).GetValue<decimal>()));
+                    else rows.Add(new BusbarProjectRequest(id, cells.Cell(2).GetString(), cells.Cell(3).GetString(), await store.ResolveCode("Finished", cells.Cell(4).GetString()), cells.Cell(5).GetValue<int>(), cells.Cell(6).GetString(), DateOnly.FromDateTime(cells.Cell(7).GetDateTime()), id is null ? null : cells.Cell(8).GetString()));
                     await store.ValidateImportRow(rows[^1]);
                 }
                 catch (Exception ex) when (ex is FormatException or InvalidCastException or ArgumentException or BusbarException)

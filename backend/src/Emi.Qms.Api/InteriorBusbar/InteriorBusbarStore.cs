@@ -119,7 +119,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         var result = new Dictionary<string, object?>
         {
             ["canWrite"] = canWrite,
-            ["settings"] = (await Rows(c, "select common_project_code from busbar_settings"))[0]
+            ["settings"] = (await Rows(c, "select common_project_code,ecount_customer_code,ecount_warehouse_code from busbar_settings"))[0]
         }
 ;
         foreach (var (key, sql) in new (string, string)[]{
@@ -174,6 +174,14 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
             await Exec(c, $"insert into {table}(id,code,name,is_active,unit,supply_type) values(@id,@code,@name,@active,@unit,@supply) on conflict(id) do update set code=excluded.code,name=excluded.name,is_active=excluded.is_active,supply_type=excluded.supply_type", ("id", id), ("code", code), ("name", name), ("active", request.IsActive), ("unit", unit), ("supply", request.SupplyType));
         }
         else await Exec(c, $"insert into {table}(id,code,name,is_active) values(@id,@code,@name,@active) on conflict(id) do update set code=excluded.code,name=excluded.name,is_active=excluded.is_active", ("id", id), ("code", code), ("name", name), ("active", request.IsActive));
+        if (kind == "product-families")
+        {
+            ValidatePrice(request.StandardUnitPrice);
+            Require((request.EcountProductCode?.Trim().Length ?? 0) <= 20, "이카운트 품목 코드는 20자 이내여야 합니다.");
+            await Exec(c, "update busbar_product_families set ecount_product_code=@product,standard_unit_price=@price where id=@id",
+                ("product", string.IsNullOrWhiteSpace(request.EcountProductCode) ? null : request.EcountProductCode.Trim()),
+                ("price", request.StandardUnitPrice), ("id", id));
+        }
         await Audit(c, kind, id, actor, "기준정보 저장", before, request);
         return id;
     });
@@ -181,7 +189,9 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
     public Task<Guid> Settings(BusbarSettingsRequest r, Guid actor) => Transaction(async c =>
     {
         var before = await Rows(c, "select * from busbar_settings");
-        await Exec(c, "update busbar_settings set common_project_code=@code", ("code", Text(r.CommonProjectCode, "공통 프로젝트 코드")));
+        Require((r.EcountCustomerCode?.Trim().Length ?? 0) <= 30 && (r.EcountWarehouseCode?.Trim().Length ?? 0) <= 5, "거래처 코드는 30자, 창고 코드는 5자 이내여야 합니다.");
+        await Exec(c, "update busbar_settings set common_project_code=@code,ecount_customer_code=coalesce(@customer,ecount_customer_code),ecount_warehouse_code=coalesce(@warehouse,ecount_warehouse_code)",
+            ("code", Text(r.CommonProjectCode, "공통 프로젝트 코드")), ("customer", r.EcountCustomerCode?.Trim()), ("warehouse", r.EcountWarehouseCode?.Trim()));
         await Audit(c, "Settings", Guid.Empty, actor, "공통 코드 설정", before, r);
         return Guid.Empty;
     });
@@ -211,6 +221,32 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
 
     public Task<Guid> Project(BusbarProjectRequest r, Guid actor) => Transaction(c => SaveProject(c, r, actor));
 
+    private static void ValidatePrice(decimal? price) => Require(price is null ||
+        (price >= 0 && price < 100000000000000m && decimal.Round(price.Value, 4) == price),
+        "단가는 0 이상, 100조 미만이며 소수 네 자리 이내여야 합니다.");
+
+    public Task<object> CommercialPreview(Guid projectId) => ReadSnapshot<object>(async c =>
+    {
+        var project = await One(c, "busbar_projects", projectId);
+        var family = await One(c, "busbar_product_families", Id(project, "productFamilyId"));
+        var settings = (await Rows(c, "select * from busbar_settings"))[0];
+        var price = project["unitPrice"] as decimal?;
+        var quantity = Convert.ToInt32(project["requestedQuantity"]);
+        var missing = new List<string>();
+        if (price is null) missing.Add("프로젝트 단가");
+        if (string.IsNullOrWhiteSpace(family["ecountProductCode"] as string)) missing.Add("제품군 이카운트 품목 코드");
+        if (string.IsNullOrWhiteSpace(settings["ecountCustomerCode"] as string)) missing.Add("고정 거래처 코드");
+        if (string.IsNullOrWhiteSpace(settings["ecountWarehouseCode"] as string)) missing.Add("고정 출하창고 코드");
+        if (string.IsNullOrWhiteSpace(project["commonProjectCode"] as string) || ((string)project["commonProjectCode"]!).Length > 14) missing.Add("14자 이내 공통 프로젝트 코드");
+        var supply = price * quantity;
+        var vat = supply is null ? (decimal?)null : supply.Value * 0.1m;
+        return new { projectId, workOrderNumber = project["customerJobNumber"], purchaseOrderNumber = "",
+            customerCode = settings["ecountCustomerCode"], warehouseCode = settings["ecountWarehouseCode"],
+            productCode = family["ecountProductCode"], commonProjectCode = project["commonProjectCode"],
+            unitPrice = price, quantity, currency = "KRW", vatRate = 0.1m, supplyAmount = supply, vatAmount = vat,
+            totalAmount = supply + vat, missingFields = missing, transmissionEnabled = false };
+    });
+
     private static async Task<Guid> SaveProject(NpgsqlConnection c, BusbarProjectRequest r, Guid actor)
     {
         await Active(c, "busbar_product_families", r.ProductFamilyId);
@@ -230,8 +266,12 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         }
         var code = (string)(await Rows(c, "select common_project_code from busbar_settings"))[0]["commonProjectCode"]!;
         Text(code, "공통 프로젝트 코드");
-        await Exec(c, "insert into busbar_projects values(@id,@name,@job,@code,@family,@quantity,@destination,@date) on conflict(id) do update set name=excluded.name,customer_job_number=excluded.customer_job_number,requested_quantity=excluded.requested_quantity,destination=excluded.destination,due_date=excluded.due_date", ("id", id), ("name", Text(r.Name, "프로젝트명")), ("job", r.CustomerJobNumber?.Trim() ?? ""), ("code", code), ("family", r.ProductFamilyId), ("quantity", r.RequestedQuantity), ("destination", Text(r.Destination, "도착지")), ("date", r.DueDate));
-        await Audit(c, "Project", id, actor, r.Reason ?? "프로젝트 등록", before, r);
+        ValidatePrice(r.UnitPrice);
+        var price = r.UnitPrice ?? (r.Id is not null
+            ? ((Dictionary<string, object?>)before)["unitPrice"] as decimal?
+            : (await One(c, "busbar_product_families", r.ProductFamilyId))["standardUnitPrice"] as decimal?);
+        await Exec(c, "insert into busbar_projects(id,name,customer_job_number,common_project_code,product_family_id,requested_quantity,destination,due_date,unit_price) values(@id,@name,@job,@code,@family,@quantity,@destination,@date,@price) on conflict(id) do update set name=excluded.name,customer_job_number=excluded.customer_job_number,requested_quantity=excluded.requested_quantity,destination=excluded.destination,due_date=excluded.due_date,unit_price=excluded.unit_price", ("id", id), ("name", Text(r.Name, "프로젝트명")), ("job", r.CustomerJobNumber?.Trim() ?? ""), ("code", code), ("family", r.ProductFamilyId), ("quantity", r.RequestedQuantity), ("destination", Text(r.Destination, "도착지")), ("date", r.DueDate), ("price", price));
+        await Audit(c, "Project", id, actor, r.Reason ?? "프로젝트 등록", before, r with { UnitPrice = price });
         return id;
     }
 
@@ -598,6 +638,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         {
             Text(p.Name, "프로젝트명"); Text(p.Destination, "도착지");
             Require(p.RequestedQuantity > 0, "요청 수량은 양수여야 합니다.");
+            ValidatePrice(p.UnitPrice);
             await Active(c, "busbar_product_families", p.ProductFamilyId);
             if (p.Id is not null)
             {

@@ -30,6 +30,7 @@ import {
   type BusbarProduct,
   type BusbarWorkspace,
   type BusbarProductFilters,
+  type BusbarCommercialPreview,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
 
@@ -53,6 +54,7 @@ type EditorSpec = {
   path: string;
   method?: string;
   makeBody: (values: Values) => unknown;
+  onFieldChange?: (key: string, value: string, values: Values) => Values;
   after?: (result: { id: string }) => void;
   note?: string;
 };
@@ -259,6 +261,10 @@ export function InteriorBusbarPage({
       fields: [
         { key: "code", label: "코드", value: row?.code },
         { key: "name", label: "명칭", value: row?.name },
+        ...(path === "/product-families" ? [
+          { key: "ecountProductCode", label: "이카운트 품목 코드", value: row?.ecountProductCode ?? "", optional: true },
+          { key: "standardUnitPrice", label: "기준 단가 (원·부가세 별도)", type: "number" as const, min: 0, step: "0.0001", value: row?.standardUnitPrice == null ? "" : String(row.standardUnitPrice), optional: true },
+        ] : []),
         ...(path === "/materials"
           ? [
               { key: "unit", label: "단위", value: row?.unit },
@@ -289,6 +295,7 @@ export function InteriorBusbarPage({
         ...v,
         id: row?.id ?? null,
         isActive: v.isActive === "true",
+        ...(path === "/product-families" ? { standardUnitPrice: v.standardUnitPrice === "" ? null : Number(v.standardUnitPrice) } : {}),
       }),
     });
   }
@@ -297,16 +304,22 @@ export function InteriorBusbarPage({
     open({
       title: row ? "납품 프로젝트 정정" : "납품 프로젝트 등록",
       path: "/projects",
-      note: `공통 프로젝트 코드: ${data?.settings.commonProjectCode || "기준정보에서 먼저 설정하세요."}`,
+      note: `공통 프로젝트 코드: ${data?.settings.commonProjectCode || "기준정보에서 먼저 설정하세요."} · 원화, 부가세 별도 10%. 등록한 단가는 기준 단가가 바뀌어도 유지됩니다.`,
+      onFieldChange: (key, value, values) => {
+        if (key !== "productFamilyId" || row) return { ...values, [key]: value };
+        const price = data?.productFamilies.find((family) => family.id === value)?.standardUnitPrice;
+        return { ...values, [key]: value, unitPrice: price == null ? "" : String(price) };
+      },
       fields: [
         { key: "name", label: "프로젝트명", value: row?.name },
         {
           key: "customerJobNumber",
-          label: "고객 업무번호",
+          label: "W/O No (고객 업무번호)",
           value: row?.customerJobNumber,
           optional: true,
         },
         familyField(row?.productFamilyId),
+        { key: "unitPrice", label: "적용 단가 (원·부가세 별도)", type: "number", min: 0, step: "0.0001", value: row?.unitPrice == null ? "" : String(row.unitPrice), optional: true },
         {
           key: "requestedQuantity",
           label: "요청 수량",
@@ -332,6 +345,7 @@ export function InteriorBusbarPage({
         ...v,
         id: row?.id ?? null,
         requestedQuantity: Number(v.requestedQuantity),
+        unitPrice: v.unitPrice === "" ? null : Number(v.unitPrice),
       }),
     });
   }
@@ -740,6 +754,7 @@ export function InteriorBusbarPage({
                   <div><dt>누적 출하</dt><dd>{n(selectedProject.shippedQuantity)}개</dd></div>
                   <div><dt>납품 잔여</dt><dd>{n(selectedRemaining)}개</dd></div>
                 </dl>
+                <CommercialPreview key={`${user}:${selectedProject.id}:${selectedProject.unitPrice}:${selectedProject.requestedQuantity}:${data.settings.commonProjectCode}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} userId={user} projectId={selectedProject.id} revision={`${selectedProject.unitPrice}:${selectedProject.requestedQuantity}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} />
                 <div>
                   <h4>해당 제품군 날짜별 생산계획</h4>
                   <Table headings={["생산일", "계획", "완료", "미완료", "재고"]}
@@ -1096,7 +1111,7 @@ export function InteriorBusbarPage({
         <>
           <DsSurface>
             <DsToolbar>
-              <h3>공통 프로젝트 코드</h3>
+              <h3>공통 프로젝트·이카운트 설정</h3>
               {writeButton("공통 코드 설정", () =>
                 open({
                   title: "공통 프로젝트 코드 설정",
@@ -1108,6 +1123,8 @@ export function InteriorBusbarPage({
                       label: "공통 프로젝트 코드",
                       value: data.settings.commonProjectCode,
                     },
+                    { key: "ecountCustomerCode", label: "고정 거래처 코드 (엘에스일렉트릭)", value: data.settings.ecountCustomerCode, optional: true },
+                    { key: "ecountWarehouseCode", label: "고정 출하창고 코드 (청주캠퍼스)", value: data.settings.ecountWarehouseCode, optional: true },
                   ],
                   makeBody: (v) => v,
                 }),
@@ -1137,6 +1154,7 @@ export function InteriorBusbarPage({
                 headings={[
                   "코드",
                   "명칭",
+                  ...(section.key === "productFamilies" ? ["이카운트 품목 코드", "기준 단가 (원)"] : []),
                   ...(section.key === "materials" ? ["단위", "공급 구분"] : []),
                   "상태",
                   "작업",
@@ -1144,6 +1162,7 @@ export function InteriorBusbarPage({
                 rows={data[section.key].map((x) => [
                   x.code,
                   x.name,
+                  ...(section.key === "productFamilies" ? [x.ecountProductCode || "미설정", x.standardUnitPrice == null ? "미설정" : n(x.standardUnitPrice)] : []),
                   ...(section.key === "materials"
                     ? [x.unit, x.supplyType]
                     : []),
@@ -1257,6 +1276,25 @@ function Table({
     />
   );
 }
+function CommercialPreview({ userId, projectId, revision }: { userId: string; projectId: string; revision: string }) {
+  const [state, setState] = useState<{ data?: BusbarCommercialPreview; error?: string }>({});
+  useEffect(() => {
+    let active = true;
+    void busbarApi.commercialPreview(userId, projectId).then(
+      (data) => { if (active) setState({ data }); },
+      () => { if (active) setState({ error: "금액 정보를 조회하지 못했습니다. 프로젝트를 다시 펼쳐 주세요." }); },
+    );
+    return () => { active = false; };
+  }, [userId, projectId, revision]);
+  if (!state.data) return <p role="status">{state.error || "금액 확인 중…"}</p>;
+  const p = state.data;
+  return <div><h4>주문·판매 금액 확인</h4>
+    <Table headings={["적용 단가", "공급가액", "부가세 (10%)", "합계"]}
+      rows={[[p.unitPrice, p.supplyAmount, p.vatAmount, p.totalAmount].map((v) => v == null ? "미설정" : `${n(v)}원`)]} />
+    <p className="busbar-note">원화·부가세 별도 · 실제 전송 연결 전입니다.{p.missingFields.length > 0 ? ` 설정 필요: ${p.missingFields.join(", ")}` : " 전송에 필요한 코드와 단가가 입력되어 있습니다."}</p>
+  </div>;
+}
+
 function Search({
   value,
   onChange,
@@ -1340,7 +1378,7 @@ function Editor({
                     disabled={f.disabled}
                     value={values[f.key]}
                     onChange={(e) =>
-                      setValues({ ...values, [f.key]: e.target.value })
+                      setValues(spec.onFieldChange?.(f.key, e.target.value, values) ?? { ...values, [f.key]: e.target.value })
                     }
                   >
                     <option value="">선택하세요</option>
@@ -1680,7 +1718,8 @@ function ImportBox({
   const labels: Record<string, string> = {
     id: "등록 식별자",
     name: "프로젝트명",
-    customerJobNumber: "고객 업무번호",
+    customerJobNumber: "W/O No",
+    unitPrice: "적용 단가 (원·부가세 별도)",
     productFamilyId: "제품군",
     requestedQuantity: "요청 수량",
     destination: "도착지",

@@ -10,6 +10,8 @@ export type BusbarMaster = {
   balance?: number;
   producedQuantity?: number;
   plannedQuantity?: number;
+  ecountProductCode?: string | null;
+  standardUnitPrice?: number | null;
 };
 export type BusbarProject = {
   id: string;
@@ -21,6 +23,7 @@ export type BusbarProject = {
   shippedQuantity: number;
   destination: string;
   dueDate: string;
+  unitPrice?: number | null;
 };
 export type BusbarPlan = {
   id: string;
@@ -76,7 +79,7 @@ export type BusbarWorkspace = {
   };
   publicationOutstandingCount?: number;
   canWrite: boolean;
-  settings: { commonProjectCode: string };
+  settings: { commonProjectCode: string; ecountCustomerCode?: string; ecountWarehouseCode?: string };
   productFamilies: BusbarMaster[];
   materials: BusbarMaster[];
   workers: BusbarMaster[];
@@ -117,9 +120,16 @@ export type BusbarImport = {
   rows: Array<Record<string, unknown>>;
   errors: unknown[];
 };
+export type BusbarCommercialPreview = {
+  unitPrice: number | null; quantity: number; supplyAmount: number | null;
+  vatAmount: number | null; totalAmount: number | null; missingFields: string[];
+  customerCode: string; warehouseCode: string; productCode: string | null;
+  transmissionEnabled: boolean;
+};
 export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
 const root = "/api/interior-busbar";
 export const busbarApi = {
+  commercialPreview: (user: string, id: string) => fetchJson<BusbarCommercialPreview>(`${root}/projects/${id}/commercial-preview`, user),
   workspace: (user: string, page = 1, filters: BusbarProductFilters = {}) => {
     const query = new URLSearchParams({ page: String(page), pageSize: "100" });
     Object.entries(filters).forEach(([key, value]) => { if (value) query.set(key, value); });

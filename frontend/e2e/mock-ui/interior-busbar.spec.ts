@@ -156,6 +156,7 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
         : json(data);
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
       return json(data.products.find((p) => p.id === path.split("/").at(-1)));
+    if (path.endsWith("/commercial-preview")) return json({unitPrice:12500, quantity:60, supplyAmount:750000, vatAmount:75000, totalAmount:825000, missingFields:[], customerCode:"SYN-C",warehouseCode:"SYNWH",productCode:"SYN-P",transmissionEnabled:false});
     if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: qrPng });
     if (path.includes("/photos/") && req.method() === "GET")
       return route.fulfill({ contentType: "image/png", body: png });
@@ -1086,4 +1087,41 @@ test("worker correction is in photo dialog and publication retry stays in extern
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: `/private/tmp/emi-busbar-worker-correction-${width}.png`, fullPage: true });
   }
+});
+
+
+test("commercial price defaults can be overridden and preview stays read only", async ({page}) => {
+  const data=fixture();
+  data.productFamilies[0].standardUnitPrice=12500;
+  data.productFamilies[0].ecountProductCode="SYN-P";
+  data.projects[0].unitPrice=12500;
+  const writes=await mock(page,data);
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab",{name:"기준정보",exact:true}).click();
+  await expect(page.getByRole("cell",{name:"12,500",exact:true})).toBeVisible();
+  await page.getByRole("tab",{name:"납품 프로젝트",exact:true}).click();
+  await page.getByRole("button",{name:"프로젝트 등록",exact:true}).click();
+  await page.getByRole("combobox",{name:"제품군",exact:true}).selectOption(familyId);
+  await expect(page.getByLabel("적용 단가 (원·부가세 별도)")).toHaveValue("12500");
+  await page.getByLabel("프로젝트명",{exact:true}).fill("합성 가격 확인");
+  await page.getByLabel("W/O No (고객 업무번호)").fill("SYN-WO");
+  await page.getByLabel("적용 단가 (원·부가세 별도)").fill("12000");
+  await page.getByLabel("요청 수량",{exact:true}).fill("60");
+  await page.getByLabel("도착지 / 업체명",{exact:true}).fill("합성 도착지");
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.screenshot({path:`/private/tmp/emi-busbar-commercial-editor-${width}.png`,fullPage:true});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  }
+  await page.getByRole("button",{name:"저장",exact:true}).click();
+  await expect.poll(()=>writes.filter(w=>w.path.endsWith("/projects")).length).toBe(1);
+  expect(writes.find(w=>w.path.endsWith("/projects"))?.body).toMatchObject({unitPrice:12000,customerJobNumber:"SYN-WO"});
+  await page.getByText("합성 납품 현장",{exact:true}).click();
+  await expect(page.getByText("825,000원",{exact:true})).toBeVisible();
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.getByRole("heading",{name:"주문·판매 금액 확인"}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:`/private/tmp/emi-busbar-commercial-preview-${width}.png`});
+  }
+  expect(writes.filter(w=>w.path.endsWith("/projects")).length).toBe(1);
 });

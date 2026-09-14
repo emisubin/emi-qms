@@ -44,10 +44,12 @@ public sealed class InteriorBusbarEcountClientTests
     private sealed class Handler(params string[] responses) : HttpMessageHandler
     {
         public List<Request> Requests { get; } = [];
+        public List<long?> ContentLengths { get; } = [];
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
         public Exception? Failure { get; set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            ContentLengths.Add(request.Content!.Headers.ContentLength);
             Requests.Add(new(request.Method, request.RequestUri!, await request.Content!.ReadAsStringAsync(cancellationToken)));
             if (Failure is not null) throw Failure;
             return new(Status) { Content = new StringContent(responses[Requests.Count - 1], Encoding.UTF8, "application/json") };
@@ -67,6 +69,7 @@ public sealed class InteriorBusbarEcountClientTests
         Assert.Equal("Succeeded", (await client.SendAsync(Attempt(), TestContext.Current.CancellationToken)).State);
         Assert.Equal("Succeeded", (await client.SendAsync(Attempt("Sale"), TestContext.Current.CancellationToken)).State);
         Assert.Equal(4, handler.Requests.Count);
+        Assert.All(handler.ContentLengths, length => Assert.True(length is > 0));
         Assert.All(handler.Requests, request => Assert.Equal(HttpMethod.Post, request.Method));
         Assert.Equal($"https://{prefix}.ecount.com/OAPI/V2/Zone", handler.Requests[0].Uri.AbsoluteUri);
         Assert.Equal("""{"COM_CODE":"SYN001"}""", handler.Requests[0].Body);

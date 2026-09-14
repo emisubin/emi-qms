@@ -406,3 +406,6 @@ Envelope은 숫자200 또는 문자열200과 Error 생략/null을 허용하도�
 사용자 '입력해놨어' 후 공통코드ps26-045, 6000a 품목코드/단가307407 입력을 확인했다. 기존 테스트 프로젝트에만 남은 임시코드는 사용자 요청에 따라 DB·paused·Pending·attempt0을 transaction에서 확인하고 advisory lock 및 before/after 감사 기록을 남겨 보정했다. 새 프로젝트나 전송 대기를 추가 생성하지 않았다. 재개 후09:01:32UTC 인증이 다시 실패해 attempt0·전표0 상태다.
 
 인증 실패 원인 구분을 위해 adapter의 고정 단계명과 공식 매뉴얼 오류코드에 대응하는 고정 분류명만 로그에 남기도록 보완했다. provider 원문·인증키·세션·URL·예외값은 로그에 포함하지 않는다. 인증 성공/실패 조건과 재시도 간격은 변경하지 않았다. 합성 adapter74/74(0skip), Release0warnings/0errors, 독립 reviewer GO·열린 finding 없음. 로컬 runtime에 반영해 기존09:01:32 기준10분 제한을 유지하며 재개했다. 웹사이트 키 재추출·파일 저장을 통한 비교는 자동 승인 검토가 거부하여 중단했다. 우회하거나 다시 추출하지 않고 기존 설정을 사용한다.
+
+
+09:11:37UTC 재개 진단은 ZoneHost에서 종료되어 실제 로그인 요청 전 실패임을 확인했다. 인증키 없는 별도 .NET Zone 조회에서 JsonContent를 버퍼링하지 않으면 Data에 EMPTY_ZONE만 오고, 전송 전 본문을 읽어 버퍼링하면 정상 ZONE/DOMAIN이 반환되는 것을 재현했다. 실제 adapter를 UTF-8 application/json StringContent로 바꿔 Content-Length를 제공했다. 같은 직렬화 옵션·소수·필드 매핑은 유지한다. fake handler가 본문 읽기 전 ContentLength를 검사하게 해 테스트 자체 버퍼링이 실제 문제를 가리던 부분을 보정했다. 합성74/74, Release0warnings/0errors 및 고정 길이 실제 Zone 조회 정상 응답 확인. 독립 reviewer GO. 해당 local runtime 반영·재개했고09:21:37UTC 이전 로그인 재시도는 차단된 채 유지한다.

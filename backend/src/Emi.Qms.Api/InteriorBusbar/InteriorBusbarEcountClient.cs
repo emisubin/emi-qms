@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.ReviewSafe;
 
@@ -225,7 +225,7 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
         cancellationToken = timeout.Token;
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(body, options: JsonSerializerOptions.Default)
+            Content = new StringContent(JsonSerializer.Serialize(body, JsonSerializerOptions.Default), Encoding.UTF8, "application/json")
         };
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (response.StatusCode != HttpStatusCode.OK) throw new InvalidOperationException("이카운트 응답 확인 필요");

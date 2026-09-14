@@ -17,7 +17,7 @@ internal static class OsanProgressPhotoMetadataSanitizer
         ArgumentNullException.ThrowIfNull(content);
         return contentType switch
         {
-            "image/jpeg" => SanitizeJpeg(content),
+            "image/jpeg" => OsanJpegContainer.Sanitize(content),
             "image/png" => SanitizePng(content),
             _ => throw new InvalidDataException("Unsupported image format.")
         };
@@ -77,7 +77,7 @@ internal static class OsanProgressPhotoMetadataSanitizer
         return null;
     }
 
-    private static byte[] SanitizeJpeg(byte[] content)
+    internal static byte[] SanitizeJpegFrame(byte[] content, bool preserveHdr = false, int? gainMapLength = null)
     {
         var parts = ParseJpeg(content);
         var orientation = ReadOrientation(content, "image/jpeg");
@@ -88,7 +88,9 @@ internal static class OsanProgressPhotoMetadataSanitizer
 
         foreach (var part in parts)
         {
-            var remove = part.Marker is 0xe1 or 0xed or 0xfe;
+            var payload = content.AsSpan(part.PayloadStart, part.End - part.PayloadStart);
+            var isMpf = part.Marker == 0xe2 && payload.StartsWith("MPF\0"u8);
+            var remove = part.Marker is 0xe1 or 0xed or 0xfe || isMpf;
             if (!remove)
             {
                 output.Write(content, part.Start, part.End - part.Start);
@@ -96,6 +98,13 @@ internal static class OsanProgressPhotoMetadataSanitizer
             }
 
             changed = true;
+            if (preserveHdr && part.Marker == 0xe1 && OsanHdrXmp.Sanitize(payload, gainMapLength) is { } xmp)
+            {
+                output.WriteByte(0xff); output.WriteByte(0xe1);
+                var length = new byte[2];
+                BinaryPrimitives.WriteUInt16BigEndian(length, checked((ushort)(xmp.Length + 2)));
+                output.Write(length); output.Write(xmp);
+            }
             if (part.Marker == 0xe1 && preserveOrientation && !insertedOrientation)
             {
                 WriteJpegOrientation(output, orientation!.Value);
@@ -143,7 +152,7 @@ internal static class OsanProgressPhotoMetadataSanitizer
         return changed ? output.ToArray() : content;
     }
 
-    private static List<JpegPart> ParseJpeg(byte[] content)
+    internal static List<JpegPart> ParseJpeg(byte[] content, bool allowTrailing = false)
     {
         if (content.Length < 4 || content[0] != 0xff || content[1] != 0xd8)
         {
@@ -213,7 +222,7 @@ internal static class OsanProgressPhotoMetadataSanitizer
             }
         }
 
-        if (!sawEnd || offset != content.Length)
+        if (!sawEnd || !allowTrailing && offset != content.Length)
         {
             throw new InvalidDataException("Invalid JPEG end marker.");
         }
@@ -468,7 +477,7 @@ internal static class OsanProgressPhotoMetadataSanitizer
         var payloadLength = 6 + tiff.Length;
         output.WriteByte(0xff);
         output.WriteByte(0xe1);
-        Span<byte> length = stackalloc byte[2];
+        var length = new byte[2];
         BinaryPrimitives.WriteUInt16BigEndian(length, checked((ushort)(payloadLength + 2)));
         output.Write(length);
         output.Write("Exif\0\0"u8);
@@ -515,6 +524,6 @@ internal static class OsanProgressPhotoMetadataSanitizer
         return table;
     }
 
-    private sealed record JpegPart(int Start, int End, byte? Marker, int PayloadStart);
+    internal sealed record JpegPart(int Start, int End, byte? Marker, int PayloadStart);
     private sealed record PngChunk(int Start, int End, string Type, int DataStart, int DataLength);
 }

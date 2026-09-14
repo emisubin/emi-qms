@@ -34,7 +34,12 @@ public static class OsanProgressPhotoValidator
         try
         {
             ConfigureDecoderResourceLimits();
-            normalizedMime = await OsanImageContentValidator.DetectValidFormatAsync(
+            if (OsanHeicMetadataSanitizer.LooksLikeHeic(content))
+            {
+                content = OsanHeicMetadataSanitizer.Sanitize(content);
+                normalizedMime = await OsanHeicImageCodec.ValidateAsync(content, cancellationToken) ? "image/heic" : null;
+            }
+            else normalizedMime = await OsanImageContentValidator.DetectValidFormatAsync(
                 content,
                 cancellationToken);
         }
@@ -42,12 +47,17 @@ public static class OsanProgressPhotoValidator
         {
             return (null, "서버에서 이미지를 안전하게 처리할 수 없습니다. 다른 이미지 파일을 선택해 주세요.");
         }
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException)
+        {
+            return (null, "사진의 형식이나 부가정보를 읽을 수 없습니다. JPEG·PNG·HEIC 사진을 다시 선택해 주세요.");
+        }
         if (normalizedMime is null)
         {
-            return (null, "파일 내용이 올바른 JPEG 또는 PNG 이미지가 아닙니다.");
+            return (null, "파일 내용이 올바른 JPEG·PNG·HEIC 이미지가 아닙니다.");
         }
 
         var normalizedDeclaredType = declaredContentType?.Trim().ToLowerInvariant();
+        if (normalizedDeclaredType == "image/heif") normalizedDeclaredType = "image/heic";
         if (!string.IsNullOrEmpty(normalizedDeclaredType)
             && normalizedDeclaredType != "application/octet-stream"
             && !string.Equals(normalizedDeclaredType, normalizedMime, StringComparison.Ordinal))
@@ -60,14 +70,16 @@ public static class OsanProgressPhotoValidator
         safeFileName = new string(safeFileName.Where(character => !char.IsControl(character)).ToArray());
         if (safeFileName.Length == 0)
         {
-            safeFileName = normalizedMime == "image/png" ? "photo.png" : "photo.jpg";
+            safeFileName = normalizedMime == "image/png" ? "photo.png" : normalizedMime == "image/heic" ? "photo.heic" : "photo.jpg";
         }
         if (safeFileName.Length > 255)
         {
             safeFileName = safeFileName[..255];
         }
         var extension = Path.GetExtension(safeFileName);
-        var extensionMatches = normalizedMime == "image/png"
+        var extensionMatches = normalizedMime == "image/heic"
+            ? extension.Equals(".heic", StringComparison.OrdinalIgnoreCase) || extension.Equals(".heif", StringComparison.OrdinalIgnoreCase)
+            : normalizedMime == "image/png"
             ? string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase)
             : string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase)
               || string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase);
@@ -79,18 +91,18 @@ public static class OsanProgressPhotoValidator
         byte[] sanitizedContent;
         try
         {
-            sanitizedContent = OsanProgressPhotoMetadataSanitizer.Sanitize(content, normalizedMime);
-            var sanitizedMime = await OsanImageContentValidator.DetectValidFormatAsync(
+            sanitizedContent = normalizedMime == "image/heic" ? content : OsanProgressPhotoMetadataSanitizer.Sanitize(content, normalizedMime);
+            var sanitizedMime = normalizedMime == "image/heic" ? "image/heic" : await OsanImageContentValidator.DetectValidFormatAsync(
                 sanitizedContent,
                 cancellationToken);
             if (!string.Equals(sanitizedMime, normalizedMime, StringComparison.Ordinal))
             {
-                return (null, "파일 내용이 올바른 JPEG 또는 PNG 이미지가 아닙니다.");
+                return (null, "파일 내용이 올바른 JPEG·PNG·HEIC 이미지가 아닙니다.");
             }
         }
-        catch (InvalidDataException)
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException)
         {
-            return (null, "파일 내용이 올바른 JPEG 또는 PNG 이미지가 아닙니다.");
+            return (null, "파일 내용이 올바른 JPEG·PNG·HEIC 이미지가 아닙니다.");
         }
         catch (OsanImageResourceLimitException)
         {
@@ -129,17 +141,17 @@ internal static class OsanImageContentValidator
         {
             return "image/png";
         }
-        if (!IsValidJpeg(content, cancellationToken, out var jpegWidth, out var jpegHeight))
+        try
         {
-            return null;
+            foreach (var frame in OsanJpegContainer.Read(content))
+            {
+                if (!IsValidJpeg(frame.Content, cancellationToken, out var width, out var height)
+                    || !await HasStrictJpegDecodeAsync(frame.Content, width, height, cancellationToken)) return null;
+            }
+            return "image/jpeg";
         }
-        return await HasStrictJpegDecodeAsync(
-            content,
-            jpegWidth,
-            jpegHeight,
-            cancellationToken)
-            ? "image/jpeg"
-            : null;
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException)
+        { return null; }
     }
 
     private static async Task<bool> IsValidPngAsync(
@@ -288,7 +300,7 @@ internal static class OsanImageContentValidator
             }
             return layout.IsComplete;
         }
-        catch (InvalidDataException)
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException)
         {
             return false;
         }

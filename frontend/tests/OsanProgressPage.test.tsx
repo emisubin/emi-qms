@@ -209,7 +209,7 @@ describe('오산 진행 상세', () => {
   });
   it('잘못된 형식은 사진을 변경하지 않고 재선택을 안내한다', async () => {
     renderPage(); await openCompletion();
-    fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['x'], 'photo.heic', { type: 'image/heic' })] } });
+    fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['x'], 'photo.gif', { type: 'image/gif' })] } });
     expect(screen.getByRole('alert')).toHaveTextContent('HEIC');
     expect(api.completeOsanProgress).not.toHaveBeenCalled();
   });
@@ -222,7 +222,7 @@ describe('오산 진행 상세', () => {
     fireEvent.click(screen.getByLabelText('전체 선택')); fireEvent.click(screen.getByRole('button', { name: '패널 선택' }));
     expect(within(screen.getByRole('region', { name: '제품 1 완료 기록' })).getByText('작업자 A')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: '제품 2 완료 기록' })).getByText('미완료')).toBeInTheDocument();
-    await waitFor(() => expect(api.getOsanProgressPhoto).toHaveBeenCalledWith('project-a', 'photo-1', 'dev-user', expect.any(AbortSignal)));
+    await waitFor(() => expect(api.getOsanProgressPhoto).toHaveBeenCalledWith('project-a', 'photo-1', 'dev-user', expect.any(AbortSignal), false));
   });
   it('일괄 선택 때 모든 원본을 중복 다운로드하지 않고 한 대상의 사진만 펼친다', async () => {
     const result = project();

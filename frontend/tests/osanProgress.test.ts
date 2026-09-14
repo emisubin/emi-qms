@@ -30,8 +30,9 @@ describe('사진 제한', () => {
     expect(validateOsanPhotos([file(40 * 1024 * 1024 + 1)])).toContain('전체');
     expect(validateOsanPhotos([file(20 * 1024 * 1024), file(20 * 1024 * 1024)])).toBeNull();
   });
-  it('HEIC, 빈 파일, 개수 초과, 총량 초과를 구분한다', () => {
-    expect(validateOsanPhotos([file(1, 'image/heic')])).toContain('HEIC');
+  it('지원 형식, 빈 파일, 개수 초과, 총량 초과를 구분한다', () => {
+    expect(validateOsanPhotos([file(1, 'image/heic')])).toBeNull();
+    expect(validateOsanPhotos([file(1, 'image/gif')])).toContain('JPEG');
     expect(validateOsanPhotos([file(0)])).toContain('빈 파일');
     expect(validateOsanPhotos(Array.from({ length: 6 }, () => file(1)))).toContain('5장');
     expect(validateOsanPhotos(Array.from({ length: 4 }, () => file(10 * 1024 * 1024 + 1)))).toContain('전체');

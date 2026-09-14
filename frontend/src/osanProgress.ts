@@ -49,12 +49,21 @@ export function completeOsanProgress(projectId: string, request: OsanCompletionR
   request.photos.forEach(file => body.append('photos', file, file.name));
   return fetchJson<OsanProgressMutation>(`${projectPath(projectId)}/completions`, userKey, { method: 'POST', body });
 }
-export function getOsanProgressPhoto(projectId: string, photoId: string, userKey?: string, signal?: AbortSignal) {
-  return fetchBlob(`${projectPath(projectId)}/photos/${encodeURIComponent(photoId)}`, userKey, signal);
+export function getOsanProgressPhoto(projectId: string, photoId: string, userKey?: string, signal?: AbortSignal, preview = false) {
+  return fetchBlob(`${projectPath(projectId)}/photos/${encodeURIComponent(photoId)}${preview ? "?preview=true" : ""}`, userKey, signal);
+}
+export function isHeicPhoto(file: File): boolean {
+  return ['image/heic', 'image/heif'].includes(file.type.toLowerCase()) || /\.hei[cf]$/i.test(file.name);
+}
+export async function previewOsanPhoto(projectId: string, file: File, userKey?: string, signal?: AbortSignal): Promise<Blob> {
+  const body = new FormData(); body.append('photos', file, file.name);
+  const result = await fetchJson<{ contentType: string; base64: string }>(`${projectPath(projectId)}/photo-preview`, userKey, { method: 'POST', body, signal });
+  const bytes = Uint8Array.from(atob(result.base64), c => c.charCodeAt(0));
+  return new Blob([bytes], { type: result.contentType });
 }
 export function validateOsanPhotos(files: readonly File[]): string | null {
   if (files.length > 5) return '사진은 최대 5장까지 선택할 수 있습니다.';
-  if (files.some(file => !['image/jpeg', 'image/png'].includes(file.type))) return 'JPEG 또는 PNG 사진을 선택해 주세요. HEIC는 지원하지 않습니다.';
+  if (files.some(file => !['image/jpeg', 'image/png', 'image/heic', 'image/heif'].includes(file.type.toLowerCase()) && !(['', 'application/octet-stream'].includes(file.type) && /\.(jpe?g|png|hei[cf])$/i.test(file.name)))) return 'JPEG·PNG·HEIC 사진을 선택해 주세요.';
   if (files.some(file => file.size === 0)) return '빈 파일은 첨부할 수 없습니다.';
   if (files.reduce((total, file) => total + file.size, 0) > 40 * 1024 * 1024) return '선택한 사진의 전체 용량은 40MiB 이하여야 합니다.';
   return null;

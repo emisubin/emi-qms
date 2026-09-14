@@ -46,7 +46,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(21, endpoints.Length);
+        Assert.Equal(22, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -1276,6 +1276,49 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(
             [todayCompleted.Value.Project.ProjectId, futureCompleted.Value.Project.ProjectId],
             homeCompleted.Items.Select(item => item.ProjectId));
+    }
+
+    [Fact]
+    public async Task HdrOriginal_PersistsAndDownloadsWithoutReencoding()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var configuration = database.CreateConfiguration(); var provider = new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAndVerifyAsync(ct);
+        await database.ExecuteAsync($"""
+            insert into departments(id,code,name,is_active,sort_order) values
+            ('89000000-0000-0000-0000-000000000010','photo-hdr','Photo HDR',true,1);
+            insert into qms_users(id,development_user_key,display_name,department_id,is_active) values
+            ('{UserId:D}','photo-hdr','Photo HDR','89000000-0000-0000-0000-000000000010',true);
+            """, ct);
+        var created = await new OsanProjectStore(provider).CreateAsync(Normalize(ValidRequest(projectCode: "PHOTO-HDR", quantity: 1)), UserId, ct);
+        var project = created.Value!.Project;
+        var original = OsanHdrPhotoTests.CreateHdr();
+        var (photo, error) = await OsanProgressPhotoValidator.ValidateAsync("hdr.JPG", "image/jpeg", original, ct);
+        Assert.Null(error); Assert.NotNull(photo);
+        var store = new OsanProgressStore(provider);
+        var result = await store.CompleteAsync(project.ProjectId, new CompleteOsanProgressInput(Guid.NewGuid(), OsanCompletionModes.Individual,
+            1, [new OsanProgressTargetRequest(project.Targets[0].TargetId, 1)], [photo]), UserId, ct);
+        Assert.Equal(OsanProgressMutationStatus.Success, result.Status);
+        var saved = result.Value!.Project.Targets[0].Steps[0].Photos[0];
+        var downloaded = await store.GetPhotoAsync(project.ProjectId, saved.PhotoId, ct);
+        Assert.NotNull(downloaded); Assert.Equal("image/jpeg", downloaded.ContentType); Assert.Equal(photo.Content, downloaded.Content);
+        Assert.Equal(2, OsanJpegContainer.Read(downloaded.Content).Count);
+        // HEIC replacement exercises the separate revision-file MIME constraint.
+        var replacement = (await OsanProgressPhotoValidator.ValidateAsync(
+            "phone.heic", "image/heic", OsanHeicPhotoTests.CreateHeic(), ct)).Photo!;
+        var edits = new OsanPhotoEditStore(provider);
+        var request = Guid.NewGuid();
+        var target = result.Value.Project.Targets[0];
+        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId,
+            new OsanPhotoEditRequest(request, target.TargetId, 1), UserId, ct)).Status);
+        Assert.Equal(200, (await edits.ApproveAsync(project.ProjectId, request, UserId, ct)).Status);
+        Assert.Equal(200, (await edits.SaveAsync(project.ProjectId, request,
+            new CompleteOsanProgressInput(request, OsanCompletionModes.Individual, 1,
+                [new OsanProgressTargetRequest(target.TargetId, target.Version)], [replacement]), UserId, ct)).Status);
+        Assert.Equal(replacement.Content, await database.ReadScalarAsync<byte[]>(
+            "select content from osan_photo_revision_files where request_id=@id", ct, ("id", request)));
+
     }
 
     [Fact]

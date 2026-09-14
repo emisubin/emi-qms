@@ -89,3 +89,22 @@ it('tries camera-resolution centre before full-frame fallback', async () => {
   expect(drawImage.mock.calls[1].slice(1)).toEqual([0, 0, 1920, 1080, 0, 0, 960, 540]);
   expect(stop).toHaveBeenCalled();
 });
+
+it('a late stopped camera cannot clear the new camera zoom controls', async () => {
+  let finishFirst!: (value: MediaStream) => void;
+  media.mockReturnValueOnce(new Promise<MediaStream>(resolve => { finishFirst = resolve; }));
+  const applyConstraints = vi.fn().mockResolvedValue(undefined);
+  const secondTrack = { stop: vi.fn(), getCapabilities: () => ({ zoom: { min: 1, max: 3, step: 0.1 } }), getSettings: () => ({ zoom: 1 }), getConstraints: () => ({}), applyConstraints };
+  media.mockResolvedValueOnce({ getTracks: () => [secondTrack], getVideoTracks: () => [secondTrack] });
+  render(<OsanQrScanner onClose={vi.fn()} onScan={vi.fn()} />);
+  await waitFor(() => expect(media).toHaveBeenCalledTimes(1));
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+  fireEvent(document, new Event('visibilitychange'));
+  fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+  await screen.findByRole('slider', { name: '카메라 배율' });
+  const oldStop = vi.fn();
+  await act(async () => finishFirst({ getTracks: () => [{ stop: oldStop }] } as unknown as MediaStream));
+  expect(oldStop).toHaveBeenCalled(); expect(secondTrack.stop).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole('slider', { name: '카메라 배율' }), { target: { value: '2' } });
+  await waitFor(() => expect(applyConstraints).toHaveBeenCalledWith({ advanced: [{ zoom: 2 }] }));
+});

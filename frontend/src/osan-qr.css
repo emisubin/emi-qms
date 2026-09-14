@@ -18,3 +18,8 @@
 .app-shell[data-layout-mode='mobile'] .osan-list-frame .selected-export-checkbox{display:inline-block!important;width:20px;height:20px;flex-shrink:0}
 /* The dashboard's compact 8px heading box must not constrain the print dialog. */
 .app-shell .osan-qr-print-dialog .osan-qr-dialog-header h2{height:auto}
+
+.osan-qr-guidance { margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px; }
+.osan-qr-guidance summary { cursor: pointer; padding: 12px; font-size: 14px; }
+.osan-qr-comment { margin-top: 20px; }
+.osan-qr-comment p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }

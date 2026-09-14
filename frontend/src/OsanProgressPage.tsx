@@ -172,7 +172,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
   }
   if (!project) return <section className="osan-progress-page">{loadError ? <><p role="alert">{loadStatus === 403 ? '이 프로젝트의 진행 정보를 조회할 권한이 없습니다.' : loadStatus === 404 ? '프로젝트를 찾을 수 없습니다.' : loadError}</p><button type="button" onClick={refresh}>다시 불러오기</button></> : <p role="status">진행 정보를 불러오는 중…</p>}</section>;
   const stageContent = <>
-    {desktop ? <details className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details> : <OsanStageGuidance stage={stage}/>}
+    {desktop ? <details className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details> : !selectedStageCompleted && <OsanStageGuidance stage={stage}/>}
     <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
     {!selectedStageCompleted && !selected.some(t => t.steps.find(s => s.sequenceNumber === stage)?.editOpen) && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
   </>;

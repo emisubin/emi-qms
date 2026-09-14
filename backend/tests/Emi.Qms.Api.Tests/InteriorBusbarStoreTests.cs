@@ -341,6 +341,7 @@ public sealed class InteriorBusbarStoreTests
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0091_interior_busbar_planned_products.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0092_interior_busbar_product_qr.sql")), c).ExecuteNonQueryAsync();
                 if (applyCommercialMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0093_interior_busbar_commercial_data.sql")), c).ExecuteNonQueryAsync();
+                await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0094_interior_busbar_ecount_queue.sql")), c).ExecuteNonQueryAsync();
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);

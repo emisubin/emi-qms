@@ -77,6 +77,8 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.Bom(r, Actor(u))
         }));
+        api.MapGet("/projects/{id:guid}/ecount-status", (Guid id, InteriorBusbarStore s) => s.EcountStatus(id));
+        api.MapPost("/ecount-jobs/{id:guid}/retry", async (Guid id, BusbarEcountRetryRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { id = await s.RetryEcount(id, r.Reason, Actor(u)) }));
         api.MapGet("/projects/{id:guid}/commercial-preview", (Guid id, InteriorBusbarStore s) => s.CommercialPreview(id));
         api.MapPost("/projects", async (BusbarProjectRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
         {

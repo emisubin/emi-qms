@@ -281,3 +281,8 @@
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) { background: #f1f5f9 !important; color: #334155 !important; }
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) * { color: inherit !important; }
 .app-shell .busbar-page table tbody tr.busbar-due-soon > td { background: #fef9c3 !important; color: #713f12 !important; }
+
+.busbar-project-summary > * { min-width: 0; }
+.busbar-ecount-status { min-width: 0; margin-block: 20px; }
+.busbar-ecount-status form { display: grid; gap: 8px; margin-block: 12px; }
+.busbar-ecount-actions { display: flex; flex-wrap: wrap; gap: 8px; }

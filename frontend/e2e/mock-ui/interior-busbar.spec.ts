@@ -156,6 +156,7 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
         : json(data);
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
       return json(data.products.find((p) => p.id === path.split("/").at(-1)));
+    if (path.endsWith("/ecount-status")) return json({transmissionEnabled:false,jobs:[{id:projectId,kind:"Order",state:"Pending",needsReview:false,message:null,slipNumber:null,attemptCount:0}]});
     if (path.endsWith("/commercial-preview")) return json({unitPrice:12500, quantity:60, supplyAmount:750000, vatAmount:75000, totalAmount:825000, missingFields:[], customerCode:"SYN-C",warehouseCode:"SYNWH",productCode:"SYN-P",transmissionEnabled:false});
     if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: qrPng });
     if (path.includes("/photos/") && req.method() === "GET")
@@ -1123,4 +1124,32 @@ test("commercial price is family only and preview stays read only", async ({page
     await page.screenshot({path:`/private/tmp/emi-busbar-commercial-preview-${width}.png`});
   }
   expect(writes.filter(w=>w.path.endsWith("/projects")).length).toBe(1);
+});
+
+test("ecount status blocks uncertain retries and records a reason for definite failure", async ({page}) => {
+  const writes = await mock(page, fixture());
+  let retried = false;
+  await page.route("**/api/interior-busbar/projects/*/ecount-status", route => route.fulfill({contentType:"application/json", body:JSON.stringify({transmissionEnabled:false,jobs:[
+    {id:projectId,kind:"Order",state:retried?"Pending":"Failed",needsReview:false,message:retried?null:"전표 미생성 확인",slipNumber:null,attemptCount:1},
+    {id:familyId,kind:"Sale",state:"Unknown",needsReview:false,message:"전표 생성 여부 확인 필요",slipNumber:null,attemptCount:1}
+  ]})}));
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab", {name:"납품 프로젝트",exact:true}).click();
+  await page.getByText("합성 납품 현장", {exact:true}).click();
+  await expect(page.getByText("결과 확인 필요", {exact:true})).toBeVisible();
+  await expect(page.getByRole("button", {name:"다시 대기",exact:true})).toHaveCount(1);
+  await page.getByRole("button", {name:"다시 대기",exact:true}).click();
+  await page.getByLabel("다시 대기 사유").fill("합성 설정 오류 수정");
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.getByRole("heading", {name:"이카운트 주문·판매"}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:`/private/tmp/emi-busbar-ecount-status-${width}.png`});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  }
+  retried = true;
+  await page.getByRole("button", {name:"대기 등록",exact:true}).click();
+  await expect.poll(()=>writes.filter(w=>w.path.endsWith("/retry")).length).toBe(1);
+  expect(writes.find(w=>w.path.endsWith("/retry"))?.body).toEqual({reason:"합성 설정 오류 수정"});
+  await expect(page.getByRole("cell", {name:"전송 대기",exact:true})).toBeVisible();
+  await expect(page.getByRole("button", {name:"다시 대기",exact:true})).toHaveCount(0);
 });

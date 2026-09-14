@@ -53,6 +53,8 @@ public sealed class InteriorBusbarAuthorizationTests
     [InlineData("GET", "/api/interior-busbar/workspace")]
     [InlineData("GET", "/api/interior-busbar/products/00000000-0000-0000-0000-000000000001")]
     [InlineData("POST", "/api/interior-busbar/workers")]
+    [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001/ecount-status")]
+    [InlineData("POST", "/api/interior-busbar/ecount-jobs/00000000-0000-0000-0000-000000000001/retry")]
     public async Task TrustedOsanContextCannotReadOrWriteCheongjuModule(string method, string path)
     {
         var http = new DefaultHttpContext();
@@ -93,9 +95,14 @@ public sealed class InteriorBusbarAuthorizationTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "busbar-fixture");
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/interior-busbar/workers", new BusbarMasterRequest(null, "W", "Worker"), TestContext.Current.CancellationToken)).StatusCode);
+        var family = await fixture.Store.Master("product-families", new(null, "F", "Synthetic"), fixture.Actor);
+        await fixture.Store.Settings(new("SYN-P"), fixture.Actor);
+        var project = await fixture.Store.Project(new(null, "Synthetic", "", family, 1, "Synthetic", new(2026,10,1)), fixture.Actor);
         identity.Manager = false;
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/interior-busbar/workspace", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/interior-busbar/workers", new BusbarMasterRequest(null, "W2", "Worker"), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/interior-busbar/projects/{project}/ecount-status", TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/interior-busbar/ecount-jobs/{Guid.NewGuid()}/retry", new BusbarEcountRetryRequest("Synthetic"), TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(1L, await fixture.Scalar("select count(*) from busbar_workers"));
     }
 

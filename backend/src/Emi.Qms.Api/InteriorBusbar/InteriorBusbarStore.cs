@@ -4,7 +4,7 @@ using Npgsql;
 using QRCoder;
 namespace Emi.Qms.Api.InteriorBusbar;
 
-public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null)
+public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null)
 {
     // The same transaction lock fences inventory mutations and bounded external publication.
     // Checks, immutable ledger deltas and derived balances must commit together.
@@ -182,6 +182,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
                 ("product", string.IsNullOrWhiteSpace(request.EcountProductCode) ? null : request.EcountProductCode.Trim()),
                 ("price", request.StandardUnitPrice), ("id", id));
         }
+        if (kind == "product-families") await InvalidateEcountJobs(c, "product_family_id=@value", id);
         await Audit(c, kind, id, actor, "기준정보 저장", before, request);
         return id;
     });
@@ -192,6 +193,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         Require((r.EcountCustomerCode?.Trim().Length ?? 0) <= 30 && (r.EcountWarehouseCode?.Trim().Length ?? 0) <= 5, "거래처 코드는 30자, 창고 코드는 5자 이내여야 합니다.");
         await Exec(c, "update busbar_settings set common_project_code=@code,ecount_customer_code=coalesce(@customer,ecount_customer_code),ecount_warehouse_code=coalesce(@warehouse,ecount_warehouse_code)",
             ("code", Text(r.CommonProjectCode, "공통 프로젝트 코드")), ("customer", r.EcountCustomerCode?.Trim()), ("warehouse", r.EcountWarehouseCode?.Trim()));
+        await InvalidateEcountJobs(c, "true", null);
         await Audit(c, "Settings", Guid.Empty, actor, "공통 코드 설정", before, r);
         return Guid.Empty;
     });
@@ -267,6 +269,9 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         var code = (string)(await Rows(c, "select common_project_code from busbar_settings"))[0]["commonProjectCode"]!;
         Text(code, "공통 프로젝트 코드");
         await Exec(c, "insert into busbar_projects(id,name,customer_job_number,common_project_code,product_family_id,requested_quantity,destination,due_date) values(@id,@name,@job,@code,@family,@quantity,@destination,@date) on conflict(id) do update set name=excluded.name,customer_job_number=excluded.customer_job_number,requested_quantity=excluded.requested_quantity,destination=excluded.destination,due_date=excluded.due_date", ("id", id), ("name", Text(r.Name, "프로젝트명")), ("job", r.CustomerJobNumber?.Trim() ?? ""), ("code", code), ("family", r.ProductFamilyId), ("quantity", r.RequestedQuantity), ("destination", Text(r.Destination, "도착지")), ("date", r.DueDate));
+        if (r.Id is null) await EnqueueEcount(c, id, "Order");
+        else await InvalidateEcountJobs(c, "id=@value", id);
+        await SyncEcountSale(c, id);
         await Audit(c, "Project", id, actor, r.Reason ?? "프로젝트 등록", before, r);
         return id;
     }
@@ -427,6 +432,7 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         var id = await Operation(c, r.RequestId, "Shipment", r.ProjectId, actor, "분할 출하", payload: r);
         await Delta(c, id, "Finished", Id(project, "productFamilyId"), -r.Quantity);
         await Exec(c, "insert into busbar_shipments values(@id,@project,@quantity)", ("id", id), ("project", r.ProjectId), ("quantity", r.Quantity));
+        await SyncEcountSale(c, r.ProjectId);
         return id;
     });
 
@@ -443,6 +449,11 @@ public sealed class InteriorBusbarStore(DatabaseConnectionStringProvider provide
         Require((await Rows(c, "select id from busbar_operations where reverses_id=@id", ("id", operation))).Count == 0, "이미 취소된 기록입니다.");
         var id = await Operation(c, r.RequestId, "Reversal", operation, actor, r.Reason, operation, r);
         foreach (var l in await Rows(c, "select * from busbar_ledger where operation_id=@id", ("id", operation))) await Delta(c, id, (string)l["stockKind"]!, Id(l, "itemId"), -Num(l, "quantity"));
+        if (kind == "Shipment")
+        {
+            var shipment = await One(c, "busbar_shipments", operation);
+            await SyncEcountSale(c, Id(shipment, "projectId"));
+        }
         return id;
     }
 

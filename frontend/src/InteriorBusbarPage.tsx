@@ -31,6 +31,7 @@ import {
   type BusbarWorkspace,
   type BusbarProductFilters,
   type BusbarCommercialPreview,
+  type BusbarEcountStatus,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
 
@@ -756,6 +757,7 @@ export function InteriorBusbarPage({
                 </div>
               </div>
               <p className="busbar-note">공용 재고는 이 프로젝트에 예약된 수량이 아닙니다. 생산 예정 수량은 현재 출하 가능 수량에 포함하지 않습니다.</p>
+                <EcountStatus key={`${user}:${selectedProject.id}:${selectedProject.shippedQuantity}:${selectedProject.requestedQuantity}`} userId={user} projectId={selectedProject.id} canWrite={canWrite} />
               <h3>출하 이력</h3>
               <Table
                 headings={["처리 시각", "출하 수량", "상태", "작업"]}
@@ -1268,6 +1270,37 @@ function Table({
     />
   );
 }
+function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId: string; canWrite: boolean}) {
+  const [data, setData] = useState<BusbarEcountStatus>();
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [retry, setRetry] = useState<string>();
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void busbarApi.ecountStatus(userId, projectId).then(value => { if(active) { setData(value); setError(""); } }, () => { if(active) setError("전송 상태를 조회하지 못했습니다."); });
+    return () => { active = false; };
+  }, [userId, projectId, revision]);
+  const names = { Pending: "전송 대기", Held: "보류", InFlight: "전송 중", Succeeded: "전송 완료", Failed: "전송 실패", Unknown: "결과 확인 필요" };
+  return <div className="busbar-ecount-status"><h4>이카운트 주문·판매</h4>
+    <p className="busbar-note">실제 전송 연결 전입니다. 등록·납품 완료 시 전송 대기 내역을 보관합니다.</p>
+    {error && <p role="alert">{error}</p>}
+    {!data ? <p role="status">전송 상태 확인 중…</p> : <Table headings={["구분", "상태", "전표번호", "안내", "작업"]} rows={data.jobs.map(job => [
+      job.kind === "Order" ? "주문서" : "판매", job.needsReview ? `${names[job.state]} · 변경 확인 필요` : names[job.state], job.slipNumber || "—", job.message || "—",
+      canWrite && !job.needsReview && (job.state === "Held" || job.state === "Failed") ? <button disabled={saving} onClick={() => {setRetry(job.id);setReason("");}}>다시 대기</button> : "—"
+    ])} />}
+    <button disabled={saving} onClick={() => setRevision(value => value + 1)}>전송 상태 새로고침</button>
+    {retry && canWrite && <form onSubmit={async event => {
+      event.preventDefault(); if(saving || !reason.trim()) return;
+      setSaving(true); setError("");
+      try { await busbarApi.write(userId, `/ecount-jobs/${retry}/retry`, {reason}); setRetry(undefined); setRevision(value => value + 1); }
+      catch { setError("다시 대기하지 못했습니다. 납품 상태와 전송 결과를 확인하세요."); }
+      finally { setSaving(false); }
+    }}><label>다시 대기 사유<input required maxLength={200} value={reason} onChange={event => setReason(event.target.value)} /></label><div className="busbar-ecount-actions"><button disabled={saving}>대기 등록</button><button type="button" disabled={saving} onClick={() => setRetry(undefined)}>닫기</button></div></form>}
+  </div>;
+}
+
 function CommercialPreview({ userId, projectId, revision }: { userId: string; projectId: string; revision: string }) {
   const [state, setState] = useState<{ data?: BusbarCommercialPreview; error?: string }>({});
   useEffect(() => {

@@ -20,3 +20,5 @@ public sealed class BusbarException(string code, string message, int status = 40
     public string Code { get; } = code;
     public int Status { get; } = status;
 }
+
+public sealed record BusbarEcountRetryRequest(string Reason);

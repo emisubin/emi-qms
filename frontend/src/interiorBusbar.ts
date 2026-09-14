@@ -119,6 +119,7 @@ export type BusbarImport = {
   rows: Array<Record<string, unknown>>;
   errors: unknown[];
 };
+export type BusbarEcountStatus = { transmissionEnabled: boolean; jobs: Array<{ id: string; kind: "Order" | "Sale"; state: "Pending" | "Held" | "InFlight" | "Succeeded" | "Failed" | "Unknown"; needsReview: boolean; message: string | null; slipNumber: string | null; attemptCount: number }> };
 export type BusbarCommercialPreview = {
   unitPrice: number | null; quantity: number; supplyAmount: number | null;
   vatAmount: number | null; totalAmount: number | null; missingFields: string[];
@@ -128,6 +129,7 @@ export type BusbarCommercialPreview = {
 export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
 const root = "/api/interior-busbar";
 export const busbarApi = {
+  ecountStatus: (user: string, id: string) => fetchJson<BusbarEcountStatus>(`${root}/projects/${id}/ecount-status`, user),
   commercialPreview: (user: string, id: string) => fetchJson<BusbarCommercialPreview>(`${root}/projects/${id}/commercial-preview`, user),
   workspace: (user: string, page = 1, filters: BusbarProductFilters = {}) => {
     const query = new URLSearchParams({ page: String(page), pageSize: "100" });

@@ -1,0 +1,206 @@
+using System.Globalization;
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Emi.Qms.Api.ReviewSafe;
+
+namespace Emi.Qms.Api.InteriorBusbar;
+
+// Deliberately not a record: diagnostic ToString must not print credentials.
+public sealed class InteriorBusbarEcountOptions
+{
+    public bool Enabled { get; private init; }
+    public string Environment { get; private init; } = "";
+    public string CompanyCode { get; private init; } = "";
+    public string UserId { get; private init; } = "";
+    public string ApiKey { get; private init; } = "";
+    public int SessionIdleMinutes { get; private init; }
+    public string? IoType { get; private init; }
+
+    public static InteriorBusbarEcountOptions Load(IConfiguration configuration)
+    {
+        const string prefix = "InteriorBusbar:Ecount:";
+        var raw = configuration[prefix + "Enabled"];
+        if (raw is not null && !bool.TryParse(raw, out _)) Invalid("Enabled");
+        var enabled = bool.TryParse(raw, out var requested) && requested && !ReviewSafeMode.IsEnabled(configuration);
+        var environment = configuration[prefix + "Environment"] ?? "";
+        if ((enabled || environment.Length > 0) && environment is not ("Test" or "Production")) Invalid("Environment");
+        string Read(string name, int max)
+        {
+            var value = configuration[prefix + name] ?? "";
+            if ((enabled && string.IsNullOrWhiteSpace(value)) || value.Length > max || value.Any(char.IsControl)) Invalid(name);
+            return value;
+        }
+        var idleRaw = configuration[prefix + "SessionIdleMinutes"];
+        var idle = 0;
+        if (idleRaw is not null && (!int.TryParse(idleRaw, NumberStyles.None, CultureInfo.InvariantCulture, out idle) || idle is < 1 or > 1440))
+            Invalid("SessionIdleMinutes");
+        if (enabled && idle == 0) Invalid("SessionIdleMinutes");
+        var ioType = configuration[prefix + "IoType"]?.Trim();
+        if (string.IsNullOrEmpty(ioType)) ioType = null;
+        if (ioType is not null && (ioType.Length != 2 || ioType.Any(char.IsControl))) Invalid("IoType");
+        return new()
+        {
+            Enabled = enabled, Environment = environment, CompanyCode = Read("CompanyCode", 6),
+            UserId = Read("UserId", 30), ApiKey = Read("ApiKey", 50), SessionIdleMinutes = idle, IoType = ioType
+        };
+    }
+
+    private static void Invalid(string name) => throw new InvalidOperationException($"InteriorBusbar:Ecount:{name} 설정을 확인하세요.");
+}
+
+internal interface IInteriorBusbarEcountClient
+{
+    bool HasSession { get; }
+    Task<bool> AuthenticateAsync(CancellationToken cancellationToken);
+    Task<BusbarEcountResult> SendAsync(BusbarEcountAttempt attempt, CancellationToken cancellationToken);
+}
+
+// The worker owns serialization, persistent rate limits and failure pauses. This adapter
+// never retries, logs raw provider data, or authenticates as a side effect of sending.
+internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions options, TimeProvider timeProvider, HttpClient client)
+    : IInteriorBusbarEcountClient
+{
+    private string? session;
+    private string? host;
+    private DateTimeOffset lastSuccess;
+    public bool HasSession => options.Enabled && session is not null && host is not null
+        && timeProvider.GetUtcNow() < lastSuccess.AddMinutes(options.SessionIdleMinutes);
+
+    public async Task<bool> AuthenticateAsync(CancellationToken cancellationToken)
+    {
+        session = null;
+        host = null;
+        if (!options.Enabled) return false;
+        try
+        {
+            var prefix = options.Environment == "Test" ? "sboapi" : "oapi";
+            using var zoneResponse = await PostAsync($"https://{prefix}.ecount.com/OAPI/V2/Zone", new { COM_CODE = options.CompanyCode }, cancellationToken);
+            var zoneData = Envelope(zoneResponse.RootElement);
+            var zone = zoneData.GetProperty("ZONE").GetString();
+            if (zone is null || zone.Length is < 1 or > 2 || zone.Any(c => !char.IsAsciiLetter(c))
+                || zoneData.GetProperty("DOMAIN").GetString() != ".ecount.com") return false;
+            var resolvedHost = $"{prefix}{zone.ToLowerInvariant()}.ecount.com";
+            using var loginResponse = await PostAsync($"https://{resolvedHost}/OAPI/V2/OAPILogin", new
+            {
+                COM_CODE = options.CompanyCode, USER_ID = options.UserId, API_CERT_KEY = options.ApiKey,
+                LAN_TYPE = "ko-KR", ZONE = zone
+            }, cancellationToken);
+            var login = Envelope(loginResponse.RootElement);
+            if (login.GetProperty("Code").GetString() != "00") return false;
+            var data = login.GetProperty("Datas");
+            var token = data.GetProperty("SESSION_ID").GetString();
+            if (data.GetProperty("COM_CODE").GetString() != options.CompanyCode || data.GetProperty("USER_ID").GetString() != options.UserId
+                || string.IsNullOrWhiteSpace(token) || token.Length > 1024 || token.Any(char.IsControl)) return false;
+            host = resolvedHost;
+            session = token;
+            lastSuccess = timeProvider.GetUtcNow();
+            return true;
+        }
+        catch (Exception)
+        {
+            // Provider exceptions may include credentials, URL query strings, or response data.
+            return false;
+        }
+    }
+
+    public async Task<BusbarEcountResult> SendAsync(BusbarEcountAttempt attempt, CancellationToken cancellationToken)
+    {
+        if (!HasSession) return new("Unknown");
+        try
+        {
+            using var payload = JsonDocument.Parse(attempt.Payload);
+            var p = payload.RootElement;
+            if (attempt.Kind is not ("Order" or "Sale")) return new("Unknown");
+            var ioDate = DateOnly.ParseExact(p.GetProperty("ioDate").GetString()!, "yyyyMMdd", CultureInfo.InvariantCulture);
+            var ioType = p.TryGetProperty("ioType", out var frozenIoType) ? frozenIoType.GetString() : options.IoType;
+            if (ioType is not null && (ioType.Length != 2 || ioType.Any(char.IsControl))) return new("Unknown");
+            var row = new Dictionary<string, object?>
+            {
+                ["UPLOAD_SER_NO"] = "1",
+                ["IO_DATE"] = ioDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+                ["CUST"] = p.GetProperty("customerCode").GetString(), ["WH_CD"] = p.GetProperty("warehouseCode").GetString(),
+                ["PJT_CD"] = p.GetProperty("commonProjectCode").GetString(), ["PROD_CD"] = p.GetProperty("productCode").GetString(),
+                ["QTY"] = p.GetProperty("quantity").GetDecimal(), ["PRICE"] = p.GetProperty("unitPrice").GetDecimal(),
+                ["SUPPLY_AMT"] = p.GetProperty("supplyAmount").GetDecimal(), ["VAT_AMT"] = p.GetProperty("vatAmount").GetDecimal()
+            };
+            if (ioType is not null) row["IO_TYPE"] = ioType;
+            var order = attempt.Kind == "Order";
+            if (order)
+            {
+                row["U_MEMO2"] = p.GetProperty("workOrderNumber").GetString();
+                row["TIME_DATE"] = DateOnly.ParseExact(p.GetProperty("dueDate").GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture).ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+            }
+            var body = new Dictionary<string, object> { [order ? "SaleOrderList" : "SaleList"] = new[] { new { BulkDatas = row } } };
+            var path = order ? "SaleOrder/SaveSaleOrder" : "Sale/SaveSale";
+            using var response = await PostAsync($"https://{host}/OAPI/V2/{path}?SESSION_ID={Uri.EscapeDataString(session!)}", body, cancellationToken);
+            var result = ParseSave(response.RootElement);
+            if (result.State == "Succeeded") lastSuccess = timeProvider.GetUtcNow();
+            return result;
+        }
+        catch (Exception)
+        {
+            // A lost or malformed response does not prove that the ERP rejected the row.
+            return new("Unknown");
+        }
+    }
+
+    private static JsonElement Envelope(JsonElement root)
+    {
+        if (root.GetProperty("Status").GetString() != "200" || root.GetProperty("Error").ValueKind != JsonValueKind.Null)
+            throw new InvalidOperationException("이카운트 응답 확인 필요");
+        return root.GetProperty("Data");
+    }
+
+    private static BusbarEcountResult ParseSave(JsonElement root)
+    {
+        var data = Envelope(root);
+        var success = data.GetProperty("SuccessCnt").GetInt32();
+        var failure = data.GetProperty("FailCnt").GetInt32();
+        var details = data.GetProperty("ResultDetails");
+        if (details.ValueKind != JsonValueKind.Array || details.GetArrayLength() != 1) return new("Unknown");
+        var detail = details[0];
+        var ok = detail.GetProperty("IsSuccess").GetBoolean();
+        var errors = detail.GetProperty("Errors");
+        if (errors.ValueKind != JsonValueKind.Array) return new("Unknown");
+        var slips = data.GetProperty("SlipNos");
+        if (success == 1 && failure == 0 && ok && errors.GetArrayLength() == 0
+            && slips.ValueKind == JsonValueKind.Array && slips.GetArrayLength() == 1)
+        {
+            var slip = slips[0].GetString();
+            if (!string.IsNullOrWhiteSpace(slip) && slip.Length <= 200 && !slip.Any(char.IsControl)) return new("Succeeded", slip);
+        }
+        if (success == 0 && failure == 1 && !ok && errors.GetArrayLength() > 0 && errors.EnumerateArray().All(IsValidationError)
+            && (slips.ValueKind == JsonValueKind.Null || (slips.ValueKind == JsonValueKind.Array && slips.GetArrayLength() == 0)))
+            return new("Failed");
+        return new("Unknown");
+    }
+
+    private static bool IsValidationError(JsonElement error) => error.ValueKind == JsonValueKind.Object
+        && error.TryGetProperty("ColCd", out var column) && column.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(column.GetString())
+        && error.TryGetProperty("Message", out var message) && message.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(message.GetString());
+
+    private async Task<JsonDocument> PostAsync(string url, object body, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        cancellationToken = timeout.Token;
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(body, options: JsonSerializerOptions.Default)
+        };
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.OK) throw new InvalidOperationException("이카운트 응답 확인 필요");
+        // Bound untrusted responses without keeping raw response bodies in persistent storage.
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[4096];
+        int count;
+        while ((count = await stream.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + count > 65536) throw new InvalidOperationException("이카운트 응답 확인 필요");
+            buffer.Write(chunk, 0, count);
+        }
+        return JsonDocument.Parse(buffer.ToArray());
+    }
+}

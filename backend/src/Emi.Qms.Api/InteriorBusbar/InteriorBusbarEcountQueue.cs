@@ -22,9 +22,15 @@ public sealed partial class InteriorBusbarStore
         return rows.Count > 0 && (bool)rows[0]["complete"]!;
     }
 
+    private static async Task<int> EcountShipped(NpgsqlConnection c, Guid project) => Convert.ToInt32((await Rows(c,
+        "select coalesce(sum(s.quantity) filter(where o.id is null),0) quantity from busbar_shipments s left join busbar_operations o on o.reverses_id=s.id where s.project_id=@id", ("id", project)))[0]["quantity"]);
+
     private static async Task SyncEcountSale(NpgsqlConnection c, Guid project)
     {
-        if (await EcountProjectComplete(c, project))
+        var complete = await EcountProjectComplete(c, project);
+        var shipped = await EcountShipped(c, project);
+        await Exec(c, "update busbar_ecount_jobs set needs_review=true,message='납품 상태 변경 확인 필요' where project_id=@id and kind='Sale' and state='Succeeded' and reviewed_shipped is not null and reviewed_shipped<>@shipped", ("id", project), ("shipped", shipped));
+        if (complete)
         {
             await EnqueueEcount(c, project, "Sale");
             await Exec(c, "update busbar_ecount_jobs set state='Pending',message=null,updated_at_utc=now() where project_id=@id and kind='Sale' and state='Held' and message='납품 미완료' and not needs_review", ("id", project));
@@ -33,11 +39,11 @@ public sealed partial class InteriorBusbarStore
         {
             await Exec(c, """
                 update busbar_ecount_jobs set
-                  needs_review=needs_review or state in ('InFlight','Succeeded','Unknown'),
+                  needs_review=needs_review or (state in ('InFlight','Succeeded','Unknown') and coalesce(reviewed_shipped,-1)<>@shipped),
                   state=case when state in ('Pending','Failed','Held') then 'Held' else state end,
                   message='납품 미완료',updated_at_utc=now()
                 where project_id=@id and kind='Sale'
-                """, ("id", project));
+                """, ("id", project), ("shipped", shipped));
         }
     }
 
@@ -53,7 +59,7 @@ public sealed partial class InteriorBusbarStore
             var settings = (await Rows(c, "select * from busbar_settings"))[0];
             await Exec(c, """
                 update busbar_ecount_jobs set needs_review=true,message='전송 후 기준정보 또는 프로젝트 변경 확인 필요',updated_at_utc=now()
-                where id=@id and exists(select 1 from busbar_ecount_attempts where id=current_attempt_id and payload<>@payload::jsonb)
+                where id=@id and exists(select 1 from busbar_ecount_attempts where id=current_attempt_id and coalesce(reviewed_payload, payload - 'ioDate' - 'ioType')<>@payload::jsonb)
                 """, ("id", Id(job)), ("payload", EcountPayload(project, family, settings)));
         }
     }
@@ -69,18 +75,63 @@ public sealed partial class InteriorBusbarStore
             customerCode = settings["ecountCustomerCode"], warehouseCode = settings["ecountWarehouseCode"],
             commonProjectCode = project["commonProjectCode"], quantity = project["requestedQuantity"], unitPrice = price,
             supplyAmount = supply, vatAmount = vat, totalAmount = supply + vat,
-            dueDate = project["dueDate"], currency = "KRW", vatRate = 0.1m
+            dueDate = project["dueDate"] is DateOnly date ? date : DateOnly.FromDateTime((DateTime)project["dueDate"]!), currency = "KRW", vatRate = 0.1m
         });
     }
 
     public Task<object> EcountStatus(Guid project) => ReadSnapshot<object>(async c =>
     {
         await One(c, "busbar_projects", project);
-        return new { transmissionEnabled = false, jobs = await Rows(c, """
+        var runtime = (await Rows(c, "select paused,message,environment from busbar_ecount_runtime"))[0];
+        return new { transmissionEnabled = ecountOptions?.Enabled == true, environment = runtime["environment"] ?? ecountOptions?.Environment, paused = runtime["paused"], connectionMessage = runtime["message"], jobs = await Rows(c, """
             select id,kind,state,needs_review,message,slip_number,updated_at_utc,
               (select count(*) from busbar_ecount_attempts a where a.job_id=j.id) attempt_count
             from busbar_ecount_jobs j where project_id=@project order by kind
             """, ("project", project)) };
+    });
+
+    public Task<bool> ResumeEcount(string reason, Guid actor) => Transaction(async c =>
+    {
+        Text(reason, "재개 사유");
+        var available = (await Rows(c, "select pg_try_advisory_xact_lock(9070095) available"))[0];
+        Require((bool)available["available"]!, "전송 처리 중입니다. 잠시 후 다시 확인하세요.");
+        Require(ecountOptions?.Enabled == true, "이카운트 연결 설정을 먼저 활성화하세요.");
+        var before = (await Rows(c, "select * from busbar_ecount_runtime"))[0];
+        await Exec(c, "update busbar_ecount_runtime set paused=false,message=null,consecutive_failures=0");
+        await Audit(c, "EcountConnection", Guid.Empty, actor, reason, before, new { paused = false });
+        return true;
+    });
+
+    // Manual ERP verification never changes the frozen request or sends a new request.
+    public Task<Guid> ReconcileEcount(Guid id, BusbarEcountReconcileRequest request, Guid actor) => Transaction(async c =>
+    {
+        Text(request.Reason, "확인 사유");
+        var available = (await Rows(c, "select pg_try_advisory_xact_lock(9070095) available"))[0];
+        Require((bool)available["available"]!, "전송 처리 중입니다. 잠시 후 다시 확인하세요.");
+        var before = await One(c, "busbar_ecount_jobs", id);
+        var state = (string)before["state"]!;
+        Require(request.Outcome is "Recorded" or "NotRecorded" or "Reviewed", "확인 결과를 선택하세요.");
+        Require(request.Outcome == "Reviewed" ? state == "Succeeded" && (bool)before["needsReview"]! : state == "Unknown", "현재 전송 상태에서는 확인 결과를 반영할 수 없습니다.");
+        if (request.Outcome == "Recorded") Text(request.SlipNumber, "이카운트 전표번호");
+        if (request.Outcome == "Reviewed")
+        {
+            var project = await One(c, "busbar_projects", Id(before, "projectId"));
+            var family = await One(c, "busbar_product_families", Id(project, "productFamilyId"));
+            var settings = (await Rows(c, "select * from busbar_settings"))[0];
+            await Exec(c, "update busbar_ecount_jobs set needs_review=false,message=null,reviewed_payload=@payload::jsonb,reviewed_shipped=@shipped,updated_at_utc=@now where id=@id",
+                ("payload", EcountPayload(project, family, settings)), ("shipped", await EcountShipped(c, Id(project))), ("now", timeProvider.GetUtcNow()), ("id", id));
+        }
+        else
+        {
+            var result = request.Outcome == "Recorded" ? "Succeeded" : "Failed";
+            var slip = request.Outcome == "Recorded" ? request.SlipNumber!.Trim() : null;
+            await Exec(c, "update busbar_ecount_attempts set state=@state,slip_number=@slip,finished_at_utc=@now where id=@attempt and state='Unknown'",
+                ("state", result), ("slip", slip), ("now", timeProvider.GetUtcNow()), ("attempt", before["currentAttemptId"]));
+            await Exec(c, "update busbar_ecount_jobs set state=@state,slip_number=@slip,needs_review=case when @state='Failed' then false else needs_review end,message=case when needs_review and @state='Succeeded' then message else '담당자 전표 확인 반영' end,updated_at_utc=@now where id=@id",
+                ("state", result), ("slip", slip), ("now", timeProvider.GetUtcNow()), ("id", id));
+        }
+        await Audit(c, "EcountJob", id, actor, request.Reason, before, new { request.Outcome, job = await One(c, "busbar_ecount_jobs", id) });
+        return id;
     });
 
     public Task<Guid> RetryEcount(Guid job, string reason, Guid actor) => Transaction(async c =>
@@ -95,8 +146,7 @@ public sealed partial class InteriorBusbarStore
         return job;
     });
 
-    // The authenticated provider adapter will call these methods. There is deliberately
-    // no background dispatcher or HTTP send until provider configuration is verified.
+    // Claims commit before the authenticated worker sends; attempt payloads remain immutable.
     internal Task<BusbarEcountAttempt?> ClaimEcountJob(Guid job) => Transaction<BusbarEcountAttempt?>(async c =>
     {
         var row = await One(c, "busbar_ecount_jobs", job);
@@ -128,7 +178,10 @@ public sealed partial class InteriorBusbarStore
         var now = timeProvider.GetUtcNow();
         var attempt = Guid.NewGuid();
         // Domain snapshot, not a wire request: final ERP amount policy is separate.
-        var payload = EcountPayload(project, family, settings);
+        var snapshot = System.Text.Json.Nodes.JsonNode.Parse(EcountPayload(project, family, settings))!;
+        snapshot["ioDate"] = now.ToOffset(TimeSpan.FromHours(9)).ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
+        snapshot["ioType"] = ecountOptions?.IoType;
+        var payload = snapshot.ToJsonString();
         await Exec(c, "insert into busbar_ecount_attempts(id,job_id,payload,state,started_at_utc) values(@attempt,@job,@payload::jsonb,'InFlight',@now)",
             ("attempt", attempt), ("job", job), ("payload", payload), ("now", now));
         await Exec(c, "update busbar_ecount_jobs set state='InFlight',current_attempt_id=@attempt,message=null,updated_at_utc=@now where id=@job",
@@ -148,6 +201,13 @@ public sealed partial class InteriorBusbarStore
             ("state", result.State), ("slip", result.SlipNumber), ("now", timeProvider.GetUtcNow()), ("id", attempt));
         await Exec(c, "update busbar_ecount_jobs set state=@state,slip_number=@slip,needs_review=case when @state='Failed' then false else needs_review end,message=case when needs_review and @state<>'Failed' then message else @message end,updated_at_utc=@now where id=@id",
             ("state", result.State), ("slip", result.SlipNumber), ("message", message), ("now", timeProvider.GetUtcNow()), ("id", Id(job)));
+        await Exec(c, """
+            update busbar_ecount_runtime set
+              consecutive_failures=case when @state='Succeeded' then 0 else consecutive_failures+1 end,
+              paused=paused or @state='Unknown' or (@state='Failed' and consecutive_failures>=2),
+              message=case when @state='Unknown' then '전표 생성 여부 확인 필요 · 자동 전송 중지'
+                when @state='Failed' and consecutive_failures>=2 then '전송 오류 3회 · 설정 확인 후 재개 필요' else message end
+            """, ("state", result.State));
         if (result.State == "Succeeded" && (string)job["kind"]! == "Order")
             await Exec(c, "update busbar_ecount_jobs set state='Pending',message=null where project_id=@project and kind='Sale' and state='Held' and message='주문서 전송 결과 확인 필요' and not needs_review", ("project", Id(job, "projectId")));
         return true;
@@ -161,6 +221,7 @@ public sealed partial class InteriorBusbarStore
             await Exec(c, "update busbar_ecount_attempts set state='Unknown' where id=(select current_attempt_id from busbar_ecount_jobs where id=@id)", ("id", Id(row)));
             await Exec(c, "update busbar_ecount_jobs set state='Unknown',message='전송 중단 · 전표 생성 여부 확인 필요',updated_at_utc=@now where id=@id", ("id", Id(row)), ("now", timeProvider.GetUtcNow()));
         }
+        if (stale.Count > 0) await Exec(c, "update busbar_ecount_runtime set paused=true,message='중단된 전송의 전표 생성 여부 확인 필요'");
         return stale.Count;
     });
 }

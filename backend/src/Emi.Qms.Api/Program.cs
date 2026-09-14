@@ -162,6 +162,7 @@ builder.Services.AddSingleton<ProcurementExcelParser>();
 builder.Services.AddSingleton<ProcurementStore>();
 builder.Services.AddSingleton<InteriorBusbarStore>();
 builder.Services.AddInteriorBusbarPublication(builder.Configuration);
+builder.Services.AddInteriorBusbarEcount(builder.Configuration);
 builder.Services.AddSingleton<MaterialsStore>();
 builder.Services.AddSingleton<PanelKittingStore>();
 builder.Services.AddSingleton<ManufacturingStore>();

@@ -4,7 +4,7 @@ using Npgsql;
 using QRCoder;
 namespace Emi.Qms.Api.InteriorBusbar;
 
-public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null)
+public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null, InteriorBusbarEcountOptions? ecountOptions = null)
 {
     // The same transaction lock fences inventory mutations and bounded external publication.
     // Checks, immutable ledger deltas and derived balances must commit together.
@@ -246,7 +246,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             customerCode = settings["ecountCustomerCode"], warehouseCode = settings["ecountWarehouseCode"],
             productCode = family["ecountProductCode"], commonProjectCode = project["commonProjectCode"],
             unitPrice = price, quantity, currency = "KRW", vatRate = 0.1m, supplyAmount = supply, vatAmount = vat,
-            totalAmount = supply + vat, missingFields = missing, transmissionEnabled = false };
+            totalAmount = supply + vat, missingFields = missing, transmissionEnabled = ecountOptions?.Enabled == true };
     });
 
     private static async Task<Guid> SaveProject(NpgsqlConnection c, BusbarProjectRequest r, Guid actor)

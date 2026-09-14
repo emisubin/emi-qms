@@ -1153,3 +1153,33 @@ test("ecount status blocks uncertain retries and records a reason for definite f
   await expect(page.getByRole("cell", {name:"전송 대기",exact:true})).toBeVisible();
   await expect(page.getByRole("button", {name:"다시 대기",exact:true})).toHaveCount(0);
 });
+
+
+test("ecount connection resumes separately and manual verification records checked slip", async ({page}) => {
+  const writes=await mock(page,fixture());
+  await page.route("**/api/interior-busbar/projects/*/commercial-preview",route=>route.fulfill({contentType:"application/json",body:JSON.stringify({unitPrice:12500,quantity:60,supplyAmount:750000,vatAmount:75000,totalAmount:825000,missingFields:[],transmissionEnabled:true})}));
+  await page.route("**/api/interior-busbar/projects/*/ecount-status",route=>route.fulfill({contentType:"application/json",body:JSON.stringify({transmissionEnabled:true,environment:"Test",paused:true,connectionMessage:"전표 생성 여부 확인 필요 · 자동 전송 중지",jobs:[
+    {id:projectId,kind:"Order",state:"Unknown",needsReview:false,message:"전표 생성 여부 확인 필요",slipNumber:null,attemptCount:1}
+  ]})}));
+  await page.goto("/interior-busbar");
+  await page.getByRole("tab",{name:"납품 프로젝트",exact:true}).click();
+  await page.getByText("합성 납품 현장",{exact:true}).click();
+  await expect(page.getByText("테스트 연결 · 자동 전송 중지",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"자동 전송 재개",exact:true}).click();
+  await page.getByLabel("재개 사유",{exact:true}).fill("합성 연결 설정 확인");
+  await page.getByRole("button",{name:"재개 요청",exact:true}).click();
+  await expect.poll(()=>writes.filter(w=>w.path.endsWith("/ecount/resume")).length).toBe(1);
+  await page.getByRole("button",{name:"전표 확인 반영",exact:true}).click();
+  await page.getByLabel("확인한 전표번호",{exact:true}).fill("SYN-ORDER-001");
+  await page.getByLabel("확인 사유",{exact:true}).fill("합성 이카운트 전표 조회 확인");
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.getByRole("heading",{name:"이카운트 주문·판매"}).scrollIntoViewIfNeeded();
+    await page.locator(".busbar-ecount-status").screenshot({path:`/private/tmp/emi-busbar-ecount-connection-${width}.png`});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  }
+  await page.getByRole("button",{name:"확인 반영",exact:true}).click();
+  await expect.poll(()=>writes.filter(w=>w.path.endsWith("/reconcile")).length).toBe(1);
+  expect(writes.find(w=>w.path.endsWith("/reconcile"))?.body).toEqual({outcome:"Recorded",slipNumber:"SYN-ORDER-001",reason:"합성 이카운트 전표 조회 확인"});
+  expect(writes.filter(w=>w.path.endsWith("/retry"))).toHaveLength(0);
+});

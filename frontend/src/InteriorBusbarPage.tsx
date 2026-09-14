@@ -1275,6 +1275,8 @@ function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId:
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [retry, setRetry] = useState<string>();
+  const [outcome, setOutcome] = useState<string>();
+  const [slip, setSlip] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -1284,20 +1286,22 @@ function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId:
   }, [userId, projectId, revision]);
   const names = { Pending: "전송 대기", Held: "보류", InFlight: "전송 중", Succeeded: "전송 완료", Failed: "전송 실패", Unknown: "결과 확인 필요" };
   return <div className="busbar-ecount-status"><h4>이카운트 주문·판매</h4>
-    <p className="busbar-note">실제 전송 연결 전입니다. 등록·납품 완료 시 전송 대기 내역을 보관합니다.</p>
+    <p className="busbar-note">{data?.transmissionEnabled ? `${data.environment === "Test" ? "테스트" : "운영"} 연결 · ${data.paused ? "자동 전송 중지" : "자동 전송 사용"}` : "실제 전송 연결 전입니다. 등록·납품 완료 시 전송 대기 내역을 보관합니다."}</p>
+    {data?.connectionMessage && <p role="status">{data.connectionMessage}</p>}
+    {canWrite && data?.transmissionEnabled && data.paused && <button disabled={saving} onClick={() => { setRetry("connection");setOutcome(undefined);setReason(""); }}>자동 전송 재개</button>}
     {error && <p role="alert">{error}</p>}
     {!data ? <p role="status">전송 상태 확인 중…</p> : <Table headings={["구분", "상태", "전표번호", "안내", "작업"]} rows={data.jobs.map(job => [
       job.kind === "Order" ? "주문서" : "판매", job.needsReview ? `${names[job.state]} · 변경 확인 필요` : names[job.state], job.slipNumber || "—", job.message || "—",
-      canWrite && !job.needsReview && (job.state === "Held" || job.state === "Failed") ? <button disabled={saving} onClick={() => {setRetry(job.id);setReason("");}}>다시 대기</button> : "—"
+      canWrite && !job.needsReview && (job.state === "Held" || job.state === "Failed") ? <button disabled={saving} onClick={() => {setRetry(job.id);setOutcome(undefined);setReason("");}}>다시 대기</button> : canWrite && (job.state === "Unknown" || job.state === "Succeeded" && job.needsReview) ? <button disabled={saving} onClick={() => {setRetry(job.id);setOutcome(job.state === "Unknown" ? "Recorded" : "Reviewed");setSlip("");setReason("");}}>전표 확인 반영</button> : "—"
     ])} />}
     <button disabled={saving} onClick={() => setRevision(value => value + 1)}>전송 상태 새로고침</button>
     {retry && canWrite && <form onSubmit={async event => {
       event.preventDefault(); if(saving || !reason.trim()) return;
       setSaving(true); setError("");
-      try { await busbarApi.write(userId, `/ecount-jobs/${retry}/retry`, {reason}); setRetry(undefined); setRevision(value => value + 1); }
-      catch { setError("다시 대기하지 못했습니다. 납품 상태와 전송 결과를 확인하세요."); }
+      try { await busbarApi.write(userId, retry === "connection" ? "/ecount/resume" : `/ecount-jobs/${retry}/${outcome ? "reconcile" : "retry"}`, outcome ? {reason, outcome, slipNumber: outcome === "Recorded" ? slip : null} : {reason}); setRetry(undefined); setRevision(value => value + 1); }
+      catch { setError(retry === "connection" ? "자동 전송을 재개하지 못했습니다. 연결 설정과 처리 상태를 확인하세요." : outcome ? "확인 결과를 반영하지 못했습니다. 현재 전송 상태를 확인하세요." : "다시 대기하지 못했습니다. 납품 상태와 전송 결과를 확인하세요."); }
       finally { setSaving(false); }
-    }}><label>다시 대기 사유<input required maxLength={200} value={reason} onChange={event => setReason(event.target.value)} /></label><div className="busbar-ecount-actions"><button disabled={saving}>대기 등록</button><button type="button" disabled={saving} onClick={() => setRetry(undefined)}>닫기</button></div></form>}
+    }}>{outcome && <><p className="busbar-note">이카운트에서 실제 전표를 확인한 결과를 입력하세요. 이미 보낸 전표의 변경은 이카운트에서 정정한 후 반영합니다.</p>{outcome !== "Reviewed" && <label>전표 확인 결과<select value={outcome} onChange={event => setOutcome(event.target.value)}><option value="Recorded">전표 있음</option><option value="NotRecorded">전표 없음</option></select></label>}{outcome === "Recorded" && <label>확인한 전표번호<input required maxLength={200} value={slip} onChange={event => setSlip(event.target.value)} /></label>}</>}<label>{retry === "connection" ? "재개 사유" : outcome ? "확인 사유" : "다시 대기 사유"}<input required maxLength={200} value={reason} onChange={event => setReason(event.target.value)} /></label><div className="busbar-ecount-actions"><button disabled={saving}>{retry === "connection" ? "재개 요청" : outcome ? "확인 반영" : "대기 등록"}</button><button type="button" disabled={saving} onClick={() => setRetry(undefined)}>닫기</button></div></form>}
   </div>;
 }
 
@@ -1316,7 +1320,7 @@ function CommercialPreview({ userId, projectId, revision }: { userId: string; pr
   return <div><h4>주문·판매 금액 확인</h4>
     <Table headings={["제품군 단가", "공급가액", "부가세 (10%)", "합계"]}
       rows={[[p.unitPrice, p.supplyAmount, p.vatAmount, p.totalAmount].map((v) => v == null ? "미설정" : `${n(v)}원`)]} />
-    <p className="busbar-note">원화·부가세 별도 · 실제 전송 연결 전입니다.{p.missingFields.length > 0 ? ` 설정 필요: ${p.missingFields.join(", ")}` : " 전송에 필요한 코드와 단가가 입력되어 있습니다."}</p>
+    <p className="busbar-note">원화·부가세 별도{!p.transmissionEnabled && " · 실제 전송 연결 전입니다."}{p.missingFields.length > 0 ? ` 설정 필요: ${p.missingFields.join(", ")}` : " 전송에 필요한 코드와 단가가 입력되어 있습니다."}</p>
   </div>;
 }
 

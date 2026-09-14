@@ -30,6 +30,8 @@ public static partial class AuditMutationRegistry
         POST /api/interior-busbar/workers
         POST /api/interior-busbar/boms
         POST /api/interior-busbar/projects
+        POST /api/interior-busbar/ecount-jobs/{id:guid}/reconcile
+        POST /api/interior-busbar/ecount/resume
         POST /api/interior-busbar/ecount-jobs/{id:guid}/retry
         POST /api/interior-busbar/plans
         POST /api/interior-busbar/purchases

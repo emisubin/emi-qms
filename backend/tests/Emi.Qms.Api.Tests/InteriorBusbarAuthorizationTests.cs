@@ -55,6 +55,8 @@ public sealed class InteriorBusbarAuthorizationTests
     [InlineData("POST", "/api/interior-busbar/workers")]
     [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001/ecount-status")]
     [InlineData("POST", "/api/interior-busbar/ecount-jobs/00000000-0000-0000-0000-000000000001/retry")]
+    [InlineData("POST", "/api/interior-busbar/ecount/resume")]
+    [InlineData("POST", "/api/interior-busbar/ecount-jobs/00000000-0000-0000-0000-000000000001/reconcile")]
     public async Task TrustedOsanContextCannotReadOrWriteCheongjuModule(string method, string path)
     {
         var http = new DefaultHttpContext();
@@ -103,6 +105,8 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/interior-busbar/workers", new BusbarMasterRequest(null, "W2", "Worker"), TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/interior-busbar/projects/{project}/ecount-status", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/interior-busbar/ecount-jobs/{Guid.NewGuid()}/retry", new BusbarEcountRetryRequest("Synthetic"), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/interior-busbar/ecount/resume", new BusbarEcountRetryRequest("Synthetic"), TestContext.Current.CancellationToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/interior-busbar/ecount-jobs/{Guid.NewGuid()}/reconcile", new BusbarEcountReconcileRequest("NotRecorded","Synthetic"), TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(1L, await fixture.Scalar("select count(*) from busbar_workers"));
     }
 

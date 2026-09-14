@@ -119,7 +119,7 @@ export type BusbarImport = {
   rows: Array<Record<string, unknown>>;
   errors: unknown[];
 };
-export type BusbarEcountStatus = { transmissionEnabled: boolean; jobs: Array<{ id: string; kind: "Order" | "Sale"; state: "Pending" | "Held" | "InFlight" | "Succeeded" | "Failed" | "Unknown"; needsReview: boolean; message: string | null; slipNumber: string | null; attemptCount: number }> };
+export type BusbarEcountStatus = { transmissionEnabled: boolean; paused?: boolean; environment?: string; connectionMessage?: string | null; jobs: Array<{ id: string; kind: "Order" | "Sale"; state: "Pending" | "Held" | "InFlight" | "Succeeded" | "Failed" | "Unknown"; needsReview: boolean; message: string | null; slipNumber: string | null; attemptCount: number }> };
 export type BusbarCommercialPreview = {
   unitPrice: number | null; quantity: number; supplyAmount: number | null;
   vatAmount: number | null; totalAmount: number | null; missingFields: string[];

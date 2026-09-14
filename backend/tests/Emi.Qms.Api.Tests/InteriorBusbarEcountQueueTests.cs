@@ -19,6 +19,69 @@ public sealed class InteriorBusbarEcountQueueTests
         JsonSerializer.SerializeToElement(await store.EcountStatus(project)).GetProperty("jobs").EnumerateArray().Single(j => j.GetProperty("kind").GetString() == kind);
 
     [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task ReviewedPartialShipmentFlagsFurtherPartialChangesWithoutResendingSale()
+    {
+        await using var f=await InteriorBusbarStoreTests.Fixture.Create();var (_,project)=await Setup(f);
+        var order=(await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();
+        var oa=(await f.Store.ClaimEcountJob(order))!;await f.Store.FinishEcountAttempt(oa.Id,new("Succeeded","SYN-O"));
+        var shipment=await f.Store.Shipment(new(Guid.NewGuid(),project,60),f.Actor);
+        var sale=(await Job(f.Store,project,"Sale")).GetProperty("id").GetGuid();
+        var sa=(await f.Store.ClaimEcountJob(sale))!;await f.Store.FinishEcountAttempt(sa.Id,new("Succeeded","SYN-S"));
+        await f.Store.Reverse(shipment,new(Guid.NewGuid(),"Synthetic correction"),f.Actor);
+        await f.Store.Shipment(new(Guid.NewGuid(),project,20),f.Actor);
+        await f.Store.ReconcileEcount(sale,new("Reviewed","Partial ERP correction checked"),f.Actor);
+        Assert.False((await Job(f.Store,project,"Sale")).GetProperty("needsReview").GetBoolean());
+        await f.Store.Settings(new("SYN-P","SYN-C","SYNWH"),f.Actor);
+        Assert.False((await Job(f.Store,project,"Sale")).GetProperty("needsReview").GetBoolean());
+        await f.Store.Shipment(new(Guid.NewGuid(),project,20),f.Actor);
+        Assert.True((await Job(f.Store,project,"Sale")).GetProperty("needsReview").GetBoolean());
+        Assert.Null(await f.Store.ClaimEcountJob(sale));
+        Assert.Equal(2,await f.Scalar("select count(*) from busbar_ecount_attempts"));
+    }
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task ManualVerificationPreservesSnapshotAndAcknowledgedChangesOnly()
+    {
+        await using var f=await InteriorBusbarStoreTests.Fixture.Create();
+        var (family,project)=await Setup(f);var job=(await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();
+        var attempt=(await f.Store.ClaimEcountJob(job))!;
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.ReconcileEcount(job,new("NotRecorded","Cannot reconcile inflight"),f.Actor));
+        await f.Store.FinishEcountAttempt(attempt.Id,new("Unknown"));
+        await f.Store.Master("product-families",new(family,"F","Synthetic",EcountProductCode:"SYN-F",StandardUnitPrice:200),f.Actor);
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.ReconcileEcount(job,new("Recorded","Missing slip"),f.Actor));
+        await f.Store.ReconcileEcount(job,new("Recorded","Verified existing ERP slip","SYN-SLIP"),f.Actor);
+        Assert.True((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.ReconcileEcount(job,new("NotRecorded","Cannot undo confirmed slip"),f.Actor));
+        await f.Store.ReconcileEcount(job,new("Reviewed","ERP amount manually corrected"),f.Actor);
+        await f.Store.Settings(new("SYN-P","SYN-C","SYNWH"),f.Actor);
+        Assert.False((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        Assert.Equal(100,await f.Scalar("select (payload->>'unitPrice')::numeric::bigint from busbar_ecount_attempts"));
+        Assert.Equal(2,await f.Scalar("select count(*) from busbar_audit where entity_kind='EcountJob'"));
+        Assert.Equal(1,await f.Scalar("select count(*) from busbar_ecount_runtime where paused"));
+        await f.Store.Master("product-families",new(family,"F","Synthetic",EcountProductCode:"SYN-F",StandardUnitPrice:300),f.Actor);
+        Assert.True((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        Assert.Null(await f.Store.ClaimEcountJob(job));
+    }
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task VerifiedAbsentSlipRequiresSeparateRetryAndWorkerLockRejectsReconciliation()
+    {
+        await using var f=await InteriorBusbarStoreTests.Fixture.Create();var (_,project)=await Setup(f);
+        var job=(await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();var attempt=(await f.Store.ClaimEcountJob(job))!;
+        await f.Store.FinishEcountAttempt(attempt.Id,new("Unknown"));
+        await using(var connection=new Npgsql.NpgsqlConnection(f.Connection))
+        {
+            await connection.OpenAsync(TestContext.Current.CancellationToken);
+            await InteriorBusbarStore.Exec(connection,"select pg_advisory_lock(9070095)");
+            try { await Assert.ThrowsAsync<BusbarException>(()=>f.Store.ReconcileEcount(job,new("NotRecorded","Worker busy"),f.Actor)); }
+            finally { await InteriorBusbarStore.Exec(connection,"select pg_advisory_unlock(9070095)"); }
+        }
+        await f.Store.ReconcileEcount(job,new("NotRecorded","No matching ERP slip verified"),f.Actor);
+        Assert.Equal("Failed",(await Job(f.Store,project,"Order")).GetProperty("state").GetString());
+        Assert.Null(await f.Store.ClaimEcountJob(job));
+        await f.Store.RetryEcount(job,"Verified retry",f.Actor);
+        Assert.NotNull(await f.Store.ClaimEcountJob(job));
+        Assert.Equal(2,await f.Scalar("select count(*) from busbar_ecount_attempts"));
+    }
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
     public async Task SplitShipmentsEnqueueOnceAndRecompletionReusesHeldSale()
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();

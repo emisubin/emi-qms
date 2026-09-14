@@ -20,7 +20,7 @@ server {
     listen 8080 default_server;
     server_name _;
 
-    client_max_body_size 34m;
+    client_max_body_size 42m;
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
     add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://login.microsoftonline.com https://*.microsoftonline.com https://graph.microsoft.com; frame-src https://login.microsoftonline.com https://*.microsoftonline.com; frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com; form-action 'self' https://login.microsoftonline.com; upgrade-insecure-requests" always;

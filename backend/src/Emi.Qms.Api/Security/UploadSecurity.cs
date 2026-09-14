@@ -44,6 +44,12 @@ public interface IUploadMalwareScanner
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class SanitizeImageMetadataAfterScanAttribute : Attribute;
 
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class UploadTotalSizeLimitAttribute(long maximumBytes) : Attribute
+{
+    public long MaximumBytes { get; } = maximumBytes;
+}
+
 public sealed class ClamAvUploadMalwareScanner(
     IOptions<UploadSecurityOptions> options,
     ILogger<ClamAvUploadMalwareScanner> logger) : IUploadMalwareScanner
@@ -161,6 +167,14 @@ public sealed class UploadSecurityMiddleware(
             return;
         }
 
+        var totalLimit = context.GetEndpoint()?.Metadata.GetMetadata<UploadTotalSizeLimitAttribute>()?.MaximumBytes;
+        if (totalLimit is not null && form.Files.Sum(file => file.Length) > totalLimit.Value)
+        {
+            await RejectAsync(context, StatusCodes.Status413PayloadTooLarge,
+                "사진 전체 크기가 허용량을 초과했습니다.", "사진 전체 크기는 40MiB 이하여야 합니다.");
+            return;
+        }
+
         foreach (var file in form.Files)
         {
             if (file.Length <= 0)
@@ -168,7 +182,7 @@ public sealed class UploadSecurityMiddleware(
                 continue;
             }
 
-            if (file.Length > configuration.MaximumFileBytes)
+            if (file.Length > (totalLimit ?? configuration.MaximumFileBytes))
             {
                 await RejectAsync(
                     context,

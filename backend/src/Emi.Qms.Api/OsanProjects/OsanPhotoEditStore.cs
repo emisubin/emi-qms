@@ -132,7 +132,7 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         await using(var reader=await cmd.ExecuteReaderAsync(ct))
             while(await reader.ReadAsync(ct)){found++;bytes+=reader.GetInt32(1);hashes.Add(reader.GetString(2));}
         if(found!=retained.Length || bytes>OsanProgressPhotoValidator.MaximumTotalBytes || hashes.Distinct().Count()!=hashes.Count)
-            return new(400,Message:"유지할 사진은 현재 단계 사진이어야 하며 중복 없이 전체 15MiB 이하여야 합니다.");
+            return new(400,Message:"유지할 사진은 현재 단계 사진이어야 하며 중복 없이 전체 40MiB 이하여야 합니다.");
         var photoIds=new List<Guid>(retained);var order=retained.Length;
         foreach(var p in input.Photos)
         {

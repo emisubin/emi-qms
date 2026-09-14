@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completionUnavailable, validateOsanPhotos, type OsanProgressTarget } from '../src/osanProgress';
+import { completionUnavailable, validateOsanRecord, validateOsanPhotos, type OsanProgressTarget } from '../src/osanProgress';
 function target(completed: number[] = []): OsanProgressTarget {
   return { targetId: 'one', sequenceNumber: 1, displayName: '제품 1', status: 'InProgress', version: 1, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null,
     steps: Array.from({ length: 7 }, (_, index) => ({ stepId: String(index), stepCode: String(index), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: index + 1, stepName: String(index + 1), status: completed.includes(index + 1) ? 'Completed' : 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) };
@@ -25,13 +25,17 @@ describe('사진 제한', () => {
   it('선택 첨부와 정확한 크기 경계를 허용한다', () => {
     expect(validateOsanPhotos([])).toBeNull();
     expect(validateOsanPhotos(Array.from({ length: 3 }, () => file(5 * 1024 * 1024)))).toBeNull();
-    expect(validateOsanPhotos([file(5 * 1024 * 1024 + 1)])).toContain('장당');
+    expect(validateOsanPhotos([file(40 * 1024 * 1024)])).toBeNull();
+    expect(validateOsanPhotos([file(8590934), file(9710149)])).toBeNull();
+    expect(validateOsanPhotos([file(40 * 1024 * 1024 + 1)])).toContain('전체');
+    expect(validateOsanPhotos([file(20 * 1024 * 1024), file(20 * 1024 * 1024)])).toBeNull();
   });
-  it('HEIC, 빈 파일, 개수 초과, 총량 초과를 구분한다', () => {
-    expect(validateOsanPhotos([file(1, 'image/heic')])).toContain('HEIC');
+  it('지원 형식, 빈 파일, 개수 초과, 총량 초과를 구분한다', () => {
+    expect(validateOsanPhotos([file(1, 'image/heic')])).toBeNull();
+    expect(validateOsanPhotos([file(1, 'image/gif')])).toContain('JPEG');
     expect(validateOsanPhotos([file(0)])).toContain('빈 파일');
     expect(validateOsanPhotos(Array.from({ length: 6 }, () => file(1)))).toContain('5장');
-    expect(validateOsanPhotos(Array.from({ length: 4 }, () => file(4 * 1024 * 1024)))).toContain('전체');
+    expect(validateOsanPhotos(Array.from({ length: 4 }, () => file(10 * 1024 * 1024 + 1)))).toContain('전체');
   });
 });
 
@@ -75,4 +79,11 @@ describe('동일 W/O 패널 API', () => {
       expect(new Headers(options?.headers).get('X-Dev-User')).toBe('dev-user');
     } finally { fetchMock.mockRestore(); resetBusinessUnitRequestContext(); }
   });
+});
+
+it('수정 시 유지 사진과 새 사진의 합계에 40MiB를 적용한다', () => {
+  const retained = [{ photoId: 'old', displayOrder: 1, fileName: 'old.jpg', contentType: 'image/jpeg', sizeBytes: 20 * 1024 * 1024, sha256: 'old', uploadedAtUtc: '', uploadedByUserId: '', uploadedByDisplayName: '' }];
+  const photo = new File([new Uint8Array(20 * 1024 * 1024)], 'new.jpg', { type: 'image/jpeg' });
+  expect(validateOsanRecord([photo], '', false, retained)).toBeNull();
+  expect(validateOsanRecord([photo], '', false, [{ ...retained[0], sizeBytes: retained[0].sizeBytes + 1 }])).toContain('40MiB');
 });

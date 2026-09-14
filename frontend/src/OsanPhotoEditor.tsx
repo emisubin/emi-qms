@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { OsanPhotoPreview } from './OsanPhotoPreview';
 import { SavedPhoto } from './OsanPhotoGallery';
 import { ApiError, fetchJson } from './api';
-import { validateOsanPhotos, validateOsanRecord, type OsanProgressTarget } from './osanProgress';
+import { validateOsanRecord, type OsanProgressTarget } from './osanProgress';
 
 interface EditRequest { requestId:string;targetId:string;stepId:string;requestedBy:string;requestedByName:string;
  requestedAt:string;approvedAt:string|null;approvedByName:string|null;usedAt:string|null;photoIds:string[];originalPhotoIds?:string[];invalidatedAt?:string|null }
 interface EditState {canApprove:boolean;currentUserId:string;items:EditRequest[]}
-function ImagePreview({file}:{file:File}){const [url,setUrl]=useState('');useEffect(()=>{const u=URL.createObjectURL(file);setUrl(u);return()=>URL.revokeObjectURL(u);},[file]);return url?<img src={url} alt={file.name}/>:null;}
 export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,onSaved}:{projectId:string;target:OsanProgressTarget;stage:number;userKey?:string;mutationAllowed:boolean;onSaved:()=>void}){
  const path=`/api/osan/projects/${encodeURIComponent(projectId)}/progress/photo-edits`;
  const [state,setState]=useState<EditState>();const [epoch,setEpoch]=useState(0);const [error,setError]=useState('');
@@ -54,13 +54,14 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
   {active?.approvedAt&&mutationAllowed&&!editing&&<button type="button" disabled={busy} onClick={()=>{setComment(step.comment??'');setRetained(step.photos.map(p=>p.photoId));setEditing(true);}}>사진 수정</button>}
   {editing&&<div><p>유지할 사진을 선택하고 새 사진을 추가해 주세요. 이전 사진과 코멘트는 이력에 보존됩니다.</p>
     <div className="osan-retained-photos">{step.photos.map(photo=><label key={photo.photoId}><input type="checkbox" checked={retained.includes(photo.photoId)} disabled={busy||submitted} onChange={e=>setRetained(ids=>e.target.checked?[...ids,photo.photoId]:ids.filter(id=>id!==photo.photoId))}/><span>사진 유지</span><SavedPhoto projectId={projectId} photo={photo} userKey={userKey}/></label>)}</div>
-    <label>사진 선택<input type="file" accept="image/jpeg,image/png" multiple disabled={busy||submitted||!mutationAllowed} onChange={e=>setFiles(Array.from(e.target.files??[]))}/></label>
-    <label>카메라 촬영<input type="file" accept="image/jpeg,image/png" capture="environment" disabled={busy||submitted||!mutationAllowed} onChange={e=>setFiles(Array.from(e.target.files??[]))}/></label>
-    <div className="osan-progress-photo-region">{files.map((f,i)=><ImagePreview key={i} file={f}/>)}</div>
+    <label>사진 선택<input type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple disabled={busy||submitted||!mutationAllowed} onChange={e=>setFiles(Array.from(e.target.files??[]))}/></label>
+    <label>카메라 촬영<input type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" capture="environment" disabled={busy||submitted||!mutationAllowed} onChange={e=>setFiles(Array.from(e.target.files??[]))}/></label>
+    <p>JPEG·PNG·HEIC 최대 5장, 유지할 사진과 새 사진 전체 40MiB. 원본을 저장합니다.</p>
+    <div className="osan-progress-photo-region">{files.map((f,i)=><OsanPhotoPreview key={`${f.name}:${f.lastModified}:${i}`} file={f} projectId={projectId} userKey={userKey} alt={f.name}/>)}</div>
     <label className="osan-comment-input">코멘트<textarea maxLength={1000} value={comment} disabled={busy||submitted} onChange={e=>setComment(e.target.value)}/><span>{comment.length} / 1000자</span></label>
     <button type="button" disabled={busy||!active||!mutationAllowed||!!validateOsanRecord(files,comment,!!state?.canApprove,step.photos.filter(p=>retained.includes(p.photoId)))} onClick={()=>void action('save')}>{busy?'저장 중…':submitted?'같은 사진으로 저장 재시도':'사진 변경 저장'}</button>
     <button type="button" disabled={busy||submitted||!mutationAllowed} onClick={()=>{setEditing(false);setFiles([]);}}>취소</button>
-    {validateOsanPhotos(files)&&<p role="alert">{validateOsanPhotos(files)}</p>}
+    {validateOsanRecord(files,comment,!!state?.canApprove,step.photos.filter(p=>retained.includes(p.photoId)))&&<p role="alert">{validateOsanRecord(files,comment,!!state?.canApprove,step.photos.filter(p=>retained.includes(p.photoId)))}</p>}
   </div>}
   {editing&&submitted&&state&&!active&&<p>승인이 사용되었거나 상태가 변경되었습니다. <button type="button" onClick={onSaved}>최신 사진 확인</button></p>}
   {error&&<p role="alert">{error} <button type="button" disabled={busy} onClick={()=>setEpoch(e=>e+1)}>승인 상태 새로고침</button></p>}

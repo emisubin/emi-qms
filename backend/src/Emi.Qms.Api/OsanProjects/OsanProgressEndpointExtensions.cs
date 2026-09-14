@@ -111,12 +111,46 @@ public static class OsanProgressEndpointExtensions
         })
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
         .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+        .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
         .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
         .WithName("CompleteOsanProgress");
+
+        progress.MapPost("/photo-preview", async (Guid projectId, HttpRequest request,
+            OsanProjectStore projectStore, DatabaseConnectionStringProvider connectionStringProvider,
+            ClaimsPrincipal user, CancellationToken cancellationToken) =>
+        {
+            var denied = await AuthorizeProjectAsync(projectId, QmsPermissions.ProjectRead, projectStore,
+                connectionStringProvider, user, cancellationToken);
+            if (denied is not null) return denied;
+            if (!request.HasFormContentType) return Results.BadRequest(new { message = "사진을 선택해 주세요." });
+            IFormCollection form;
+            try { form = await request.ReadFormAsync(cancellationToken); }
+            catch (Exception exception) when (exception is InvalidDataException or IOException or BadHttpRequestException)
+            { return Results.BadRequest(new { message = "사진 업로드 요청을 읽지 못했습니다. 다시 선택해 주세요." }); }
+            if (form.Files.Count != 1 || form.Files[0].Length is < 1 or > OsanProgressPhotoValidator.MaximumTotalBytes)
+                return Results.BadRequest(new { message = "40MiB 이하 사진 한 장을 선택해 주세요." });
+            var file = form.Files[0]; using var buffer = new MemoryStream((int)file.Length);
+            await file.CopyToAsync(buffer, cancellationToken);
+            var (photo, error) = await OsanProgressPhotoValidator.ValidateAsync(file.FileName, file.ContentType, buffer.ToArray(), cancellationToken);
+            if (photo is null) return Results.ValidationProblem(new Dictionary<string,string[]> { ["photos"] = [error!] });
+            try
+            {
+                var bytes = photo.NormalizedMime == "image/heic"
+                    ? await OsanHeicImageCodec.PreviewAsync(photo.Content, cancellationToken) : photo.Content;
+                return Results.Ok(new { contentType = photo.NormalizedMime == "image/heic" ? "image/jpeg" : photo.NormalizedMime, base64 = Convert.ToBase64String(bytes) });
+            }
+            catch (InvalidDataException) { return Results.BadRequest(new { message = "사진 미리보기를 만들 수 없습니다. 사진을 다시 선택해 주세요." }); }
+        })
+        .RequireAuthorization()
+        .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+        .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
+        .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
+        .WithName("PreviewOsanProgressPhoto");
 
         progress.MapGet("/photos/{photoId:guid}", async (
             Guid projectId,
             Guid photoId,
+            bool? preview,
             OsanProgressStore store,
             OsanProjectStore projectStore,
             DatabaseConnectionStringProvider connectionStringProvider,
@@ -136,9 +170,13 @@ public static class OsanProgressEndpointExtensions
             }
 
             var photo = await store.GetPhotoAsync(projectId, photoId, cancellationToken);
-            return photo is null
-                ? Results.NotFound()
-                : Results.File(photo.Content, photo.ContentType);
+            if (photo is null) return Results.NotFound();
+            if (preview == true && photo.ContentType == "image/heic")
+            {
+                try { return Results.File(await OsanHeicImageCodec.PreviewAsync(photo.Content, cancellationToken), "image/jpeg"); }
+                catch (InvalidDataException) { return Results.BadRequest(new { message = "사진 미리보기를 만들 수 없습니다." }); }
+            }
+            return Results.File(photo.Content, photo.ContentType);
         })
         .RequireAuthorization()
         .WithName("DownloadOsanProgressPhoto");
@@ -240,10 +278,11 @@ public static class OsanProgressEndpointExtensions
         }
         if (form.Files.Sum(file => file.Length) > OsanProgressPhotoValidator.MaximumTotalBytes)
         {
-            errors["photos"] = ["사진 전체 크기는 15MiB 이하여야 합니다."];
+            errors["photos"] = ["사진 전체 크기는 40MiB 이하여야 합니다."];
         }
 
         var photos = new List<OsanProgressPhotoInput>();
+        long totalRead = 0;
         if (!errors.ContainsKey("photos"))
         {
             foreach (var file in form.Files)
@@ -253,16 +292,15 @@ public static class OsanProgressEndpointExtensions
                     errors["photos"] = ["사진 파일 필드 이름은 photos여야 합니다."];
                     break;
                 }
-                if (file.Length is < 1 or > OsanProgressPhotoValidator.MaximumPhotoBytes)
+                if (file.Length < 1)
                 {
-                    errors["photos"] = ["사진은 장당 5MiB 이하여야 합니다."];
+                    errors["photos"] = ["빈 사진 파일은 첨부할 수 없습니다."];
                     break;
                 }
 
                 await using var input = file.OpenReadStream();
                 using var buffer = new MemoryStream((int)file.Length);
                 var chunk = new byte[81920];
-                long totalRead = 0;
                 while (true)
                 {
                     var read = await input.ReadAsync(chunk, cancellationToken);
@@ -271,9 +309,9 @@ public static class OsanProgressEndpointExtensions
                         break;
                     }
                     totalRead += read;
-                    if (totalRead > OsanProgressPhotoValidator.MaximumPhotoBytes)
+                    if (totalRead > OsanProgressPhotoValidator.MaximumTotalBytes)
                     {
-                        errors["photos"] = ["사진은 장당 5MiB 이하여야 합니다."];
+                        errors["photos"] = ["사진 전체 크기는 40MiB 이하여야 합니다."];
                         break;
                     }
                     buffer.Write(chunk, 0, read);

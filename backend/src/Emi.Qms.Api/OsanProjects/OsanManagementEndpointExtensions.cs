@@ -80,6 +80,7 @@ public static class OsanManagementEndpointExtensions
                 ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, user.IsInRole(QmsRoles.SystemAdministrator)));
         }).RequireAuthorization(QmsPolicies.ManufacturingUpdate)
           .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+        .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
           .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
           .WithName("SaveOsanProgressPhotoEdit");
         api.MapGet("/progress/steps/{stepId:guid}/history", async (Guid projectId,Guid stepId,OsanProgressStore store,

@@ -1,0 +1,5 @@
+/* Allow normal vertical scrolling and horizontal photo swipes, without page zoom. */
+html.pms-installed, .pms-installed body { touch-action: pan-x pan-y; }
+@media (pointer: coarse) {
+  .pms-installed body :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, select) { font-size: max(16px, 1em) !important; }
+}

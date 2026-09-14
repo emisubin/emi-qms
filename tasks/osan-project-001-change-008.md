@@ -446,3 +446,24 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 - 사용자 두 변경 함께 원격 main 병합·공개배포 명시 승인. 사진 Change 002와 통합, 기존 공개 main d76790e 기준.
 - HOLD 0099 유지, 미배포 사진 migration 번호를 0100(40MiB), 0101(HEIC)로 정리. 충돌 2파일 해소, 자동 병합 endpoint 계약 확인.
 - 통합 FE44개·typecheck 및 격리 DB/API26개 통과(실패/skip0). 독립 코드 검토 GO. Linux HEIC·실제 ClamAV 한도 및 required CI 확인 후 배포.
+
+## 통합 공개배포 완료 (2026-09-14)
+- PR142 정상 병합, main `42d77466b2781ee2e5c336db25b5d7568c9bad1a`. 보호 규칙 변경 없음.
+- PR CI34796615123: Backend668, Frontend456, mockE2E16, full-stack64, 사업부1, 오산1 모두 PASS. main CI34798885863 PASS.
+- 동일 pinned Linux/amd64 AzureLinux distroless·Magick14.17.1에서 합성HEIC decode/sRGB/JPEG표시 PASS. pinnedClamAV 스트림/파일 한도 각100MiB 확인. 독립review 조건 해소, 미해결P1/P2없음. 통합PC1440/mobile390 직접 확인.
+- 공식 Azure34798945045 PASS: migration·Backend·Frontend·PublicSecurity 성공. 추가0099/0100/0101 적용, bootstrap/backfill/reset 미실행. Backend53·Frontend45 latest=ready Running. 배포 전후 두 앱 env 전체 동일. public health200, 익명api/me401.
+- 공개 로그인·오산 목록122개·기존 패널 완료 기록 및 사진 로딩 확인. 전체 운영 데이터의 전후행단위 동일성 검증은 하지 않았으며 운영 시험등록/삭제도 하지 않음.
+- 실제 아이폰 PWA QR 및 실제 사용자 HEIC 파일 검수는 남은 실기기 확인 한계.
+
+## QR 조회·인식 및 앱 화면 후속 (2026-09-14)
+사용자 구현 승인: 완료 QR단계는 사진·코멘트 우선, 설명/안내사진 기본접힘. 작은QR 인식 보정, PC진행목록 긴 이름 줄바꿈, 설치형PWA만 페이지확대제한(일반브라우저확대/스크롤/사진크게보기 유지). 기존 QR·권한·DB·라벨30/50mm와 하단3줄 보존. 관련 단위/브라우저검증 후 로컬검수; 이번 후속 원격/배포 승인은 없음.
+
+- 구현: QR 완료 단계 설명을 기본 접힌 details로 바꾸고 완료 코멘트를 표시. PC 목록 이름을 모바일처럼 줄바꿈하며 카드 높이를 내용에 맞춤. QR 카메라 안내영역과 실제 중앙 인식영역을 맞추고 확대/원본 해상도 타일을 순환 판독하며 지원 기기의 연속초점·배율 조절을 추가. 이전 카메라의 늦은 응답이 새 카메라를 건드리지 않도록 소유 track을 분리. standalone/iOS 설치앱에서만 페이지 확대를 제한하고 일반 탭은 원래 viewport/제스처를 유지.
+- 검증: QR 페이지·스캐너·독립 QR 이미지 디코드·PWA 모드 분기 23건 PASS, TypeScript build PASS, Vite build PASS. 변경 TS lint 오류0(기존 main Fast Refresh 경고1), 기존 번들 크기 경고 유지. 모바일390×844에서 완료 설명 접힘/펼침·안내사진·완료사진·코멘트 표시, PC1440×1000 목록 이름/단계/스텝퍼 배치를 직접 확인. 긴 실제 운영 이름 및 실제 아이폰 카메라/설치앱 제스처는 미검증.
+- 독립 검토: 늦은 카메라 요청의 경쟁 조건 P2 보정 및 회귀 테스트 확인 후 종결, 미해결 P1/P2 없음. 실제30/50mm 인쇄물 스캔 성공률은 실기기 검수 전이므로 완전 해결로 보고하지 않음. 이번 후속은 로컬 구현/검증/커밋까지이며 원격 반영·공개배포·운영 데이터 변경 없음.
+
+## Windows PWA 기존 창 재사용 후속 (2026-09-14)
+- 사용자 메일/브라우저 앱 열기 중복 창 수정 승인. manifest launch_handler를 navigate-existing으로 지정하여 지원 브라우저의 동일 설치앱 실행 시 기존 창에서 요청 URL로 이동하도록 함. 앱 id/start_url/scope 유지, 브라우저 간 설치 제한은 범위 제외.
+- 알림 클릭을 직렬화하고 새 창이 아직 matchAll에 나타나지 않아도 반환받은 client를 재사용. 닫힌 창/이전 실행 실패는 후속 클릭을 막지 않으며 외부·잘못된 URL은 PMS 알림 목록으로 대체. 기존 앱 내부 QR/메뉴 이동 및 Teams 외부 열기 흐름 보존.
+- 실제 worker 실행을 포함한 관련 테스트7건 PASS, TypeScript build PASS, Vite build PASS(기존 번들 크기 경고). UI 디자인 변경 없음. Windows 설치앱 메일/주소창버튼/작업표시줄 실기기 검수는 미실행이며 설치앱이 갱신된 manifest를 받은 후 확인 필요. 다른 브라우저/프로필 설치앱 사이의 창 공유는 보장하지 않음. 원격 반영·공개배포 미실행.
+- 독립 reviewer 실제 diff/테스트 검토 GO, 추가 P1/P2 없음. 모의 브라우저 API 테스트와 Windows 실환경 확인의 경계를 유지한다.

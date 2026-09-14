@@ -19,17 +19,28 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+// Serialize clicks so an in-flight launch is reused by the next notification.
+let notificationNavigation = Promise.resolve(null);
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url || '/notifications', self.location.origin).href;
-  event.waitUntil((async () => {
+  let target = new URL('/notifications', self.location.origin);
+  try {
+    const requested = new URL(event.notification.data?.url || '/notifications', self.location.origin);
+    if (requested.origin === self.location.origin) target = requested;
+  } catch { /* Invalid notification links fall back to the notification list. */ }
+  const targetUrl = target.href;
+  notificationNavigation = notificationNavigation.catch(() => null).then(async (previousClient) => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // A newly opened window may not yet appear in matchAll.
+    if (previousClient && !windows.some(client => client.id === previousClient.id)) windows.unshift(previousClient);
     for (const client of windows) {
-      if ('focus' in client) {
-        await client.navigate(targetUrl);
-        return client.focus();
-      }
+      if (new URL(client.url).origin !== self.location.origin || !('focus' in client)) continue;
+      try {
+        const navigated = await client.navigate(targetUrl);
+        if (navigated) return await navigated.focus();
+      } catch { /* A closed window must not prevent the remaining candidates from opening. */ }
     }
     return self.clients.openWindow(targetUrl);
-  })());
+  });
+  event.waitUntil(notificationNavigation);
 });

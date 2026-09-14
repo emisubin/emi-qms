@@ -66,3 +66,18 @@ it('패널 QR은 해당 패널만 표시하고 잘못된 대상이면 다른 패
   expect(await screen.findByRole('alert')).toHaveTextContent('찾을 수 없는 패널');
   expect(screen.queryByRole('button',{name:/패널 1 .* 기록/})).not.toBeInTheDocument();
 });
+
+it('완료 단계 설명은 기본 접힘이고 저장 코멘트를 표시한다', async () => {
+  const response = await vi.mocked(getOsanProgress)('a');
+  response.targets[0].steps[0].comment = '최종 저장 코멘트';
+  response.targets[0].steps[1].status = 'Completed';
+  render(<OsanQrPage projectId="a" />);
+  fireEvent.click(await screen.findByRole('button', { name: '패널 1 입고검사 완료 기록' }));
+  const details = screen.getByText('작업 설명', { selector: 'summary' }).parentElement!;
+  expect(details).not.toHaveAttribute('open'); expect(screen.getByText('최종 저장 코멘트')).toBeVisible();
+  details.setAttribute('open', '');
+  fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+  fireEvent.click(screen.getByRole('button', { name: '패널 1 배치검사 완료 기록' }));
+  expect(screen.getByText('작업 설명', { selector: 'summary' }).parentElement).not.toHaveAttribute('open');
+  expect(screen.getByText('등록된 코멘트가 없습니다.')).toBeVisible();
+});

@@ -54,11 +54,31 @@ it('bounds portrait and landscape decoding and retains full-frame coverage', () 
   for (const [width, height] of [[1920, 1080], [1080, 1920], [3840, 2160], [640, 480]]) {
     const regions = qrScanRegions(width, height);
     for (const r of regions) {
-      expect(Math.max(r.width, r.height)).toBeLessThanOrEqual(960);
+      expect(Math.max(r.width, r.height)).toBeLessThanOrEqual(1920);
       expect(r.x).toBeGreaterThanOrEqual(0); expect(r.y).toBeGreaterThanOrEqual(0);
       expect(r.x + r.sourceWidth).toBeLessThanOrEqual(width);
       expect(r.y + r.sourceHeight).toBeLessThanOrEqual(height);
     }
     expect(regions[1]).toMatchObject({ x: 0, y: 0, sourceWidth: width, sourceHeight: height });
   }
+});
+
+it('reads a small QR outside the centre guide through a native fallback tile', () => {
+  const width = 1920, height = 1080, left = 499, top = 189;
+  const pixels = new Uint8ClampedArray(width * height * 4).fill(255);
+  fixture.rows.forEach((row, y) => [...row].forEach((v, x) => {
+    if (v !== '1') return;
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+      const offset = ((top + y * 2 + dy) * width + left + x * 2 + dx) * 4;
+      pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = 0;
+    }
+  }));
+  const region = qrScanRegions(width, height).slice(2).find(r => r.width === r.sourceWidth && r.x <= left && r.y <= top && r.x + r.width >= left + fixture.rows.length * 2 && r.y + r.height >= top + fixture.rows.length * 2)!;
+  expect(region).toBeDefined();
+  const crop = new Uint8ClampedArray(region.width * region.height * 4);
+  for (let y = 0; y < region.height; y++) {
+    const start = ((y + region.y) * width + region.x) * 4;
+    crop.set(pixels.subarray(start, start + region.width * 4), y * region.width * 4);
+  }
+  expect(decode(crop, region.width, region.height)?.data).toBe(fixture.text);
 });

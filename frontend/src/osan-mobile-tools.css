@@ -38,3 +38,9 @@
 .app-shell .osan-scan-camera { background: #252525 !important; border-radius: 8px !important; }
 .app-shell .osan-scan-frame i { border-color: #da2127 !important; }
 .app-shell .osan-scan-retry { background: #da2127 !important; color: #fff !important; border-radius: 7px !important; }
+
+/* Square cover maps the 65% guide to 65% of the camera short side. */
+.osan-scan-camera { aspect-ratio: 1; max-height: none; }
+.osan-scan-camera video { object-fit: cover; }
+.osan-scan-zoom { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
+.osan-scan-zoom input { flex: 1; min-width: 0; }

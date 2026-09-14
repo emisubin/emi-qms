@@ -1,3 +1,5 @@
+import { installPwaViewport } from './pwaViewport';
+import './pwa-viewport.css';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MsalProvider } from '@azure/msal-react';
@@ -15,6 +17,9 @@ import './design-system/tokens.css';
 import './design-system/wireframe.css';
 import './osan-progress.css';
 import './auth-figma.css';
+
+const disposeViewport = installPwaViewport();
+if (import.meta.hot) import.meta.hot.dispose(disposeViewport);
 
 const root = createRoot(document.getElementById('root')!);
 

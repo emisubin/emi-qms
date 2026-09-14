@@ -6,6 +6,9 @@ import './osan-mobile-tools.css';
 export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan: (projectId: string, targetId: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const cameraTrack = useRef<MediaStreamTrack | undefined>(undefined);
+  const [zoom, setZoom] = useState<{ min: number; max: number; step: number; value: number }>();
+  const [zoomBusy, setZoomBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [message, setMessage] = useState('카메라를 준비하고 있습니다.');
   const [failed, setFailed] = useState(false);
@@ -15,17 +18,30 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
   useEffect(() => {
     let disposed = false;
     let stream: MediaStream | undefined;
+    let ownedTrack: MediaStreamTrack | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = () => { if (timer) clearTimeout(timer); stream?.getTracks().forEach(track => track.stop()); };
+    const stop = () => { if (timer) clearTimeout(timer); stream?.getTracks().forEach(track => track.stop()); if (ownedTrack && cameraTrack.current === ownedTrack) cameraTrack.current = undefined; };
     const fail = (text: string) => { stop(); if (!disposed) { setMessage(text); setFailed(true); } };
     const visibility = () => { if (document.hidden) { disposed = true; stop(); setMessage('스캔이 일시 중지되었습니다. 다시 시작해주세요.'); setFailed(true); } };
     document.addEventListener('visibilitychange', visibility);
     async function start() {
-      setFailed(false); setMessage('카메라를 준비하고 있습니다.');
+      setFailed(false); setZoom(undefined); setZoomBusy(false); setMessage('카메라를 준비하고 있습니다.');
       if (!navigator.mediaDevices?.getUserMedia) { fail('카메라를 사용할 수 없습니다. HTTPS로 접속했는지 확인해주세요.'); return; }
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
         if (disposed) { stop(); return; }
+        const track = stream.getVideoTracks?.()[0];
+        ownedTrack = track;
+        cameraTrack.current = track;
+        const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { zoom?: { min: number; max: number; step: number }; focusMode?: string[] }) | undefined;
+        if (track && capabilities?.focusMode?.includes('continuous')) {
+          try { await track.applyConstraints({ ...track.getConstraints(), advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }); } catch { /* Optional capability: continue with camera defaults. */ }
+        }
+        if (disposed) { stop(); return; }
+        if (track && capabilities?.zoom && capabilities.zoom.max > capabilities.zoom.min) {
+          const current = (track.getSettings() as MediaTrackSettings & { zoom?: number }).zoom ?? capabilities.zoom.min;
+          setZoom({ ...capabilities.zoom, step: capabilities.zoom.step || 0.1, value: current });
+        }
         const element = video.current;
         if (!element) { stop(); return; }
         element.srcObject = stream;
@@ -36,6 +52,7 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
         const context = canvas.getContext('2d', { willReadFrequently: true });
         if (!context) { fail('카메라 영상을 읽을 수 없습니다. 다시 시도해주세요.'); return; }
         setMessage('QR 코드를 찾고 있습니다.');
+        let frame = 0;
         const scan = () => {
           if (disposed) return;
           try {
@@ -43,8 +60,12 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
               // Read the central label at camera resolution before reducing the full frame.
               // Small, dense printed panel URLs lose modules in a single full-frame resize.
               let result: ReturnType<typeof decode> = null;
-              for (const region of qrScanRegions(element.videoWidth, element.videoHeight)) {
+              const regions = qrScanRegions(element.videoWidth, element.videoHeight);
+              const extra = regions.slice(2);
+              const passes = [...regions.slice(0, 2), ...(extra.length ? [extra[frame++ % extra.length]] : [])];
+              for (const region of passes) {
                 canvas.width = region.width; canvas.height = region.height;
+                context.imageSmoothingEnabled = false;
                 context.drawImage(element, region.x, region.y, region.sourceWidth, region.sourceHeight, 0, 0, region.width, region.height);
                 const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
                 result = decode(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' });
@@ -69,10 +90,21 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
     void start();
     return () => { disposed = true; stop(); document.removeEventListener('visibilitychange', visibility); };
   }, [attempt]);
+  async function changeZoom(value: number) {
+    const track = cameraTrack.current;
+    if (!track || !zoom || zoomBusy) return;
+    setZoomBusy(true);
+    try {
+      await track.applyConstraints({ ...track.getConstraints(), advanced: [{ zoom: value } as MediaTrackConstraintSet] });
+      if (cameraTrack.current === track) setZoom({ ...zoom, value });
+    } catch { if (cameraTrack.current === track) setMessage('이 카메라에서는 배율을 변경할 수 없습니다. 거리를 조절해 주세요.'); }
+    finally { if (cameraTrack.current === track) setZoomBusy(false); }
+  }
   return <dialog ref={dialog} className="osan-scan-dialog" aria-labelledby="osan-scan-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2 id="osan-scan-title">QR 스캔</h2><button type="button" onClick={onClose}>닫기</button></header>
     <div className="osan-scan-body"><p>패널의 QR 코드를 중앙 표시 안에 맞춰주세요.</p>
       <div className="osan-scan-camera"><video ref={video} muted playsInline aria-label="QR 스캔 카메라" /><div className="osan-scan-frame" aria-hidden="true"><i/><i/><i/><i/></div></div>
+      {zoom && !failed && <label className="osan-scan-zoom">카메라 배율 {zoom.value.toFixed(1)}×<input aria-label="카메라 배율" type="range" min={zoom.min} max={Math.max(zoom.min, Math.min(zoom.max, 4))} step={zoom.step} value={zoom.value} disabled={zoomBusy} onChange={e => void changeZoom(Number(e.target.value))} /></label>}
       <p className="osan-scan-status" role={failed ? 'alert' : 'status'}>{message}</p>
       {!failed && <p className="osan-scan-hint">QR이 흐리면 조금 떨어뜨려 초점을 맞춰주세요. 인식하면 자동 이동합니다.</p>}
       {failed && <button type="button" className="osan-scan-retry" onClick={() => setAttempt(value => value + 1)}>다시 시도</button>}

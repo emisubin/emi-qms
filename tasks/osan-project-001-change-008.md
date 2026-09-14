@@ -446,3 +446,11 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 - 사용자 두 변경 함께 원격 main 병합·공개배포 명시 승인. 사진 Change 002와 통합, 기존 공개 main d76790e 기준.
 - HOLD 0099 유지, 미배포 사진 migration 번호를 0100(40MiB), 0101(HEIC)로 정리. 충돌 2파일 해소, 자동 병합 endpoint 계약 확인.
 - 통합 FE44개·typecheck 및 격리 DB/API26개 통과(실패/skip0). 독립 코드 검토 GO. Linux HEIC·실제 ClamAV 한도 및 required CI 확인 후 배포.
+
+## 통합 공개배포 완료 (2026-09-14)
+- PR142 정상 병합, main `42d77466b2781ee2e5c336db25b5d7568c9bad1a`. 보호 규칙 변경 없음.
+- PR CI34796615123: Backend668, Frontend456, mockE2E16, full-stack64, 사업부1, 오산1 모두 PASS. main CI34798885863 PASS.
+- 동일 pinned Linux/amd64 AzureLinux distroless·Magick14.17.1에서 합성HEIC decode/sRGB/JPEG표시 PASS. pinnedClamAV 스트림/파일 한도 각100MiB 확인. 독립review 조건 해소, 미해결P1/P2없음. 통합PC1440/mobile390 직접 확인.
+- 공식 Azure34798945045 PASS: migration·Backend·Frontend·PublicSecurity 성공. 추가0099/0100/0101 적용, bootstrap/backfill/reset 미실행. Backend53·Frontend45 latest=ready Running. 배포 전후 두 앱 env 전체 동일. public health200, 익명api/me401.
+- 공개 로그인·오산 목록122개·기존 패널 완료 기록 및 사진 로딩 확인. 전체 운영 데이터의 전후행단위 동일성 검증은 하지 않았으며 운영 시험등록/삭제도 하지 않음.
+- 실제 아이폰 PWA QR 및 실제 사용자 HEIC 파일 검수는 남은 실기기 확인 한계.

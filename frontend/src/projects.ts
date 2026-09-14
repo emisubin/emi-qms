@@ -17,6 +17,7 @@ export interface OsanProjectListResponse {
 }
 
 export interface OsanProjectListItem {
+  deliveryHold?: boolean;
   completedStepCount: number;
   totalStepCount: number;
   projectId: string;

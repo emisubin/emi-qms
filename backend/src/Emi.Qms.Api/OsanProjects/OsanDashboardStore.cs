@@ -75,7 +75,7 @@ public sealed class OsanDashboardStore(
             project.CompletedStepCount,
             project.TotalStepCount,
             ProgressPercent(project.Status, project.CompletedStepCount, project.TotalStepCount),
-            stages.GetValueOrDefault(project.ProjectId, [])))
+            stages.GetValueOrDefault(project.ProjectId, []), project.DeliveryHold))
             .ToArray();
         return new OsanDashboardResponse(summary, items, totalCount, query.Page, query.PageSize, customers);
     }
@@ -139,7 +139,7 @@ public sealed class OsanDashboardStore(
         await using var command = CreateScopedCommand(connection, transaction, scope, $"""
             select project_id, title, project_code, customer_name, product_name,
                    po_number, work_order_number, quantity, delivery_date, progress_status,
-                   completed_step_count, total_step_count
+                   completed_step_count, total_step_count, osan_delivery_hold
             from scoped_projects
             {statusFilter}
             order by {ordering}
@@ -164,7 +164,7 @@ public sealed class OsanDashboardStore(
                 reader.GetFieldValue<DateOnly>(8),
                 reader.GetString(9),
                 reader.GetInt32(10),
-                reader.GetInt32(11)));
+                reader.GetInt32(11), reader.GetBoolean(12)));
         }
         return result;
     }
@@ -240,7 +240,7 @@ public sealed class OsanDashboardStore(
                        projects.osan_po_number as po_number,
                        projects.osan_work_order_number as work_order_number,
                        projects.osan_quantity as quantity,
-                       projects.delivery_date,
+                       projects.delivery_date, projects.osan_delivery_hold,
                        case
                            when projects.status = 'Completed' then '{OsanDashboardStatuses.Completed}'
                            when progress.completed_step_count > 0 then '{OsanDashboardStatuses.InProgress}'
@@ -278,6 +278,7 @@ public sealed class OsanDashboardStore(
         var parameters = new List<NpgsqlParameter>();
         if (view == OsanDashboardViews.Home)
         {
+            where.Add("not projects.osan_delivery_hold");
             where.Add("not (projects.delivery_date < @today and projects.status = 'Completed')");
             parameters.Add(new NpgsqlParameter("today", NpgsqlDbType.Date) { Value = today });
         }
@@ -358,5 +359,5 @@ public sealed class OsanDashboardStore(
         DateOnly DeliveryDate,
         string Status,
         int CompletedStepCount,
-        int TotalStepCount);
+        int TotalStepCount, bool DeliveryHold);
 }

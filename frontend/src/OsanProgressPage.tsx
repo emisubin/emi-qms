@@ -1,3 +1,4 @@
+import { nextOsanWork } from './osanNextWork';
 import { dismissOnBackdrop } from './dialogBackdrop';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
@@ -25,6 +26,8 @@ function Preview({ file }: { file: File }) {
   return url ? <img src={url} alt={`${file.name} 미리보기`} /> : null;
 }
 function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, developmentUserKey, mutationAllowed, onBack, onOpenTarget }: OsanProgressPageProps) {
+  const initialized = useRef(false);
+  const entryIsMobile = useRef(!(window.matchMedia?.('(min-width: 861px)').matches ?? false));
   const [project, setProject] = useState<OsanProgressDetail>();
   const [relatedPanels, setRelatedPanels] = useState<OsanRelatedPanel[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -63,8 +66,20 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       getOsanRelatedPanels(projectId, developmentUserKey, controller.signal)
     ]).then(([result, related]) => {
       if (!current) return;
+      if (initialTargetId && !result.targets.some(target => target.targetId === initialTargetId)) {
+        setProject(undefined); setSelectedIds([]); setLoadError('해당 패널을 찾을 수 없습니다. QR이 유효한지 확인해 주세요.'); setLoadStatus(undefined); setRefreshing(false); return;
+      }
       setProject(result); setRelatedPanels(related.panels.filter(panel => panel.projectId !== result.projectId)); setLoadError(''); setLoadStatus(undefined); setRefreshing(false);
-      setSelectedIds(ids => ids.length ? ids.filter(id => result.targets.some(target => target.targetId === id)) : result.targets.slice(0, 1).map(target => target.targetId));
+      if (!initialized.current) {
+        initialized.current = true;
+        const entry = nextOsanWork(result.targets, initialTargetId);
+        const explicitStage = osanStageNames.includes(initialStage as typeof osanStageNames[number]) || /^[1-7]$/.test(initialStage ?? '');
+        if (entryIsMobile.current && !explicitStage && entry) {
+          setStage(entry.stage); setSelectedIds([entry.targetId]);
+        } else {
+          setSelectedIds(initialTargetId ? result.targets.filter(t => t.targetId === initialTargetId).map(t => t.targetId) : result.targets.slice(0, 1).map(t => t.targetId));
+        }
+      } else setSelectedIds(ids => ids.filter(id => result.targets.some(target => target.targetId === id)));
     }).catch(error => {
       if (!current) return;
       setRefreshing(false); setLoadError(message(error));
@@ -76,7 +91,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       }
     });
     return () => { current = false; controller.abort(); };
-  }, [projectId, developmentUserKey, reload]);
+  }, [projectId, developmentUserKey, reload, initialTargetId, initialStage]);
   useEffect(() => { if (modalOpen) modal.current?.showModal(); else modal.current?.close(); }, [modalOpen]);
   useEffect(() => {
     const media = window.matchMedia?.('(min-width: 861px)');
@@ -157,7 +172,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
   }
   if (!project) return <section className="osan-progress-page">{loadError ? <><p role="alert">{loadStatus === 403 ? '이 프로젝트의 진행 정보를 조회할 권한이 없습니다.' : loadStatus === 404 ? '프로젝트를 찾을 수 없습니다.' : loadError}</p><button type="button" onClick={refresh}>다시 불러오기</button></> : <p role="status">진행 정보를 불러오는 중…</p>}</section>;
   const stageContent = <>
-    {desktop ? <details className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details> : !selectedStageCompleted && <OsanStageGuidance stage={stage}/>}
+    {desktop ? <details className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details> : <OsanStageGuidance stage={stage}/>}
     <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
     {!selectedStageCompleted && !selected.some(t => t.steps.find(s => s.sequenceNumber === stage)?.editOpen) && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
   </>;

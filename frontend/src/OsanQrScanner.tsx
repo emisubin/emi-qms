@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { parseOsanPanelQr } from './osanQrScan';
+import { qrScanRegions } from './osanQrFrame';
 import './osan-mobile-tools.css';
 
 export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan: (projectId: string, targetId: string) => void }) {
@@ -23,7 +24,7 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
       setFailed(false); setMessage('카메라를 준비하고 있습니다.');
       if (!navigator.mediaDevices?.getUserMedia) { fail('카메라를 사용할 수 없습니다. HTTPS로 접속했는지 확인해주세요.'); return; }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
         if (disposed) { stop(); return; }
         const element = video.current;
         if (!element) { stop(); return; }
@@ -39,11 +40,16 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
           if (disposed) return;
           try {
             if (element.readyState >= 2 && element.videoWidth && element.videoHeight) {
-              const scale = Math.min(1, 960 / element.videoWidth);
-              canvas.width = Math.round(element.videoWidth * scale); canvas.height = Math.round(element.videoHeight * scale);
-              context.drawImage(element, 0, 0, canvas.width, canvas.height);
-              const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-              const result = decode(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'dontInvert' });
+              // Read the central label at camera resolution before reducing the full frame.
+              // Small, dense printed panel URLs lose modules in a single full-frame resize.
+              let result: ReturnType<typeof decode> = null;
+              for (const region of qrScanRegions(element.videoWidth, element.videoHeight)) {
+                canvas.width = region.width; canvas.height = region.height;
+                context.drawImage(element, region.x, region.y, region.sourceWidth, region.sourceHeight, 0, 0, region.width, region.height);
+                const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+                result = decode(pixels.data, pixels.width, pixels.height, { inversionAttempts: 'attemptBoth' });
+                if (result) break;
+              }
               if (result) {
                 const panel = parseOsanPanelQr(result.data);
                 if (!panel) { fail('PMS 패널 QR 코드가 아닙니다. 올바른 QR 코드를 다시 스캔해주세요.'); return; }
@@ -65,10 +71,10 @@ export function OsanQrScanner({ onClose, onScan }: { onClose: () => void; onScan
   }, [attempt]);
   return <dialog ref={dialog} className="osan-scan-dialog" aria-labelledby="osan-scan-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2 id="osan-scan-title">QR 스캔</h2><button type="button" onClick={onClose}>닫기</button></header>
-    <div className="osan-scan-body"><p>패널에 부착된 QR 코드를 화면에 맞춰주세요.</p>
+    <div className="osan-scan-body"><p>패널의 QR 코드를 중앙 표시 안에 맞춰주세요.</p>
       <div className="osan-scan-camera"><video ref={video} muted playsInline aria-label="QR 스캔 카메라" /><div className="osan-scan-frame" aria-hidden="true"><i/><i/><i/><i/></div></div>
       <p className="osan-scan-status" role={failed ? 'alert' : 'status'}>{message}</p>
-      {!failed && <p className="osan-scan-hint">인식하면 해당 패널 화면으로 자동 이동합니다.</p>}
+      {!failed && <p className="osan-scan-hint">QR이 흐리면 조금 떨어뜨려 초점을 맞춰주세요. 인식하면 자동 이동합니다.</p>}
       {failed && <button type="button" className="osan-scan-retry" onClick={() => setAttempt(value => value + 1)}>다시 시도</button>}
     </div>
   </dialog>;

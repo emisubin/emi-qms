@@ -6,6 +6,47 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class OsanProjectRegistrationApiTests
 {
     [Fact]
+    public async Task DeliveryHold_PreservesWorkAndDateExcludesHomeAndUsesConcurrentEditToken()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var config = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(config);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, config).ApplyAndVerifyAsync(ct);
+        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'hold-test','Admin',true)", ct, ("actor", UserId));
+        var projects = new OsanProjectStore(provider);
+        var input = Normalize(ValidRequest(quantity: 1));
+        var created = (await projects.CreateAsync(input, UserId, ct)).Value!.Project;
+        var id = created.ProjectId;
+        var token = created.EditToken;
+        Assert.Equal(400, (await projects.ManageAsync(id, token, input, null, UserId, ct, true, " ")).Status);
+        Assert.False((await projects.GetAsync(id, ct))!.DeliveryHold);
+        Assert.Equal(200, (await projects.ManageAsync(id, token, input, null, UserId, ct, true, "고객 납기 보류")).Status);
+        var held = (await projects.GetAsync(id, ct))!;
+        Assert.True(held.DeliveryHold);
+        Assert.Equal(created.DeliveryDate, held.DeliveryDate);
+        Assert.NotEqual(token, held.EditToken);
+        Assert.Equal(409, (await projects.ManageAsync(id, token, input, null, UserId, ct, false, "stale")).Status);
+        var dashboard = new OsanDashboardStore(provider, TimeProvider.System);
+        var scope = new Emi.Qms.Api.Projects.ProjectAccessScope(true, []);
+        var home = await dashboard.GetAsync(new("", "All", 1, 10, "home"), scope, ct);
+        Assert.Empty(home.Items); Assert.Equal(0, home.Summary.TotalCount); Assert.Equal(0, home.TotalCount);
+        var list = await dashboard.GetAsync(new("", "All", 1, 10), scope, ct);
+        Assert.True(Assert.Single(list.Items).DeliveryHold);
+        var progress = new OsanProgressStore(provider);
+        var target = (await progress.GetAsync(id, ct))!.Targets[0];
+        Assert.Equal(OsanProgressMutationStatus.Success, (await progress.CompleteAsync(id,
+            new(Guid.NewGuid(), "individual", 1, [new(target.TargetId, target.Version)], [], "admin checked"), UserId, ct, true)).Status);
+        Assert.Equal(200, (await projects.ManageAsync(id, held.EditToken, input, null, UserId, ct)).Status);
+        Assert.True((await projects.GetAsync(id, ct))!.DeliveryHold);
+        Assert.Equal(200, (await projects.ManageAsync(id, held.EditToken, input, null, UserId, ct, false, "납기 재개")).Status);
+        home = await dashboard.GetAsync(new("", "All", 1, 10, "home"), scope, ct);
+        Assert.Single(home.Items); Assert.Equal(1, home.Summary.TotalCount);
+        Assert.Equal(1, (await progress.GetAsync(id, ct))!.CompletedStepCount);
+        Assert.Equal(2L, await database.ReadScalarAsync<long>("select count(*) from osan_project_management_history where after_json->>'HoldReason' is not null", ct));
+    }
+
+    [Fact]
     public async Task Management_PreservesEvidenceLocksQuantityAndConsumesOnlyApprovedPhotoRequest()
     {
         var ct=TestContext.Current.CancellationToken;

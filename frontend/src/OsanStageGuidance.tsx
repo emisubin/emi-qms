@@ -1,3 +1,32 @@
+import { useRef, useState, useEffect } from 'react';
+import { dismissOnBackdrop } from './dialogBackdrop';
+import incomingRack from './assets/osan-guidance/incoming-rack.jpg';
+import incomingBox from './assets/osan-guidance/incoming-box.jpg';
+import placement from './assets/osan-guidance/placement.jpg';
+import wiring from './assets/osan-guidance/wiring.jpg';
+import eightSystem from './assets/osan-guidance/eight-system.jpg';
+import operation from './assets/osan-guidance/operation.jpg';
+import shipping from './assets/osan-guidance/shipping.jpg';
+import './osan-guidance.css';
+
+const examples = [
+  [{ src: incomingRack, label: 'Rack 예시' }, { src: incomingBox, label: 'Box 예시' }],
+  [{ src: placement, label: '배치검사 완료 예시' }],
+  [{ src: wiring, label: '배선검사 완료 예시' }],
+  [{ src: eightSystem, label: '8계통 완료 예시' }],
+  [{ src: operation, label: '동작검사 완료 예시' }],
+  [{ src: shipping, label: '출하검사 완료 예시' }], []
+];
+function GuidanceExample({ src, label }: { src: string; label: string }) {
+  const [open, setOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close(); }, [open]);
+  return <figure><button type="button" className="osan-guidance-image" aria-label={`${label} 크게 보기`} onClick={() => setOpen(true)}><img src={src} alt={label} loading="lazy" /></button><figcaption>{label}</figcaption>
+    <dialog ref={dialog} className="osan-guidance-zoom" aria-label={`${label} 확대`} onCancel={() => setOpen(false)} onClick={event => dismissOnBackdrop(event, () => setOpen(false))}>
+      {open && <><header><strong>{label}</strong><button type="button" onClick={() => setOpen(false)}>닫기</button></header><img src={src} alt={`${label} 원본`} /></>}
+    </dialog></figure>;
+}
+
 const guidance = [
   {
     description: '1. 외관 / 구조 / 도장 / 색차 검사를 시행한다.\n-. 반드시 2D / 3D 도면을 토대로 검사할 것',
@@ -37,5 +66,6 @@ export function OsanStageGuidance({ stage }: { stage: number }) {
     <p>{content.description}</p>
     <p><strong>{content.evidence}</strong></p>
     {content.specification && <p>{content.specification}</p>}
+    {examples[stage - 1]?.length > 0 && <div className="osan-guidance-examples" aria-label="단계 안내 사진"><p>완료 사진 촬영 예시</p><div>{examples[stage - 1].map(example => <GuidanceExample key={example.src} {...example} />)}</div></div>}
   </section>;
 }

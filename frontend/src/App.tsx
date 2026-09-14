@@ -2296,7 +2296,7 @@ function QmsAppShellContent({
     if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
     if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
     return <><OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />
-      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
+      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })} />}</>;
   }
 
   const permissions = user?.permissions ?? [];
@@ -2409,7 +2409,7 @@ function QmsAppShellContent({
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
-      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
+      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })} />}
 
       <div className="app-content">
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
@@ -4517,7 +4517,7 @@ function OsanProjectListPage({
               { value: project.workOrderNumber || '—', align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
@@ -4527,7 +4527,7 @@ function OsanProjectListPage({
               { label: 'W/O', value: project.workOrderNumber || '—' },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({formatOsanDday(project.deliveryDate, today)})</span></span> },
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span> },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
@@ -4859,6 +4859,7 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
           <section className="osan-detail-deadline" aria-label="납기일">
             <h3>납기일</h3>
             <time dateTime={project.deliveryDate}>{project.deliveryDate}</time>
+            {project.deliveryHold && <strong>HOLD · 납기 보류</strong>}
           </section>
         </div>
       </section>

@@ -76,3 +76,16 @@ it('opens floating menu, navigates and dismisses by outside click or Escape', ()
   fireEvent.click(screen.getByRole('button', { name: '메뉴 열기' })); fireEvent.click(screen.getByRole('button', { name: '메뉴 바깥을 눌러 닫기' }));
   expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
 });
+
+it('tries camera-resolution centre before full-frame fallback', async () => {
+  vi.spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get').mockReturnValue(1920);
+  vi.spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get').mockReturnValue(1080);
+  const drawImage = vi.fn();
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage, getImageData: () => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 }) } as unknown as CanvasRenderingContext2D);
+  vi.mocked(jsQR).mockReturnValueOnce(null).mockReturnValueOnce({ data: url } as ReturnType<typeof jsQR>);
+  const onScan = vi.fn(); render(<OsanQrScanner onClose={vi.fn()} onScan={onScan} />);
+  await waitFor(() => expect(onScan).toHaveBeenCalledExactlyOnceWith(projectId, targetId));
+  expect(drawImage.mock.calls[0].slice(1)).toEqual([609, 189, 702, 702, 0, 0, 702, 702]);
+  expect(drawImage.mock.calls[1].slice(1)).toEqual([0, 0, 1920, 1080, 0, 0, 960, 540]);
+  expect(stop).toHaveBeenCalled();
+});

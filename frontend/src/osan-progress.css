@@ -301,3 +301,9 @@
 }
 .app-shell .osan-notifications .selected-export-tray--compact .excel-export-action{min-width:0!important;width:auto!important}
 .app-shell .osan-notifications .selected-export-tray--compact .excel-export-button{width:auto!important;min-width:0!important}
+
+/* Neutral completed stage surfaces; selection keeps a separate outline. */
+.app-shell[data-osan-progress='true'] .osan-progress-stage-overview button.is-complete,
+.app-shell .osan-progress-stage-overview button.is-complete { background: #f1f2f3 !important; border-color: #dcdfe2 !important; color: #45494d !important; }
+.app-shell .osan-progress-stage-card:has(.osan-progress-completed-title) { background: #f5f5f6 !important; }
+.osan-qr-stages button.done { background: #f1f2f3 !important; border-color: #dcdfe2 !important; }

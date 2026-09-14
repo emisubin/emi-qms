@@ -26,7 +26,8 @@ public sealed record OsanProjectListItemResponse(
     string Status,
     int CompletedStepCount,
     int TotalStepCount,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    bool DeliveryHold = false);
 
 public sealed record OsanProjectDetailResponse(
     Guid ProjectId,
@@ -42,7 +43,8 @@ public sealed record OsanProjectDetailResponse(
     int CompletedStepCount,
     int TotalStepCount,
     DateTimeOffset CreatedAtUtc,
-    IReadOnlyList<OsanProjectTargetResponse> Targets)
+    IReadOnlyList<OsanProjectTargetResponse> Targets,
+    bool DeliveryHold = false)
 {
     public string EditToken => OsanProjectStore.EditToken(this);
 }

@@ -17,7 +17,6 @@ import {
   DsReadOnlyBanner,
   DsStatePanel,
   DsSurface,
-  DsTabs,
   DsToolbar,
 } from "./design-system";
 import {
@@ -34,6 +33,8 @@ import {
   type BusbarEcountStatus,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
+import { busbarSections, type BusbarSection } from "./interiorBusbarNavigation";
+import { OsanPageHeading } from "./OsanListFrame";
 
 type QrLabel = { productId: string; number: string; revision: number; url: string };
 type Values = Record<string, string>;
@@ -58,14 +59,6 @@ type EditorSpec = {
   after?: (result: { id: string }) => void;
   note?: string;
 };
-const tabs = [
-  { key: "overview", label: "종합 현황" },
-  { key: "projects", label: "납품 프로젝트" },
-  { key: "plans", label: "생산계획" },
-  { key: "production", label: "생산·사진·QR" },
-  { key: "purchases", label: "구매·자재" },
-  { key: "masters", label: "기준정보" },
-];
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(
     new Date(),
@@ -108,14 +101,17 @@ const operationLabel = (kind: string) =>
 
 export function InteriorBusbarPage({
   developmentUserKey: user,
+  section: tab,
+  onNavigate: setTab,
 }: {
   developmentUserKey: string;
+  section: BusbarSection;
+  onNavigate: (section: BusbarSection) => void;
 }) {
   const [data, setData] = useState<BusbarWorkspace | null>(null);
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
   const [page, setPage] = useState(1);
-  const [tab, setTab] = useState("overview");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -140,6 +136,18 @@ export function InteriorBusbarPage({
     window.addEventListener("afterprint", finishPrint);
     return () => window.removeEventListener("afterprint", finishPrint);
   }, []);
+  const [previousSection, setPreviousSection] = useState(tab);
+  if (previousSection !== tab) {
+    setPreviousSection(tab);
+    setEditor(null);
+    setPlanDialogOpen(false);
+    setActiveProduct("");
+    setProductDetail(null);
+    setQrDialogOpen(false);
+    setFeedback("");
+    setQuery("");
+    setPage(1);
+  }
   const [qrLabels, setQrLabels] = useState<QrLabel[]>([]);
   const qrHeadingRef = useRef<HTMLHeadingElement>(null);
   const printRootRef = useRef<HTMLDivElement>(null);
@@ -530,33 +538,22 @@ export function InteriorBusbarPage({
       </button>
     ) : null;
   return (
-    <div className="busbar-page" aria-busy={busy}>
-      <DsPageHeader
-        eyebrow="청주 PMS"
-        title="인테리어 부스바"
-        description="제품군별 생산과 공용 재고, 프로젝트별 분할 출하를 관리합니다."
+    <div className="busbar-page page-surface" aria-busy={busy}>
+      <header className="busbar-page-heading osan-dashboard osan-list-frame">
+      <OsanPageHeading
+        title={busbarSections.find((item) => item.key === tab)!.label}
+        description="인테리어 부스바 · 제품군별 생산과 재고, 납품을 관리합니다."
         actions={
           <button type="button" disabled={busy} onClick={() => void load()}>
             새로고침
           </button>
         }
       />
+      </header>
       {!canWrite && (
         <DsReadOnlyBanner description="조회 권한으로 접속했습니다. 입력과 정정은 인테리어 부스바 담당자가 처리합니다." />
       )}
       {error && <DsActionFeedback message={error} tone="error" />}
-      <DsTabs
-        items={tabs}
-        selectedKey={tab}
-        onSelect={(key) => {
-          setTab(key);
-          setQuery("");
-          setEditor(null);
-          setBomFamily("");
-          setFeedback("");
-        }}
-        label="인테리어 부스바 업무"
-      />
       {["production", "purchases"].includes(tab) && data.pagination && (
         <DsToolbar label="기록 페이지">
           <button

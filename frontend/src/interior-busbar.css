@@ -286,3 +286,23 @@
 .busbar-ecount-status { min-width: 0; margin-block: 20px; }
 .busbar-ecount-status form { display: grid; gap: 8px; margin-block: 12px; }
 .busbar-ecount-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Reuse the Osan heading while allowing longer busbar labels on phones. */
+.app-shell .busbar-page-heading.osan-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.app-shell .busbar-page-heading.osan-dashboard h1 {
+  height: auto;
+  line-height: 1.4;
+}
+.app-shell .busbar-page-heading .osan-list-actions {
+  position: static;
+}
+.app-shell .busbar-page-heading .osan-dashboard-description {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  min-height: 0;
+}

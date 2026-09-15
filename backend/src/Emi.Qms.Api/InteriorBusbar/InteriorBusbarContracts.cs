@@ -9,7 +9,7 @@ public sealed record BusbarPlanRequest(Guid? Id, Guid ProductFamilyId, DateOnly 
 public sealed record BusbarPurchaseRequest(Guid? Id, string OrderNumber, Guid MaterialId, decimal Quantity, DateOnly OrderDate, string? Reason = null);
 public sealed record BusbarReceiptRequest(Guid RequestId, Guid PurchaseId, decimal Quantity);
 public sealed record BusbarAdjustmentRequest(Guid RequestId, string StockKind, Guid ItemId, decimal Quantity, string Reason, bool IsOpening = false);
-public sealed record BusbarShipmentRequest(Guid RequestId, Guid ProjectId, int Quantity);
+public sealed record BusbarShipmentRequest(Guid RequestId, Guid ProjectId, int Quantity, IReadOnlyList<Guid>? ProductIds = null);
 public sealed record BusbarReverseRequest(Guid RequestId, string Reason);
 public sealed record BusbarProductRequest(Guid RequestId, Guid ProductFamilyId, Guid WorkerId);
 public sealed record BusbarProductCorrectionRequest(Guid WorkerId, string Reason);

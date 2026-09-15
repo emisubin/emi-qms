@@ -103,6 +103,8 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.Adjustment(r, Actor(u))
         }));
+        api.MapGet("/projects/{id:guid}", (Guid id, InteriorBusbarStore s) => s.ProjectDetail(id));
+        api.MapGet("/projects/{id:guid}/scan", (Guid id, string code, InteriorBusbarStore s) => s.ResolveShipmentPanel(id, code));
         api.MapPost("/shipments", async (BusbarShipmentRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
         {
             id = await s.Shipment(r, Actor(u))

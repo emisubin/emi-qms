@@ -104,10 +104,12 @@ export function InteriorBusbarPage({
   developmentUserKey: user,
   section: tab,
   onNavigate: setTab,
+  onOpenProject,
 }: {
   developmentUserKey: string;
   section: BusbarSection;
   onNavigate: (section: BusbarSection) => void;
+  onOpenProject: (projectId: string) => void;
 }) {
   const [data, setData] = useState<BusbarWorkspace | null>(null);
   const [error, setError] = useState("");
@@ -127,7 +129,6 @@ export function InteriorBusbarPage({
   const [activeProduct, setActiveProduct] = useState("");
   const [productDetail, setProductDetail] = useState<BusbarProduct | null>(null);
   const [projectStatus, setProjectStatus] = useState("");
-  const [activeProject, setActiveProject] = useState("");
   const [bomFamily, setBomFamily] = useState("");
   const [selectedQrIds, setSelectedQrIds] = useState<string[]>([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
@@ -157,8 +158,6 @@ export function InteriorBusbarPage({
   const planHeadingRef = useRef<HTMLHeadingElement>(null);
   const calendarHeadingRef = useRef<HTMLHeadingElement>(null);
   const completionRef = useRef<HTMLDivElement>(null);
-  const projectDetailRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (activeProject) projectDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [activeProject]);
   const productionHeadingRef = useRef<HTMLHeadingElement>(null);
   const photoHeadingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -475,16 +474,12 @@ export function InteriorBusbarPage({
     (product.planId
       ? `${data.plans.find((plan) => plan.id === product.planId)?.planDate.slice(0, 10) ?? "계획"} · 대기 ${product.planSequence ?? ""}번`
       : "기존 사진 등록 대기");
-  const selectedProject = data.projects.find((x) => x.id === activeProject);
   const matches = (...values: unknown[]) =>
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const overviewDate = data.overview?.asOfDate ?? today();
   const home = busbarOverview(data, overviewDate);
   const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)) &&
     (!projectStatus || (projectStatus === "Complete" ? p.requestedQuantity === p.shippedQuantity : p.requestedQuantity > p.shippedQuantity)));
-  const selectedStock = data.productFamilies.find((x) => x.id === selectedProject?.productFamilyId)?.balance ?? 0;
-  const selectedRemaining = selectedProject ? selectedProject.requestedQuantity - selectedProject.shippedQuantity : 0;
-  const maxShipment = Math.max(0, Math.min(selectedStock, selectedRemaining));
   const monthFirst = `${month}-01`;
   const monthLast = datePlus(`${monthPlus(month, 1)}-01`, -1);
   const calendarStart = datePlus(monthFirst, -new Date(`${monthFirst}T12:00:00Z`).getUTCDay());
@@ -647,7 +642,7 @@ export function InteriorBusbarPage({
           <DsSurface>
             <DsToolbar label="납품 프로젝트 도구" className="busbar-filterbar">
               <Search value={query} onChange={setQuery} />
-              <label>프로젝트 상태<select aria-label="프로젝트 상태" value={projectStatus} onChange={(event) => { setProjectStatus(event.target.value); setActiveProject(""); }}><option value="">전체</option><option value="InProgress">진행 중</option><option value="Complete">완료</option></select></label>
+              <label>프로젝트 상태<select aria-label="프로젝트 상태" value={projectStatus} onChange={(event) => setProjectStatus(event.target.value)}><option value="">전체</option><option value="InProgress">진행 중</option><option value="Complete">완료</option></select></label>
               <div className="busbar-filter-actions">{writeButton("프로젝트 등록", () => projectEditor())}</div>
             </DsToolbar>
             <Table
@@ -663,7 +658,7 @@ export function InteriorBusbarPage({
                 "상태",
                 "작업",
               ]}
-              rowActions={visibleProjects.map((p) => ({ expanded: activeProject === p.id, toggle: () => setActiveProject(activeProject === p.id ? "" : p.id) }))}
+              rowActions={visibleProjects.map((p) => ({ toggle: () => onOpenProject(p.id) }))}
               rows={visibleProjects.map((p) => [
                   p.name,
                   p.customerJobNumber,
@@ -688,76 +683,6 @@ export function InteriorBusbarPage({
                 ])}
             />
           </DsSurface>
-          {selectedProject && (
-            <DsSurface label="선택 프로젝트 상세">
-              <div ref={projectDetailRef} className="busbar-project-anchor" />
-              <DsToolbar>
-                <h3>{selectedProject.name}</h3>
-                {writeButton("분할 출하", () => {
-                  const requestId = crypto.randomUUID();
-                  open({
-                    title: "분할 출하",
-                    path: "/shipments",
-                    fields: [
-                      { ...quantityField("이번 출하 수량"), min: 1, max: maxShipment, step: "1" },
-                    ],
-                    note: `납품 잔여 ${n(selectedRemaining)}개 · 공용 현재고 ${n(selectedStock)}개 · 현재 최대 출하 가능 ${n(maxShipment)}개`,
-                    makeBody: (v) => ({
-                      requestId,
-                      projectId: selectedProject.id,
-                      quantity: Number(v.quantity),
-                    }),
-                  });
-                })}
-              </DsToolbar>
-              <p className="busbar-note">
-                공통 코드 {selectedProject.commonProjectCode} ·{" "}
-                {familyName(selectedProject.productFamilyId)} · 제품번호를 출하
-                수량에 임의 연결하지 않습니다.
-              </p>
-              <div className="busbar-project-summary">
-                <dl className="busbar-shipping-summary">
-                  <div><dt>제품군 공용 재고</dt><dd>{n(selectedStock)}개</dd></div>
-                  <div><dt>요청 수량</dt><dd>{n(selectedProject.requestedQuantity)}개</dd></div>
-                  <div><dt>누적 출하</dt><dd>{n(selectedProject.shippedQuantity)}개</dd></div>
-                  <div><dt>납품 잔여</dt><dd>{n(selectedRemaining)}개</dd></div>
-                </dl>
-                <CommercialPreview key={`${user}:${selectedProject.id}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.standardUnitPrice}:${selectedProject.requestedQuantity}:${data.settings.commonProjectCode}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} userId={user} projectId={selectedProject.id} revision={`${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.standardUnitPrice}:${selectedProject.requestedQuantity}:${data.settings.ecountCustomerCode}:${data.settings.ecountWarehouseCode}:${data.productFamilies.find((f) => f.id === selectedProject.productFamilyId)?.ecountProductCode}`} />
-                <div>
-                  <h4>해당 제품군 날짜별 생산계획</h4>
-                  <Table headings={["생산일", "계획", "완료", "미완료", "재고"]}
-                    rows={data.plans.filter((p) => p.productFamilyId === selectedProject.productFamilyId)
-                      .sort((a, b) => a.planDate.localeCompare(b.planDate))
-                      .map((p) => [p.planDate.slice(0, 10), `${n(p.quantity)}개`, `${n(p.actualQuantity)}개`, `${n(Math.max(0, p.quantity - (p.actualQuantity ?? 0)))}개`, `${n(selectedStock)}개`])} />
-                </div>
-              </div>
-              <p className="busbar-note">공용 재고는 이 프로젝트에 예약된 수량이 아닙니다. 생산 예정 수량은 현재 출하 가능 수량에 포함하지 않습니다.</p>
-                <EcountStatus key={`${user}:${selectedProject.id}:${selectedProject.shippedQuantity}:${selectedProject.requestedQuantity}`} userId={user} projectId={selectedProject.id} canWrite={canAdminister} />
-              <h3>출하 이력</h3>
-              <Table
-                headings={["처리 시각", "출하 수량", "상태", "작업"]}
-                rows={data.shipments
-                  .filter((x) => x.projectId === selectedProject.id)
-                  .map((x) => {
-                    const op: BusbarLedger = {
-                      id: x.id,
-                      kind: "Shipment",
-                      createdAtUtc: x.createdAtUtc,
-                      reason: "",
-                      reversed: x.reversed,
-                    };
-                    return [
-                      busbarDateTime(x.createdAtUtc),
-                      n(x.quantity),
-                      x.reversed ? "취소" : "반영",
-                      !x.reversed && op
-                        ? writeButton("출하 취소", () => reverse(op), canAdminister)
-                        : null,
-                    ];
-                  })}
-              />
-            </DsSurface>
-          )}
           {canWrite && (
             <ImportBox
               data={data}
@@ -1205,7 +1130,7 @@ export function InteriorBusbarPage({
   );
 }
 
-function Table({
+export function Table({
   headings,
   rows,
   rowActions,
@@ -1214,7 +1139,7 @@ function Table({
   headings: string[];
   rows: ReactNode[][];
   rowClasses?: string[];
-  rowActions?: { expanded: boolean; toggle: () => void }[];
+  rowActions?: { expanded?: boolean; toggle: () => void }[];
 }) {
   return rows.length ? (
     <div
@@ -1256,7 +1181,7 @@ function Table({
     />
   );
 }
-function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId: string; canWrite: boolean}) {
+export function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId: string; canWrite: boolean}) {
   const [data, setData] = useState<BusbarEcountStatus>();
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -1291,7 +1216,7 @@ function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId:
   </div>;
 }
 
-function CommercialPreview({ userId, projectId, revision }: { userId: string; projectId: string; revision: string }) {
+export function CommercialPreview({ userId, projectId, revision }: { userId: string; projectId: string; revision: string }) {
   const [state, setState] = useState<{ data?: BusbarCommercialPreview; error?: string }>({});
   useEffect(() => {
     let active = true;
@@ -1330,7 +1255,7 @@ function Search({
     </label>
   );
 }
-function BusbarDialog({ label, busy, onClose, children, heading, closeLabel = "생산계획 팝업 닫기", className = "", fallbackFocus }: { label: string; busy: boolean; onClose: () => void; children: ReactNode; heading: RefObject<HTMLHeadingElement | null>; closeLabel?: string; className?: string; fallbackFocus?: RefObject<HTMLElement | null> }) {
+export function BusbarDialog({ label, busy, onClose, children, heading, closeLabel = "생산계획 팝업 닫기", className = "", fallbackFocus }: { label: string; busy: boolean; onClose: () => void; children: ReactNode; heading: RefObject<HTMLHeadingElement | null>; closeLabel?: string; className?: string; fallbackFocus?: RefObject<HTMLElement | null> }) {
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const original = document.activeElement as HTMLElement | null;
@@ -1455,13 +1380,11 @@ function PhotoWorkspace({
   busy: boolean;
   run: Run;
 }) {
-  const [reason, setReason] = useState("");
   const [workerId, setWorkerId] = useState(product.workerId ?? "");
   useEffect(() => setWorkerId(product.workerId ?? ""), [product.workerId]);
   const cannotUpload =
     busy ||
-    (product.status === "Draft" && !workerId) ||
-    (product.status === "Complete" && !reason.trim());
+    (product.status === "Draft" && !workerId);
   return (
     <>
       {canWrite && product.status === "Draft" && (
@@ -1503,7 +1426,7 @@ function PhotoWorkspace({
               revision={product.revision}
               exists={side === "front" ? product.hasFront : product.hasBack}
             />
-            {canWrite && product.status !== "Cancelled" && (
+            {canWrite && product.status === "Draft" && (
               <>
                 <label>
                   카메라로 {side === "front" ? "앞면" : "뒷면"} 촬영
@@ -1521,7 +1444,7 @@ function PhotoWorkspace({
                               user,
                               `/products/${product.id}/photos/${side}`,
                               file,
-                              reason,
+                              "",
                               "PUT",
                               product.status === "Draft" ? workerId : undefined,
                             ),
@@ -1546,7 +1469,7 @@ function PhotoWorkspace({
                               user,
                               `/products/${product.id}/photos/${side}`,
                               file,
-                              reason,
+                              "",
                               "PUT",
                               product.status === "Draft" ? workerId : undefined,
                             ),
@@ -1561,20 +1484,10 @@ function PhotoWorkspace({
           </div>
         ))}
       </div>
-      {canWrite && product.status === "Complete" && (
-        <label>
-          사진 정정 사유
-          <input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="사유를 입력한 뒤 교체할 사진을 선택하세요."
-          />
-        </label>
-      )}
     </>
   );
 }
-function PhotoPreview({
+export function PhotoPreview({
   user,
   id,
   side,

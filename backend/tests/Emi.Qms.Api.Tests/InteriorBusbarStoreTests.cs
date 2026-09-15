@@ -30,7 +30,7 @@ public sealed class InteriorBusbarStoreTests
         await f.Store.Master("workers", new(worker, "W", "New worker name"), f.Actor);
         Assert.Equal("Original worker", (await f.Store.GetProduct(product))["workerName"]);
         await f.Store.Bom(new(family, [new(material, 7)]), f.Actor);
-        await f.Store.Photo(product, "front", [3], "사진 수정", f.Actor);
+        await Assert.ThrowsAsync<BusbarException>(() => f.Store.Photo(product, "front", [3], "사진 수정", f.Actor));
         Assert.Equal(f.Clock.Now.UtcDateTime, (await f.Store.GetProduct(product))["manufacturedAtUtc"]);
         Assert.Equal(-3m, await f.Balance("Material", material));
         var cancel = new BusbarReverseRequest(Guid.NewGuid(), "오등록 취소");
@@ -48,8 +48,8 @@ public sealed class InteriorBusbarStoreTests
         await f.Store.Settings(new("COMMON"), f.Actor);
         await f.Store.Adjustment(new(Guid.NewGuid(), "Finished", family, 30, "기초", true), f.Actor);
         var project = await f.Store.Project(new(null, "Project", "", family, 60, "Destination", new(2026, 10, 1)), f.Actor);
-        var first = new BusbarShipmentRequest(Guid.NewGuid(), project, 20);
-        var second = new BusbarShipmentRequest(Guid.NewGuid(), project, 20);
+        var first = await f.ShipmentRequest(project, 20);
+        var second = await f.ShipmentRequest(project, 20);
         async Task<bool> Ship(BusbarShipmentRequest r)
         {
             try
@@ -126,9 +126,9 @@ public sealed class InteriorBusbarStoreTests
         Assert.Equal(2L, await f.Scalar("select (before_value->>'quantity')::bigint from busbar_audit where entity_kind='Plan' and before_value <> '{}'::jsonb"));
         var row = new BusbarProjectRequest(null, "P", "", family, 60, "Place", new(2026, 10, 1));
         var project = await f.Store.Project(row, f.Actor);
-        await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
-        await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
-        var last = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
+        await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
+        var last = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         Assert.Equal(0m, await f.Balance("Finished", family));
         var workspace = (Dictionary<string, object?>)await f.Store.Workspace(true);
         var projects = (List<Dictionary<string, object?>>)workspace["projects"]!;
@@ -328,7 +328,7 @@ public sealed class InteriorBusbarStoreTests
             init;
         }
  = Guid.NewGuid();
-        public static async Task<Fixture> Create(InteriorBusbarPublicationOptions? publicationOptions = null, bool applyCommercialMigration = true, bool applyShipmentMigration = true)
+        public static async Task<Fixture> Create(InteriorBusbarPublicationOptions? publicationOptions = null, bool applyCommercialMigration = true, bool applyShipmentMigration = true, bool applyTraceMigration = true)
         {
             var baseConnection = Environment.GetEnvironmentVariable("BUSBAR_TEST_CONNECTION_STRING") ?? throw new InvalidOperationException("Set BUSBAR_TEST_CONNECTION_STRING to an explicitly disposable synthetic database.");
             var builder = new NpgsqlConnectionStringBuilder(baseConnection);
@@ -368,13 +368,37 @@ public sealed class InteriorBusbarStoreTests
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0094_interior_busbar_ecount_queue.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0095_interior_busbar_ecount_runtime.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0096_interior_busbar_project_creator.sql")), c).ExecuteNonQueryAsync();
-                if (applyShipmentMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0097_interior_busbar_shipment_sales.sql")), c).ExecuteNonQueryAsync();
+                if (applyShipmentMigration) {
+                    await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0097_interior_busbar_shipment_sales.sql")), c).ExecuteNonQueryAsync();
+                    if (applyTraceMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0098_interior_busbar_panel_trace.sql")), c).ExecuteNonQueryAsync();
+                }
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
             await f.Store.EcountEmployee(new(f.Actor, "SYN-EMP", "Synthetic setup"), f.Actor);
             return f;
+        }
+        // Queue/stock-focused fixtures explicitly seed synthetic completed panels without altering their independently arranged ledger balance.
+        public async Task<BusbarShipmentRequest> ShipmentRequest(Guid project, int quantity)
+        {
+            await using var c = new NpgsqlConnection(Connection);
+            await c.OpenAsync(TestContext.Current.CancellationToken);
+            await using(var worker = new NpgsqlCommand("insert into busbar_workers(id,code,name) values(@id,'TRACE-TEST','Synthetic worker') on conflict(code) do nothing", c)) {
+                worker.Parameters.AddWithValue("id", Guid.NewGuid());
+                await worker.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            }
+            var ids = new List<Guid>();
+            for (var i = 0; i < quantity; i++)
+            {
+                var id = Guid.NewGuid();
+                await using var cmd = new NpgsqlCommand("insert into busbar_products(id,request_id,product_family_id,worker_id,worker_name,number,manufactured_at_utc,status,public_token,created_by) select @id,@id,product_family_id,(select id from busbar_workers where code='TRACE-TEST'),'Synthetic worker','IB-'||lpad(nextval('busbar_product_number_seq')::text,8,'0'),now(),'Draft',@token,@actor from busbar_projects where id=@project; insert into busbar_photos(product_id,side,content,content_type,registered_at_utc,registered_by) values(@id,'front',decode('01','hex'),'image/jpeg',now(),@actor),(@id,'back',decode('02','hex'),'image/jpeg',now(),@actor); update busbar_products set status='Complete' where id=@id", c);
+                cmd.Parameters.AddWithValue("id", id); cmd.Parameters.AddWithValue("project", project);
+                cmd.Parameters.AddWithValue("actor", Actor); cmd.Parameters.AddWithValue("token", id.ToString("N") + id.ToString("N"));
+                await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+                ids.Add(id);
+            }
+            return new(Guid.NewGuid(), project, quantity, ids);
         }
         public async Task<decimal> Balance(string kind, Guid item)
         {

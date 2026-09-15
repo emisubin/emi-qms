@@ -41,11 +41,12 @@ public sealed class InteriorBusbarQrTests
         Assert.Equal("publication_not_ready", (await Assert.ThrowsAsync<BusbarException>(() => fixture.Store.GetPrintableQr(product))).Code);
         await Sql(fixture, "update busbar_products set publication_state='Published',published_revision=revision");
         Assert.Equal(bytes, await fixture.Store.GetPrintableQr(product));
-        await fixture.Store.Photo(product, "front", [3], "사진 정정", fixture.Actor);
+        await Assert.ThrowsAsync<BusbarException>(() => fixture.Store.Photo(product, "front", [3], "사진 정정", fixture.Actor));
         Assert.Equal(completed["number"], (await fixture.Store.GetProduct(product))["number"]);
         Assert.Equal(bytes, await StoredPng(fixture, product));
         Assert.Equal(1L, await fixture.Scalar("select count(*) from busbar_product_qr"));
         Assert.Equal(1m, await fixture.Balance("Finished", family));
+        await fixture.Store.CorrectProduct(product, new((Guid)completed["workerId"]!, "작업자 확인"), fixture.Actor);
         await Sql(fixture, "update busbar_products set publication_state='Published'");
         Assert.Equal("publication_not_ready", (await Assert.ThrowsAsync<BusbarException>(() => fixture.Store.GetPrintableQr(product))).Code);
         await Sql(fixture, "update busbar_products set published_revision=revision");

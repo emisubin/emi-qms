@@ -94,7 +94,7 @@ public sealed class InteriorBusbarEcountQueueTests
         await f.Store.FinishEcountAttempt(oa.Id, new("Succeeded", "2026/09/15 -7"));
         for (var i = 0; i < 3; i++)
         {
-            var request = new BusbarShipmentRequest(Guid.NewGuid(), project, 20);
+            var request = await f.ShipmentRequest(project, 20);
             var shipment = await f.Store.Shipment(request, f.Actor);
             Assert.Equal(shipment, await f.Store.Shipment(request, f.Actor));
             var sale = await ShipmentJob(f.Store, project, shipment);
@@ -124,7 +124,7 @@ public sealed class InteriorBusbarEcountQueueTests
         var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
         var oa = (await f.Store.ClaimEcountJob(order))!;
         await f.Store.FinishEcountAttempt(oa.Id, new("Succeeded", "2026/09/15 -7"));
-        var shipment = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var shipment = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         var sale = (await ShipmentJob(f.Store, project, shipment)).GetProperty("id").GetGuid();
         var attempt = (await f.Store.ClaimEcountJob(sale))!;
         await f.Store.FinishEcountAttempt(attempt.Id, new("Succeeded", "2026/09/15 -8"));
@@ -160,7 +160,7 @@ public sealed class InteriorBusbarEcountQueueTests
         var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
         var oa = (await f.Store.ClaimEcountJob(order))!;
         await f.Store.FinishEcountAttempt(oa.Id, new("Succeeded", "2026/09/15 -7"));
-        var shipment = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var shipment = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         var sale = (await ShipmentJob(f.Store, project, shipment)).GetProperty("id").GetGuid();
         var attempt = await f.Store.ClaimEcountJob(sale);
         Assert.Equal(allowed, attempt is not null);
@@ -220,14 +220,14 @@ public sealed class InteriorBusbarEcountQueueTests
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();
         var (_, project) = await Setup(f);
-        var request = new BusbarShipmentRequest(Guid.NewGuid(), project, 20);
+        var request = await f.ShipmentRequest(project, 20);
         var shipment = await f.Store.Shipment(request, f.Actor);
         await f.Store.Shipment(request, f.Actor);
         var sale = await ShipmentJob(f.Store, project, shipment);
         await f.Store.Reverse(shipment, new(Guid.NewGuid(), "Synthetic correction"), f.Actor);
         Assert.Equal("Held", (await ShipmentJob(f.Store, project, shipment)).GetProperty("state").GetString());
         await Assert.ThrowsAsync<BusbarException>(() => f.Store.RetryEcount(sale.GetProperty("id").GetGuid(), "Cancelled", f.Actor));
-        var replacement = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var replacement = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         Assert.NotEqual(sale.GetProperty("id").GetGuid(), (await ShipmentJob(f.Store, project, replacement)).GetProperty("id").GetGuid());
         Assert.Equal(3, await f.Scalar("select count(*) from busbar_ecount_jobs"));
         Assert.Equal(0, await f.Scalar("select count(*) from busbar_ecount_attempts"));
@@ -275,7 +275,7 @@ public sealed class InteriorBusbarEcountQueueTests
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();
         var (_, project) = await Setup(f);
-        var shipment = await f.Store.Shipment(new(Guid.NewGuid(), project, 60), f.Actor);
+        var shipment = await f.Store.Shipment(await f.ShipmentRequest(project, 60), f.Actor);
         var sale = (await Job(f.Store, project, "Sale")).GetProperty("id").GetGuid();
         Assert.Null(await f.Store.ClaimEcountJob(sale));
         var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
@@ -284,7 +284,7 @@ public sealed class InteriorBusbarEcountQueueTests
         var sa = (await f.Store.ClaimEcountJob(sale))!;
         await f.Store.FinishEcountAttempt(sa.Id, new("Succeeded", "SYN-SALE"));
         await f.Store.Reverse(shipment, new(Guid.NewGuid(), "Synthetic reversal"), f.Actor);
-        await f.Store.Shipment(new(Guid.NewGuid(), project, 60), f.Actor);
+        await f.Store.Shipment(await f.ShipmentRequest(project, 60), f.Actor);
         Assert.True((await ShipmentJob(f.Store, project, shipment)).GetProperty("needsReview").GetBoolean());
         Assert.Null(await f.Store.ClaimEcountJob(sale));
         Assert.Equal(2, await f.Scalar("select count(*) from busbar_ecount_attempts"));
@@ -357,7 +357,7 @@ public sealed class InteriorBusbarEcountQueueTests
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();
         var (_, project) = await Setup(f);
-        var first = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var first = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         var sale = (await ShipmentJob(f.Store, project, first)).GetProperty("id").GetGuid();
         var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
         var oa = (await f.Store.ClaimEcountJob(order))!;
@@ -368,7 +368,7 @@ public sealed class InteriorBusbarEcountQueueTests
         await f.Store.RetryEcount(sale, "Synthetic slip correction", f.Actor);
         var sa = (await f.Store.ClaimEcountJob(sale))!;
         await f.Store.FinishEcountAttempt(sa.Id, new("Unknown"));
-        var second = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var second = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         var next = (await ShipmentJob(f.Store, project, second)).GetProperty("id").GetGuid();
         Assert.Null(await f.Store.ClaimEcountJob(next));
         await Assert.ThrowsAsync<BusbarException>(() => f.Store.RetryEcount(sale, "Unsafe repeat", f.Actor));
@@ -386,13 +386,13 @@ public sealed class InteriorBusbarEcountQueueTests
         var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
         var oa = (await f.Store.ClaimEcountJob(order))!;
         await f.Store.FinishEcountAttempt(oa.Id, new("Succeeded", "2026/09/15 -1"));
-        var shipment = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var shipment = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         var sale = (await ShipmentJob(f.Store, project, shipment)).GetProperty("id").GetGuid();
         var sa = (await f.Store.ClaimEcountJob(sale))!;
         await f.Store.Reverse(shipment, new(Guid.NewGuid(), "Cancelled during send"), f.Actor);
         await f.Store.FinishEcountAttempt(sa.Id, new("Succeeded", "2026/09/15 -9"));
         Assert.True((await ShipmentJob(f.Store, project, shipment)).GetProperty("needsReview").GetBoolean());
-        var replacement = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var replacement = await f.Store.Shipment(await f.ShipmentRequest(project, 20), f.Actor);
         var next = (await ShipmentJob(f.Store, project, replacement)).GetProperty("id").GetGuid();
         Assert.Null(await f.Store.ClaimEcountJob(next));
         await f.Store.ReconcileEcount(sale, new("Reviewed", "Cancelled sale corrected in ERP"), f.Actor);

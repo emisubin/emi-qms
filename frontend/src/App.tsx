@@ -1,4 +1,5 @@
 import { InteriorBusbarPage } from './InteriorBusbarPage';
+import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
 import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -341,7 +342,7 @@ type View =
   | { kind: 'sales-settlement'; projectId: string }
   | { kind: 'sales-kpi'; year?: number; currency?: string }
   | { kind: 'sales-billing' }
-  | { kind: 'interior-busbar'; section?: BusbarSection }
+  | { kind: 'interior-busbar'; section?: BusbarSection; projectId?: string }
   | { kind: 'g2-home' }
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
@@ -908,6 +909,10 @@ function initialViewFromLocation(): View {
   }
 
   if (window.location.pathname === '/interior-busbar') return { kind: 'interior-busbar', section: 'overview' };
+  const busbarProjectMatch = window.location.pathname.match(/^\/interior-busbar\/projects\/([^/]+)$/);
+  if (busbarProjectMatch?.[1]) {
+    return { kind: 'interior-busbar', section: 'projects', projectId: busbarProjectMatch[1] };
+  }
   const busbarSection = busbarSections.find((item) => window.location.pathname === `/interior-busbar/${item.key}`);
   if (busbarSection) return { kind: 'interior-busbar', section: busbarSection.key };
 
@@ -1324,7 +1329,9 @@ function pathForView(view: View) {
     case 'sales-billing':
       return '/sales/billing-requests';
     case 'interior-busbar':
-      return `/interior-busbar/${view.section ?? 'overview'}`;
+      return view.projectId
+        ? `/interior-busbar/projects/${view.projectId}`
+        : `/interior-busbar/${view.section ?? 'overview'}`;
     case 'g2-home':
       return '/g2';
     case 'g2-operations':
@@ -2938,8 +2945,23 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' ? (
-        <InteriorBusbarPage key={developmentUserKey} developmentUserKey={developmentUserKey} section={view.section ?? 'overview'} onNavigate={(section) => setView({ kind: 'interior-busbar', section })} />
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' && view.projectId ? (
+        <InteriorBusbarProjectDetailPage
+          key={`${developmentUserKey}:${view.projectId}`}
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          onBack={() => setView({ kind: 'interior-busbar', section: 'projects' })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' && !view.projectId ? (
+        <InteriorBusbarPage
+          key={developmentUserKey}
+          developmentUserKey={developmentUserKey}
+          section={view.section ?? 'overview'}
+          onNavigate={(section) => setView({ kind: 'interior-busbar', section })}
+          onOpenProject={(projectId) => setView({ kind: 'interior-busbar', section: 'projects', projectId })}
+        />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'manufacturing-work' ? (

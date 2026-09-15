@@ -435,12 +435,17 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         var old = await Existing(c, r.RequestId, "Shipment", r.ProjectId, r);
         if (old is not null) return old.Value;
         Require(r.Quantity > 0, "출하 수량은 양수여야 합니다.");
+        Require(r.ProductIds is { Count: > 0 } && r.ProductIds.Count == r.Quantity && r.ProductIds.Distinct().Count() == r.Quantity,
+            "실제 출하 패널을 중복 없이 스캔하세요. 출하 수량은 선택한 패널 수와 같아야 합니다.");
         var project = await One(c, "busbar_projects", r.ProjectId);
         var shipped = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_shipments s where project_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", r.ProjectId));
         Require(Num(shipped[0], "quantity") + r.Quantity <= Num(project, "requestedQuantity"), "요청 잔여 수량을 초과했습니다.");
+        foreach (var productId in r.ProductIds!) await RequireShippable(c, productId, Id(project, "productFamilyId"));
         var id = await Operation(c, r.RequestId, "Shipment", r.ProjectId, actor, "분할 출하", payload: r);
         await Delta(c, id, "Finished", Id(project, "productFamilyId"), -r.Quantity);
-        await Exec(c, "insert into busbar_shipments values(@id,@project,@quantity)", ("id", id), ("project", r.ProjectId), ("quantity", r.Quantity));
+        await Exec(c, "insert into busbar_shipments(id,project_id,quantity,project_name_snapshot,destination_snapshot,task_number_snapshot) values(@id,@project,@quantity,@name,@destination,@task)", ("id", id), ("project", r.ProjectId), ("quantity", r.Quantity), ("name", project["name"]), ("destination", project["destination"]), ("task", project["customerJobNumber"]));
+        foreach (var productId in r.ProductIds!)
+            await Exec(c, "insert into busbar_shipment_products(shipment_id,product_id) values(@shipment,@product)", ("shipment", id), ("product", productId));
         await EnqueueShipmentSale(c, r.ProjectId, id);
         return id;
     });
@@ -460,6 +465,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         foreach (var l in await Rows(c, "select * from busbar_ledger where operation_id=@id", ("id", operation))) await Delta(c, id, (string)l["stockKind"]!, Id(l, "itemId"), -Num(l, "quantity"));
         if (kind == "Shipment")
         {
+            await Exec(c, "update busbar_shipment_products set released_at_utc=now() where shipment_id=@id", ("id", operation));
             await CancelShipmentSale(c, operation);
         }
         return id;
@@ -486,7 +492,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     {
         Require(side is "front" or "back", "사진 위치를 확인하세요.");
         var p = await One(c, "busbar_products", product);
-        Require((string)p["status"]! != "Cancelled", "취소된 제품입니다.");
+        Require((string)p["status"]! == "Draft", "생산 완료 사진은 증거 자료로 보존되어 교체하거나 삭제할 수 없습니다.");
         if ((string)p["status"]! == "Draft")
         {
             var selectedWorkerId = workerId ?? (p["workerId"] as Guid?);
@@ -501,12 +507,6 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
                     new { workerId = p["workerId"], workerName = p["workerName"] },
                     new { workerId = selectedWorkerId.Value, workerName = worker["name"] });
             }
-        }
-        else
-        {
-            Text(reason, "사진 정정 사유");
-            Require(workerId is null || Equals(p["workerId"], workerId.Value),
-                "완료 제품의 작업자는 작업자 정정 기능에서 변경하세요.");
         }
         var now = timeProvider.GetUtcNow();
         await Exec(c, "insert into busbar_photos(product_id,side,content,content_type,registered_at_utc,registered_by) values(@id,@side,@content,'image/jpeg',@now,@actor) on conflict(product_id,side) do update set content=excluded.content,registered_at_utc=excluded.registered_at_utc,registered_by=excluded.registered_by", ("id", product), ("side", side), ("content", content), ("now", now), ("actor", actor));
@@ -525,7 +525,6 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             await Exec(c, "update busbar_products set status='Complete',number='IB-'||lpad(nextval('busbar_product_number_seq')::text,8,'0'),manufactured_at_utc=@now,photo_registered_by=@actor,bom_id=@bom,revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("now", now), ("bom", bom), ("id", product), ("actor", actor));
             await EnsureQr(c, product, (string)p["publicToken"]!);
         }
-        else if ((string)p["status"]! == "Complete") await Exec(c, "update busbar_products set revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("id", product));
         else await Exec(c, "update busbar_products set revision=revision+1 where id=@id", ("id", product));
         await Audit(c, "ProductPhoto", product, actor, reason ?? "사진 등록", new
         {
@@ -562,6 +561,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             Require(referenceMatches && (string)prior[0]["kind"]! == "Reversal" && Equals(prior[0]["requestFingerprint"], Fingerprint(r)), "이미 취소된 제품입니다.");
             return id;
         }
+        Require((await Rows(c, "select product_id from busbar_shipment_products where product_id=@id and released_at_utc is null", ("id", id))).Count == 0, "출하된 제품은 생산을 취소할 수 없습니다.");
         if ((string)p["status"]! == "Complete")
         {
             var op = await Rows(c, "select id from busbar_operations where kind='Production' and reference_id=@id", ("id", id));
@@ -581,6 +581,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         var rows = await Rows(c, "select p.*,exists(select 1 from busbar_product_qr qr where qr.product_id=p.id) qr_ready,(select display_name from qms_users u where u.id=coalesce(p.photo_registered_by,p.created_by)) registered_by_display_name,exists(select 1 from busbar_photos f where f.product_id=p.id and side='front') has_front,exists(select 1 from busbar_photos f where f.product_id=p.id and side='back') has_back from busbar_products p where p.id=@id", ("id", id));
         if (rows.Count == 0) throw new BusbarException("not_found", "제품을 찾을 수 없습니다.", 404);
         SetQrState(rows[0]);
+        rows[0]["shipmentHistory"] = await Rows(c, "select s.id shipment_id,s.project_id,s.project_name_snapshot,s.destination_snapshot,s.task_number_snapshot,o.created_at_utc,sp.released_at_utc from busbar_shipment_products sp join busbar_shipments s on s.id=sp.shipment_id join busbar_operations o on o.id=s.id where sp.product_id=@id order by o.created_at_utc desc", ("id", id));
         return rows[0];
     });
 

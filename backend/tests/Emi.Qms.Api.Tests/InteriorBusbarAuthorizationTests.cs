@@ -54,6 +54,8 @@ public sealed class InteriorBusbarAuthorizationTests
     [Theory]
     [InlineData("PUT", "/api/interior-busbar/ecount-employees")]
     [InlineData("GET", "/api/interior-busbar/workspace")]
+    [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001")]
+    [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001/scan?code=IB-00000001")]
     [InlineData("GET", "/api/interior-busbar/products/00000000-0000-0000-0000-000000000001")]
     [InlineData("POST", "/api/interior-busbar/workers")]
     [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001/ecount-status")]
@@ -186,8 +188,15 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(1m, await f.Balance("Finished", family));
         Assert.Equal(-2m, await f.Balance("Material", material));
         using var replay = await Photo("back", bytes);
-        Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode); // completed photo replacement requires an explicit correction reason
+        Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode); // completed photos cannot be replaced, even with a reason
         Assert.Equal(1m, await f.Balance("Finished", family));
+        using var correctionForm = new MultipartFormDataContent();
+        correctionForm.Add(new ByteArrayContent(bytes), "file", "correction.png");
+        correctionForm.Add(new StringContent("관리자 정정 사유"), "reason");
+        using var correction = await client.PutAsync($"/api/interior-busbar/products/{product}/photos/front",correctionForm,TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest,correction.StatusCode);
+        Assert.Contains("교체하거나 삭제할 수 없습니다",(await correction.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(TestContext.Current.CancellationToken)).GetProperty("message").GetString());
+        Assert.Equal(2L,await f.Scalar("select count(*) from busbar_photo_history"));
         using var qr = await client.GetAsync($"/api/interior-busbar/products/{product}/qr", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Conflict, qr.StatusCode);
     }
@@ -277,7 +286,7 @@ public sealed class InteriorBusbarAuthorizationTests
             ("/projects", new BusbarProjectRequest(null,"Project","SYN",family,1,"Destination",new(2026,10,1)), department=="sales"),
             ("/plans", new BusbarPlanRequest(null,family,new(2026,10,1),1), department=="production-planning"),
             ("/purchases", new BusbarPurchaseRequest(null,"PO",material,1,new(2026,10,1)), department=="production-planning"),
-            ("/shipments", new BusbarShipmentRequest(Guid.NewGuid(),project,1), department=="sales"),
+            ("/shipments", await f.ShipmentRequest(project,1), department=="sales"),
             ("/receipts", new BusbarReceiptRequest(Guid.NewGuid(),purchase,1), department=="production-planning"),
             ("/workers", new BusbarMasterRequest(null,"W","Worker"), false),
             ("/adjustments", new BusbarAdjustmentRequest(Guid.NewGuid(),"Finished",family,1,"Opening",true), false),
@@ -298,6 +307,13 @@ public sealed class InteriorBusbarAuthorizationTests
         var data = System.Text.Json.JsonDocument.Parse(await workspace.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
         Assert.Equal(department=="sales", data.GetProperty("permissions").GetProperty("projects").GetBoolean());
         Assert.False(data.GetProperty("permissions").GetProperty("administration").GetBoolean());
+        using var projectDetail = await client.GetAsync($"/api/interior-busbar/projects/{project}",TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK,projectDetail.StatusCode);
+        var trace = await projectDetail.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(TestContext.Current.CancellationToken);
+        Assert.Equal(department=="sales" ? 1 : 0,trace.GetProperty("panels").GetArrayLength());
+        Assert.Equal(department=="sales" ? 9 : 10,trace.GetProperty("project").GetProperty("remainingQuantity").GetInt32());
+        using var scanMissing = await client.GetAsync($"/api/interior-busbar/projects/{project}/scan?code=unregistered",TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest,scanMissing.StatusCode);
         identity.DepartmentCode="quality";
         using var afterTransfer = await client.PostAsJsonAsync("/api/interior-busbar/plans", new BusbarPlanRequest(null,family,new(2026,10,2),1), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Forbidden, afterTransfer.StatusCode);

@@ -61,6 +61,26 @@ export type BusbarProduct = {
   publishedRevision?: number;
   qrState?: "Ready" | "ConfigurationPending" | "AwaitingCompletion";
 };
+export type BusbarProjectShipment = {
+  id: string;
+  projectId: string;
+  quantity: number;
+  createdAtUtc: string;
+  reversed?: boolean;
+  shippedByName?: string | null;
+  projectNameSnapshot?: string | null;
+  destinationSnapshot?: string | null;
+  taskNumberSnapshot?: string | null;
+};
+export type BusbarShippedProduct = BusbarProduct & {
+  shipmentId: string;
+  releasedAtUtc?: string | null;
+};
+export type BusbarProjectDetail = {
+  project: BusbarProject;
+  shipments: BusbarProjectShipment[];
+  panels: BusbarShippedProduct[];
+};
 export type BusbarLedger = {
   id: string;
   reason: string;
@@ -104,13 +124,7 @@ export type BusbarWorkspace = {
   purchases: BusbarPurchase[];
   products: BusbarProduct[];
   ledger: BusbarLedger[];
-  shipments: Array<{
-    id: string;
-    projectId: string;
-    quantity: number;
-    createdAtUtc: string;
-    reversed?: boolean;
-  }>;
+  shipments: BusbarProjectShipment[];
   receipts: Array<{
     id: string;
     purchaseId: string;
@@ -135,6 +149,10 @@ export type BusbarCommercialPreview = {
 export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
 const root = "/api/interior-busbar";
 export const busbarApi = {
+  projectDetail: (user: string, id: string) =>
+    fetchJson<BusbarProjectDetail>(`${root}/projects/${id}`, user),
+  scanProjectPanel: (user: string, id: string, code: string) =>
+    fetchJson<BusbarProduct>(`${root}/projects/${id}/scan?${new URLSearchParams({ code })}`, user),
   ecountStatus: (user: string, id: string) => fetchJson<BusbarEcountStatus>(`${root}/projects/${id}/ecount-status`, user),
   commercialPreview: (user: string, id: string) => fetchJson<BusbarCommercialPreview>(`${root}/projects/${id}/commercial-preview`, user),
   workspace: (user: string, page = 1, filters: BusbarProductFilters = {}) => {

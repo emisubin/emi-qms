@@ -11,6 +11,7 @@ const png = Buffer.from(
   "base64",
 );
 const qrPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAcgAAAHIAQAAAADi2kdHAAADFklEQVR4nO1Y0W4CMQy7//9pJtrYccqhSTwZYZAGV+pOchPHyfX49HUFGYYSCcmVaEJU87erw7Vf6/H53l+eC+vjWmv9tHYGacxQXe3eW3vqjLW2wHXCAAXpyRBve+3rW6+r32v1h7ESpDlDO2V3qte+HQ0MgyC/i6Gdx6rKTPcZM0FaM4S/Uoip03sZMXGv8UFaMcS9/77feLAgnRhi8zJMMW6+yjFlHJuDtGVISitbHvY41fGUdZ72OEhLhmB79RieUgYZAi7qHaQpQ+15yzeptRpf1FQFacsQFvkLMpt7O+XVGQfpyFDXV/lgPs/W9vBgQRoyJBFBG4Xyi3a2j5iVN0g/huiIRy3GxsryjofRuQbpx1DdeV12pS/7VBkjsvsJ0pohqrNKN26/2x9qdZDeDPXu+tqDfS5XVut/C9KTIV6wuN+KBaQ3vsNFB2nMEDcTIqZ4xEp7qiB9GeL9i1cCipOJM7WDNGaoMxyThpcZIbtZUfYgLRmCKstOrvSYkKOmQ6mDtGNIVJkDJNhjrrShGn4qSEOG+HsV2D6DHWyNEe8m+UG6McRIUJfUBZcqzkocpDNDVGH1wpBqmixK9Y3GB2nEEIcOZ6HFE9IdIh6kNUNYnIOGqrO4/VGNg3RmCOmKUBA/VYWW5x3OOEhLhnDz9WslMrayiWULFKQ1Q7C+UnyxkxZKGp1TqYM0Y6hhyGFOHuCJu8mZ7jlIQ4Z6O/OYsg2TVcLNQAjSmiFkMVQbNpjpjfNn5Q3SkaFheXucdPyEcJmaEKQfQ9rSSM1Fe8MfMYcI0pwhpmzbJLhl7sahhwcL0pIhXDcrrdhi9jiQ8hEJQRoy1NvxJJOIHSI9fjp6pCDdGBoltyOCvY/44ruZVJBmDOHVhXWMJCDOOEdjKEhDhsQk4QAItDzu5z4nSFuG4J7aHHdWa0cEzQ7SnCHeO1R6djf0VEjrIL+IIbgqWZEDRucapDND/YF+BlW2y+19ZgfpxZAo9d6PLoezX0bHi3YHaceQanAPCsVRIS5KyIO0ZuijV5BhKJGQXIkmRDUfP1sd/gAjti4sTxln8gAAAABJRU5ErkJggg==", "base64");
+const panelQrPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAOgAAADoAQAAAADN0pXVAAAAqklEQVR4nO2WSw7AIAgFuf+lbYoPxKbtupmCUYPjhq/aeBNr2t7o3Ph6LdgUV61oWCrTY+yASE/rzzX98Qs6/kYj/niqdde4VP3LXnsdh6bsGpe6K6r9U6HS7GV1kGkeaL/8RnBUXy9/nWOS6W3Gc2lVll+4NN8nzfkfAVOZ7vHPa2Qa/dtDr4t8GifRzPA0ny0VPZaWbC8QS1c3W/kOpo/StL3RuTE+XAsHwr51lsnwSsYAAAAASUVORK5CYII=", "base64");
 
 async function selectSection(page: Page, name: string) {
   const labels: Record<string, string> = { "종합 현황": "홈", "납품 프로젝트": "프로젝트", "생산·사진·QR": "생산", "구매·자재": "발주, 입고관리" };
@@ -114,7 +115,8 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
   const writes: Array<{ path: string; body: unknown }> = [];
   await page.route("http://localhost:5080/**", async (route) => {
     const req = route.request(),
-      path = new URL(req.url()).pathname;
+      url = new URL(req.url()),
+      path = url.pathname;
     const json = (body: unknown, status = 200) =>
       route.fulfill({
         status,
@@ -169,13 +171,33 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
       return denied
         ? json({ message: "청주에서만 사용할 수 있습니다." }, 403)
         : json(data);
+    if (/^\/api\/interior-busbar\/projects\/[^/]+$/.test(path) && req.method() === "GET") {
+      const project = data.projects.find((item) => item.id === path.split("/").at(-1));
+      return project
+        ? json({
+            project,
+            shipments: data.shipments.filter((item) => item.projectId === project.id),
+            panels: data.products.filter((item) => "shipmentId" in item),
+          })
+        : json({ message: "프로젝트를 찾을 수 없습니다." }, 404);
+    }
+    if (/^\/api\/interior-busbar\/projects\/[^/]+\/scan$/.test(path) && req.method() === "GET") {
+      const code = url.searchParams.get("code")?.trim();
+      const panel = data.products.find((item) => item.number === code || `https://synthetic.invalid/p/${item.id}` === code);
+      return panel
+        ? json(panel)
+        : json({ message: "등록된 패널 QR 또는 제품번호를 확인하세요." }, 400);
+    }
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
       return json(data.products.find((p) => p.id === path.split("/").at(-1)));
     if (path.endsWith("/ecount-status")) return json({transmissionEnabled:false,jobs:[{id:projectId,kind:"Order",state:"Pending",needsReview:false,message:null,slipNumber:null,attemptCount:0}]});
     if (path.endsWith("/commercial-preview")) return json({unitPrice:12500, quantity:60, supplyAmount:750000, vatAmount:75000, totalAmount:825000, missingFields:[], customerCode:"SYN-C",warehouseCode:"SYNWH",productCode:"SYN-P",transmissionEnabled:false});
     if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: qrPng });
-    if (path.includes("/photos/") && req.method() === "GET")
-      return route.fulfill({ contentType: "image/png", body: png });
+    if (path.includes("/photos/") && req.method() === "GET") {
+      const front = path.endsWith("/front");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420"><rect width="640" height="420" fill="${front ? "#dbeafe" : "#dcfce7"}"/><rect x="70" y="80" width="500" height="260" rx="18" fill="none" stroke="${front ? "#2563eb" : "#16a34a"}" stroke-width="12"/><text x="320" y="225" font-family="sans-serif" font-size="42" text-anchor="middle" fill="#0f172a">${front ? "합성 앞면" : "합성 뒷면"}</text></svg>`;
+      return route.fulfill({ contentType: "image/svg+xml", body: Buffer.from(svg) });
+    }
     if (path.startsWith("/api/interior-busbar/") && req.method() !== "GET") {
       if (!data.canWrite)
         return json({ message: "입력 권한이 없습니다." }, 403);
@@ -315,30 +337,44 @@ test("two photos auto complete with server time and block QR until publication",
     page.getByRole("button", { name: "QR 인쇄 준비" }),
   ).toHaveCount(0);
   await expect(page.getByLabel("카메라로 앞면 촬영")).toHaveCount(0);
+  await expect(page.getByLabel("앨범에서 앞면 선택")).toHaveCount(0);
   await page.screenshot({
     path: "/private/tmp/emi-busbar-photo-complete.png",
     fullPage: true,
   });
 });
-test("server stock rejection stays visible and retry reuses operation ID", async ({
+test("panel shipment rejection keeps the exact request and panel order for retry", async ({
   page,
 }) => {
   const data = fixture();
+  data.products[0] = {
+    ...data.products[0],
+    status: "Complete",
+    number: "IB-00000001",
+    manufacturedAtUtc: "2026-09-09T06:00:00Z",
+    hasFront: true,
+    hasBack: true,
+  };
   const writes = await mock(page, data);
   await page.goto("/interior-busbar");
   await selectSection(page, "납품 프로젝트");
   await page.getByRole("cell", { name: "합성 납품 현장", exact: true }).click();
-  await page.getByRole("button", { name: "분할 출하", exact: true }).click();
-  data.productFamilies[0].balance = 10; // Concurrent shipment after this form opened.
-  await page.getByLabel("이번 출하 수량").fill("20");
-  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await page.getByRole("button", { name: "패널 QR로 분할 출하", exact: true }).click();
+  await page.getByLabel("QR 스캐너 또는 제품번호").fill("IB-00000001");
+  await page.getByLabel("QR 스캐너 또는 제품번호").press("Enter");
+  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible();
+  data.productFamilies[0].balance = 0; // Concurrent shipment after this form opened.
+  await page.getByRole("button", { name: "선택한 1개 출하", exact: true }).click();
   await expect(page.getByText("완제품 재고가 부족합니다.")).toBeVisible();
-  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByRole("button", { name: "선택 해제", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "같은 1개 다시 출하", exact: true }).click();
   await expect(page.getByText("완제품 재고가 부족합니다.")).toBeVisible();
   expect(writes).toHaveLength(2);
   expect((writes[0].body as { requestId: string }).requestId).toBe(
     (writes[1].body as { requestId: string }).requestId,
   );
+  expect(writes[0].body).toMatchObject({ quantity: 1, productIds: [productId] });
+  expect(writes[1].body).toEqual(writes[0].body);
 });
 test("read only users see no mutation controls", async ({ page }) => {
   const writes = await mock(page, fixture(false));
@@ -683,32 +719,207 @@ for (const navigation of ["filter", "plan row"] as const) {
   });
 }
 
-test("project row exposes family shipment context without aggregate KPI", async ({ page }) => {
+test("project row opens independent detail with family shipment context", async ({ page }) => {
   await mock(page, fixture());
   await page.goto("/interior-busbar");
-  await expect(page.locator(".busbar-page .ds-kpi-grid")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "제품군별 생산·납품 현황" })).toBeVisible();
   await selectSection(page, "납품 프로젝트");
   const row = page.getByRole("row").filter({ hasText: "합성 납품 현장" });
   await row.getByRole("cell", { name: "합성 업체", exact: true }).click();
-  await expect(row).toHaveAttribute("aria-expanded", "true");
+  await expect(page).toHaveURL(`/interior-busbar/projects/${projectId}`);
   await expect(page.locator(".busbar-shippable")).toHaveCount(0);
-  await expect(row.getByRole("button", { name: "합성 납품 현장", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("columnheader", { name: "재고", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "해당 제품군 날짜별 생산계획" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "현재고", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "해당 제품군 생산계획" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "59개", exact: true })).toBeVisible();
-  await row.getByRole("button", { name: "정정", exact: true }).click();
-  await expect(row).toHaveAttribute("aria-expanded", "true");
-  await page.getByRole("button", { name: "닫기", exact: true }).click();
-  await row.focus(); await page.keyboard.press("Enter");
-  await expect(row).toHaveAttribute("aria-expanded", "false");
-  await page.keyboard.press("Space");
-  await expect(row).toHaveAttribute("aria-expanded", "true");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "합성 납품 현장", exact: true })).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: `/private/tmp/emi-busbar-project-context-${width}.png`, fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
+});
+
+test("project detail shows linked panels, legacy history and read-only photos", async ({ page }) => {
+  const data = fixture();
+  const linkedShipmentId = "00000000-0000-0000-0000-000000000008";
+  data.shipments = [
+    {
+      id: linkedShipmentId,
+      projectId,
+      quantity: 1,
+      createdAtUtc: "2026-09-15T02:00:00Z",
+      shippedByName: "합성 출하 담당자",
+      projectNameSnapshot: "출하 당시 프로젝트",
+      destinationSnapshot: "출하 당시 도착지",
+      taskNumberSnapshot: "SYN-HISTORY",
+    },
+    {
+      id: "00000000-0000-0000-0000-000000000009",
+      projectId,
+      quantity: 2,
+      createdAtUtc: "2026-09-14T02:00:00Z",
+    },
+  ];
+  data.projects[0].shippedQuantity = 3;
+  data.products[0] = Object.assign(
+    {
+      ...data.products[0],
+      status: "Complete" as const,
+      number: "IB-00000001",
+      manufacturedAtUtc: "2026-09-09T06:00:00Z",
+      workerName: "합성 외주 작업자",
+      hasFront: true,
+      hasBack: true,
+      revision: 2,
+    },
+    { shipmentId: linkedShipmentId, releasedAtUtc: "2026-09-15T02:00:00Z" },
+  );
+  await mock(page, data);
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  await expect(page.getByText("출하 당시 프로젝트", { exact: true })).toBeVisible();
+  await expect(page.getByText("출하 당시 도착지", { exact: true })).toBeVisible();
+  await expect(page.getByText("기록 없음 (기존 출하)", { exact: true })).toHaveCount(3);
+  await expect(page.getByText("패널 연결 기록 없음", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "IB-00000001", exact: true })).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({ path: `/private/tmp/emi-busbar-project-history-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  }
+  await page.getByRole("button", { name: "앞·뒤 사진 보기", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "IB-00000001 출하 사진" });
+  await expect(dialog.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
+  await expect(dialog.getByRole("img", { name: "뒷면 등록 사진" })).toBeVisible();
+  await expect(dialog.locator('input[type="file"]')).toHaveCount(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await dialog.screenshot({ path: `/private/tmp/emi-busbar-project-photos-${width}.png` });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  }
+});
+
+test("keyboard QR scan rejects invalid and duplicate values then ships selected IDs", async ({ page }) => {
+  const data = fixture();
+  data.products[0] = {
+    ...data.products[0],
+    status: "Complete",
+    number: "IB-00000001",
+    manufacturedAtUtc: "2026-09-09T06:00:00Z",
+    hasFront: true,
+    hasBack: true,
+  };
+  const writes = await mock(page, data);
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  const openShipment = page.getByRole("button", { name: "패널 QR로 분할 출하", exact: true });
+  await openShipment.click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "패널 QR 분할 출하" })).toHaveCount(0);
+  await expect(openShipment).toBeFocused();
+  await openShipment.click();
+  const scanInput = page.getByLabel("QR 스캐너 또는 제품번호");
+  await scanInput.fill("NOT-A-PANEL");
+  await scanInput.press("Enter");
+  await expect(page.getByText("등록된 패널 QR 또는 제품번호를 확인하세요.", { exact: true })).toBeVisible();
+  const qrUrl = `https://synthetic.invalid/p/${productId}`;
+  const request = page.waitForRequest((item) => new URL(item.url()).pathname.endsWith(`/projects/${projectId}/scan`));
+  await scanInput.fill(qrUrl);
+  await scanInput.press("Enter");
+  expect(new URL((await request).url()).searchParams.get("code")).toBe(qrUrl);
+  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible();
+  await scanInput.fill(qrUrl);
+  await scanInput.press("Enter");
+  await expect(page.getByText("IB-00000001은 이미 선택했습니다.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "선택 해제", exact: true }).click();
+  await scanInput.fill(qrUrl);
+  await scanInput.press("Enter");
+  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "선택한 1개 출하", exact: true }).click();
+  await expect.poll(() => writes.filter((item) => item.path.endsWith("/shipments")).length).toBe(1);
+  expect(writes.find((item) => item.path.endsWith("/shipments"))?.body).toMatchObject({
+    projectId,
+    quantity: 1,
+    productIds: [productId],
+  });
+});
+
+test("camera start lazy-loads ZXing and decodes a synthetic QR stream", async ({ page }) => {
+  const data = fixture();
+  data.products[0] = {
+    ...data.products[0],
+    status: "Complete",
+    number: "IB-00000001",
+    manufacturedAtUtc: "2026-09-09T06:00:00Z",
+    hasFront: true,
+    hasBack: true,
+  };
+  const qrDataUrl = `data:image/png;base64,${panelQrPng.toString("base64")}`;
+  await page.addInitScript((source) => {
+    const mediaDevices = navigator.mediaDevices ?? {} as MediaDevices;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: mediaDevices });
+    Object.defineProperty(mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async () => {
+        const image = new Image();
+        image.src = source;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        canvas.getContext("2d")!.drawImage(image, 0, 0);
+        return canvas.captureStream(12);
+      },
+    });
+  }, qrDataUrl);
+  await mock(page, data);
+  const decoded: string[] = [];
+  await page.route(`**/api/interior-busbar/projects/${projectId}/scan?**`, async (route) => {
+    decoded.push(new URL(route.request().url()).searchParams.get("code") ?? "");
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(data.products[0]) });
+  });
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  await page.getByRole("button", { name: "패널 QR로 분할 출하", exact: true }).click();
+  await page.getByRole("button", { name: "카메라 시작", exact: true }).click();
+  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible({ timeout: 15_000 });
+  expect(decoded).toHaveLength(1);
+  expect(decoded[0]).toBe("IB-00000001");
+  await page.getByRole("button", { name: "카메라 끄기", exact: true }).click();
+});
+
+test("shipment reversal retry keeps its request ID and first reason", async ({ page }) => {
+  const data = fixture();
+  const shipmentId = "00000000-0000-0000-0000-000000000010";
+  data.shipments = [{
+    id: shipmentId,
+    projectId,
+    quantity: 1,
+    createdAtUtc: "2026-09-15T02:00:00Z",
+    projectNameSnapshot: "합성 납품 현장",
+    destinationSnapshot: "합성 업체",
+    taskNumberSnapshot: "SYN-001",
+  }];
+  data.projects[0].shippedQuantity = 1;
+  await mock(page, data);
+  const attempts: Array<{ requestId: string; reason: string }> = [];
+  await page.route(`**/api/interior-busbar/ledger/${shipmentId}/reverse`, async (route) => {
+    attempts.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: attempts.length === 1 ? 409 : 200,
+      contentType: "application/json",
+      body: JSON.stringify(attempts.length === 1 ? { message: "합성 동시 처리 충돌" } : { id: shipmentId }),
+    });
+  });
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  await page.getByRole("button", { name: "출하 취소", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "출하 취소" });
+  const reason = dialog.getByLabel("취소 사유", { exact: true });
+  await reason.fill("합성 출하 대상 확인");
+  await dialog.getByRole("button", { name: "출하 취소", exact: true }).click();
+  await expect(dialog.getByText("합성 동시 처리 충돌", { exact: true })).toBeVisible();
+  await expect(reason).toBeDisabled();
+  await dialog.getByRole("button", { name: "출하 취소", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
 });
 
 test("monthly calendar selection and photo filters send server-side conditions", async ({ page }) => {
@@ -887,12 +1098,12 @@ test("overview excludes completed projects and orders pending projects by due da
   ];
   await mock(page, data);
   await page.goto("/interior-busbar");
-  const rows = page.getByRole("region", { name: "프로젝트명 목록", exact: true }).getByRole("row");
-  await expect(rows).toHaveCount(5);
+  const rows = page.getByRole("region", { name: "납기 상태 목록", exact: true }).getByRole("row");
+  await expect(rows).toHaveCount(4);
   const names = await rows.allTextContents();
-  expect(names.slice(1).map((name) => name.match(/합성 .*? 현장/)?.[0])).toEqual(["합성 빠른 현장", "합성 A 현장", "합성 B 현장", "합성 나중 현장"]);
+  expect(names.slice(1).map((name) => name.match(/합성 .*? 현장/)?.[0])).toEqual(["합성 빠른 현장", "합성 A 현장", "합성 B 현장"]);
   await expect(page.getByText("합성 완료 현장", { exact: true })).toHaveCount(0);
-  await rows.nth(2).getByRole("cell", { name: "합성 A 현장", exact: true }).click();
+  await expect(page.getByText("합성 나중 현장", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "홈", exact: true })).toBeVisible();
   await expect(rows.nth(2)).not.toHaveAttribute("tabindex");
   await expect(rows.nth(2)).not.toHaveAttribute("aria-expanded");

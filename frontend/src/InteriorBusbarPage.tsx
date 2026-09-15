@@ -35,7 +35,6 @@ import {
 import "./interior-busbar.css";
 import { busbarOverview } from "./interiorBusbarOverview";
 import { busbarSections, type BusbarSection } from "./interiorBusbarNavigation";
-import { OsanPageHeading } from "./OsanListFrame";
 
 type QrLabel = { productId: string; number: string; revision: number; url: string };
 type Values = Record<string, string>;
@@ -538,8 +537,8 @@ export function InteriorBusbarPage({
     ) : null;
   return (
     <div className="busbar-page page-surface" aria-busy={busy}>
-      <header className="busbar-page-heading osan-dashboard osan-list-frame">
-      <OsanPageHeading
+      <header className="busbar-page-heading">
+      <DsPageHeader
         title={busbarSections.find((item) => item.key === tab)!.label}
         description="인테리어 부스바 · 제품군별 생산과 재고, 납품을 관리합니다."
         actions={

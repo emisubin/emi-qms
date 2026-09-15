@@ -302,6 +302,9 @@ test("six workspaces desktop and 390px without horizontal page overflow", async 
     ]) {
       await selectSection(page, label);
       await expect(page.locator(".busbar-page")).toBeVisible();
+      await expect(page.locator(".app-shell")).not.toHaveAttribute("data-osan-project-theme", "true");
+      await expect(page.locator(".busbar-page .osan-dashboard")).toHaveCount(0);
+      await expect(page.locator(".busbar-page")).toHaveCSS("background-color", "rgb(244, 247, 250)");
       expect(
         await page.evaluate(
           () =>
@@ -976,6 +979,9 @@ test("monthly calendar selection and photo filters send server-side conditions",
   await page.getByRole("button", { name: "이전 달", exact: true }).click();
   await selectPlanDate(page, "2026-09-09");
   await page.getByRole("button", { name: "생산계획 팝업 닫기" }).click();
+  const selectedDay = page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true });
+  await expect(selectedDay.locator(".busbar-calendar-plan strong")).toHaveCSS("color", "rgb(51, 65, 85)");
+  await page.screenshot({ path: "/private/tmp/emi-busbar-final-selected-calendar.png", fullPage: true });
   await page.getByLabel("계획 제품군", { exact: true }).selectOption(familyId);
   await selectPlanDate(page, "2026-09-09");
   await expect(page.getByRole("cell", { name: "합성 제품군 B", exact: true })).toHaveCount(0);

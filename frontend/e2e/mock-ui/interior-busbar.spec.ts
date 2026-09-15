@@ -185,7 +185,7 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false, commercia
       const code = url.searchParams.get("code")?.trim();
       const panel = data.products.find((item) => item.number === code || `https://synthetic.invalid/p/${item.id}` === code);
       return panel
-        ? json(panel)
+        ? json({ ...panel, hasFront: undefined, hasBack: undefined })
         : json({ message: "등록된 패널 QR 또는 제품번호를 확인하세요." }, 400);
     }
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
@@ -365,13 +365,13 @@ test("panel shipment rejection keeps the exact request and panel order for retry
   await page.getByRole("button", { name: "패널 QR로 분할 출하", exact: true }).click();
   await page.getByLabel("QR 스캐너 또는 제품번호").fill("IB-00000001");
   await page.getByLabel("QR 스캐너 또는 제품번호").press("Enter");
-  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "IB-00000001 · 이 패널을 출하할까요?", exact: true })).toBeVisible();
   data.productFamilies[0].balance = 0; // Concurrent shipment after this form opened.
-  await page.getByRole("button", { name: "선택한 1개 출하", exact: true }).click();
-  await expect(page.getByText("완제품 재고가 부족합니다.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "선택 해제", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "같은 1개 다시 출하", exact: true }).click();
-  await expect(page.getByText("완제품 재고가 부족합니다.")).toBeVisible();
+  await page.getByRole("button", { name: "예, 출하 등록", exact: true }).click();
+  await expect(page.getByText("완제품 재고가 부족합니다.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "아니요", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "같은 패널 다시 확인", exact: true }).click();
+  await expect(page.getByText("완제품 재고가 부족합니다.", { exact: false })).toBeVisible();
   expect(writes).toHaveLength(2);
   expect((writes[0].body as { requestId: string }).requestId).toBe(
     (writes[1].body as { requestId: string }).requestId,
@@ -843,21 +843,38 @@ test("keyboard QR scan rejects invalid and duplicate values then ships selected 
   await scanInput.fill(qrUrl);
   await scanInput.press("Enter");
   expect(new URL((await request).url()).searchParams.get("code")).toBe(qrUrl);
-  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "IB-00000001 · 이 패널을 출하할까요?", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "아니요", exact: true }).click();
   await scanInput.fill(qrUrl);
   await scanInput.press("Enter");
-  await expect(page.getByText("IB-00000001은 이미 선택했습니다.", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "선택 해제", exact: true }).click();
-  await scanInput.fill(qrUrl);
-  await scanInput.press("Enter");
-  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "선택한 1개 출하", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "IB-00000001 · 이 패널을 출하할까요?", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "예, 출하 등록", exact: true }).click();
   await expect.poll(() => writes.filter((item) => item.path.endsWith("/shipments")).length).toBe(1);
   expect(writes.find((item) => item.path.endsWith("/shipments"))?.body).toMatchObject({
     projectId,
     quantity: 1,
     productIds: [productId],
   });
+  await expect(scanInput).toBeVisible();
+  await scanInput.fill(qrUrl);
+  await scanInput.press("Enter");
+  await expect(page.getByText("이미 출하 등록한 패널입니다. 다음 패널을 스캔하세요.", { exact: true })).toBeVisible();
+  expect(writes.filter((item) => item.path.endsWith("/shipments"))).toHaveLength(1);
+  data.products.push({ ...data.products[0], id: "00000000-0000-0000-0000-000000000099", number: "IB-00000002" });
+  await scanInput.fill("IB-00000002");
+  await scanInput.press("Enter");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
+    await expect(page.getByRole("img", { name: "뒷면 등록 사진" })).toBeVisible();
+    await page.getByRole("dialog", { name: "패널 QR 분할 출하" }).screenshot({ path: `/private/tmp/emi-busbar-quick-scan-${width}.png` });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await page.getByRole("button", { name: "예, 출하 등록", exact: true }).click();
+  await expect.poll(() => writes.filter((item) => item.path.endsWith("/shipments")).length).toBe(2);
+  expect(writes[1].body).toMatchObject({ quantity: 1, productIds: ["00000000-0000-0000-0000-000000000099"] });
+  expect((writes[0].body as {requestId:string}).requestId).not.toBe((writes[1].body as {requestId:string}).requestId);
+
 });
 
 test("camera start lazy-loads ZXing and decodes a synthetic QR stream", async ({ page }) => {
@@ -897,9 +914,15 @@ test("camera start lazy-loads ZXing and decodes a synthetic QR stream", async ({
   await page.goto(`/interior-busbar/projects/${projectId}`);
   await page.getByRole("button", { name: "패널 QR로 분할 출하", exact: true }).click();
   await page.getByRole("button", { name: "카메라 시작", exact: true }).click();
-  await expect(page.getByText("선택 패널 1개", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "IB-00000001 · 이 패널을 출하할까요?", exact: true })).toBeVisible({ timeout: 15_000 });
   expect(decoded).toHaveLength(1);
   expect(decoded[0]).toBe("IB-00000001");
+  await page.getByRole("button", { name: "예, 출하 등록", exact: true }).click();
+  await expect(page.getByRole("button", { name: "카메라 끄기", exact: true })).toBeVisible();
+  await page.waitForTimeout(2200);
+  expect(decoded).toHaveLength(1);
+  await expect(page.getByRole("region", { name: "출하 패널 확인" })).toHaveCount(0);
+  expect(await page.locator("video").evaluate((v) => (v as HTMLVideoElement).srcObject instanceof MediaStream && ((v as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0].readyState === "live")).toBe(true);
   await page.getByRole("button", { name: "카메라 끄기", exact: true }).click();
 });
 

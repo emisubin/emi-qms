@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent,
 } from "react";
 import type { IScannerControls } from "@zxing/browser";
 import { ApiError } from "./api";
@@ -250,12 +249,7 @@ export function InteriorBusbarProjectDetailPage({
           familyName={family?.name ?? "삭제된 제품군"}
           remaining={remaining}
           stock={stock}
-          onClose={() => setScanOpen(false)}
-          onShipped={async (quantity) => {
-            setScanOpen(false);
-            await load();
-            setFeedback(`${n(quantity)}개 패널을 출하했습니다.`);
-          }}
+          onClose={() => { setScanOpen(false); void load(); }}
         />
       )}
       {reverseShipment && (
@@ -277,49 +271,37 @@ export function InteriorBusbarProjectDetailPage({
   );
 }
 
-function ShipmentScanDialog({
-  user,
-  projectId,
-  projectName,
-  familyName,
-  remaining,
-  stock,
-  onClose,
-  onShipped,
-}: {
-  user: string;
-  projectId: string;
-  projectName: string;
-  familyName: string;
-  remaining: number;
-  stock: number;
-  onClose: () => void;
-  onShipped: (quantity: number) => Promise<void>;
+function ShipmentScanDialog({ user, projectId, projectName, familyName, remaining, stock, onClose }: {
+  user: string; projectId: string; projectName: string; familyName: string;
+  remaining: number; stock: number; onClose: () => void;
 }) {
   const [code, setCode] = useState("");
-  const [selected, setSelected] = useState<BusbarProduct[]>([]);
+  const [panel, setPanel] = useState<BusbarProduct>();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [count, setCount] = useState(0);
   const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [cameraStarting, setCameraStarting] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [selectionFrozen, setSelectionFrozen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | undefined>(undefined);
   const cameraGeneration = useRef(0);
-  const selectedIds = useRef(new Set<string>());
-  const codesInFlight = useRef(new Set<string>());
-  const acceptedCodes = useRef(new Map<string, { id: string; number: string }>());
   const lastCameraDetection = useRef({ code: "", at: 0 });
   const mounted = useRef(true);
-  const selectionFrozenRef = useRef(false);
+  const busy = useRef(false);
+  const pending = useRef<BusbarProduct | undefined>(undefined);
   const submitLocked = useRef(false);
-  const payloadRef = useRef<{ quantity: number; productIds: string[] } | undefined>(undefined);
+  const shippedIds = useRef(new Set<string>());
+  const shippedCodes = useRef(new Set<string>());
+  const pendingCode = useRef("");
   const requestId = useRef(crypto.randomUUID());
+  const audioRef = useRef<AudioContext | undefined>(undefined);
   const maxPanels = Math.max(0, Math.min(remaining, stock));
-
   const stopCamera = useCallback(() => {
     cameraGeneration.current += 1;
     controlsRef.current?.stop();
@@ -327,64 +309,55 @@ function ShipmentScanDialog({
     setCameraActive(false);
     setCameraStarting(false);
   }, []);
-
   useEffect(() => {
     mounted.current = true;
-    selectionFrozenRef.current = false;
-    inputRef.current?.focus();
     return () => {
       mounted.current = false;
-      selectionFrozenRef.current = true;
       cameraGeneration.current += 1;
       controlsRef.current?.stop();
-      controlsRef.current = undefined;
+      void audioRef.current?.close();
     };
-  }, [stopCamera]);
+  }, []);
+  useEffect(() => {
+    if (panel) confirmRef.current?.focus();
+    else inputRef.current?.focus();
+  }, [panel]);
 
-  const addCode = useCallback(async (rawCode: string, source: "manual" | "camera" = "manual") => {
-    const normalized = rawCode.trim();
-    if (!normalized || selectionFrozenRef.current || codesInFlight.current.has(normalized)) return;
-    const acceptedPanel = acceptedCodes.current.get(normalized);
-    if (acceptedPanel) {
-      if (source === "manual") setError(`${acceptedPanel.number}은 이미 선택했습니다.`);
+  async function addCode(raw: string, source: "manual" | "camera" = "manual") {
+    const value = raw.trim();
+    if (!value || busy.current || pending.current || shippedIds.current.size >= maxPanels) return;
+    if (shippedCodes.current.has(value)) {
+      if (source === "manual") setError("이미 출하 등록한 패널입니다. 다음 패널을 스캔하세요.");
       return;
     }
-    if (selectedIds.current.size >= maxPanels) {
-      setError(`이번 출하는 최대 ${n(maxPanels)}개까지 선택할 수 있습니다.`);
-      return;
-    }
-    codesInFlight.current.add(normalized);
+    busy.current = true;
     setChecking(true);
     setError("");
     try {
-      const panel = await busbarApi.scanProjectPanel(user, projectId, normalized);
-      if (!mounted.current || selectionFrozenRef.current) return;
-      if (selectedIds.current.has(panel.id)) {
-        acceptedCodes.current.set(normalized, { id: panel.id, number: panel.number || "이 패널" });
-        if (source === "manual") setError(`${panel.number || "이 패널"}은 이미 선택했습니다.`);
+      const next = await busbarApi.scanProjectPanel(user, projectId, value);
+      if (!mounted.current) return;
+      if (shippedIds.current.has(next.id)) {
+        shippedCodes.current.add(value);
+        setError("이미 출하 등록한 패널입니다.");
         return;
       }
-      if (selectedIds.current.size >= maxPanels) {
-        setError(`이번 출하는 최대 ${n(maxPanels)}개까지 선택할 수 있습니다.`);
-        return;
-      }
-      selectedIds.current.add(panel.id);
-      acceptedCodes.current.set(normalized, { id: panel.id, number: panel.number || "이 패널" });
-      setSelected((current) => [...current, panel]);
+      pending.current = next;
+      pendingCode.current = value;
+      requestId.current = crypto.randomUUID();
+      setAttempted(false);
+      setPanel(next);
       setCode("");
-    } catch (scanError) {
-      if (mounted.current && !selectionFrozenRef.current) setError(failure(scanError));
+    } catch (err) {
+      if (mounted.current) setError(failure(err));
     } finally {
-      codesInFlight.current.delete(normalized);
-      if (mounted.current) {
-        setChecking(codesInFlight.current.size > 0);
-        inputRef.current?.focus();
-      }
+      busy.current = false;
+      if (mounted.current) setChecking(false);
     }
-  }, [maxPanels, projectId, user]);
-
+  }
+  const scanRef = useRef(addCode);
+  useEffect(() => { scanRef.current = addCode; });
   async function startCamera() {
-    if (cameraActive || cameraStarting || selectionFrozen || !videoRef.current) return;
+    if (cameraActive || cameraStarting || !videoRef.current) return;
     const current = ++cameraGeneration.current;
     setCameraStarting(true);
     setError("");
@@ -396,12 +369,12 @@ function ShipmentScanDialog({
         { audio: false, video: { facingMode: { ideal: "environment" } } },
         videoRef.current,
         (result) => {
-          if (!result || current !== cameraGeneration.current || selectionFrozenRef.current) return;
+          if (!result || current !== cameraGeneration.current) return;
           const nextCode = result.getText();
           const now = Date.now();
           if (lastCameraDetection.current.code === nextCode && now - lastCameraDetection.current.at < 2000) return;
           lastCameraDetection.current = { code: nextCode, at: now };
-          void addCode(nextCode, "camera");
+          void scanRef.current(nextCode, "camera");
         },
       );
       if (current !== cameraGeneration.current) {
@@ -419,117 +392,92 @@ function ShipmentScanDialog({
     }
   }
 
-  function removePanel(panel: BusbarProduct) {
-    if (submitting || selectionFrozen) return;
-    selectedIds.current.delete(panel.id);
-    acceptedCodes.current.forEach((value, acceptedCode) => {
-      if (value.id === panel.id) acceptedCodes.current.delete(acceptedCode);
-    });
-    setSelected((current) => current.filter((item) => item.id !== panel.id));
-    setError("");
-    inputRef.current?.focus();
-  }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (submitLocked.current || selected.length === 0 || selected.length > maxPanels || codesInFlight.current.size > 0) return;
+  async function confirm() {
+    const current = pending.current;
+    if (!current || submitLocked.current) return;
     submitLocked.current = true;
     setSubmitting(true);
-    selectionFrozenRef.current = true;
-    setSelectionFrozen(true);
+    setAttempted(true);
     setError("");
-    stopCamera();
+    // Unlock optional sound during the user's gesture; audio failure must never affect shipment.
     try {
-      const payload = payloadRef.current ?? {
-        quantity: selected.length,
-        productIds: selected.map((panel) => panel.id),
-      };
-      payloadRef.current = payload;
+      audioRef.current ??= new AudioContext();
+      void audioRef.current.resume().catch(() => {});
+    } catch { /* Sound is optional on unsupported devices. */ }
+    try {
       await busbarApi.write(user, "/shipments", {
-        requestId: requestId.current,
-        projectId,
-        ...payload,
+        requestId: requestId.current, projectId, quantity: 1, productIds: [current.id],
       });
-      await onShipped(payload.quantity);
-    } catch (submitError) {
-      setError(failure(submitError));
+      if (!mounted.current) return;
+      shippedIds.current.add(current.id);
+      shippedCodes.current.add(pendingCode.current);
+      setCount(shippedIds.current.size);
+      setNotice(`${current.number} 출하 완료 · 다음 패널을 스캔하세요.`);
+      pending.current = undefined;
+      setPanel(undefined);
+      setAttempted(false);
+      try {
+        navigator.vibrate?.(60);
+        const audio = audioRef.current;
+        if (audio && audio.state === "running") {
+          const oscillator = audio.createOscillator();
+          const gain = audio.createGain();
+          gain.gain.value = 0.08;
+          oscillator.frequency.value = 1100;
+          oscillator.connect(gain).connect(audio.destination);
+          oscillator.start(); oscillator.stop(audio.currentTime + 0.1);
+        }
+      } catch { /* Registration already succeeded; feedback is best effort. */ }
+    } catch (err) {
+      if (mounted.current) setError(`${failure(err)} 같은 패널로 다시 확인하면 중복 없이 결과를 확인합니다.`);
     } finally {
       submitLocked.current = false;
-      setSubmitting(false);
+      if (mounted.current) setSubmitting(false);
     }
   }
-
+  function dismissPanel() {
+    if (submitLocked.current || attempted) return;
+    pending.current = undefined;
+    setPanel(undefined);
+    setError("");
+  }
   return (
-    <BusbarDialog label="패널 QR 분할 출하" busy={submitting} onClose={onClose} heading={headingRef} closeLabel="패널 QR 출하 닫기" className="busbar-shipment-dialog">
-      <form className="busbar-scan-dialog" onSubmit={submit}>
+    <BusbarDialog label="패널 QR 분할 출하" busy={submitting || checking} onClose={onClose} heading={headingRef} closeLabel="패널 QR 출하 닫기" className="busbar-shipment-dialog">
+      <div className="busbar-scan-dialog">
         <p className="busbar-note">{projectName} · {familyName}</p>
-        <p className="busbar-note">실제 출하할 패널의 QR을 하나씩 스캔하세요. 선택한 패널 수가 이번 출하 수량이 됩니다.</p>
         <dl className="busbar-shipping-summary" aria-label="출하 가능 현황">
-          <div><dt>납품 잔여</dt><dd>{n(remaining)}개</dd></div>
-          <div><dt>공용 현재고</dt><dd>{n(stock)}개</dd></div>
-          <div><dt>선택 수량</dt><dd>{n(selected.length)}개</dd></div>
+          <div><dt>납품 잔여</dt><dd>{n(Math.max(0, remaining - count))}개</dd></div>
+          <div><dt>공용 현재고</dt><dd>{n(Math.max(0, stock - count))}개</dd></div>
+          <div><dt>이번 출하 완료</dt><dd>{n(count)}개</dd></div>
         </dl>
-        <div className="busbar-scanner">
-          <video className={cameraActive || cameraStarting ? "is-active" : ""} ref={videoRef} muted playsInline aria-label="QR 카메라 미리보기" />
-          <div className="busbar-inline">
-            {!cameraActive ? (
-              <button type="button" disabled={cameraStarting || submitting || selectionFrozen} onClick={() => void startCamera()}>
-                {cameraStarting ? "카메라 시작 중…" : "카메라 시작"}
-              </button>
-            ) : (
-              <button type="button" disabled={submitting} onClick={stopCamera}>카메라 끄기</button>
-            )}
+        <div hidden={!!panel}>
+          <p className="busbar-note">스캔 → 확인 한 번으로 1개씩 바로 출하됩니다. 카메라는 계속 켜져 있습니다.</p>
+          <div className="busbar-scanner">
+            <video className={cameraActive || cameraStarting ? "is-active" : ""} ref={videoRef} muted playsInline aria-label="QR 카메라 미리보기" />
+            <button type="button" disabled={cameraStarting} onClick={() => cameraActive ? stopCamera() : void startCamera()}>{cameraStarting ? "카메라 시작 중…" : cameraActive ? "카메라 끄기" : "카메라 시작"}</button>
+          </div>
+          <div className="busbar-scan-input">
+            <label>QR 스캐너 또는 제품번호<input ref={inputRef} value={code} disabled={checking || count >= maxPanels} autoComplete="off" placeholder="스캔 후 Enter 또는 제품번호 입력" onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addCode(code); } }} /></label>
+            <button type="button" disabled={!code.trim() || checking || count >= maxPanels} onClick={() => void addCode(code)}>{checking ? "확인 중…" : "패널 확인"}</button>
           </div>
         </div>
-        <div className="busbar-scan-input">
-          <label>
-            QR 스캐너 또는 제품번호
-            <input
-              ref={inputRef}
-              value={code}
-              disabled={checking || submitting || selectionFrozen || selected.length >= maxPanels}
-              autoComplete="off"
-              placeholder="스캔 후 Enter 또는 제품번호 입력"
-              onChange={(event) => setCode(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void addCode(code);
-                }
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            disabled={!code.trim() || checking || submitting || selectionFrozen || selected.length >= maxPanels}
-            onClick={() => void addCode(code)}
-          >
-            {checking ? "확인 중…" : "패널 추가"}
-          </button>
-        </div>
+        {panel && <section className="busbar-quick-confirm" aria-label="출하 패널 확인">
+          <h3>{panel.number} · 이 패널을 출하할까요?</h3>
+          <p>{panel.workerName} · {busbarDateTime(panel.manufacturedAtUtc)}</p>
+          <div className="busbar-photogrid">
+            <div className="busbar-photobox"><h4>앞면 사진</h4><PhotoPreview user={user} id={panel.id} side="front" revision={panel.revision} exists={true} /></div>
+            <div className="busbar-photobox"><h4>뒷면 사진</h4><PhotoPreview user={user} id={panel.id} side="back" revision={panel.revision} exists={true} /></div>
+          </div>
+          <div className="busbar-form-actions">
+            <button ref={confirmRef} type="button" className="button primary" disabled={submitting} onClick={() => void confirm()}>{submitting ? "등록 중…" : attempted ? "같은 패널 다시 확인" : "예, 출하 등록"}</button>
+            <button type="button" disabled={submitting || attempted} onClick={dismissPanel}>아니요</button>
+          </div>
+        </section>}
         {error && <DsActionFeedback message={error} tone="error" focusOnAttention />}
-        <div className="busbar-selected-panels" role="region" aria-label="출하 선택 패널">
-          <h4>선택 패널 {n(selected.length)}개</h4>
-          {selected.length === 0 ? (
-            <p className="busbar-note">아직 선택한 패널이 없습니다.</p>
-          ) : (
-            <ol>
-              {selected.map((panel) => (
-                <li key={panel.id}>
-                  <span><strong>{panel.number || "제품번호 확인 필요"}</strong> · {panel.workerName || "작업자 확인 불가"} · {busbarDateTime(panel.manufacturedAtUtc)}</span>
-                  <button type="button" disabled={submitting || selectionFrozen} onClick={() => removePanel(panel)}>선택 해제</button>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-        <div className="busbar-form-actions">
-          <button className="button primary" disabled={selected.length === 0 || submitting || checking}>
-            {submitting ? "출하 처리 중…" : selectionFrozen ? `같은 ${n(selected.length)}개 다시 출하` : `선택한 ${n(selected.length)}개 출하`}
-          </button>
-          <button type="button" disabled={submitting} onClick={onClose}>취소</button>
-        </div>
-      </form>
+        <p role="status">{count >= maxPanels ? "출하 가능한 수량을 모두 등록했습니다." : notice}</p>
+        <button type="button" disabled={submitting || checking} onClick={onClose}>출하 종료</button>
+      </div>
     </BusbarDialog>
   );
 }

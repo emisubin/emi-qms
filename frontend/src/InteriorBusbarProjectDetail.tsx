@@ -57,6 +57,7 @@ export function InteriorBusbarProjectDetailPage({
   const [reverseShipment, setReverseShipment] = useState<BusbarProjectShipment>();
   const [viewPanel, setViewPanel] = useState<BusbarProduct>();
   const [feedback, setFeedback] = useState("");
+  const [loadRevision, setLoadRevision] = useState(0);
   const generation = useRef(0);
 
   const load = useCallback(async () => {
@@ -75,6 +76,7 @@ export function InteriorBusbarProjectDetailPage({
       setError("");
       setDenied(false);
       setNotFound(false);
+      setLoadRevision((value) => value + 1);
     } catch (loadError) {
       if (current !== generation.current) return;
       setDetail(undefined);
@@ -115,7 +117,7 @@ export function InteriorBusbarProjectDetailPage({
   const remaining = Math.max(0, project.requestedQuantity - project.shippedQuantity);
   const canShip = workspace.permissions?.projects ?? false;
   const canAdminister = workspace.permissions?.administration ?? false;
-  const revision = `${family?.standardUnitPrice}:${project.requestedQuantity}:${workspace.settings.ecountCustomerCode}:${workspace.settings.ecountWarehouseCode}:${family?.ecountProductCode}`;
+  const revision = `${loadRevision}:${family?.standardUnitPrice}:${project.requestedQuantity}:${workspace.settings.ecountCustomerCode}:${workspace.settings.ecountWarehouseCode}:${family?.ecountProductCode}`;
 
   return (
     <div className="busbar-page page-surface">

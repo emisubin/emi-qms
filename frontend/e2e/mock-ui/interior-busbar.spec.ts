@@ -111,7 +111,7 @@ function fixture(canWrite = true): BusbarWorkspace {
     publicationOutstandingCount: 0,
   };
 }
-async function mock(page: Page, data: BusbarWorkspace, denied = false) {
+async function mock(page: Page, data: BusbarWorkspace, denied = false, commercialAvailable: () => boolean = () => true) {
   const writes: Array<{ path: string; body: unknown }> = [];
   await page.route("http://localhost:5080/**", async (route) => {
     const req = route.request(),
@@ -191,7 +191,10 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false) {
     if (/^\/api\/interior-busbar\/products\/[^/]+$/.test(path) && req.method() === "GET")
       return json(data.products.find((p) => p.id === path.split("/").at(-1)));
     if (path.endsWith("/ecount-status")) return json({transmissionEnabled:false,jobs:[{id:projectId,kind:"Order",state:"Pending",needsReview:false,message:null,slipNumber:null,attemptCount:0}]});
-    if (path.endsWith("/commercial-preview")) return json({unitPrice:12500, quantity:60, supplyAmount:750000, vatAmount:75000, totalAmount:825000, missingFields:[], customerCode:"SYN-C",warehouseCode:"SYNWH",productCode:"SYN-P",transmissionEnabled:false});
+    if (path.endsWith("/commercial-preview")) {
+      if (!commercialAvailable()) return json({ message: "합성 일시 오류" }, 503);
+      return json({unitPrice:12500, quantity:60, supplyAmount:750000, vatAmount:75000, totalAmount:825000, missingFields:[], customerCode:"SYN-C",warehouseCode:"SYNWH",productCode:"SYN-P",transmissionEnabled:false});
+    }
     if (path.endsWith("/qr") && req.method() === "GET") return route.fulfill({ contentType: "image/png", body: qrPng });
     if (path.includes("/photos/") && req.method() === "GET") {
       const front = path.endsWith("/front");
@@ -723,8 +726,7 @@ test("project row opens independent detail with family shipment context", async 
   await mock(page, fixture());
   await page.goto("/interior-busbar");
   await selectSection(page, "납품 프로젝트");
-  const row = page.getByRole("row").filter({ hasText: "합성 납품 현장" });
-  await row.getByRole("cell", { name: "합성 업체", exact: true }).click();
+  await page.getByRole("button", { name: "합성 납품 현장 상세 보기", exact: true }).click();
   await expect(page).toHaveURL(`/interior-busbar/projects/${projectId}`);
   await expect(page.locator(".busbar-shippable")).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "현재고", exact: true })).toBeVisible();
@@ -737,6 +739,22 @@ test("project row opens independent detail with family shipment context", async 
     await page.screenshot({ path: `/private/tmp/emi-busbar-project-context-${width}.png`, fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
+});
+
+test("project refresh retries a failed commercial preview", async ({ page }) => {
+  let previewAvailable = false;
+  let previewRequests = 0;
+  await mock(page, fixture(), false, () => {
+    previewRequests += 1;
+    return previewAvailable;
+  });
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  await expect(page.getByText("금액 정보를 조회하지 못했습니다. 잠시 후 새로고침해 주세요.", { exact: true })).toBeVisible();
+  const requestsBeforeRefresh = previewRequests;
+  previewAvailable = true;
+  await page.getByRole("button", { name: "새로고침", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "주문·판매 금액 확인", exact: true })).toBeVisible();
+  expect(previewRequests).toBeGreaterThan(requestsBeforeRefresh);
 });
 
 test("project detail shows linked panels, legacy history and read-only photos", async ({ page }) => {

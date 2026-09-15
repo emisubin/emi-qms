@@ -679,7 +679,10 @@ export function InteriorBusbarPage({
                       ? "완료"
                       : "진행 중"}
                   </DsBadge>,
-                  writeButton("정정", () => projectEditor(p.id)),
+                  <div className="busbar-table-actions">
+                    <button type="button" aria-label={`${p.name} 상세 보기`} onClick={() => onOpenProject(p.id)}>상세 보기</button>
+                    {writeButton("정정", () => projectEditor(p.id))}
+                  </div>,
                 ])}
             />
           </DsSurface>
@@ -1222,7 +1225,7 @@ export function CommercialPreview({ userId, projectId, revision }: { userId: str
     let active = true;
     void busbarApi.commercialPreview(userId, projectId).then(
       (data) => { if (active) setState({ data }); },
-      () => { if (active) setState({ error: "금액 정보를 조회하지 못했습니다. 프로젝트를 다시 펼쳐 주세요." }); },
+      () => { if (active) setState({ error: "금액 정보를 조회하지 못했습니다. 잠시 후 새로고침해 주세요." }); },
     );
     return () => { active = false; };
   }, [userId, projectId, revision]);

@@ -28,6 +28,7 @@ async function selectSection(page: Page, name: string) {
 function fixture(canWrite = true): BusbarWorkspace {
   return {
     canWrite,
+    permissions: { projects: canWrite, planning: canWrite, production: canWrite, purchases: canWrite, administration: canWrite },
     settings: { commonProjectCode: "SYN-INTERIOR" },
     productFamilies: [
       {
@@ -341,9 +342,9 @@ test("server stock rejection stays visible and retry reuses operation ID", async
 });
 test("read only users see no mutation controls", async ({ page }) => {
   const writes = await mock(page, fixture(false));
-  await page.goto("/interior-busbar");
+  await page.goto("/interior-busbar/projects");
   await expect(
-    page.getByText("조회 권한으로 접속했습니다.", { exact: false }),
+    page.getByText("이 화면은 조회만 가능합니다.", { exact: false }),
   ).toBeVisible();
   for (const label of [
     "납품 프로젝트",
@@ -1118,7 +1119,7 @@ test("commercial price is family only and preview stays read only", async ({page
   await page.getByRole("combobox",{name:"제품군",exact:true}).selectOption(familyId);
   await expect(page.getByLabel("적용 단가 (원·부가세 별도)")).toHaveCount(0);
   await page.getByLabel("프로젝트명",{exact:true}).fill("합성 가격 확인");
-  await page.getByLabel("W/O No (고객 업무번호)").fill("SYN-WO");
+  await page.getByLabel("LSE Task No").fill("SYN-WO");
   await page.getByLabel("요청 수량",{exact:true}).fill("60");
   await page.getByLabel("도착지 / 업체명",{exact:true}).fill("합성 도착지");
   for (const width of [1440,390]) {
@@ -1257,5 +1258,43 @@ test("shipment sales show individual quantities and ERP slips on desktop and mob
     await status.scrollIntoViewIfNeeded();
     await status.screenshot({path:`/private/tmp/emi-busbar-shipment-sales-${width}.png`});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  }
+});
+
+test("department permissions show only owned input actions and LSE Task No", async ({ page }) => {
+  for (const team of ["sales", "planning", "production", "admin"]) {
+    const data = fixture();
+    data.permissions = { projects: team === "sales" || team === "admin", planning: team === "planning" || team === "admin",
+      purchases: team === "planning" || team === "admin", production: team === "production" || team === "admin", administration: team === "admin" };
+    await mock(page, data);
+    await page.goto("/interior-busbar/projects");
+    await expect(page.getByRole("button", {name:"프로젝트 등록",exact:true})).toHaveCount(data.permissions.projects ? 1 : 0);
+    await expect(page.getByRole("columnheader", {name:"LSE Task No",exact:true})).toBeVisible();
+    if (team === "sales") {
+      await page.getByRole("button", {name:"프로젝트 등록",exact:true}).click();
+      await expect(page.getByLabel("LSE Task No (선택)",{exact:true})).toBeVisible();
+    }
+    await page.goto("/interior-busbar/purchases");
+    await expect(page.getByRole("button", {name:"자재 기초재고",exact:true})).toHaveCount(data.permissions.administration ? 1 : 0);
+    await page.goto("/interior-busbar/production");
+    await expect(page.getByRole("button", {name:"사진등록",exact:true})).toHaveCount(data.permissions.production ? 1 : 0);
+    await page.screenshot({path:`/private/tmp/emi-busbar-access-${team}.png`,fullPage:true});
+  }
+});
+
+test("weekend date colors survive today and selection on desktop and mobile", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-12T06:00:00Z"));
+  await mock(page,fixture());
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.goto("/interior-busbar/plans");
+    const saturday = page.getByRole("button",{name:"2026-09-12 생산계획 선택",exact:true});
+    const sunday = page.getByRole("button",{name:"2026-09-13 생산계획 선택",exact:true});
+    await expect(saturday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(37, 99, 235)");
+    await expect(saturday).toHaveCSS("background-color","rgb(254, 226, 226)");
+    await sunday.click(); await page.getByRole("button", {name:"생산계획 팝업 닫기"}).click();
+    await expect(sunday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(220, 38, 38)");
+    await expect(sunday).toHaveCSS("background-color","rgb(241, 245, 249)");
+    await page.screenshot({path:`/private/tmp/emi-busbar-weekend-${width}.png`,fullPage:true});
   }
 });

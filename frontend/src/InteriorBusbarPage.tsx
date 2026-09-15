@@ -317,7 +317,7 @@ export function InteriorBusbarPage({
         { key: "name", label: "프로젝트명", value: row?.name },
         {
           key: "customerJobNumber",
-          label: "W/O No (고객 업무번호)",
+          label: "LSE Task No",
           value: row?.customerJobNumber,
           optional: true,
         },
@@ -497,7 +497,10 @@ export function InteriorBusbarPage({
     setPage(1); setActiveProduct("");
   }
   const stock = (item?: BusbarMaster) => item?.balance ?? 0;
-  const canWrite = data.canWrite;
+  const access = data.permissions;
+  const canAdminister = access?.administration ?? false;
+  const canWrite = access ? ({ overview: false, projects: access.projects, plans: access.planning,
+    production: access.production, purchases: access.purchases, masters: access.administration }[tab]) : false;
   const visibleProducts = data.products.filter((product) => matches(productLabel(product), familyName(product.productFamilyId), product.workerName));
   const eligibleProducts = visibleProducts.filter(canPrintQr);
   const selectedIds = selectedQrIds.filter((id) => eligibleProducts.some((product) => product.id === id));
@@ -526,8 +529,8 @@ export function InteriorBusbarPage({
       } catch (error) { labels.forEach((label) => URL.revokeObjectURL(label.url)); throw error; }
     }, "선택한 제품의 QR을 모두 준비했습니다. 번호를 확인한 뒤 인쇄하세요.");
   }
-  const writeButton = (label: string, action: () => void) =>
-    canWrite ? (
+  const writeButton = (label: string, action: () => void, allowed = canWrite) =>
+    allowed ? (
       <button
         type="button"
         className="button secondary"
@@ -550,8 +553,8 @@ export function InteriorBusbarPage({
         }
       />
       </header>
-      {!canWrite && (
-        <DsReadOnlyBanner description="조회 권한으로 접속했습니다. 입력과 정정은 인테리어 부스바 담당자가 처리합니다." />
+      {!canWrite && tab !== "overview" && (
+        <DsReadOnlyBanner description="이 화면은 조회만 가능합니다. 입력은 담당 팀 또는 관리자에게 요청하세요." />
       )}
       {error && <DsActionFeedback message={error} tone="error" />}
       {["production", "purchases"].includes(tab) && data.pagination && (
@@ -675,7 +678,7 @@ export function InteriorBusbarPage({
             <Table
               headings={[
                 "프로젝트명",
-                "고객 업무번호",
+                "LSE Task No",
                 "제품군",
                 "납품예정일",
                 "도착지",
@@ -754,7 +757,7 @@ export function InteriorBusbarPage({
                 </div>
               </div>
               <p className="busbar-note">공용 재고는 이 프로젝트에 예약된 수량이 아닙니다. 생산 예정 수량은 현재 출하 가능 수량에 포함하지 않습니다.</p>
-                <EcountStatus key={`${user}:${selectedProject.id}:${selectedProject.shippedQuantity}:${selectedProject.requestedQuantity}`} userId={user} projectId={selectedProject.id} canWrite={canWrite} />
+                <EcountStatus key={`${user}:${selectedProject.id}:${selectedProject.shippedQuantity}:${selectedProject.requestedQuantity}`} userId={user} projectId={selectedProject.id} canWrite={canAdminister} />
               <h3>출하 이력</h3>
               <Table
                 headings={["처리 시각", "출하 수량", "상태", "작업"]}
@@ -773,7 +776,7 @@ export function InteriorBusbarPage({
                       n(x.quantity),
                       x.reversed ? "취소" : "반영",
                       !x.reversed && op
-                        ? writeButton("출하 취소", () => reverse(op))
+                        ? writeButton("출하 취소", () => reverse(op), canAdminister)
                         : null,
                     ];
                   })}
@@ -812,7 +815,7 @@ export function InteriorBusbarPage({
             <h3 ref={calendarHeadingRef} tabIndex={-1}>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월 생산계획</h3>
             <p className="busbar-note">날짜를 선택하면 팝업에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
             <div className="busbar-month-calendar" role="region" aria-label="월간 생산계획 달력" tabIndex={0}>
-              <div className="busbar-calendar-weekdays" aria-hidden="true">{["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}</div>
+              <div className="busbar-calendar-weekdays" aria-hidden="true">{["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day} className={day === "일" ? "busbar-sunday" : day === "토" ? "busbar-saturday" : ""}>{day}</span>)}</div>
               <div className="busbar-calendar-grid">
                 {Array.from({ length: calendarDays }, (_, index) => {
                   const date = datePlus(calendarStart, index);
@@ -821,7 +824,7 @@ export function InteriorBusbarPage({
                   return <button key={date} type="button" className="busbar-calendar-day" aria-label={`${date} 생산계획 선택`}
                     aria-pressed={selectedPlanDate === date} aria-current={date === today() ? "date" : undefined}
                     onClick={() => { setSelectedPlanDate(date); setEditor(null); setFeedback(""); setPlanDialogOpen(true); }}>
-                    <span className="busbar-calendar-date">{Number(date.slice(8))}{date === today() && <small>오늘</small>}</span>
+                    <span className={`busbar-calendar-date ${index % 7 === 0 ? "busbar-sunday" : index % 7 === 6 ? "busbar-saturday" : ""}`}>{Number(date.slice(8))}{date === today() && <small>오늘</small>}</span>
                     {plans.length ? plans.map((plan) => <span className="busbar-calendar-plan" key={plan.id}>
                       <strong>{familyName(plan.productFamilyId)}</strong>
                       <span>계획 {n(plan.quantity)}개 · 완료 {n(plan.actualQuantity)}개</span>
@@ -895,7 +898,7 @@ export function InteriorBusbarPage({
               rows={visibleProducts.map((product) => [
                 <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintQr(product)}
                   onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />,
-                <button disabled={busy} onClick={() => { setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{product.status === "Draft" ? "사진등록" : "사진보기"}</button>,
+                <button disabled={busy} onClick={() => { setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{product.status === "Draft" && canWrite ? "사진등록" : "사진보기"}</button>,
                 familyName(product.productFamilyId), product.workerName ?? "작업자 선택 전", busbarDateTime(product.manufacturedAtUtc), productionStatusLabel(product),
                 productLabel(product),
                 <><DsBadge tone={product.publicationState === "Failed" ? "danger" : product.publicationState === "Published" ? "success" : "neutral"}>{statusLabel(product.publicationState)}</DsBadge>
@@ -1033,8 +1036,8 @@ export function InteriorBusbarPage({
           <DsSurface label="자재 재고">
             <DsToolbar>
               <h3>자재 재고</h3>
-              {writeButton("자재 기초재고", () => adjustment("Material", true))}
-              {writeButton("자재 재고 보정", () => adjustment("Material"))}
+              {writeButton("자재 기초재고", () => adjustment("Material", true), canAdminister)}
+              {writeButton("자재 재고 보정", () => adjustment("Material"), canAdminister)}
             </DsToolbar>
             <Table
               headings={["품목 코드", "자재", "공급 구분", "단위", "현재고"]}
@@ -1054,9 +1057,9 @@ export function InteriorBusbarPage({
             <DsToolbar>
               <h3>완제품 공용 재고</h3>
               {writeButton("완제품 기초재고", () =>
-                adjustment("Finished", true),
+                adjustment("Finished", true), canAdminister,
               )}
-              {writeButton("완제품 재고 보정", () => adjustment("Finished"))}
+              {writeButton("완제품 재고 보정", () => adjustment("Finished"), canAdminister)}
             </DsToolbar>
             <Table
               headings={["제품군", "현재고"]}
@@ -1091,7 +1094,7 @@ export function InteriorBusbarPage({
                 x.reason,
                 x.reversed ? "취소됨" : "반영",
                 !x.reversed && !["Production", "Reversal"].includes(x.kind)
-                  ? writeButton("취소·복원", () => reverse(x))
+                  ? writeButton("취소·복원", () => reverse(x), canAdminister)
                   : null,
               ])}
             />
@@ -1756,7 +1759,7 @@ function ImportBox({
   const labels: Record<string, string> = {
     id: "등록 식별자",
     name: "프로젝트명",
-    customerJobNumber: "W/O No",
+    customerJobNumber: "LSE Task No",
     productFamilyId: "제품군",
     requestedQuantity: "요청 수량",
     destination: "도착지",

@@ -89,7 +89,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
 
     private static async Task Audit(NpgsqlConnection c, string kind, Guid id, Guid actor, string reason, object before, object after) => await Exec(c, "insert into busbar_audit values(@id,@kind,@entity,@reason,@actor,now(),@before::jsonb,@after::jsonb)", ("id", Guid.NewGuid()), ("kind", kind), ("entity", id), ("reason", reason), ("actor", actor), ("before", JsonSerializer.Serialize(before)), ("after", JsonSerializer.Serialize(after)));
 
-    public Task<object> Workspace(bool canWrite, int page = 1, int pageSize = 100, Guid? planId = null, Guid? productFamilyId = null, DateOnly? planDateFrom = null, DateOnly? planDateTo = null, string? status = null) => ReadSnapshot<object>(async c =>
+    public Task<object> Workspace(bool canWrite, int page = 1, int pageSize = 100, Guid? planId = null, Guid? productFamilyId = null, DateOnly? planDateFrom = null, DateOnly? planDateTo = null, string? status = null, BusbarAccess? permissions = null) => ReadSnapshot<object>(async c =>
     {
         Require(page > 0 && pageSize is > 0 and <= 200, "페이지 크기는 1~200이어야 합니다.");
         var offset = ((long)page - 1) * pageSize;
@@ -119,6 +119,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         var result = new Dictionary<string, object?>
         {
             ["canWrite"] = canWrite,
+            ["permissions"] = permissions,
             ["settings"] = (await Rows(c, "select common_project_code,ecount_customer_code,ecount_warehouse_code from busbar_settings"))[0]
         }
 ;

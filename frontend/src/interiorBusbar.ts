@@ -79,6 +79,7 @@ export type BusbarWorkspace = {
   };
   publicationOutstandingCount?: number;
   canWrite: boolean;
+  permissions?: { projects: boolean; planning: boolean; production: boolean; purchases: boolean; administration: boolean };
   ecountEmployees?: Array<{ userId: string; displayName: string; employeeCode?: string }>;
   settings: { commonProjectCode: string; ecountCustomerCode?: string; ecountWarehouseCode?: string };
   productFamilies: BusbarMaster[];

@@ -117,10 +117,11 @@ public sealed class InteriorBusbarAuthorizationTests
     public async Task RealHttpPhotoRegistrationCompletesOnceAndBlocksQrUntilPublished()
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var productionIdentity = new MutableIdentity(f.Actor);
         using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?> {
             ["DevAuthentication:Enabled"] = "true", ["Database:ApplyMigrationsOnStartup"] = "false",
             ["ConnectionStrings:QmsDatabase"] = f.Connection, ["InteriorBusbar:Publication:Enabled"] = "false"
-        }, identityStore: new MutableIdentity(f.Actor));
+        }, identityStore: productionIdentity);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "busbar-fixture");
         async Task<Guid> PostId(string path, object payload)
@@ -134,6 +135,8 @@ public sealed class InteriorBusbarAuthorizationTests
         var material = await PostId("/materials", new BusbarMasterRequest(null, "M", "Material", "m", "도급"));
         var worker = await PostId("/workers", new BusbarMasterRequest(null, "W", "Worker"));
         await PostId("/boms", new BusbarBomRequest(family, [new(material, 2)]));
+        productionIdentity.Manager = false;
+        productionIdentity.DepartmentCode = "production-planning";
         var plan = await PostId("/plans", new BusbarPlanRequest(Guid.NewGuid(), family, DateOnly.FromDateTime(DateTime.UtcNow), 3));
         Guid product;
         await using (var connection = new Npgsql.NpgsqlConnection(f.Connection))
@@ -157,6 +160,7 @@ public sealed class InteriorBusbarAuthorizationTests
             if (selectWorker) form.Add(new StringContent(worker.ToString()), "workerId");
             return await client.PutAsync($"/api/interior-busbar/products/{product}/photos/{side}", form, TestContext.Current.CancellationToken);
         }
+        productionIdentity.DepartmentCode = "manufacturing";
         using var invalid = await Photo("front", [1, 2, 3]);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
         using var noWorker = await Photo("front", bytes, false);
@@ -248,11 +252,63 @@ public sealed class InteriorBusbarAuthorizationTests
         public HttpContext? HttpContext { get; set; }
     }
 
+    [Theory(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    [InlineData("sales")]
+    [InlineData("production-planning")]
+    [InlineData("manufacturing")]
+    [InlineData("quality")]
+    public async Task DepartmentPermissionsAreEnforcedOnActualMutationRoutes(string department)
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var identity = new MutableIdentity(f.Actor) { Manager = false, DepartmentCode = department };
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string,string?> {
+            ["DevAuthentication:Enabled"]="true", ["Database:ApplyMigrationsOnStartup"]="false",
+            ["ConnectionStrings:QmsDatabase"]=f.Connection, ["InteriorBusbar:Publication:Enabled"]="false"
+        }, identityStore: identity);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "busbar-fixture");
+        var family = await f.Store.Master("product-families", new(null,"F","Family"), f.Actor);
+        var material = await f.Store.Master("materials", new(null,"M","Material","m","도급"), f.Actor);
+        await f.Store.Settings(new("SYN"), f.Actor);
+        var project = await f.Store.Project(new(null,"Seed","WO",family,10,"Destination",new(2026,10,1)),f.Actor);
+        var purchase = await f.Store.Purchase(new(null,"SeedPO",material,10,new(2026,10,1)),f.Actor);
+        await f.Store.Adjustment(new(Guid.NewGuid(),"Finished",family,10,"Seed",true),f.Actor);
+        var mutations = new (string Path, object Body, bool Allowed)[] {
+            ("/projects", new BusbarProjectRequest(null,"Project","SYN",family,1,"Destination",new(2026,10,1)), department=="sales"),
+            ("/plans", new BusbarPlanRequest(null,family,new(2026,10,1),1), department=="production-planning"),
+            ("/purchases", new BusbarPurchaseRequest(null,"PO",material,1,new(2026,10,1)), department=="production-planning"),
+            ("/shipments", new BusbarShipmentRequest(Guid.NewGuid(),project,1), department=="sales"),
+            ("/receipts", new BusbarReceiptRequest(Guid.NewGuid(),purchase,1), department=="production-planning"),
+            ("/workers", new BusbarMasterRequest(null,"W","Worker"), false),
+            ("/adjustments", new BusbarAdjustmentRequest(Guid.NewGuid(),"Finished",family,1,"Opening",true), false),
+            ("/ecount/resume", new BusbarEcountRetryRequest("Unauthorized"), false),
+            ($"/ledger/{Guid.NewGuid()}/reverse", new BusbarReverseRequest(Guid.NewGuid(),"Unauthorized"), false)
+        };
+        foreach (var (path,body,allowed) in mutations)
+        {
+            using var response = await client.PostAsJsonAsync("/api/interior-busbar"+path, body, TestContext.Current.CancellationToken);
+            Assert.Equal(allowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using var invalidPhotoForm = new MultipartFormDataContent();
+        invalidPhotoForm.Add(new ByteArrayContent([1,2,3]), "file", "invalid.png");
+        using var photo = await client.PutAsync($"/api/interior-busbar/products/{Guid.NewGuid()}/photos/front", invalidPhotoForm, TestContext.Current.CancellationToken);
+        // A manufacturer reaches image validation; all other teams are rejected before it.
+        Assert.Equal(department=="manufacturing" ? HttpStatusCode.BadRequest : HttpStatusCode.Forbidden, photo.StatusCode);
+        using var workspace = await client.GetAsync("/api/interior-busbar/workspace", TestContext.Current.CancellationToken);
+        var data = System.Text.Json.JsonDocument.Parse(await workspace.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+        Assert.Equal(department=="sales", data.GetProperty("permissions").GetProperty("projects").GetBoolean());
+        Assert.False(data.GetProperty("permissions").GetProperty("administration").GetBoolean());
+        identity.DepartmentCode="quality";
+        using var afterTransfer = await client.PostAsJsonAsync("/api/interior-busbar/plans", new BusbarPlanRequest(null,family,new(2026,10,2),1), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, afterTransfer.StatusCode);
+    }
+
     private sealed class MutableIdentity(Guid id) : IIdentityStore
     {
         public bool Manager { get; set; } = true;
-        private UserAuthorizationProfile Profile => new(new QmsUser(id, "busbar-fixture", "Synthetic Manager", "manufacturing", true),
-            SeedIdentityData.Departments.Single(d => d.Code == "manufacturing"),
+        public string DepartmentCode { get; set; } = "manufacturing";
+        private UserAuthorizationProfile Profile => new(new QmsUser(id, "busbar-fixture", "Synthetic Manager", DepartmentCode, true),
+            SeedIdentityData.Departments.Single(d => d.Code == DepartmentCode),
             Manager ? [new Role(Guid.NewGuid(), InteriorBusbarEndpointExtensions.ManagerRole, "Busbar Manager")] : [new Role(Guid.NewGuid(), QmsRoles.ReadOnly, "Read Only")], [], []);
         public Task<UserAuthorizationProfile?> GetProfileByDevelopmentUserKeyAsync(string key, CancellationToken token) => Task.FromResult<UserAuthorizationProfile?>(key == "busbar-fixture" ? Profile : null);
         public Task<UserAuthorizationProfile?> GetProfileByUserIdAsync(Guid userId, CancellationToken token) => Task.FromResult<UserAuthorizationProfile?>(userId == id ? Profile : null);

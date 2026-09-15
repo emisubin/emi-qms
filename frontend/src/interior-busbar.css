@@ -260,7 +260,7 @@
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] {
   background: #fee2e2 !important; color: #7f1d1d !important;
 }
-.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] * { color: inherit !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] > :not(.busbar-calendar-date) { color: inherit !important; }
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] { outline: 2px solid #2563eb; outline-offset: -2px; }
 .busbar-page .busbar-check-label { display: flex; align-items: center; gap: 8px; }
 .busbar-qr-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-block: 16px; }
@@ -279,7 +279,7 @@
 
 /* Selection stays soft; today retains its red identity. */
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) { background: #f1f5f9 !important; color: #334155 !important; }
-.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) * { color: inherit !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) > :not(.busbar-calendar-date) { color: inherit !important; }
 .app-shell .busbar-page table tbody tr.busbar-due-soon > td { background: #fef9c3 !important; color: #713f12 !important; }
 
 .busbar-project-summary > * { min-width: 0; }
@@ -306,3 +306,7 @@
   margin-top: 0;
   min-height: 0;
 }
+
+/* Weekend date colors also apply to today and selected dates. */
+.app-shell .busbar-page .busbar-month-calendar .busbar-saturday { color: #2563eb !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-sunday { color: #dc2626 !important; }

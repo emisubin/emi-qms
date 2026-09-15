@@ -34,9 +34,9 @@ public static class InteriorBusbarEndpointExtensions
             if (string.Equals(http.User.FindFirstValue(QmsClaimTypes.ApprovalPending), bool.TrueString, StringComparison.OrdinalIgnoreCase) || !Guid.TryParse(http.User.FindFirstValue(QmsClaimTypes.UserId), out var actor)) return Results.Forbid();
             var profile = await http.RequestServices.GetRequiredService<IIdentityStore>().GetProfileByUserIdAsync(actor, http.RequestAborted);
             if (profile?.User.IsActive != true || ApprovalReadinessPolicy.IsApprovalPending(profile)) return Results.Forbid();
-            var canWrite = profile.Roles.Any(r => r.Code == ManagerRole || r.Code == QmsRoles.SystemAdministrator) || string.Equals(http.User.FindFirstValue(QmsClaimTypes.IsOverallAdministrator), bool.TrueString, StringComparison.OrdinalIgnoreCase);
-            http.Items["busbarCanWrite"] = canWrite;
-            if (http.Request.Method != "GET" && !canWrite) return Results.Forbid();
+            var access = BusbarAccess.For(profile, string.Equals(http.User.FindFirstValue(QmsClaimTypes.IsOverallAdministrator), bool.TrueString, StringComparison.OrdinalIgnoreCase));
+            http.Items["busbarAccess"] = access;
+            if (http.Request.Method != "GET" && !access.Allows((http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText)) return Results.Forbid();
             try
             {
                 return await next(context);
@@ -60,7 +60,7 @@ public static class InteriorBusbarEndpointExtensions
                , statusCode: 409);
             }
         });
-        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId, Guid? productFamilyId, DateOnly? planDateFrom, DateOnly? planDateTo, string? status) => s.Workspace((bool)h.Items["busbarCanWrite"]!, page ?? 1, pageSize ?? 100, planId, productFamilyId, planDateFrom, planDateTo, status));
+        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId, Guid? productFamilyId, DateOnly? planDateFrom, DateOnly? planDateTo, string? status) => s.Workspace(((BusbarAccess)h.Items["busbarAccess"]!).Any, page ?? 1, pageSize ?? 100, planId, productFamilyId, planDateFrom, planDateTo, status, (BusbarAccess)h.Items["busbarAccess"]!));
         foreach (var kind in new[] { "product-families", "materials", "workers" })
         {
             var captured = kind;
@@ -208,7 +208,7 @@ public static class InteriorBusbarEndpointExtensions
     {
         using var book = new XLWorkbook();
         var sheet = book.AddWorksheet("업로드");
-        var headers = purchase ? new[] { "발주ID", "발주번호", "자재코드", "수량", "발주일", "정정사유" } : new[] { "등록건ID", "프로젝트명", "W/O No", "제품군코드", "요청수량", "도착지", "납품예정일", "정정사유" };
+        var headers = purchase ? new[] { "발주ID", "발주번호", "자재코드", "수량", "발주일", "정정사유" } : new[] { "등록건ID", "프로젝트명", "LSE Task No", "제품군코드", "요청수량", "도착지", "납품예정일", "정정사유" };
         for (var i = 0; i < headers.Length; i++)
         {
             sheet.Cell(1, i + 1).Value = headers[i];

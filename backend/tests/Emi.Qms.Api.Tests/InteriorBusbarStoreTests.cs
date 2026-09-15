@@ -304,7 +304,7 @@ public sealed class InteriorBusbarStoreTests
             init;
         }
  = Guid.NewGuid();
-        public static async Task<Fixture> Create(InteriorBusbarPublicationOptions? publicationOptions = null, bool applyCommercialMigration = true)
+        public static async Task<Fixture> Create(InteriorBusbarPublicationOptions? publicationOptions = null, bool applyCommercialMigration = true, bool applyShipmentMigration = true)
         {
             var baseConnection = Environment.GetEnvironmentVariable("BUSBAR_TEST_CONNECTION_STRING") ?? throw new InvalidOperationException("Set BUSBAR_TEST_CONNECTION_STRING to an explicitly disposable synthetic database.");
             var builder = new NpgsqlConnectionStringBuilder(baseConnection);
@@ -344,6 +344,7 @@ public sealed class InteriorBusbarStoreTests
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0094_interior_busbar_ecount_queue.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0095_interior_busbar_ecount_runtime.sql")), c).ExecuteNonQueryAsync();
                 await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0096_interior_busbar_project_creator.sql")), c).ExecuteNonQueryAsync();
+                if (applyShipmentMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0097_interior_busbar_shipment_sales.sql")), c).ExecuteNonQueryAsync();
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);

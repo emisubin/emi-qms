@@ -1294,12 +1294,12 @@ function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId:
   }, [userId, projectId, revision]);
   const names = { Pending: "전송 대기", Held: "보류", InFlight: "전송 중", Succeeded: "전송 완료", Failed: "전송 실패", Unknown: "결과 확인 필요" };
   return <div className="busbar-ecount-status"><h4>이카운트 주문·판매</h4>
-    <p className="busbar-note">{data?.transmissionEnabled ? `${data.environment === "Test" ? "테스트" : "운영"} 연결 · ${data.paused ? "자동 전송 중지" : "자동 전송 사용"}` : "실제 전송 연결 전입니다. 등록·납품 완료 시 전송 대기 내역을 보관합니다."}</p>
+    <p className="busbar-note">{data?.transmissionEnabled ? `${data.environment === "Test" ? "테스트" : "운영"} 연결 · ${data.paused ? "자동 전송 중지" : "자동 전송 사용"}` : "실제 전송 연결 전입니다. 프로젝트 등록·분할 출하 시 전송 대기 내역을 보관합니다."}</p>
     {data?.connectionMessage && <p role="status">{data.connectionMessage}</p>}
     {canWrite && data?.transmissionEnabled && data.paused && <button disabled={saving} onClick={() => { setRetry("connection");setOutcome(undefined);setReason(""); }}>자동 전송 재개</button>}
     {error && <p role="alert">{error}</p>}
-    {!data ? <p role="status">전송 상태 확인 중…</p> : <Table headings={["구분", "상태", "전표번호", "안내", "작업"]} rows={data.jobs.map(job => [
-      job.kind === "Order" ? "주문서" : "판매", job.needsReview ? `${names[job.state]} · 변경 확인 필요` : names[job.state], job.slipNumber || "—", job.message || "—",
+    {!data ? <p role="status">전송 상태 확인 중…</p> : <Table headings={["구분", "출하일시", "출하 수량", "상태", "전표번호", "안내", "작업"]} rows={data.jobs.map(job => [
+      job.kind === "Order" ? "주문서" : job.shipmentId ? "출하별 판매" : "기존 판매", job.shippedAtUtc ? new Date(job.shippedAtUtc).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "—", job.shipmentQuantity == null ? "—" : n(job.shipmentQuantity), job.needsReview ? `${names[job.state]} · 변경 확인 필요` : names[job.state], job.slipNumber || "—", job.message || "—",
       canWrite && !job.needsReview && (job.state === "Held" || job.state === "Failed") ? <button disabled={saving} onClick={() => {setRetry(job.id);setOutcome(undefined);setReason("");}}>다시 대기</button> : canWrite && (job.state === "Unknown" || job.state === "Succeeded" && job.needsReview) ? <button disabled={saving} onClick={() => {setRetry(job.id);setOutcome(job.state === "Unknown" ? "Recorded" : "Reviewed");setSlip("");setReason("");}}>전표 확인 반영</button> : "—"
     ])} />}
     <button disabled={saving} onClick={() => setRevision(value => value + 1)}>전송 상태 새로고침</button>

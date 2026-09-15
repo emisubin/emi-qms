@@ -169,6 +169,10 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             using var payload = JsonDocument.Parse(attempt.Payload);
             var p = payload.RootElement;
             if (attempt.Kind is not ("Order" or "Sale")) return new("Unknown");
+            var order = attempt.Kind == "Order";
+            string? sourceOrderDate = null;
+            string? sourceOrderNumber = null;
+            if (!order && !TryReadSaleLinkage(p, out sourceOrderDate, out sourceOrderNumber)) return new("Unknown");
             var ioDate = DateOnly.ParseExact(p.GetProperty("ioDate").GetString()!, "yyyyMMdd", CultureInfo.InvariantCulture);
             var ioType = p.TryGetProperty("ioType", out var frozenIoType) ? frozenIoType.GetString() : options.IoType;
             if (ioType is not null && (ioType.Length != 2 || ioType.Any(char.IsControl))) return new("Unknown");
@@ -183,11 +187,15 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
                 ["SUPPLY_AMT"] = p.GetProperty("supplyAmount").GetDecimal(), ["VAT_AMT"] = p.GetProperty("vatAmount").GetDecimal()
             };
             if (ioType is not null) row["IO_TYPE"] = ioType;
-            var order = attempt.Kind == "Order";
             if (order)
             {
                 row["U_MEMO2"] = p.GetProperty("workOrderNumber").GetString();
                 row["TIME_DATE"] = DateOnly.ParseExact(p.GetProperty("dueDate").GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture).ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                row["REL_DATE"] = sourceOrderDate;
+                row["REL_NO"] = sourceOrderNumber;
             }
             var body = new Dictionary<string, object> { [order ? "SaleOrderList" : "SaleList"] = new[] { new { BulkDatas = row } } };
             var path = order ? "SaleOrder/SaveSaleOrder" : "Sale/SaveSale";
@@ -202,6 +210,22 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             // A lost or malformed response does not prove that the ERP rejected the row.
             return new("Unknown");
         }
+    }
+
+    private static bool TryReadSaleLinkage(JsonElement payload, out string? sourceOrderDate, out string? sourceOrderNumber)
+    {
+        sourceOrderDate = null;
+        sourceOrderNumber = null;
+        if (!payload.TryGetProperty("sourceOrderDate", out var dateElement) || dateElement.ValueKind != JsonValueKind.String
+            || !DateOnly.TryParseExact(dateElement.GetString(), "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            || !payload.TryGetProperty("sourceOrderNumber", out var numberElement) || numberElement.ValueKind != JsonValueKind.String
+            || numberElement.GetString() is not { Length: > 0 } number || !number.All(char.IsAsciiDigit) || !number.Any(c => c != '0')
+            || !payload.TryGetProperty("shipmentId", out var shipmentElement) || shipmentElement.ValueKind != JsonValueKind.String
+            || !Guid.TryParseExact(shipmentElement.GetString(), "D", out var shipmentId) || shipmentId == Guid.Empty)
+            return false;
+        sourceOrderDate = date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        sourceOrderNumber = number;
+        return true;
     }
 
     private void LogSaveShape(JsonElement root)

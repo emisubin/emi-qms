@@ -32,8 +32,18 @@ public sealed class InteriorBusbarEcountClientTests
         return InteriorBusbarEcountOptions.Load(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
     }
 
-    private static BusbarEcountAttempt Attempt(string kind = "Order") => new(Guid.NewGuid(), Guid.NewGuid(), kind,
-        """{"projectId":"00000000-0000-0000-0000-000000000001","projectName":"Synthetic","employeeCode":"SYN-EMP","workOrderNumber":"SYN-WO","purchaseOrderNumber":"","productCode":"SYN-P","customerCode":"SYN-C","warehouseCode":"SYN-W","commonProjectCode":"SYN-PJT","quantity":3,"unitPrice":12345.123,"supplyAmount":37035.369,"vatAmount":3703.5369,"totalAmount":40738.9059,"ioDate":"20260915","dueDate":"2026-10-01","currency":"KRW","vatRate":0.1}""");
+    private static BusbarEcountAttempt Attempt(string kind = "Order")
+    {
+        var payload = System.Text.Json.Nodes.JsonNode.Parse(
+            """{"projectId":"00000000-0000-0000-0000-000000000001","projectName":"Synthetic","employeeCode":"SYN-EMP","workOrderNumber":"SYN-WO","purchaseOrderNumber":"","productCode":"SYN-P","customerCode":"SYN-C","warehouseCode":"SYN-W","commonProjectCode":"SYN-PJT","quantity":3,"unitPrice":12345.123,"supplyAmount":37035.369,"vatAmount":3703.5369,"totalAmount":40738.9059,"ioDate":"20260915","dueDate":"2026-10-01","currency":"KRW","vatRate":0.1}""")!;
+        if (kind == "Sale")
+        {
+            payload["sourceOrderDate"] = "20260914";
+            payload["sourceOrderNumber"] = "123";
+            payload["shipmentId"] = "00000000-0000-0000-0000-000000000002";
+        }
+        return new(Guid.NewGuid(), Guid.NewGuid(), kind, payload.ToJsonString());
+    }
 
     private sealed class Clock : TimeProvider
     {
@@ -102,18 +112,51 @@ public sealed class InteriorBusbarEcountClientTests
             Assert.Equal(3703.5369m, row.GetProperty("VAT_AMT").GetDecimal());
             Assert.False(row.TryGetProperty("U_MEMO1", out _));
             Assert.False(row.TryGetProperty("IO_TYPE", out _));
-            Assert.Equal(order ? 13 : 11, row.EnumerateObject().Count());
+            Assert.Equal(13, row.EnumerateObject().Count());
             if (order)
             {
                 Assert.Equal("SYN-WO", row.GetProperty("U_MEMO2").GetString());
                 Assert.Equal("20261001", row.GetProperty("TIME_DATE").GetString());
+                Assert.False(row.TryGetProperty("REL_DATE", out _));
+                Assert.False(row.TryGetProperty("REL_NO", out _));
             }
             else
             {
                 Assert.False(row.TryGetProperty("U_MEMO2", out _));
                 Assert.False(row.TryGetProperty("TIME_DATE", out _));
+                Assert.Equal("20260914", row.GetProperty("REL_DATE").GetString());
+                Assert.Equal("123", row.GetProperty("REL_NO").GetString());
             }
         }
+    }
+
+    [Theory]
+    [InlineData("sourceOrderDate", null, true)]
+    [InlineData("sourceOrderDate", null, false)]
+    [InlineData("sourceOrderDate", "2026-09-14", false)]
+    [InlineData("sourceOrderDate", "20260230", false)]
+    [InlineData("sourceOrderNumber", null, true)]
+    [InlineData("sourceOrderNumber", null, false)]
+    [InlineData("sourceOrderNumber", "0", false)]
+    [InlineData("sourceOrderNumber", "-1", false)]
+    [InlineData("sourceOrderNumber", "12A", false)]
+    [InlineData("shipmentId", null, true)]
+    [InlineData("shipmentId", null, false)]
+    [InlineData("shipmentId", "not-a-guid", false)]
+    [InlineData("shipmentId", "00000000-0000-0000-0000-000000000000", false)]
+    public async Task SaleWithoutValidSourceLinkageDoesNotSend(string field, string? value, bool remove)
+    {
+        using var handler = new Handler(Zone, Login);
+        using var http = new HttpClient(handler);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http);
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        var attempt = Attempt("Sale");
+        var payload = System.Text.Json.Nodes.JsonNode.Parse(attempt.Payload)!;
+        if (remove) payload.AsObject().Remove(field);
+        else payload[field] = value;
+
+        Assert.Equal("Unknown", (await client.SendAsync(attempt with { Payload = payload.ToJsonString() }, TestContext.Current.CancellationToken)).State);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Theory]

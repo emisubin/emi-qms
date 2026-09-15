@@ -274,7 +274,6 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         await Exec(c, "insert into busbar_projects(id,name,customer_job_number,common_project_code,product_family_id,requested_quantity,destination,due_date,registered_by,registered_by_name,registered_by_source) values(@id,@name,@job,@code,@family,@quantity,@destination,@date,@actor,@creator,'Registration') on conflict(id) do update set name=excluded.name,customer_job_number=excluded.customer_job_number,requested_quantity=excluded.requested_quantity,destination=excluded.destination,due_date=excluded.due_date", ("id", id), ("name", Text(r.Name, "프로젝트명")), ("job", r.CustomerJobNumber?.Trim() ?? ""), ("code", code), ("family", r.ProductFamilyId), ("quantity", r.RequestedQuantity), ("destination", Text(r.Destination, "도착지")), ("date", r.DueDate), ("actor", actor), ("creator", creatorName));
         if (r.Id is null) await EnqueueEcount(c, id, "Order");
         else await InvalidateEcountJobs(c, "id=@value", id);
-        await SyncEcountSale(c, id);
         await Audit(c, "Project", id, actor, r.Reason ?? "프로젝트 등록", before, r);
         return id;
     }
@@ -435,7 +434,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         var id = await Operation(c, r.RequestId, "Shipment", r.ProjectId, actor, "분할 출하", payload: r);
         await Delta(c, id, "Finished", Id(project, "productFamilyId"), -r.Quantity);
         await Exec(c, "insert into busbar_shipments values(@id,@project,@quantity)", ("id", id), ("project", r.ProjectId), ("quantity", r.Quantity));
-        await SyncEcountSale(c, r.ProjectId);
+        await EnqueueShipmentSale(c, r.ProjectId, id);
         return id;
     });
 
@@ -454,8 +453,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         foreach (var l in await Rows(c, "select * from busbar_ledger where operation_id=@id", ("id", operation))) await Delta(c, id, (string)l["stockKind"]!, Id(l, "itemId"), -Num(l, "quantity"));
         if (kind == "Shipment")
         {
-            var shipment = await One(c, "busbar_shipments", operation);
-            await SyncEcountSale(c, Id(shipment, "projectId"));
+            await CancelShipmentSale(c, operation);
         }
         return id;
     }

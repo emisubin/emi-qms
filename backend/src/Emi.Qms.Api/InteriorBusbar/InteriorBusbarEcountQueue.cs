@@ -29,42 +29,46 @@ public sealed partial class InteriorBusbarStore
     });
 
     private static Task EnqueueEcount(NpgsqlConnection c, Guid project, string kind) => Exec(c,
-        "insert into busbar_ecount_jobs(id,project_id,kind) values(@id,@project,@kind) on conflict(project_id,kind) do nothing",
+        "insert into busbar_ecount_jobs(id,project_id,kind) values(@id,@project,@kind) on conflict(project_id,kind) where shipment_id is null do nothing",
         ("id", Guid.NewGuid()), ("project", project), ("kind", kind));
-
-    private static async Task<bool> EcountProjectComplete(NpgsqlConnection c, Guid project)
-    {
-        var rows = await Rows(c, """
-            select p.requested_quantity=coalesce(sum(s.quantity) filter(where o.id is null),0) complete
-            from busbar_projects p left join busbar_shipments s on s.project_id=p.id
-            left join busbar_operations o on o.reverses_id=s.id where p.id=@id group by p.id
-            """, ("id", project));
-        return rows.Count > 0 && (bool)rows[0]["complete"]!;
-    }
 
     private static async Task<int> EcountShipped(NpgsqlConnection c, Guid project) => Convert.ToInt32((await Rows(c,
         "select coalesce(sum(s.quantity) filter(where o.id is null),0) quantity from busbar_shipments s left join busbar_operations o on o.reverses_id=s.id where s.project_id=@id", ("id", project)))[0]["quantity"]);
 
-    private static async Task SyncEcountSale(NpgsqlConnection c, Guid project)
+    private static Task EnqueueShipmentSale(NpgsqlConnection c, Guid project, Guid shipment) => Exec(c,
+        "insert into busbar_ecount_jobs(id,project_id,kind,shipment_id) values(@id,@project,'Sale',@shipment) on conflict(shipment_id) where shipment_id is not null do nothing",
+        ("id", Guid.NewGuid()), ("project", project), ("shipment", shipment));
+
+    private static Task CancelShipmentSale(NpgsqlConnection c, Guid shipment) => Exec(c, """
+        update busbar_ecount_jobs set
+          needs_review=needs_review or state in ('InFlight','Succeeded','Unknown'),
+          state=case when state in ('Pending','Failed','Held') then 'Held' else state end,
+          message='출하 취소 · 이미 생성된 판매전표는 이카운트에서 확인 필요',updated_at_utc=now()
+        where shipment_id=@id
+        """, ("id", shipment));
+
+    internal static (string Date, string Number)? ParseOrderSlip(string? slip)
     {
-        var complete = await EcountProjectComplete(c, project);
-        var shipped = await EcountShipped(c, project);
-        await Exec(c, "update busbar_ecount_jobs set needs_review=true,message='납품 상태 변경 확인 필요' where project_id=@id and kind='Sale' and state='Succeeded' and reviewed_shipped is not null and reviewed_shipped<>@shipped", ("id", project), ("shipped", shipped));
-        if (complete)
-        {
-            await EnqueueEcount(c, project, "Sale");
-            await Exec(c, "update busbar_ecount_jobs set state='Pending',message=null,updated_at_utc=now() where project_id=@id and kind='Sale' and state='Held' and message='납품 미완료' and not needs_review", ("id", project));
-        }
-        else
-        {
-            await Exec(c, """
-                update busbar_ecount_jobs set
-                  needs_review=needs_review or (state in ('InFlight','Succeeded','Unknown') and coalesce(reviewed_shipped,-1)<>@shipped),
-                  state=case when state in ('Pending','Failed','Held') then 'Held' else state end,
-                  message='납품 미완료',updated_at_utc=now()
-                where project_id=@id and kind='Sale'
-                """, ("id", project), ("shipped", shipped));
-        }
+        if (slip is null || slip.Length > 40) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(slip.Trim(), @"^(\d{4})/?(\d{2})/?(\d{2})\s*-\s*([1-9]\d{0,8})$");
+        if (!match.Success) return null;
+        var date = match.Groups[1].Value + match.Groups[2].Value + match.Groups[3].Value;
+        return DateOnly.TryParseExact(date, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out _) ? (date, match.Groups[4].Value) : null;
+    }
+
+    private static async Task<string?> SaleIssue(NpgsqlConnection c, Dictionary<string, object?> job)
+    {
+        if (job["shipmentId"] is not Guid shipment) return "이전 프로젝트 단위 판매 대기 · 출하별 전송 전 확인 필요";
+        if ((await Rows(c, "select id from busbar_operations where reverses_id=@id", ("id", shipment))).Count > 0) return "취소된 출하는 전송할 수 없습니다.";
+        var orders = await Rows(c, "select * from busbar_ecount_jobs where project_id=@id and kind='Order'", ("id", Id(job, "projectId")));
+        if (orders.Count != 1 || (string)orders[0]["state"]! != "Succeeded" || (bool)orders[0]["needsReview"]!) return "주문서 전송 결과 확인 필요";
+        if (ParseOrderSlip(orders[0]["slipNumber"] as string) is null) return "원주문 전표번호 형식 확인 필요";
+        if ((await Rows(c, """
+            select id from busbar_ecount_jobs where project_id=@project and kind='Sale' and id<>@id
+            and (state in ('InFlight','Unknown') or needs_review or (shipment_id is null and state='Succeeded'))
+            """, ("project", Id(job, "projectId")), ("id", Id(job)))).Count > 0) return "다른 출하의 판매전표 확인 필요";
+        return null;
     }
 
     // Called under the same transaction lock as each business mutation. Sent/uncertain
@@ -80,23 +84,40 @@ public sealed partial class InteriorBusbarStore
             await Exec(c, """
                 update busbar_ecount_jobs set needs_review=true,message='전송 후 기준정보 또는 프로젝트 변경 확인 필요',updated_at_utc=now()
                 where id=@id and exists(select 1 from busbar_ecount_attempts where id=current_attempt_id and coalesce(reviewed_payload, payload - 'ioDate' - 'ioType')<>@payload::jsonb)
-                """, ("id", Id(job)), ("payload", await EcountPayload(c, project, family, settings)));
+                """, ("id", Id(job)), ("payload", await EcountPayload(c, project, family, settings, job)));
         }
     }
 
-    private static async Task<string> EcountPayload(NpgsqlConnection c, Dictionary<string, object?> project, Dictionary<string, object?> family, Dictionary<string, object?> settings)
+    private static async Task<string> EcountPayload(NpgsqlConnection c, Dictionary<string, object?> project, Dictionary<string, object?> family, Dictionary<string, object?> settings, Dictionary<string, object?>? job = null)
     {
         var price = family["standardUnitPrice"] as decimal?;
-        var supply = price * Convert.ToInt32(project["requestedQuantity"]);
+        var quantity = Convert.ToInt32(project["requestedQuantity"]);
+        Dictionary<string, object?>? shipment = null;
+        (string Date, string Number)? source = null;
+        if (job?["kind"] as string == "Sale" && job["shipmentId"] is Guid shipmentId)
+        {
+            shipment = await One(c, "busbar_shipments", shipmentId);
+            quantity = Convert.ToInt32(shipment["quantity"]);
+            var orders = await Rows(c, "select slip_number from busbar_ecount_jobs where project_id=@id and kind='Order'", ("id", Id(project)));
+            source = orders.Count == 1 ? ParseOrderSlip(orders[0]["slipNumber"] as string) : null;
+        }
+        var supply = price * quantity;
         var vat = supply * 0.1m;
-        return JsonSerializer.Serialize(new {
+        var payload = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(new {
             projectId = Id(project), projectName = project["name"], workOrderNumber = project["customerJobNumber"],
             purchaseOrderNumber = "", employeeCode = await EcountEmployeeCode(c, project), registeredByName = project["registeredByName"], productCode = family["ecountProductCode"],
             customerCode = settings["ecountCustomerCode"], warehouseCode = settings["ecountWarehouseCode"],
-            commonProjectCode = project["commonProjectCode"], quantity = project["requestedQuantity"], unitPrice = price,
+            commonProjectCode = project["commonProjectCode"], quantity, unitPrice = price,
             supplyAmount = supply, vatAmount = vat, totalAmount = supply + vat,
             dueDate = project["dueDate"] is DateOnly date ? date : DateOnly.FromDateTime((DateTime)project["dueDate"]!), currency = "KRW", vatRate = 0.1m
-        });
+        }))!;
+        if (shipment is not null)
+        {
+            payload["shipmentId"] = Id(shipment).ToString();
+            payload["sourceOrderDate"] = source?.Date;
+            payload["sourceOrderNumber"] = source?.Number;
+        }
+        return payload.ToJsonString();
     }
 
     public Task<object> EcountStatus(Guid project) => ReadSnapshot<object>(async c =>
@@ -104,9 +125,10 @@ public sealed partial class InteriorBusbarStore
         await One(c, "busbar_projects", project);
         var runtime = (await Rows(c, "select paused,message,environment from busbar_ecount_runtime"))[0];
         return new { transmissionEnabled = ecountOptions?.Enabled == true, environment = runtime["environment"] ?? ecountOptions?.Environment, paused = runtime["paused"], connectionMessage = runtime["message"], jobs = await Rows(c, """
-            select id,kind,state,needs_review,message,slip_number,updated_at_utc,
+            select j.id,j.kind,state,needs_review,message,slip_number,j.updated_at_utc,shipment_id,
+              s.quantity shipment_quantity,o.created_at_utc shipped_at_utc,
               (select count(*) from busbar_ecount_attempts a where a.job_id=j.id) attempt_count
-            from busbar_ecount_jobs j where project_id=@project order by kind
+            from busbar_ecount_jobs j left join busbar_shipments s on s.id=j.shipment_id left join busbar_operations o on o.id=s.id where j.project_id=@project order by j.created_at_utc,j.id
             """, ("project", project)) };
     });
 
@@ -139,7 +161,7 @@ public sealed partial class InteriorBusbarStore
             var family = await One(c, "busbar_product_families", Id(project, "productFamilyId"));
             var settings = (await Rows(c, "select * from busbar_settings"))[0];
             await Exec(c, "update busbar_ecount_jobs set needs_review=false,message=null,reviewed_payload=@payload::jsonb,reviewed_shipped=@shipped,updated_at_utc=@now where id=@id",
-                ("payload", await EcountPayload(c, project, family, settings)), ("shipped", await EcountShipped(c, Id(project))), ("now", timeProvider.GetUtcNow()), ("id", id));
+                ("payload", await EcountPayload(c, project, family, settings, before)), ("shipped", await EcountShipped(c, Id(project))), ("now", timeProvider.GetUtcNow()), ("id", id));
         }
         else
         {
@@ -160,7 +182,11 @@ public sealed partial class InteriorBusbarStore
         var before = await One(c, "busbar_ecount_jobs", job);
         Require((string)before["state"]! is "Held" or "Failed" && !(bool)before["needsReview"]!,
             "이미 전송했거나 결과 확인이 필요한 건은 다시 전송할 수 없습니다.");
-        if ((string)before["kind"]! == "Sale") Require(await EcountProjectComplete(c, Id(before, "projectId")), "납품 완료 후 다시 대기시킬 수 있습니다.");
+        if ((string)before["kind"]! == "Sale")
+        {
+            var issue = await SaleIssue(c, before);
+            Require(issue is null, issue ?? "판매전표 확인 필요");
+        }
         await Exec(c, "update busbar_ecount_jobs set state='Pending',message=null,updated_at_utc=now() where id=@id", ("id", job));
         await Audit(c, "EcountJob", job, actor, reason, before, new { state = "Pending" });
         return job;
@@ -181,15 +207,12 @@ public sealed partial class InteriorBusbarStore
         if (price is null || string.IsNullOrWhiteSpace(family["ecountProductCode"] as string) ||
             string.IsNullOrWhiteSpace(settings["ecountCustomerCode"] as string) || string.IsNullOrWhiteSpace(settings["ecountWarehouseCode"] as string) ||
             string.IsNullOrWhiteSpace(commonCode) || commonCode.Length > 14) issue = "단가 또는 이카운트 기준정보 설정 필요";
-        var vat = price * Convert.ToInt32(project["requestedQuantity"]) * 0.1m;
+        var payloadText = await EcountPayload(c, project, family, settings, row);
+        var vatNode = System.Text.Json.Nodes.JsonNode.Parse(payloadText)!["vatAmount"];
+        var vat = vatNode?.GetValue<decimal>();
         if (vat is not null && decimal.Round(vat.Value, 4) != vat.Value) issue = "부가세가 API 소수 네 자리를 초과함 · 금액 확인 필요";
         if (kind == "Order" && price >= 1000000000000m) issue = "주문서 API 단가 범위 초과 · 금액 확인 필요";
-        if (kind == "Sale")
-        {
-            if (!await EcountProjectComplete(c, Id(project))) issue = "납품 미완료";
-            else if ((await Rows(c, "select id from busbar_ecount_jobs where project_id=@id and kind='Order' and (state<>'Succeeded' or needs_review)", ("id", Id(project)))).Count > 0)
-                issue = "주문서 전송 결과 확인 필요";
-        }
+        if (kind == "Sale") issue = await SaleIssue(c, row) ?? issue;
         if (string.IsNullOrWhiteSpace(await EcountEmployeeCode(c, project))) issue = "프로젝트 최초 등록자의 이카운트 담당자 연결 필요";
         if (issue is not null)
         {
@@ -199,7 +222,7 @@ public sealed partial class InteriorBusbarStore
         var now = timeProvider.GetUtcNow();
         var attempt = Guid.NewGuid();
         // Domain snapshot, not a wire request: final ERP amount policy is separate.
-        var snapshot = System.Text.Json.Nodes.JsonNode.Parse(await EcountPayload(c, project, family, settings))!;
+        var snapshot = System.Text.Json.Nodes.JsonNode.Parse(payloadText)!;
         snapshot["ioDate"] = now.ToOffset(TimeSpan.FromHours(9)).ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
         snapshot["ioType"] = ecountOptions?.IoType;
         var payload = snapshot.ToJsonString();

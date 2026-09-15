@@ -1237,3 +1237,25 @@ test("independent busbar URLs survive reload and browser history", async ({ page
   await page.goForward();
   await expect(page.locator(".busbar-page-heading h1")).toHaveText("프로젝트");
 });
+
+test("shipment sales show individual quantities and ERP slips on desktop and mobile", async ({page}) => {
+  await mock(page, fixture());
+  await page.route("**/api/interior-busbar/projects/*/ecount-status", route => route.fulfill({contentType:"application/json",body:JSON.stringify({transmissionEnabled:true,environment:"Test",paused:false,jobs:[
+    {id:projectId,kind:"Order",state:"Succeeded",needsReview:false,message:null,slipNumber:"2026/09/15 -1",attemptCount:1},
+    {id:"sale-one",kind:"Sale",shipmentId:"shipment-one",shipmentQuantity:20,shippedAtUtc:"2026-09-15T00:00:00Z",state:"Succeeded",needsReview:false,message:null,slipNumber:"2026/09/15 -2",attemptCount:1},
+    {id:"sale-two",kind:"Sale",shipmentId:"shipment-two",shipmentQuantity:15,shippedAtUtc:"2026-09-15T01:00:00Z",state:"Pending",needsReview:false,message:null,slipNumber:null,attemptCount:0}
+  ]})}));
+  await page.goto("/interior-busbar/projects");
+  await page.getByText("합성 납품 현장",{exact:true}).click();
+  const status = page.locator(".busbar-ecount-status");
+  await expect(status.getByRole("cell",{name:"출하별 판매",exact:true})).toHaveCount(2);
+  await expect(status.getByRole("cell",{name:"20",exact:true})).toBeVisible();
+  await expect(status.getByRole("cell",{name:"15",exact:true})).toBeVisible();
+  await expect(status.getByRole("cell",{name:"2026/09/15 -2",exact:true})).toBeVisible();
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await status.scrollIntoViewIfNeeded();
+    await status.screenshot({path:`/private/tmp/emi-busbar-shipment-sales-${width}.png`});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  }
+});

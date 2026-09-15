@@ -446,3 +446,16 @@ User accepted verification1(new automatic order). New sales contract: each parti
 이번 범위는 FE 메뉴/주소/화면 구성이다. 부서별 입력 권한과 기준정보 소유권은 별도 미구현 상태이며 기존 서버 권한·생산·재고·출하·ERP 전송 계약은 변경하지 않는다. Ecount 문의2481394는 사용자 직접 접수 후 담당자 후속 답변 예정 안내만 확인했으며 원주문 연계 API는 아직 미확정이다. 실제 provider/DB mutation 없이 합성 브라우저 검증을 진행한다. 기존 task WIP 보존. 로컬5197은 이 worktree frontend source를 사용하는 PID4429로 확인했다.
 
 Change026 검증: 기존 합성 busbar UI30/30 통과. 별도 주소·reload·history 신규 검증과6화면1440/1200/1101/390 검증2/2 통과. 재검증 중 모바일 resize 직후 helper가 오래된 layout을 읽는 race와 기존 inline Editor를 dialog로 오인한 assertion을 보정했으며 제품 동작 결함은 아니었다. 모바일 제목/설명과 새로고침 겹침은 scoped grid로 보정하고 합성 screenshot을 직접 열어 desktop 캘린더·홈과390 생산·입고 화면을 시각 확인했다. screenshot은 task 소유 /private/tmp/emi-busbar-*에만 보관. typecheck/build 성공, 변경 파일 eslint 오류/경고0, 전체 lint 기존 main.tsx warning1(추가 warning 제거), diff check 통과. 초기 격리5196 listen sandbox 제한은 해당 테스트 실행 승인을 통해 해소했다. 독립 busbar_navigation_review에서 route/history/filter/modal/print/access boundary 차단 finding 없음. 실제 운영 자료/전표 변경 없음. 사용자 검수·원격 반영·merge·배포는 미실행이며 기존5097 backend는 재기동하지 않았다.
+
+
+## Change 027 — 원주문 연계 분할 출하 판매 API
+
+2026-09-15 사용자 구현 승인. 발주 상세 문의는 사용자가 접수했으며 별도 답변 대기. 판매 문의2481394의09:15:42 공식 답변은 주문 일자·번호를 판매 API에 전달하면 원주문 연결 및 미판매 잔량 계산이 가능하다고 확인했다. 답변 REL_DATA 표기는 기존 공식 예제 REL_DATE와 다르므로 wire는 예제 REL_DATE/REL_NO에 맞추고 실제 ERP 연결 검수는 별도 남긴다.
+
+완료 조건: 신규 분할 출하마다 해당 수량·금액의 판매 대기1건, 확정 원주문 필수 연결, 출하 중복 요청/동시 claim/Unknown 자동 재전송 차단, 출하 취소에 따른 전송 보류 또는 전표 확인, 과거 합계 판매 자동 재발송/출하 backfill 없음.0097 additive migration과 출하별 상태 표시. 격리 합성 DB/provider 검증 후 독립 review. 현재 운영 전표/영속 DB/runtime 변경은 실행하지 않음.
+
+Change027 구현 검증 완료: 관련 backend196/196(0skip), adapter 단독102/102, 화면3/3(ecount retry/reconcile/출하별 수량 및 전표), frontend tsc·변경 파일 eslint·build 및 diff check 통과. 테스트 최초 실행의 로컬 소켓 sandbox 제한은 해당 격리 테스트 실행 승인으로 해소했다. 추가 테스트의 xUnit 취소 토큰 경고3건을 보정 후196건 통과. 합성1440/390 화면 /private/tmp/emi-busbar-shipment-sales-{width}.png를 직접 확인했고 모바일은 기존 표 내부 가로 스크롤을 유지하며 페이지 overflow 없음. 기존 bundle 크기 경고 외 build 오류 없음.
+
+작성과 분리된 partial_sale_review(요청 GPT-6 Astra High, 관측 모델 NOT_REPORTED)가 HEAD2a4f90a+Change027 allowlist WIP의 계약·diff·검증을 읽고 GO, 열린P0–P2없음으로 판정했다. 기존 project-level legacy 판매는 보존·확인 대상으로 두고 신규 출하로 역산하지 않는다. 원주문 없음/미확정/잘못된 전표번호, 다른 출하 Unknown·변경 미확인, 취소 출하는 전송하지 않는다. 정상 출하3건은20개씩 별도 판매로 기록하며 반복 요청은 같은 출하와 판매 대기를 사용한다.
+
+로컬 runtime5097의0097 migration/재기동 및 실제 판매 호출은 미실행. 실제 ERP 원주문 연결/미판매잔량 검수, 사용자 검수, 원격 반영/merge/배포는 미완료. 영속 busbar_review_20260909 DB 백업·0097 적용·해당 backend 재기동의 구체적 실행 승인을 받은 뒤 적용한다. 새 코드는 Debug 검증 빌드했고 기존 Release runtime은 재시작하지 않았다. 현재 Chrome용 Aside 확장 연결은 끊겨 이번 턴 매뉴얼 재조회는 못 했으며 이전 턴 직접 확인한 공식 예제/고객지원 답변을 근거로 구현했다.

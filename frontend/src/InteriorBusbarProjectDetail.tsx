@@ -115,6 +115,7 @@ export function InteriorBusbarProjectDetailPage({
   const stock = family?.balance ?? 0;
   const remaining = Math.max(0, project.requestedQuantity - project.shippedQuantity);
   const canShip = workspace.permissions?.projects ?? false;
+  const shipmentUnavailable = !canShip ? "출하 권한 없음" : remaining <= 0 ? "출하 완료" : stock <= 0 ? "완제품 재고 없음" : "";
   const canAdminister = workspace.permissions?.administration ?? false;
   const revision = `${loadRevision}:${family?.standardUnitPrice}:${project.requestedQuantity}:${workspace.settings.ecountCustomerCode}:${workspace.settings.ecountWarehouseCode}:${family?.ecountProductCode}`;
 
@@ -138,11 +139,12 @@ export function InteriorBusbarProjectDetailPage({
       <DsSurface label="프로젝트 기본 정보">
         <DsToolbar>
           <h3>프로젝트 정보</h3>
-          {canShip && remaining > 0 && stock > 0 && (
-            <button type="button" className="button primary" onClick={() => setScanOpen(true)}>
+          <div className="busbar-inline">
+            <button type="button" className="button primary" disabled={!!shipmentUnavailable} aria-describedby={shipmentUnavailable ? "busbar-shipment-unavailable" : undefined} onClick={() => setScanOpen(true)}>
               패널 QR로 분할 출하
             </button>
-          )}
+            {shipmentUnavailable && <span id="busbar-shipment-unavailable" className="busbar-note">{shipmentUnavailable}</span>}
+          </div>
         </DsToolbar>
         <dl className="busbar-project-fields">
           <div><dt>프로젝트명</dt><dd>{project.name}</dd></div>

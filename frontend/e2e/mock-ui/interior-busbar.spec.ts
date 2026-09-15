@@ -1582,3 +1582,25 @@ test("home shows current work, near deliveries and material shortage instead of 
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBeTruthy();
   }
 });
+
+
+test("shipment button stays visible with its unavailable reason", async ({ page }) => {
+  const data = fixture();
+  await mock(page, data);
+  for (const reason of ["완제품 재고 없음", "출하 완료", "출하 권한 없음"]) {
+    data.productFamilies[0].balance = reason === "완제품 재고 없음" ? 0 : 30;
+    data.projects[0].shippedQuantity = reason === "출하 완료" ? data.projects[0].requestedQuantity : 0;
+    data.permissions.projects = reason !== "출하 권한 없음";
+    await page.goto(`/interior-busbar/projects/${projectId}`);
+    const button = page.getByRole("button", { name: "패널 QR로 분할 출하", exact: true });
+    await expect(button).toBeVisible();
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveAccessibleDescription(reason);
+    if (reason === "완제품 재고 없음") {
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.screenshot({ path: `/private/tmp/emi-busbar-shipment-disabled-${width}.png` });
+      }
+    }
+  }
+});

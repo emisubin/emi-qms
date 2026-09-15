@@ -617,12 +617,12 @@ export function InteriorBusbarPage({
       {tab === "overview" && (
         <>
           <p className="busbar-note">{overviewDate} 기준 · 한국 시간 · 새로고침 시 갱신</p>
-          <DsSurface label="진행 중 납품 프로젝트">
-            <h3>납기 지연·7일 이내 납품</h3>
+          <DsSurface label="진행중인 프로젝트">
+            <h3>진행중인 프로젝트</h3>
             <p className="busbar-note">미출하 잔여가 있는 프로젝트 중 {home.through}까지 납기인 건입니다. 지연은 빨강, 오늘부터 3일 이내는 노랑으로 표시합니다.</p>
-            <Table headings={["납기 상태", "프로젝트명", "제품군", "납품예정일", "납품 잔여"]}
+            <Table headings={["납기 상태", "프로젝트명", "제품군", "납품예정일", "요청 수량", "누적 출하", "납품 잔여"]}
               rowClasses={home.projects.map(p => p.dueDate.slice(0,10) < overviewDate ? "busbar-overdue" : p.dueDate.slice(0,10) <= datePlus(overviewDate,3) ? "busbar-due-soon" : "")}
-              rows={home.projects.map(p => [p.dueDate.slice(0,10) < overviewDate ? "납기 지연" : p.dueDate.slice(0,10) === overviewDate ? "오늘 납품" : "납품 예정", p.name, familyName(p.productFamilyId), p.dueDate.slice(0,10), n(p.requestedQuantity-p.shippedQuantity)])} />
+              rows={home.projects.map(p => [p.dueDate.slice(0,10) < overviewDate ? "납기 지연" : p.dueDate.slice(0,10) === overviewDate ? "오늘 납품" : "납품 예정", p.name, familyName(p.productFamilyId), p.dueDate.slice(0,10), n(p.requestedQuantity), n(p.shippedQuantity), n(p.requestedQuantity-p.shippedQuantity)])} />
             {home.projects.length === 0 && <p className="busbar-note">지연되거나 7일 이내 납품할 프로젝트가 없습니다.</p>}
           </DsSurface>
           <DsSurface label="제품군별 현황">

@@ -1315,11 +1315,12 @@ test("home shows current work, near deliveries and material shortage instead of 
   await mock(page,data);
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});await page.goto("/interior-busbar/overview");
-    const projects=page.getByRole("region",{name:"진행 중 납품 프로젝트",exact:true});
+    const projects=page.getByRole("region",{name:"진행중인 프로젝트",exact:true});
     await expect(projects.getByText("합성 먼 미래")).toHaveCount(0);await expect(projects.getByText("합성 완료",{exact:true})).toHaveCount(0);
     await expect(projects.getByRole("row").filter({hasText:"합성 지연"}).getByRole("cell").first()).toHaveCSS("background-color","rgb(254, 226, 226)");
     await expect(projects.getByRole("row").filter({hasText:"합성 임박"}).getByRole("cell").first()).toHaveCSS("background-color","rgb(254, 249, 195)");
     await expect(projects.getByText("합성 7일")).toBeVisible();
+    await expect(projects.getByRole("row").filter({hasText:"합성 지연"}).getByRole("cell")).toHaveText(["납기 지연","합성 지연","합성 제품군 A","2026-09-14","20","10","10"]);
     await expect(page.getByRole("columnheader",{name:"전체 계획",exact:true})).toHaveCount(0);
     const family=page.getByRole("region",{name:"제품군별 현황",exact:true}).getByRole("row").last();
     await expect(family.getByRole("cell")).toHaveText(["합성 제품군 A","5","3","2","30","45","15"]);

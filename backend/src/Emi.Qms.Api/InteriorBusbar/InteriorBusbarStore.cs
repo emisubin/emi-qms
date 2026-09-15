@@ -133,6 +133,12 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             ("ledger","select o.*,exists(select 1 from busbar_operations r where r.reverses_id=o.id) reversed from busbar_operations o order by created_at_utc desc,id limit "+pageSize+" offset "+offset),("ledgerLines","select l.* from busbar_ledger l where operation_id in (select id from busbar_operations order by created_at_utc desc,id limit "+pageSize+" offset "+offset+")"),("shipments","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_shipments s join busbar_operations o on o.id=s.id"),("receipts","select s.*,o.created_at_utc,exists(select 1 from busbar_operations r where r.reverses_id=s.id) reversed from busbar_receipts s join busbar_operations o on o.id=s.id"),("audit","select * from busbar_audit order by changed_at_utc desc limit 200")}
 ) result[key] = await Rows(c, sql, key == "products" ? parameters : []);
         foreach (var product in (List<Dictionary<string, object?>>)result["products"]!) SetQrState(product);
+        var koreanDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().ToOffset(TimeSpan.FromHours(9)).DateTime);
+        var dayStart = new DateTimeOffset(koreanDate.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(9)).ToUniversalTime();
+        result["overview"] = new {
+            asOfDate = koreanDate,
+            productionToday = await Rows(c, "select product_family_id,count(*) quantity from busbar_products where status='Complete' and manufactured_at_utc>=@start and manufactured_at_utc<@end group by product_family_id", ("start", dayStart), ("end", dayStart.AddDays(1)))
+        };
         result["publicationOutstandingCount"] = (await Rows(c, "select count(*) total from busbar_products where status in ('Complete','Cancelled') and manufactured_at_utc is not null and (publication_state<>'Published' or revision<>published_revision)"))[0]["total"];
         result["pagination"] = new
         {

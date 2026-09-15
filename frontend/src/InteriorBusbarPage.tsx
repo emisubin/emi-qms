@@ -33,6 +33,7 @@ import {
   type BusbarEcountStatus,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
+import { busbarOverview } from "./interiorBusbarOverview";
 import { busbarSections, type BusbarSection } from "./interiorBusbarNavigation";
 import { OsanPageHeading } from "./OsanListFrame";
 
@@ -477,8 +478,8 @@ export function InteriorBusbarPage({
   const selectedProject = data.projects.find((x) => x.id === activeProject);
   const matches = (...values: unknown[]) =>
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
-  const pendingProjects = data.projects.filter((project) => project.requestedQuantity > project.shippedQuantity)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const overviewDate = data.overview?.asOfDate ?? today();
+  const home = busbarOverview(data, overviewDate);
   const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)) &&
     (!projectStatus || (projectStatus === "Complete" ? p.requestedQuantity === p.shippedQuantity : p.requestedQuantity > p.shippedQuantity)));
   const selectedStock = data.productFamilies.find((x) => x.id === selectedProject?.productFamilyId)?.balance ?? 0;
@@ -615,55 +616,29 @@ export function InteriorBusbarPage({
       )}
       {tab === "overview" && (
         <>
+          <p className="busbar-note">{overviewDate} 기준 · 한국 시간 · 새로고침 시 갱신</p>
           <DsSurface label="진행 중 납품 프로젝트">
-            <h3>진행 중 납품 프로젝트 · 납기순</h3>
-            <Table headings={["프로젝트명", "제품군", "납품예정일", "요청", "누적 출하", "잔여"]}
-              rowClasses={pendingProjects.map((project) => project.dueDate.slice(0, 10) >= today() && project.dueDate.slice(0, 10) <= datePlus(today(), 3) ? "busbar-due-soon" : "")}
-              rows={pendingProjects.map((project) => [project.name, familyName(project.productFamilyId), project.dueDate.slice(0, 10), n(project.requestedQuantity), n(project.shippedQuantity), n(project.requestedQuantity - project.shippedQuantity)])} />
+            <h3>납기 지연·7일 이내 납품</h3>
+            <p className="busbar-note">미출하 잔여가 있는 프로젝트 중 {home.through}까지 납기인 건입니다. 지연은 빨강, 오늘부터 3일 이내는 노랑으로 표시합니다.</p>
+            <Table headings={["납기 상태", "프로젝트명", "제품군", "납품예정일", "납품 잔여"]}
+              rowClasses={home.projects.map(p => p.dueDate.slice(0,10) < overviewDate ? "busbar-overdue" : p.dueDate.slice(0,10) <= datePlus(overviewDate,3) ? "busbar-due-soon" : "")}
+              rows={home.projects.map(p => [p.dueDate.slice(0,10) < overviewDate ? "납기 지연" : p.dueDate.slice(0,10) === overviewDate ? "오늘 납품" : "납품 예정", p.name, familyName(p.productFamilyId), p.dueDate.slice(0,10), n(p.requestedQuantity-p.shippedQuantity)])} />
+            {home.projects.length === 0 && <p className="busbar-note">지연되거나 7일 이내 납품할 프로젝트가 없습니다.</p>}
           </DsSurface>
           <DsSurface label="제품군별 현황">
-            <h3>제품군별 생산·납품 현황</h3>
-            <Table
-              headings={[
-                "제품군",
-                "전체 계획",
-                "생산 실적",
-                "완제품 현재고",
-                "납품 잔여",
-              ]}
-              rows={data.productFamilies.map((x) => [
-                x.name,
-                n(x.plannedQuantity),
-                n(x.producedQuantity),
-                n(stock(x)),
-                n(
-                  data.projects
-                    .filter((p) => p.productFamilyId === x.id)
-                    .reduce(
-                      (a, p) => a + p.requestedQuantity - p.shippedQuantity,
-                      0,
-                    ),
-                ),
-              ])}
-            />
-            <p className="busbar-note">
-              현재고는 모든 프로젝트가 함께 사용하는 수량입니다. 프로젝트별 예약
-              수량을 의미하지 않습니다.
-            </p>
+            <h3>제품군별 오늘 생산·납품 준비</h3>
+            <Table headings={["제품군", "오늘 계획", "오늘 생산 완료", "이전 계획 미완료", "완제품 현재고", "지연·7일 내 납품 잔여", "추가 생산 필요"]}
+              rows={home.families.map(f => [f.name,n(f.planned),n(f.produced),n(f.overdue),n(f.stock),n(f.deliveries),<span className={f.needed > 0 ? "busbar-negative" : ""}>{n(f.needed)}</span>])} />
+            <p className="busbar-note">오늘 생산 완료는 실제 제조일 기준입니다. 이전 계획 미완료는 오늘 이전 계획의 남은 생산량입니다. 추가 생산 필요 = 지연·7일 내 납품 잔여 − 현재고(최소 0). 계획 수량은 재고에 포함하지 않으며, 재고는 프로젝트별 예약 없이 공용으로 사용합니다.</p>
+            {home.families.length === 0 && <p className="busbar-note">오늘 작업·미완료 계획·재고·가까운 납품이 있는 제품군이 없습니다.</p>}
           </DsSurface>
           <DsSurface label="부족 자재">
-            <h3>부족 자재</h3>
-            <Table
-              headings={["품목", "단위", "현재고", "부족 수량"]}
-              rows={data.materials
-                .filter((x) => stock(x) < 0)
-                .map((x) => [
-                  x.name,
-                  x.unit,
-                  <span className="busbar-negative">{n(stock(x))}</span>,
-                  n(-stock(x)),
-                ])}
-            />
+            <h3>자재 부족·확인 필요</h3>
+            <p className="busbar-note">오늘 및 이전 미완료 계획에 최신 표준 소요량을 적용합니다. 추가 확보 필요 = 남은 생산 소요량 − 현재고(최소 0). 미입고 발주는 재고에 포함하지 않습니다.</p>
+            {home.missingBoms.length > 0 && <p className="busbar-negative" role="status">소요량 미설정: {home.missingBoms.join(", ")} · 해당 제품군의 필요 자재는 계산하지 못했습니다. 아래 결과는 설정된 제품군 기준입니다.</p>}
+            <Table headings={["품목", "단위", "현재고", "남은 생산 소요량", "추가 확보 필요"]}
+              rows={home.materials.map(m => [m.name,m.unit,<span className={m.stock < 0 ? "busbar-negative" : ""}>{n(m.stock)}</span>,n(m.required),<span className="busbar-negative">{n(m.shortage)}</span>])} />
+            {home.materials.length === 0 && <p className="busbar-note">{home.missingBoms.length ? "계산 가능한 제품군 기준으로 부족 자재가 없습니다. 소요량 미설정 건을 먼저 확인하세요." : "현재고와 남은 생산 소요량 기준으로 부족 자재가 없습니다."}</p>}
           </DsSurface>
         </>
       )}

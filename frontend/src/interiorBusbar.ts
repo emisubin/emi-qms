@@ -71,6 +71,7 @@ export type BusbarLedger = {
   referenceId?: string;
 };
 export type BusbarWorkspace = {
+  overview?: { asOfDate: string; productionToday: Array<{ productFamilyId: string; quantity: number }> };
   pagination?: {
     page: number;
     pageSize: number;

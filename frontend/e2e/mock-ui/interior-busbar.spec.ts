@@ -1298,3 +1298,34 @@ test("weekend date colors survive today and selection on desktop and mobile", as
     await page.screenshot({path:`/private/tmp/emi-busbar-weekend-${width}.png`,fullPage:true});
   }
 });
+
+test("home shows current work, near deliveries and material shortage instead of cumulative totals", async ({page}) => {
+  const data=fixture();
+  data.overview={asOfDate:"2026-09-15",productionToday:[{productFamilyId:familyId,quantity:3}]};
+  data.productFamilies[0].plannedQuantity=99999;data.productFamilies[0].producedQuantity=88888;
+  const base=data.projects[0];
+  data.projects=[
+    {...base,id:"late",name:"합성 지연",dueDate:"2026-09-14",requestedQuantity:20,shippedQuantity:10},
+    {...base,id:"soon",name:"합성 임박",dueDate:"2026-09-18",requestedQuantity:40,shippedQuantity:10},
+    {...base,id:"edge",name:"합성 7일",dueDate:"2026-09-22",requestedQuantity:5,shippedQuantity:0},
+    {...base,id:"future",name:"합성 먼 미래",dueDate:"2026-09-23"},
+    {...base,id:"done",name:"합성 완료",dueDate:"2026-09-14",requestedQuantity:10,shippedQuantity:10}];
+  data.plans=[{id:"old",productFamilyId:familyId,planDate:"2026-09-14",quantity:10,actualQuantity:8},
+    {id:"today",productFamilyId:familyId,planDate:"2026-09-15",quantity:5,actualQuantity:1}];
+  await mock(page,data);
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});await page.goto("/interior-busbar/overview");
+    const projects=page.getByRole("region",{name:"진행 중 납품 프로젝트",exact:true});
+    await expect(projects.getByText("합성 먼 미래")).toHaveCount(0);await expect(projects.getByText("합성 완료",{exact:true})).toHaveCount(0);
+    await expect(projects.getByRole("row").filter({hasText:"합성 지연"}).getByRole("cell").first()).toHaveCSS("background-color","rgb(254, 226, 226)");
+    await expect(projects.getByRole("row").filter({hasText:"합성 임박"}).getByRole("cell").first()).toHaveCSS("background-color","rgb(254, 249, 195)");
+    await expect(projects.getByText("합성 7일")).toBeVisible();
+    await expect(page.getByRole("columnheader",{name:"전체 계획",exact:true})).toHaveCount(0);
+    const family=page.getByRole("region",{name:"제품군별 현황",exact:true}).getByRole("row").last();
+    await expect(family.getByRole("cell")).toHaveText(["합성 제품군 A","5","3","2","30","45","15"]);
+    const material=page.getByRole("region",{name:"부족 자재",exact:true}).getByRole("row").last();
+    await expect(material.getByRole("cell")).toHaveText(["합성 동대","m","-2","12","14"]);
+    await page.screenshot({path:`/private/tmp/emi-busbar-home-current-${width}.png`,fullPage:true});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBeTruthy();
+  }
+});

@@ -265,6 +265,30 @@ public sealed class InteriorBusbarStoreTests
         await Assert.ThrowsAsync<BusbarException>(()=>f.Store.Workspace(true,status:"not-a-status"));
     }
 
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable database.")]
+    public async Task HomeTodayUsesKoreanManufacturingDateAcrossAllProductPages()
+    {
+        await using var f = await Fixture.Create();
+        var family = await f.Store.Master("product-families", new(null,"F","Family"),f.Actor);
+        var material = await f.Store.Master("materials",new(null,"M","Material","m","도급"),f.Actor);
+        var worker = await f.Store.Master("workers",new(null,"W","Worker"),f.Actor);
+        await f.Store.Bom(new(family,[new(material,1)]),f.Actor);
+        var start = new DateTimeOffset(2026,9,14,15,0,0,TimeSpan.Zero);
+        foreach (var time in new[] { start.AddTicks(-1),start,start.AddHours(23),start.AddDays(1) })
+        {
+            f.Clock.Now=time;
+            var product=await f.Store.Product(new(Guid.NewGuid(),family,worker),f.Actor);
+            await f.Store.Photo(product,"front",[1],null,f.Actor);
+            await f.Store.Photo(product,"back",[2],null,f.Actor);
+        }
+        f.Clock.Now=start.AddHours(12);
+        var json=System.Text.Json.JsonSerializer.SerializeToElement(await f.Store.Workspace(false,1,1,productFamilyId:Guid.NewGuid()));
+        Assert.Empty(json.GetProperty("products").EnumerateArray());
+        var home=json.GetProperty("overview");
+        Assert.Equal("2026-09-15",home.GetProperty("asOfDate").GetString());
+        Assert.Equal(2,Assert.Single(home.GetProperty("productionToday").EnumerateArray()).GetProperty("quantity").GetInt32());
+    }
+
     internal sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now = new(2026, 9, 9, 1, 0, 0, TimeSpan.Zero);

@@ -310,3 +310,5 @@
 /* Weekend date colors also apply to today and selected dates. */
 .app-shell .busbar-page .busbar-month-calendar .busbar-saturday { color: #2563eb !important; }
 .app-shell .busbar-page .busbar-month-calendar .busbar-sunday { color: #dc2626 !important; }
+
+.app-shell .busbar-page table tbody tr.busbar-overdue > td { background: #fee2e2 !important; color: #991b1b !important; }

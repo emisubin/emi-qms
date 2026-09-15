@@ -83,7 +83,9 @@ public sealed partial class InteriorBusbarStore
             var settings = (await Rows(c, "select * from busbar_settings"))[0];
             await Exec(c, """
                 update busbar_ecount_jobs set needs_review=true,message='전송 후 기준정보 또는 프로젝트 변경 확인 필요',updated_at_utc=now()
-                where id=@id and exists(select 1 from busbar_ecount_attempts where id=current_attempt_id and coalesce(reviewed_payload, payload - 'ioDate' - 'ioType')<>@payload::jsonb)
+                where id=@id and exists(select 1 from busbar_ecount_attempts where id=current_attempt_id and case when payload ? 'itemRemarks' then coalesce(reviewed_payload, payload - 'ioDate' - 'ioType')
+                        else coalesce(reviewed_payload, payload - 'ioDate' - 'ioType') - 'itemRemarks' end<>
+                    case when payload ? 'itemRemarks' then @payload::jsonb else @payload::jsonb - 'itemRemarks' end)
                 """, ("id", Id(job)), ("payload", await EcountPayload(c, project, family, settings, job)));
         }
     }
@@ -113,6 +115,7 @@ public sealed partial class InteriorBusbarStore
         }))!;
         if (shipment is not null)
         {
+            payload["itemRemarks"] = $"납품처: {project["destination"]}";
             payload["shipmentId"] = Id(shipment).ToString();
             payload["sourceOrderDate"] = source?.Date;
             payload["sourceOrderNumber"] = source?.Number;
@@ -212,7 +215,12 @@ public sealed partial class InteriorBusbarStore
         var vat = vatNode?.GetValue<decimal>();
         if (vat is not null && decimal.Round(vat.Value, 4) != vat.Value) issue = "부가세가 API 소수 네 자리를 초과함 · 금액 확인 필요";
         if (kind == "Order" && price >= 1000000000000m) issue = "주문서 API 단가 범위 초과 · 금액 확인 필요";
-        if (kind == "Sale") issue = await SaleIssue(c, row) ?? issue;
+        if (kind == "Sale")
+        {
+            issue = await SaleIssue(c, row) ?? issue;
+            if (System.Text.Json.Nodes.JsonNode.Parse(payloadText)?["itemRemarks"]?.GetValue<string>().Length > 200)
+                issue = "판매 품목 적요 200자 초과 · 프로젝트 도착지를 195자 이내로 수정 필요";
+        }
         if (string.IsNullOrWhiteSpace(await EcountEmployeeCode(c, project))) issue = "프로젝트 최초 등록자의 이카운트 담당자 연결 필요";
         if (issue is not null)
         {

@@ -40,6 +40,7 @@ public sealed class InteriorBusbarEcountClientTests
         {
             payload["sourceOrderDate"] = "20260914";
             payload["sourceOrderNumber"] = "123";
+            payload["itemRemarks"] = "납품처: 청주캠퍼스 A동";
             payload["shipmentId"] = "00000000-0000-0000-0000-000000000002";
         }
         return new(Guid.NewGuid(), Guid.NewGuid(), kind, payload.ToJsonString());
@@ -112,9 +113,10 @@ public sealed class InteriorBusbarEcountClientTests
             Assert.Equal(3703.5369m, row.GetProperty("VAT_AMT").GetDecimal());
             Assert.False(row.TryGetProperty("U_MEMO1", out _));
             Assert.False(row.TryGetProperty("IO_TYPE", out _));
-            Assert.Equal(13, row.EnumerateObject().Count());
+            Assert.Equal(order ? 13 : 14, row.EnumerateObject().Count());
             if (order)
             {
+                Assert.False(row.TryGetProperty("REMARKS", out _));
                 Assert.Equal("SYN-WO", row.GetProperty("U_MEMO2").GetString());
                 Assert.Equal("20261001", row.GetProperty("TIME_DATE").GetString());
                 Assert.False(row.TryGetProperty("REL_DATE", out _));
@@ -126,6 +128,7 @@ public sealed class InteriorBusbarEcountClientTests
                 Assert.False(row.TryGetProperty("TIME_DATE", out _));
                 Assert.Equal("20260914", row.GetProperty("REL_DATE").GetString());
                 Assert.Equal("123", row.GetProperty("REL_NO").GetString());
+                Assert.Equal("납품처: 청주캠퍼스 A동", row.GetProperty("REMARKS").GetString());
             }
         }
     }

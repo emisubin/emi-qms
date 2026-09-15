@@ -196,6 +196,12 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             {
                 row["REL_DATE"] = sourceOrderDate;
                 row["REL_NO"] = sourceOrderNumber;
+                // Older frozen attempts did not carry item remarks. Never reconstruct them from current data.
+                if (p.TryGetProperty("itemRemarks", out var remarks))
+                {
+                    if (remarks.ValueKind != JsonValueKind.String || remarks.GetString()!.Length > 200) return new("Unknown");
+                    row["REMARKS"] = remarks.GetString();
+                }
             }
             var body = new Dictionary<string, object> { [order ? "SaleOrderList" : "SaleList"] = new[] { new { BulkDatas = row } } };
             var path = order ? "SaleOrder/SaveSaleOrder" : "Sale/SaveSale";

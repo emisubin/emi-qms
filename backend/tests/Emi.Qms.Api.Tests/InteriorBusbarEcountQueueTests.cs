@@ -101,6 +101,7 @@ public sealed class InteriorBusbarEcountQueueTests
             var claims = await Task.WhenAll(f.Store.ClaimEcountJob(sale.GetProperty("id").GetGuid()), f.Store.ClaimEcountJob(sale.GetProperty("id").GetGuid()));
             var attempt = Assert.Single(claims.OfType<BusbarEcountAttempt>());
             var payload = JsonDocument.Parse(attempt.Payload).RootElement;
+            Assert.Equal("납품처: Synthetic", payload.GetProperty("itemRemarks").GetString());
             Assert.Equal(20, payload.GetProperty("quantity").GetInt32());
             Assert.Equal(2000m, payload.GetProperty("supplyAmount").GetDecimal());
             Assert.Equal(200m, payload.GetProperty("vatAmount").GetDecimal());
@@ -113,6 +114,61 @@ public sealed class InteriorBusbarEcountQueueTests
         Assert.Equal(4, await f.Scalar("select count(*) from busbar_ecount_attempts"));
         Assert.Equal(0m, await f.Balance("Finished", family));
     }
+    [Theory(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SaleRemarksStayFrozenAndLegacySnapshotsDoNotRequireReview(bool legacy)
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var (family, project) = await Setup(f);
+        var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
+        var oa = (await f.Store.ClaimEcountJob(order))!;
+        await f.Store.FinishEcountAttempt(oa.Id, new("Succeeded", "2026/09/15 -7"));
+        var shipment = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var sale = (await ShipmentJob(f.Store, project, shipment)).GetProperty("id").GetGuid();
+        var attempt = (await f.Store.ClaimEcountJob(sale))!;
+        await f.Store.FinishEcountAttempt(attempt.Id, new("Succeeded", "2026/09/15 -8"));
+        if (legacy)
+        {
+            await using var c = new Npgsql.NpgsqlConnection(f.Connection);
+            await c.OpenAsync(TestContext.Current.CancellationToken);
+            await InteriorBusbarStore.Exec(c, "update busbar_ecount_attempts set payload=payload-'itemRemarks' where id=@id", ("id", attempt.Id));
+        }
+        await f.Store.Project(new(project, "Synthetic", "SYN-WO", family, 60, "Synthetic", new(2026,10,1), "Unchanged"), f.Actor);
+        Assert.False((await ShipmentJob(f.Store, project, shipment)).GetProperty("needsReview").GetBoolean());
+        if (legacy)
+        {
+            await f.Store.Master("product-families", new(family, "F", "Synthetic", EcountProductCode: "SYN-F", StandardUnitPrice: 200), f.Actor);
+            await f.Store.ReconcileEcount(order, new("Reviewed", "Price verified"), f.Actor);
+            await f.Store.ReconcileEcount(sale, new("Reviewed", "Price verified"), f.Actor);
+        }
+        await f.Store.Project(new(project, "Synthetic", "SYN-WO", family, 60, "New destination", new(2026,10,1), "Destination correction"), f.Actor);
+        Assert.Equal(!legacy, (await ShipmentJob(f.Store, project, shipment)).GetProperty("needsReview").GetBoolean());
+        Assert.False((await Job(f.Store, project, "Order")).GetProperty("needsReview").GetBoolean());
+        Assert.Equal("납품처: Synthetic", JsonDocument.Parse(attempt.Payload).RootElement.GetProperty("itemRemarks").GetString());
+        Assert.Equal(2, await f.Scalar("select count(*) from busbar_ecount_attempts"));
+    }
+
+    [Theory(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    [InlineData(195, true)]
+    [InlineData(196, false)]
+    public async Task SaleRemarksLimitIncludesPrefix(int destinationLength, bool allowed)
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var (family, project) = await Setup(f);
+        await f.Store.Project(new(project, "Synthetic", "SYN-WO", family, 60, new string('가', destinationLength), new(2026,10,1), "Destination"), f.Actor);
+        var order = (await Job(f.Store, project, "Order")).GetProperty("id").GetGuid();
+        var oa = (await f.Store.ClaimEcountJob(order))!;
+        await f.Store.FinishEcountAttempt(oa.Id, new("Succeeded", "2026/09/15 -7"));
+        var shipment = await f.Store.Shipment(new(Guid.NewGuid(), project, 20), f.Actor);
+        var sale = (await ShipmentJob(f.Store, project, shipment)).GetProperty("id").GetGuid();
+        var attempt = await f.Store.ClaimEcountJob(sale);
+        Assert.Equal(allowed, attempt is not null);
+        if (allowed) Assert.Equal(200, JsonDocument.Parse(attempt!.Payload).RootElement.GetProperty("itemRemarks").GetString()!.Length);
+        else Assert.Equal("Held", (await ShipmentJob(f.Store, project, shipment)).GetProperty("state").GetString());
+        Assert.Equal(allowed ? 2 : 1, await f.Scalar("select count(*) from busbar_ecount_attempts"));
+    }
+
     private static async Task<JsonElement> ShipmentJob(InteriorBusbarStore store, Guid project, Guid shipment) =>
         JsonSerializer.SerializeToElement(await store.EcountStatus(project)).GetProperty("jobs").EnumerateArray().Single(j => j.GetProperty("shipmentId").ValueKind != JsonValueKind.Null && j.GetProperty("shipmentId").GetGuid() == shipment);
 

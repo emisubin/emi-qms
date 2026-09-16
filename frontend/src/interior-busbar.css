@@ -513,3 +513,49 @@
 .busbar-access-list :is(th, td) { white-space: normal; overflow-wrap: anywhere; padding: 8px 4px; }
 .busbar-access-list :is(th, td):nth-child(3), .busbar-access-list :is(th, td):nth-child(4) { width: 56px; text-align: center; }
 .busbar-access-list :is(th, td):nth-child(2) { width: 25%; }
+
+/* Keep one boundary per work area; inner tools use spacing, not another box. */
+.app-shell .busbar-page .ds-toolbar,
+.app-shell .busbar-plan-dialog .ds-toolbar {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-inline: 0;
+}
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar {
+  padding-inline: 0;
+  padding-top: 0;
+}
+.app-shell .busbar-page .busbar-month-totals > div {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 0;
+}
+.app-shell .busbar-page .busbar-shipment-card {
+  border: 0;
+  border-radius: 0 !important;
+  padding: 0;
+}
+.app-shell .busbar-page .busbar-shipment-card + .busbar-shipment-card {
+  border-top: 1px solid var(--wire-line, #e2e8f0);
+  padding-top: 20px;
+}
+.app-shell .busbar-page .ds-surface details {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0;
+}
+/* Dialog itself supplies the boundary around its editor. */
+.app-shell .busbar-plan-dialog .busbar-editor {
+  border: 0;
+  box-shadow: none;
+  padding-inline: 0;
+}
+
+.app-shell .busbar-page .ds-surface .ds-state-panel[data-kind="empty"] {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}

@@ -1747,3 +1747,32 @@ test("master access popup toggles immediately and keeps a hundred users out of t
   await page.reload();
   await expect(granted.getByRole("listitem")).toHaveCount(3);
 });
+
+test("purchase workspace shows remaining receipts and opens Excel beside registration", async ({ page }) => {
+  const data = fixture();
+  data.pagination!.ledgerCount = 8;
+  data.purchases = [{ id: "synthetic-order", orderNumber: "SYN-PO-30", materialId, orderDate: "2026-09-09", quantity: 30, receivedQuantity: 20 }];
+  await mock(page, data);
+  await page.route("**/api/interior-busbar/purchases/import/preview", route => route.fulfill({contentType:"application/json", body:JSON.stringify({rows:[{orderNumber:"SYN-IMPORT",materialId,quantity:5}],errors:[]})}));
+  await page.goto("/interior-busbar/purchases");
+  await expect(page.getByRole("heading", { name:"발주·입고 현황" })).toBeVisible();
+  await expect(page.getByRole("group", { name:"기록 페이지" })).toHaveCount(0);
+  await expect(page.getByRole("row").filter({hasText:"SYN-PO-30"}).getByRole("cell",{name:"10",exact:true})).toBeVisible();
+  const toolbar = page.getByRole("group",{name:"발주 검색"});
+  await expect(toolbar.getByRole("button",{name:"발주 등록",exact:true})).toBeVisible();
+  await toolbar.getByRole("button",{name:/발주 엑셀/}).click();
+  await expect(toolbar.getByRole("button",{name:"양식 다운로드",exact:true})).toBeVisible();
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:`/private/tmp/emi-busbar-purchase-cleanup-${width}.png`,fullPage:true});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  const chooser = page.waitForEvent("filechooser");
+  await toolbar.getByRole("button",{name:"업로드",exact:true}).click();
+  await (await chooser).setFiles({name:"synthetic.xlsx",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",buffer:Buffer.from("synthetic")});
+  const dialog = page.getByRole("dialog",{name:"발주 엑셀 미리보기",exact:true});
+  await expect(dialog.getByText("SYN-IMPORT",{exact:true})).toBeVisible();
+  await expect(dialog.getByRole("button",{name:"검토한 내용 적용"})).toBeEnabled();
+  await page.getByRole("button",{name:"발주 엑셀 미리보기 닫기"}).click();
+  await expect(dialog).toHaveCount(0);
+});

@@ -473,7 +473,7 @@ export function InteriorBusbarPage({
         <DsReadOnlyBanner description="이 화면은 조회만 가능합니다. 입력은 담당 팀 또는 관리자에게 요청하세요." />
       )}
       {error && <DsActionFeedback message={error} tone="error" />}
-      {["production", "purchases"].includes(tab) && data.pagination && (
+      {tab === "production" && data.pagination && (
         <DsToolbar label="기록 페이지">
           <button
             disabled={busy || page <= 1}
@@ -483,18 +483,14 @@ export function InteriorBusbarPage({
           </button>
           <span>
             {page}페이지 ·{" "}
-            {tab === "production"
-              ? data.pagination.productCount
-              : data.pagination.ledgerCount}
+            {data.pagination.productCount}
             건
           </span>
           <button
             disabled={
               busy ||
               page * data.pagination.pageSize >=
-                (tab === "production"
-                  ? data.pagination.productCount
-                  : data.pagination.ledgerCount)
+                data.pagination.productCount
             }
             onClick={() => setPage((p) => p + 1)}
           >
@@ -796,10 +792,13 @@ export function InteriorBusbarPage({
             tone="info"
             message="이카운트 자동 연동은 아직 준비되지 않았습니다. 현재는 발주를 직접 등록하거나 엑셀로 가져와 주세요."
           />
-          <DsSurface>
+          <DsSurface label="발주·입고 현황">
+            <h3>발주·입고 현황</h3>
             <DsToolbar className="busbar-filterbar busbar-filterbar--single" label="발주 검색">
               <Search value={query} onChange={setQuery} />
-              <div className="busbar-filter-actions">{writeButton("발주 등록", () => purchaseEditor())}</div>
+              <div className="busbar-filter-actions">{writeButton("발주 등록", () => purchaseEditor())}
+                {canWrite && <ImportBox data={data} user={user} kind="purchases" busy={busy} run={run} />}
+              </div>
             </DsToolbar>
             <Table
               headings={[
@@ -808,6 +807,7 @@ export function InteriorBusbarPage({
                 "발주일",
                 "발주 수량",
                 "누적 입고",
+                "미입고 잔여",
                 "작업",
               ]}
               rows={data.purchases
@@ -820,6 +820,7 @@ export function InteriorBusbarPage({
                   p.orderDate.slice(0, 10),
                   n(p.quantity),
                   n(p.receivedQuantity),
+                  n(Math.max(0, p.quantity - p.receivedQuantity)),
                   <>
                     {writeButton("분할 입고", () => {
                       const requestId = crypto.randomUUID();
@@ -843,15 +844,6 @@ export function InteriorBusbarPage({
               처리하세요.
             </p>
           </DsSurface>
-          {canWrite && (
-            <ImportBox
-              data={data}
-              user={user}
-              kind="purchases"
-              busy={busy}
-              run={run}
-            />
-          )}
           <DsSurface label="자재 재고">
             <DsToolbar>
               <h3>자재 재고</h3>
@@ -1552,7 +1544,7 @@ function ImportBox({
             }, "엑셀 양식을 다운로드했습니다.")
           }
         >
-          {project ? "양식 다운로드" : "엑셀 양식 다운로드"}
+          양식 다운로드
         </button>
   );
   const fileSelector = (
@@ -1642,11 +1634,11 @@ function ImportBox({
             </button>
           </>
         )}</>);
-  if (project) return <div className="busbar-import-menu">
-    <button type="button" disabled={busy} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>프로젝트 엑셀 {expanded ? "▴" : "▾"}</button>
+  const importLabel = `${project ? "프로젝트" : "발주"} 엑셀`;
+  return <div className="busbar-import-menu">
+    <button type="button" disabled={busy} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{importLabel} {expanded ? "▴" : "▾"}</button>
     {expanded && <div className="busbar-import-actions">{download}<button type="button" disabled={busy} onClick={() => fileInput.current?.click()}>업로드</button></div>}
     <div hidden>{fileSelector}</div>
-    {preview && <BusbarDialog label="프로젝트 엑셀 미리보기" busy={busy} heading={heading} closeLabel="프로젝트 엑셀 미리보기 닫기" onClose={() => setPreview(null)}>{previewContent}</BusbarDialog>}
+    {preview && <BusbarDialog label={`${importLabel} 미리보기`} busy={busy} heading={heading} closeLabel={`${importLabel} 미리보기 닫기`} onClose={() => setPreview(null)}>{previewContent}</BusbarDialog>}
   </div>;
-  return <DsSurface label="발주 엑셀 업로드"><details><summary>발주 엑셀 업로드</summary>{download}{fileSelector}{previewContent}</details></DsSurface>;
 }

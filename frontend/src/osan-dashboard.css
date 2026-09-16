@@ -211,4 +211,4 @@
 .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-project-title { margin-bottom:0; }
 @media(max-width:860px) { .osan-status-step { font-size:9px; } .osan-status-step small { font-size:9px; } .osan-status-track { height:40px; } }
 
-.app-shell .app-brand-lockup .osan-sidebar-logo { width: 104px; height: 38px; object-fit: contain; }
+.app-shell .app-brand-lockup .osan-sidebar-logo { width: 80px; height: 29px; object-fit: contain; }

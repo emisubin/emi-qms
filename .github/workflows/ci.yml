@@ -121,7 +121,6 @@ jobs:
       DATABASE_PORT: 5432
       DATABASE_NAME: emi_qms_e2e_ci_backend
       DATABASE_USER: emi_qms
-      BUSBAR_TEST_CONNECTION_STRING: Host=127.0.0.1;Port=55490;Database=busbar_test;Username=emi_qms;Password=${{ env.CI_DATABASE_PASSWORD }}
     services:
       postgres:
         image: postgres:18.4@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a
@@ -158,7 +157,9 @@ jobs:
           dotnet-version: 10.0.x
       - name: Configure CI database password
         shell: bash
-        run: echo "DATABASE_PASSWORD=${CI_DATABASE_PASSWORD}" >> "$GITHUB_ENV"
+        run: |
+          echo "DATABASE_PASSWORD=${CI_DATABASE_PASSWORD}" >> "$GITHUB_ENV"
+          echo "BUSBAR_TEST_CONNECTION_STRING=Host=127.0.0.1;Port=55490;Database=busbar_test;Username=emi_qms;Password=${CI_DATABASE_PASSWORD}" >> "$GITHUB_ENV"
       - name: Restore
         run: dotnet restore backend/Emi.Qms.sln
       - name: Build

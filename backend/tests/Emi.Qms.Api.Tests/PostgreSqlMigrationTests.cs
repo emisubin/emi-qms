@@ -23,6 +23,55 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task CombinedRelease_UpgradesProduction0103PreservingExistingRowsAndAuditsBusbarChanges()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var directory = Path.Combine(database.RepositoryRoot, "database", "migrations");
+        var previousCatalog = Directory.CreateTempSubdirectory("emi-qms-production-0103-");
+        try
+        {
+            foreach (var file in Directory.GetFiles(directory, "*.sql")
+                         .Where(file => string.CompareOrdinal(Path.GetFileName(file)[..4], "0104") < 0))
+                File.Copy(file, Path.Combine(previousCatalog.FullName, Path.GetFileName(file)));
+            await new DatabaseMigrationRunner(provider, DatabaseMigrationCatalog.FromPath(previousCatalog.FullName),
+                new DatabaseRuntimePrivilegeManager(), new ConfigurationBuilder().Build(),
+                NullLogger<DatabaseMigrationRunner>.Instance).ApplyAsync(ct);
+        }
+        finally
+        {
+            previousCatalog.Delete(recursive: true);
+        }
+        const string actor = "8b000000-0000-0000-0000-000000000001";
+        await ExecuteSqlAsync(provider, """
+            insert into qms_users(id,development_user_key,display_name,email,is_active)
+            values('8b000000-0000-0000-0000-000000000001','combined-sentinel','Preserved user','synthetic@example.invalid',true);
+            insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
+                project_title_normalized,delivery_date,project_profile,osan_product_name,osan_quantity,created_by_user_id)
+            values('8b000000-0000-0000-0000-000000000002','combined-sentinel','COMBINED','Preserved project','Customer','',
+                'COMBINED','Preserved project','PRESERVED PROJECT','2026-12-31','Osan','Product',3,
+                '8b000000-0000-0000-0000-000000000001');
+            """, ct);
+        const string snapshotSql = "select jsonb_build_object('users',(select jsonb_agg(to_jsonb(u) order by id) from qms_users u),'projects',(select jsonb_agg(to_jsonb(p) order by id) from projects p))::text;";
+        var before = await ReadScalarAsync<string>(provider, snapshotSql, ct);
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(ct);
+        Assert.Equal(before, await ReadScalarAsync<string>(provider, snapshotSql, ct));
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider, "select count(*) from busbar_projects;", ct));
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider, "select count(*) from busbar_ecount_jobs;", ct));
+        var requestId = Guid.NewGuid();
+        using (AuditRequestContext.Push(new AuditMutationContext(
+                   Guid.Parse(actor), null, requestId, null, "InteriorBusbar", "UpdateMaster", "UpdateMaster")))
+            await ExecuteSqlAsync(provider, "insert into busbar_product_families(id,code,name) values(gen_random_uuid(),'SYNTHETIC','Private family label');", ct);
+        Assert.Equal(1L, await ReadScalarAsync<long>(provider,
+            $"select count(*) from audit_events where request_correlation_id='{requestId:D}';", ct));
+        Assert.True(await ReadScalarAsync<long>(provider,
+            $"select count(*) from audit_event_changes c join audit_events e on e.id=c.audit_event_id where e.request_correlation_id='{requestId:D}' and c.target_type='busbar_product_families';", ct) > 0);
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider,
+            $"select count(*) from audit_event_changes c join audit_events e on e.id=c.audit_event_id where e.request_correlation_id='{requestId:D}' and c.after_value='Private family label';", ct));
+    }
+
+    [Fact]
     public async Task Migration0103_BackfillsEveryLegacyOsanNotificationKindWithoutChangingQueuedDeliveries()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -1070,7 +1119,7 @@ public sealed class PostgreSqlMigrationTests
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal(116L, await ReadScalarAsync<long>(
+        Assert.Equal(120L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_qms_global_audit_%';",
             TestContext.Current.CancellationToken));

@@ -23,7 +23,6 @@ public static partial class AuditMutationRegistry
     // Any new mutation endpoint must be deliberately classified before application startup succeeds.
     internal static readonly IReadOnlySet<string> KnownMutationRouteKeys = ParseRouteKeys("""
         PATCH /api/interior-busbar/products/{id:guid}
-        PUT /api/interior-busbar/ecount-employees
         PUT /api/interior-busbar/settings
         PUT /api/interior-busbar/products/{id:guid}/photos/{side}
         POST /api/interior-busbar/product-families

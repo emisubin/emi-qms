@@ -23,5 +23,3 @@ public sealed class BusbarException(string code, string message, int status = 40
 
 public sealed record BusbarEcountRetryRequest(string Reason);
 public sealed record BusbarEcountReconcileRequest(string Outcome, string Reason, string? SlipNumber = null);
-
-public sealed record BusbarEcountEmployeeRequest(Guid UserId, string EmployeeCode, string Reason);

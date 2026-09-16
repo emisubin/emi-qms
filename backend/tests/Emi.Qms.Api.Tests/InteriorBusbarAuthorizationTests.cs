@@ -47,12 +47,9 @@ public sealed class InteriorBusbarAuthorizationTests
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, key);
         var response = await client.PostAsJsonAsync("/api/interior-busbar/workers", new BusbarMasterRequest(null, "W", "Synthetic"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        var mapping = await client.PutAsJsonAsync("/api/interior-busbar/ecount-employees", new BusbarEcountEmployeeRequest(Guid.NewGuid(), "SYN-EMP", "Unauthorized"), TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.Forbidden, mapping.StatusCode);
     }
 
     [Theory]
-    [InlineData("PUT", "/api/interior-busbar/ecount-employees")]
     [InlineData("GET", "/api/interior-busbar/workspace")]
     [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001")]
     [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001/scan?code=IB-00000001")]

@@ -69,6 +69,22 @@ public sealed class InteriorBusbarEcountClientTests
     }
 
     [Theory]
+    [InlineData("Order")]
+    [InlineData("Sale")]
+    public async Task CreatorNameIsSentVerbatimAsEmployee(string kind)
+    {
+        var handler = new Handler(Zone, Login, Success);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), new HttpClient(handler));
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        var attempt = Attempt(kind);
+        var payload = System.Text.Json.Nodes.JsonNode.Parse(attempt.Payload)!;
+        payload["employeeCode"] = "합성 등록자";
+        Assert.Equal("Succeeded", (await client.SendAsync(attempt with { Payload = payload.ToJsonString() }, TestContext.Current.CancellationToken)).State);
+        using var sent = JsonDocument.Parse(handler.Requests[2].Body);
+        Assert.Equal("합성 등록자", sent.RootElement.GetProperty(kind == "Order" ? "SaleOrderList" : "SaleList")[0].GetProperty("BulkDatas").GetProperty("EMP_CD").GetString());
+    }
+
+    [Theory]
     [InlineData("Test", "sboapi")]
     [InlineData("Production", "oapi")]
     public async Task VerifiedWireContractPreservesDecimalsAndMapsOrderAndSale(string environment, string prefix)

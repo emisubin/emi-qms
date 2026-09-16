@@ -376,7 +376,6 @@ public sealed class InteriorBusbarStoreTests
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
             }
-            await f.Store.EcountEmployee(new(f.Actor, "SYN-EMP", "Synthetic setup"), f.Actor);
             return f;
         }
         // Queue/stock-focused fixtures explicitly seed synthetic completed panels without altering their independently arranged ledger balance.

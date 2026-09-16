@@ -25,7 +25,7 @@ public sealed record BusbarAccess(bool Projects, bool Planning, bool Production,
         "/api/interior-busbar/products/{id:guid}/photos/{side}" or
         "/api/interior-busbar/products/{id:guid}/publication/retry" => Production,
         "/api/interior-busbar/product-families" or "/api/interior-busbar/materials" or "/api/interior-busbar/workers" or
-        "/api/interior-busbar/boms" or "/api/interior-busbar/settings" or "/api/interior-busbar/ecount-employees" or
+        "/api/interior-busbar/boms" or "/api/interior-busbar/settings" or
         "/api/interior-busbar/adjustments" or "/api/interior-busbar/ledger/{id:guid}/reverse" or
         "/api/interior-busbar/products/{id:guid}/cancel" or "/api/interior-busbar/ecount/resume" or
         "/api/interior-busbar/ecount-jobs/{id:guid}/retry" or "/api/interior-busbar/ecount-jobs/{id:guid}/reconcile" => Administration,

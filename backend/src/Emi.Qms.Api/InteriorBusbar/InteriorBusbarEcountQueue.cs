@@ -8,25 +8,16 @@ internal sealed record BusbarEcountResult(string State, string? SlipNumber = nul
 
 public sealed partial class InteriorBusbarStore
 {
-    private static async Task<string?> EcountEmployeeCode(NpgsqlConnection c, Dictionary<string, object?> project)
-    {
-        if (project["registeredBy"] is not Guid user) return null;
-        var rows = await Rows(c, "select employee_code from busbar_ecount_employees where user_id=@id", ("id", user));
-        return rows.Count == 0 ? null : rows[0]["employeeCode"] as string;
-    }
+    // Preserve the creator name captured at registration; never use a later editor or profile rename.
+    private static string? EcountEmployeeName(Dictionary<string, object?> project) =>
+        project["registeredBy"] is Guid ? project["registeredByName"] as string : null;
 
-    public Task<Guid> EcountEmployee(BusbarEcountEmployeeRequest request, Guid actor) => Transaction(async c =>
+    private static string? EcountEmployeeIssue(Dictionary<string, object?> project)
     {
-        await One(c, "qms_users", request.UserId);
-        var code = Text(request.EmployeeCode, "이카운트 담당자 코드");
-        Require(code.Length <= 30 && !code.Any(char.IsControl), "담당자 코드는 30자 이내로 입력하세요.");
-        Text(request.Reason, "변경 사유");
-        var before = await Rows(c, "select * from busbar_ecount_employees where user_id=@id", ("id", request.UserId));
-        await Exec(c, "insert into busbar_ecount_employees(user_id,employee_code) values(@id,@code) on conflict(user_id) do update set employee_code=excluded.employee_code", ("id", request.UserId), ("code", code));
-        await InvalidateEcountJobs(c, "registered_by=@value", request.UserId);
-        await Audit(c, "EcountEmployee", request.UserId, actor, request.Reason, before, request);
-        return request.UserId;
-    });
+        var name = EcountEmployeeName(project);
+        if (string.IsNullOrWhiteSpace(name)) return "프로젝트 최초 등록자 이름 확인 필요";
+        return name.Length > 30 || name.Any(char.IsControl) ? "프로젝트 최초 등록자 이름은 제어문자 없이 30자 이내여야 합니다." : null;
+    }
 
     private static Task EnqueueEcount(NpgsqlConnection c, Guid project, string kind) => Exec(c,
         "insert into busbar_ecount_jobs(id,project_id,kind) values(@id,@project,@kind) on conflict(project_id,kind) where shipment_id is null do nothing",
@@ -83,9 +74,13 @@ public sealed partial class InteriorBusbarStore
             var settings = (await Rows(c, "select * from busbar_settings"))[0];
             await Exec(c, """
                 update busbar_ecount_jobs set needs_review=true,message='전송 후 기준정보 또는 프로젝트 변경 확인 필요',updated_at_utc=now()
-                where id=@id and exists(select 1 from busbar_ecount_attempts where id=current_attempt_id and case when payload ? 'itemRemarks' then coalesce(reviewed_payload, payload - 'ioDate' - 'ioType')
-                        else coalesce(reviewed_payload, payload - 'ioDate' - 'ioType') - 'itemRemarks' end<>
-                    case when payload ? 'itemRemarks' then @payload::jsonb else @payload::jsonb - 'itemRemarks' end)
+                where id=@id and exists(
+                    select 1 from busbar_ecount_attempts a
+                    cross join lateral (select coalesce(reviewed_payload, a.payload - 'ioDate' - 'ioType') old_value,
+                        @payload::jsonb new_value,
+                        (case when a.payload ? 'itemRemarks' then array[]::text[] else array['itemRemarks'] end) ||
+                        (case when a.payload ? 'employeeSource' then array[]::text[] else array['employeeCode','employeeSource'] end) ignored_keys) comparison
+                    where a.id=current_attempt_id and (old_value - ignored_keys) <> (new_value - ignored_keys))
                 """, ("id", Id(job)), ("payload", await EcountPayload(c, project, family, settings, job)));
         }
     }
@@ -107,7 +102,7 @@ public sealed partial class InteriorBusbarStore
         var vat = supply * 0.1m;
         var payload = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(new {
             projectId = Id(project), projectName = project["name"], workOrderNumber = project["customerJobNumber"],
-            purchaseOrderNumber = "", employeeCode = await EcountEmployeeCode(c, project), registeredByName = project["registeredByName"], productCode = family["ecountProductCode"],
+            purchaseOrderNumber = "", employeeSource = "ProjectRegistrantName", employeeCode = EcountEmployeeName(project), registeredByName = project["registeredByName"], productCode = family["ecountProductCode"],
             customerCode = settings["ecountCustomerCode"], warehouseCode = settings["ecountWarehouseCode"],
             commonProjectCode = project["commonProjectCode"], quantity, unitPrice = price,
             supplyAmount = supply, vatAmount = vat, totalAmount = supply + vat,
@@ -221,7 +216,7 @@ public sealed partial class InteriorBusbarStore
             if (System.Text.Json.Nodes.JsonNode.Parse(payloadText)?["itemRemarks"]?.GetValue<string>().Length > 200)
                 issue = "판매 품목 적요 200자 초과 · 프로젝트 도착지를 195자 이내로 수정 필요";
         }
-        if (string.IsNullOrWhiteSpace(await EcountEmployeeCode(c, project))) issue = "프로젝트 최초 등록자의 이카운트 담당자 연결 필요";
+        if (EcountEmployeeIssue(project) is { } employeeIssue) issue = employeeIssue;
         if (issue is not null)
         {
             await Exec(c, "update busbar_ecount_jobs set state='Held',message=@message,updated_at_utc=now() where id=@id", ("id", job), ("message", issue));

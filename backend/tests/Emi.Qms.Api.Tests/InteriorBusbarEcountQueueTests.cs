@@ -7,7 +7,7 @@ namespace Emi.Qms.Api.Tests;
 public sealed class InteriorBusbarEcountQueueTests
 {
     [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
-    public async Task CreatorAndEmployeeSnapshotSurviveEditsAndMappingChanges()
+    public async Task CreatorNameIsSentWithoutMappingAndSurvivesEdits()
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();
         var (family, project) = await Setup(f);
@@ -23,32 +23,58 @@ public sealed class InteriorBusbarEcountQueueTests
         var attempt=(await f.Store.ClaimEcountJob(job))!;
         var frozen=JsonDocument.Parse(attempt.Payload).RootElement;
         Assert.Equal("Synthetic manager",frozen.GetProperty("registeredByName").GetString());
-        Assert.Equal("SYN-EMP",frozen.GetProperty("employeeCode").GetString());
+        Assert.Equal("Synthetic manager",frozen.GetProperty("employeeCode").GetString());
         await f.Store.FinishEcountAttempt(attempt.Id,new("Succeeded","2026/09/15 -1"));
-        await f.Store.EcountEmployee(new(f.Actor,"SYN-NEW","Employee mapping corrected"),other);
-        Assert.True((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        Assert.False((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
         Assert.Null(await f.Store.ClaimEcountJob(job));
-        Assert.Equal(1,await f.Scalar("select count(*) from busbar_ecount_attempts where payload->>'employeeCode'='SYN-EMP'"));
+        Assert.Equal(1,await f.Scalar("select count(*) from busbar_ecount_attempts where payload->>'employeeCode'='Synthetic manager'"));
     }
 
     [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
-    public async Task MissingEmployeeHoldsWithoutSendingAndCanBeConfigured()
+    public async Task LegacyMappedSnapshotsDoNotRequireReviewForUnchangedSettings()
     {
         await using var f = await InteriorBusbarStoreTests.Fixture.Create();
-        var (_,project)=await Setup(f);
-        await using (var c=new Npgsql.NpgsqlConnection(f.Connection))
-        {
-            await c.OpenAsync(TestContext.Current.CancellationToken);
-            await InteriorBusbarStore.Exec(c,"delete from busbar_ecount_employees");
-        }
+        var (_, project) = await Setup(f);
+        var order = (await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();
+        var oa = (await f.Store.ClaimEcountJob(order))!;
+        await f.Store.FinishEcountAttempt(oa.Id,new("Succeeded","2026/09/15 -1"));
+        var shipment = await f.Store.Shipment(await f.ShipmentRequest(project,20),f.Actor);
+        var sale = (await ShipmentJob(f.Store,project,shipment)).GetProperty("id").GetGuid();
+        var sa = (await f.Store.ClaimEcountJob(sale))!;
+        await f.Store.FinishEcountAttempt(sa.Id,new("Succeeded","2026/09/15 -2"));
+        await using var c = new Npgsql.NpgsqlConnection(f.Connection);
+        await c.OpenAsync(TestContext.Current.CancellationToken);
+        await InteriorBusbarStore.Exec(c, "update busbar_ecount_attempts set payload=(payload - 'employeeSource') || '{\"employeeCode\":\"SYN-LEGACY\"}'::jsonb");
+        await f.Store.Settings(new("SYN-P","SYN-C","SYNWH"),f.Actor);
+        Assert.False((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        Assert.False((await ShipmentJob(f.Store,project,shipment)).GetProperty("needsReview").GetBoolean());
+        Assert.Equal(2,await f.Scalar("select count(*) from busbar_ecount_attempts where payload->>'employeeCode'='SYN-LEGACY'"));
+        var nextShipment = await f.Store.Shipment(await f.ShipmentRequest(project,20),f.Actor);
+        var next = (await ShipmentJob(f.Store,project,nextShipment)).GetProperty("id").GetGuid();
+        var nextAttempt = (await f.Store.ClaimEcountJob(next))!;
+        Assert.Equal("Synthetic manager",JsonDocument.Parse(nextAttempt.Payload).RootElement.GetProperty("employeeCode").GetString());
+        await f.Store.FinishEcountAttempt(nextAttempt.Id,new("Succeeded","2026/09/15 -3"));
+        await f.Store.Settings(new("SYN-P","SYN-CHANGED","SYNWH"),f.Actor);
+        Assert.True((await Job(f.Store,project,"Order")).GetProperty("needsReview").GetBoolean());
+        Assert.True((await ShipmentJob(f.Store,project,shipment)).GetProperty("needsReview").GetBoolean());
+    }
+
+    [Theory(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Name\nControl")]
+    [InlineData("This employee name exceeds thirty characters")]
+    public async Task InvalidCreatorNameHoldsWithoutSending(string? name)
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var (_, project) = await Setup(f);
+        await using var c = new Npgsql.NpgsqlConnection(f.Connection);
+        await c.OpenAsync(TestContext.Current.CancellationToken);
+        await InteriorBusbarStore.Exec(c, "update busbar_projects set registered_by_name=@name where id=@id", ("name",name), ("id",project));
         var job=(await Job(f.Store,project,"Order")).GetProperty("id").GetGuid();
         Assert.Null(await f.Store.ClaimEcountJob(job));
         Assert.Equal("Held",(await Job(f.Store,project,"Order")).GetProperty("state").GetString());
         Assert.Equal(0,await f.Scalar("select count(*) from busbar_ecount_attempts"));
-        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.EcountEmployee(new(f.Actor,new string('X',31),"Invalid"),f.Actor));
-        await f.Store.EcountEmployee(new(f.Actor,"SYN-EMP","Verified mapping"),f.Actor);
-        await f.Store.RetryEcount(job,"Mapping supplied",f.Actor);
-        Assert.NotNull(await f.Store.ClaimEcountJob(job));
     }
 
     [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]

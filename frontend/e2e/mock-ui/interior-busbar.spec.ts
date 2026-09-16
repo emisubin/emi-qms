@@ -1457,23 +1457,16 @@ test("ecount connection resumes separately and manual verification records check
 });
 
 
-test("employee mapping editor uses PMS identity and fits both widths", async ({page}) => {
-  const data=fixture();
-  data.ecountEmployees=[{userId:workerId,displayName:"합성 등록자",employeeCode:"SYN-EMP"}];
-  const writes=await mock(page,data);
-  await page.goto("/interior-busbar");
-  await selectSection(page, "기준정보");
-  await expect(page.getByRole("cell",{name:"합성 등록자",exact:true})).toBeVisible();
-  await page.getByRole("button",{name:"담당자 연결",exact:true}).click();
-  await page.getByLabel("이카운트 담당자 코드",{exact:true}).fill("SYN-NEW");
-  await page.getByLabel("정정 사유",{exact:true}).fill("합성 연결 변경");
+test("employee name is automatic without a mapping editor", async ({page}) => {
+  await mock(page,fixture());
+  await page.goto("/interior-busbar/masters");
+  await expect(page.getByText("주문서·판매 담당자는 프로젝트 최초 등록자의 PMS 이름으로 자동 입력됩니다.")).toBeVisible();
+  await expect(page.getByRole("button",{name:"담당자 연결",exact:true})).toHaveCount(0);
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
-    await page.screenshot({path:`/private/tmp/emi-busbar-employee-${width}.png`,fullPage:true});
+    await page.screenshot({path:`/private/tmp/emi-busbar-employee-auto-${width}.png`,fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   }
-  await page.getByRole("button",{name:"저장",exact:true}).click();
-  expect(writes.some(w=>JSON.stringify(w).includes("SYN-NEW")&&JSON.stringify(w).includes(workerId))).toBe(true);
 });
 
 test("independent busbar URLs survive reload and browser history", async ({ page }) => {

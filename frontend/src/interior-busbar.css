@@ -288,6 +288,26 @@
 .busbar-ecount-status form { display: grid; gap: 8px; margin-block: 12px; }
 .busbar-ecount-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Reuse the Osan heading while allowing longer busbar labels on phones. */
+.app-shell .busbar-page-heading.osan-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.app-shell .busbar-page-heading.osan-dashboard h1 {
+  height: auto;
+  line-height: 1.4;
+}
+.app-shell .busbar-page-heading .osan-list-actions {
+  position: static;
+}
+.app-shell .busbar-page-heading .osan-dashboard-description {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  min-height: 0;
+}
+
 /* Weekend date colors also apply to today and selected dates. */
 .app-shell .busbar-page .busbar-month-calendar .busbar-saturday { color: #2563eb !important; }
 .app-shell .busbar-page .busbar-month-calendar .busbar-sunday { color: #dc2626 !important; }
@@ -449,60 +469,6 @@
 .busbar-quick-confirm .busbar-form-actions { display: flex; gap: 8px; margin-top: 12px; position: sticky; bottom: 0; background: white; padding: 8px 0; }
 .busbar-quick-confirm .busbar-form-actions .primary { flex: 1; min-height: 52px; background: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 18px; font-weight: 700; }
 
-
-@media screen {
-/* Interior Busbar only: compact operational UI, independent of the Osan theme. */
-.app-shell .busbar-page.page-surface, .busbar-plan-dialog {
-  --busbar-ink: #172b3a;
-  --busbar-muted: #526577;
-  --busbar-border: #dce5ed;
-  --busbar-accent: #176b87;
-  --busbar-soft: #eff6f8;
-  color: var(--busbar-ink) !important;
-}
-.app-shell .busbar-page.page-surface { padding: 24px !important; background: #f4f7fa !important; border-radius: 16px !important; gap: 20px !important; }
-.app-shell .busbar-page.page-surface .ds-page-header { padding: 0 0 16px !important; border-bottom: 1px solid var(--busbar-border) !important; gap: 16px !important; }
-.app-shell .busbar-page.page-surface .ds-page-header h2 { font-size: 26px !important; letter-spacing: -.025em !important; color: var(--busbar-ink) !important; }
-.app-shell .busbar-page.page-surface .ds-page-header p { color: var(--busbar-muted) !important; line-height: 1.6 !important; }
-.app-shell .busbar-page.page-surface .ds-surface { border: 1px solid var(--busbar-border) !important; border-radius: 12px !important; background: #fff !important; box-shadow: 0 2px 6px #172b3a04 !important; padding: 20px !important; }
-.app-shell .busbar-page.page-surface h3 { font-size: 17px !important; letter-spacing: -.015em !important; }
-.app-shell .busbar-page.page-surface .ds-toolbar.busbar-filterbar { background: #f5f8fa !important; border: 1px solid var(--busbar-border) !important; border-radius: 10px !important; padding: 16px !important; }
-.app-shell .busbar-page.page-surface .busbar-table-wrap { border: 1px solid var(--busbar-border) !important; border-radius: 10px !important; }
-.app-shell .busbar-page.page-surface th { background: #eef3f7 !important; color: #384e60 !important; font-size: 13px !important; padding: 12px 14px !important; }
-.app-shell .busbar-page.page-surface td { padding: 12px 14px !important; font-variant-numeric: tabular-nums !important; }
-.app-shell .busbar-page.page-surface tbody tr:last-child td { border-bottom: 0 !important; }
-.app-shell .busbar-page.page-surface tbody tr:hover td { background-color: #f5f9fb !important; }
-.app-shell .busbar-page.page-surface .busbar-note { color: var(--busbar-muted) !important; font-size: 13px !important; }
-.app-shell .busbar-page.page-surface button:not(.busbar-calendar-day), .busbar-plan-dialog button {
-  border: 1px solid #c7d5df !important; border-radius: 8px !important; background: #fff !important; color: #253e50 !important;
-  min-height: 40px !important; padding: 9px 14px !important; font-weight: 600 !important; cursor: pointer !important;
-}
-.app-shell .busbar-page.page-surface button.primary, .busbar-plan-dialog button.primary { background: var(--busbar-accent) !important; color: #fff !important; border-color: var(--busbar-accent) !important; }
-.app-shell .busbar-page.page-surface button:disabled, .busbar-plan-dialog button:disabled { background: #edf1f5 !important; border-color: #dce3e9 !important; color: #687b8c !important; cursor: not-allowed !important; opacity: 1 !important; }
-.app-shell .busbar-page.page-surface :is(button,input,select,textarea):focus-visible, .busbar-plan-dialog :is(button,input,select,textarea):focus-visible { outline: 3px solid #147d9f !important; outline-offset: 3px !important; }
-.app-shell .busbar-page.page-surface :is(input,select,textarea):not([type="checkbox"]), .busbar-plan-dialog :is(input,select,textarea):not([type="checkbox"]) { min-height: 42px !important; border-radius: 8px !important; border-color: #bacbd8 !important; }
-.app-shell .busbar-page.page-surface .busbar-project-fields > div { background: #f6f8fb !important; border: 1px solid #e5ebf0 !important; }
-.app-shell .busbar-page.page-surface .busbar-shipping-summary > div, .busbar-plan-dialog .busbar-shipping-summary > div { background: var(--busbar-soft) !important; border: 1px solid #d9e8ee !important; }
-.busbar-shipping-summary dd { font-variant-numeric: tabular-nums !important; }
-.busbar-plan-dialog .dialog { background: #fff !important; border: 1px solid var(--busbar-border) !important; border-radius: 16px !important; box-shadow: 0 20px 70px #172b3a30 !important; }
-.busbar-plan-dialog .dialog > .ds-toolbar { border-bottom: 1px solid var(--busbar-border) !important; padding-bottom: 14px !important; }
-.busbar-plan-dialog .busbar-quick-confirm .busbar-form-actions .primary { background: #dcfce7 !important; color: #166534 !important; border-color: #86efac !important; min-height: 52px !important; }
-@media (max-width: 700px) {
-  .app-shell .busbar-page.page-surface { padding: 12px !important; border-radius: 10px !important; gap: 14px !important; }
-  .app-shell .busbar-page.page-surface .ds-surface { padding: 14px !important; }
-  .app-shell .busbar-page.page-surface .ds-page-header h2 { font-size: 22px !important; }
-  .app-shell .busbar-page.page-surface button:not(.busbar-calendar-day), .busbar-plan-dialog button { min-height: 44px !important; }
-}
-
-}
-
-@media screen {
-  .app-shell .busbar-page.page-surface .busbar-calendar-day[aria-current="date"] .busbar-calendar-date :is(strong,small) { color: #7f1d1d !important; }
-}
-@media screen {
-  .app-shell .busbar-page.page-surface .busbar-month-calendar .busbar-calendar-day[aria-pressed='true'] :not(.busbar-saturday):not(.busbar-sunday) { color: inherit !important; }
-}
-
 @media screen {
   .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(150px, .8fr) minmax(170px, .8fr) minmax(280px, 1.8fr); align-items: start; }
   .busbar-plan-filter > .busbar-filter-actions { grid-column: 1 / -1; }
@@ -512,11 +478,6 @@
   .busbar-month-totals b { font-size: 16px; font-variant-numeric: tabular-nums; }
   .busbar-import-menu { display: grid; gap: 8px; }
   .busbar-import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .app-shell .busbar-page.page-surface .busbar-filter-actions button { min-height: 42px !important; padding: 10px 16px !important; }
-  .app-shell .busbar-page.page-surface .busbar-filter-actions > button:first-child:not(:disabled) { background: #176b87 !important; color: #fff !important; border-color: #176b87 !important; }
-  .app-shell .busbar-page.page-surface .busbar-plan-filter > .busbar-filter-actions button { background: white !important; color: #253e50 !important; border-color: #c7d5df !important; }
-  .app-shell .busbar-page.page-surface .busbar-month-totals > div { border-color: #d9e5ec !important; border-radius: 8px !important; }
-  .app-shell .busbar-page.page-surface table th { background: #eef3f7 !important; color: #384e60 !important; }
   @media (max-width: 900px) {
     .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .busbar-plan-filter .busbar-month-totals { grid-column: 1 / -1; }
@@ -527,4 +488,7 @@
     .busbar-month-totals > div { grid-template-columns: 1fr 1fr; }
     .busbar-month-totals strong { grid-column: 1 / -1; }
   }
+}
+@media screen {
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed='true'] :not(.busbar-saturday):not(.busbar-sunday) { color: inherit !important; }
 }

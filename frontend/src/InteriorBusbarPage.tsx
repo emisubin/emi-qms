@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { ApiError } from "./api";
+import { OsanPageHeading } from "./OsanListFrame";
 import {
   DsActionFeedback,
   DsBadge,
@@ -537,8 +538,8 @@ export function InteriorBusbarPage({
     ) : null;
   return (
     <div className="busbar-page page-surface" aria-busy={busy}>
-      <header className="busbar-page-heading">
-      <DsPageHeader
+      <header className="busbar-page-heading osan-dashboard osan-list-frame">
+      <OsanPageHeading
         title={busbarSections.find((item) => item.key === tab)!.label}
         description="인테리어 부스바 · 제품군별 생산과 재고, 납품을 관리합니다."
         actions={

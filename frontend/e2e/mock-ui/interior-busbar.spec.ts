@@ -302,9 +302,8 @@ test("six workspaces desktop and 390px without horizontal page overflow", async 
     ]) {
       await selectSection(page, label);
       await expect(page.locator(".busbar-page")).toBeVisible();
-      await expect(page.locator(".app-shell")).not.toHaveAttribute("data-osan-project-theme", "true");
-      await expect(page.locator(".busbar-page .osan-dashboard")).toHaveCount(0);
-      await expect(page.locator(".busbar-page")).toHaveCSS("background-color", "rgb(244, 247, 250)");
+      await expect(page.locator(".app-shell")).toHaveAttribute("data-osan-project-theme", "true");
+      await expect(page.locator(".busbar-page .osan-dashboard")).toHaveCount(1);
       expect(
         await page.evaluate(
           () =>

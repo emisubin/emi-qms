@@ -502,3 +502,29 @@
 @media screen {
   .app-shell .busbar-page.page-surface .busbar-month-calendar .busbar-calendar-day[aria-pressed='true'] :not(.busbar-saturday):not(.busbar-sunday) { color: inherit !important; }
 }
+
+@media screen {
+  .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(150px, .8fr) minmax(170px, .8fr) minmax(280px, 1.8fr); align-items: start; }
+  .busbar-plan-filter > .busbar-filter-actions { grid-column: 1 / -1; }
+  .busbar-month-totals { display: grid; gap: 8px; max-height: 180px; overflow-y: auto; min-width: 0; }
+  .busbar-month-totals > div { display: grid; grid-template-columns: minmax(100px, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; background: white; border: 1px solid #d9e5ec; border-radius: 8px; font-size: 13px; }
+  .busbar-month-totals strong { overflow-wrap: anywhere; }
+  .busbar-month-totals b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .busbar-import-menu { display: grid; gap: 8px; }
+  .busbar-import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .app-shell .busbar-page.page-surface .busbar-filter-actions button { min-height: 42px !important; padding: 10px 16px !important; }
+  .app-shell .busbar-page.page-surface .busbar-filter-actions > button:first-child:not(:disabled) { background: #176b87 !important; color: #fff !important; border-color: #176b87 !important; }
+  .app-shell .busbar-page.page-surface .busbar-plan-filter > .busbar-filter-actions button { background: white !important; color: #253e50 !important; border-color: #c7d5df !important; }
+  .app-shell .busbar-page.page-surface .busbar-month-totals > div { border-color: #d9e5ec !important; border-radius: 8px !important; }
+  .app-shell .busbar-page.page-surface table th { background: #eef3f7 !important; color: #384e60 !important; }
+  @media (max-width: 900px) {
+    .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .busbar-plan-filter .busbar-month-totals { grid-column: 1 / -1; }
+  }
+  @media (max-width: 700px) {
+    .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(0, 1fr); }
+    .busbar-import-menu { width: 100%; }
+    .busbar-month-totals > div { grid-template-columns: 1fr 1fr; }
+    .busbar-month-totals strong { grid-column: 1 / -1; }
+  }
+}

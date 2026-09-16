@@ -642,7 +642,9 @@ export function InteriorBusbarPage({
             <DsToolbar label="납품 프로젝트 도구" className="busbar-filterbar">
               <Search value={query} onChange={setQuery} />
               <label>프로젝트 상태<select aria-label="프로젝트 상태" value={projectStatus} onChange={(event) => setProjectStatus(event.target.value)}><option value="">전체</option><option value="InProgress">진행 중</option><option value="Complete">완료</option></select></label>
-              <div className="busbar-filter-actions">{writeButton("프로젝트 등록", () => projectEditor())}</div>
+              <div className="busbar-filter-actions">{writeButton("프로젝트 등록", () => projectEditor())}
+                {canWrite && <ImportBox data={data} user={user} kind="projects" busy={busy} run={run} />}
+              </div>
             </DsToolbar>
             <Table
               headings={[
@@ -685,21 +687,13 @@ export function InteriorBusbarPage({
                 ])}
             />
           </DsSurface>
-          {canWrite && (
-            <ImportBox
-              data={data}
-              user={user}
-              kind="projects"
-              busy={busy}
-              run={run}
-            />
-          )}
+
         </>
       )}
       {tab === "plans" && (
         <>
           <DsSurface label="제품군별 월간 생산계획">
-            <DsToolbar className="busbar-filterbar" label="생산계획 필터">
+            <DsToolbar className="busbar-filterbar busbar-plan-filter" label="생산계획 필터">
               <label>
                 계획 제품군
                 <select aria-label="계획 제품군" value={planFamily} onChange={(e) => setPlanFamily(e.target.value)}>
@@ -708,6 +702,13 @@ export function InteriorBusbarPage({
                 </select>
               </label>
               <label>계획 월<input type="month" value={month} onChange={(e) => { if (e.target.value) changeMonth(e.target.value); }} /></label>
+              <div className="busbar-month-totals" aria-label="선택 월 제품군별 생산 현황">
+                <span className="busbar-note">선택 월 계획 기준 · 계획 / 생산 완료</span>
+                {visiblePlanFamilies.map((family) => {
+                  const plans = data.plans.filter((plan) => plan.productFamilyId === family.id && plan.planDate.slice(0, 7) === month);
+                  return <div key={family.id}><strong>{family.name}</strong><span>계획 <b>{n(plans.reduce((sum, plan) => sum + plan.quantity, 0))}</b>대</span><span>생산 완료 <b>{n(plans.reduce((sum, plan) => sum + (plan.actualQuantity ?? 0), 0))}</b>대</span></div>;
+                })}
+              </div>
               <div className="busbar-filter-actions">
                 <button onClick={() => changeMonth(monthPlus(month, -1))}>이전 달</button>
                 <button onClick={() => { changeMonth(today().slice(0, 7)); setSelectedPlanDate(today()); }}>이번 달</button>
@@ -1643,6 +1644,9 @@ function ImportBox({
   busy: boolean;
   run: Run;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const [preview, setPreview] = useState<BusbarImport | null>(null);
   const [fileName, setFileName] = useState("");
   const project = kind === "projects";
@@ -1660,14 +1664,7 @@ function ImportBox({
     quantity: "발주 수량",
     orderDate: "발주일",
   };
-  return (
-    <DsSurface label={`${project ? "프로젝트" : "발주"} 엑셀 업로드`}>
-      <details>
-        <summary>{project ? "프로젝트" : "발주"} 엑셀 업로드</summary>
-        <p className="busbar-note">
-          적용 전에 오류와 신규·갱신 대상을 확인하세요. 등록 식별자가 있는 행만
-          기존 항목을 갱신하며 이름으로 합치지 않습니다.
-        </p>
+  const download = (
         <button
           disabled={busy}
           onClick={() =>
@@ -1682,11 +1679,14 @@ function ImportBox({
             }, "엑셀 양식을 다운로드했습니다.")
           }
         >
-          엑셀 양식 다운로드
+          {project ? "양식 다운로드" : "엑셀 양식 다운로드"}
         </button>
+  );
+  const fileSelector = (
         <label>
           엑셀 파일 선택
           <input
+            ref={fileInput}
             type="file"
             accept=".xlsx"
             disabled={busy}
@@ -1711,7 +1711,9 @@ function ImportBox({
             }}
           />
         </label>
-        {preview && (
+  );
+  const previewContent = (<>
+        <p className="busbar-note">적용 전에 오류와 신규·갱신 대상을 확인하세요. 등록 식별자가 있는 행만 갱신하며 이름으로 합치지 않습니다.</p>        {preview && (
           <>
             <p>
               {fileName} · {preview.rows.length}행 · 오류{" "}
@@ -1766,8 +1768,12 @@ function ImportBox({
               검토한 내용 적용
             </button>
           </>
-        )}
-      </details>
-    </DsSurface>
-  );
+        )}</>);
+  if (project) return <div className="busbar-import-menu">
+    <button type="button" disabled={busy} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>프로젝트 엑셀 {expanded ? "▴" : "▾"}</button>
+    {expanded && <div className="busbar-import-actions">{download}<button type="button" disabled={busy} onClick={() => fileInput.current?.click()}>업로드</button></div>}
+    <div hidden>{fileSelector}</div>
+    {preview && <BusbarDialog label="프로젝트 엑셀 미리보기" busy={busy} heading={heading} closeLabel="프로젝트 엑셀 미리보기 닫기" onClose={() => setPreview(null)}>{previewContent}</BusbarDialog>}
+  </div>;
+  return <DsSurface label="발주 엑셀 업로드"><details><summary>발주 엑셀 업로드</summary>{download}{fileSelector}{previewContent}</details></DsSurface>;
 }

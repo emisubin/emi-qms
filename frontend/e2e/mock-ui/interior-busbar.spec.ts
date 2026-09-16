@@ -1610,3 +1610,38 @@ test("shipment button stays visible with its unavailable reason", async ({ page 
     }
   }
 });
+
+test("project Excel menu and monthly family totals", async ({ page }) => {
+  const data = fixture();
+  await mock(page, data);
+  await page.route("**/api/interior-busbar/projects/import/preview", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [{name: "합성 업로드", requestedQuantity: 2}], errors: [] }) }));
+  await page.goto("/interior-busbar/projects");
+  const menu = page.getByRole("button", { name: "프로젝트 엑셀", exact: false });
+  await expect(menu).toBeVisible();
+  await expect(page.getByRole("button", {name:"양식 다운로드",exact:true})).toHaveCount(0);
+  await menu.click();
+  await expect(page.getByRole("button", {name:"양식 다운로드",exact:true})).toBeVisible();
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", {name:"업로드",exact:true}).click();
+  await (await chooser).setFiles({name:"synthetic.xlsx",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",buffer:Buffer.from("synthetic")});
+  await expect(page.getByRole("dialog", {name:"프로젝트 엑셀 미리보기"})).toBeVisible();
+  await expect(page.getByText("합성 업로드",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"프로젝트 엑셀 미리보기 닫기"}).click();
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:`/private/tmp/emi-busbar-excel-menu-${width}.png`});
+  }
+  await page.goto("/interior-busbar/plans");
+  await page.getByLabel("계획 월",{exact:true}).fill("2026-09");
+  const totals = page.getByLabel("선택 월 제품군별 생산 현황");
+  await expect(totals).toContainText("계획 60대");
+  await expect(totals).toContainText("생산 완료 1대");
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:`/private/tmp/emi-busbar-month-totals-${width}.png`});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await page.getByLabel("계획 월",{exact:true}).fill("2026-10");
+  await expect(totals).toContainText("계획 0대");
+  await expect(totals).toContainText("생산 완료 0대");
+});

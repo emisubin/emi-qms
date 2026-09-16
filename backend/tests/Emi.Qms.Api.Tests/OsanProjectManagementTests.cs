@@ -6,7 +6,7 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class OsanProjectRegistrationApiTests
 {
     [Fact]
-    public async Task DeliveryHold_PreservesWorkAndDateExcludesHomeAndUsesConcurrentEditToken()
+    public async Task DeliveryHold_PreservesWorkAndDateIncludesHomeAndUsesConcurrentEditToken()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
@@ -30,7 +30,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var dashboard = new OsanDashboardStore(provider, TimeProvider.System);
         var scope = new Emi.Qms.Api.Projects.ProjectAccessScope(true, []);
         var home = await dashboard.GetAsync(new("", "All", 1, 10, "home"), scope, ct);
-        Assert.Empty(home.Items); Assert.Equal(0, home.Summary.TotalCount); Assert.Equal(0, home.TotalCount);
+        Assert.Equal("Hold", Assert.Single(home.Items).Status); Assert.Equal(1, home.Summary.TotalCount); Assert.Equal(1, home.Summary.HoldCount); Assert.Equal(0, home.Summary.NotStartedCount);
         var list = await dashboard.GetAsync(new("", "All", 1, 10), scope, ct);
         Assert.True(Assert.Single(list.Items).DeliveryHold);
         var progress = new OsanProgressStore(provider);

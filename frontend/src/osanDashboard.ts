@@ -1,6 +1,6 @@
 import { fetchJson } from './api';
 
-export type OsanDashboardStatus = 'All' | 'NotStarted' | 'InProgress' | 'Completed';
+export type OsanDashboardStatus = 'All' | 'NotStarted' | 'InProgress' | 'Completed' | 'Hold';
 export interface OsanDashboardStage {
   sequenceNumber: number; stepCode: string; stepName: string;
   completedTargetCount: number; totalTargetCount: number; openIssueTargetCount?: number; availableTargetCount?: number;
@@ -15,7 +15,7 @@ export interface OsanDashboardProject {
 }
 export interface OsanDashboardResponse {
   customers?: string[];
-  summary: { totalCount: number; notStartedCount: number; inProgressCount: number; completedCount: number };
+  summary: { totalCount: number; notStartedCount: number; inProgressCount: number; completedCount: number; holdCount?: number };
   items: OsanDashboardProject[]; totalCount: number; page: number; pageSize: number;
 }
 export function getOsanDashboard(userKey: string | undefined, query: { customer?: string; search: string; status: OsanDashboardStatus; page: number; view?: 'home' | 'progress' }, signal: AbortSignal) {

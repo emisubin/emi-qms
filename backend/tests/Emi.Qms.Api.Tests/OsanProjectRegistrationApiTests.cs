@@ -1155,10 +1155,10 @@ public sealed partial class OsanProjectRegistrationApiTests
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 2),
             scope,
             TestContext.Current.CancellationToken);
-        Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
-        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Equal(new OsanDashboardSummaryResponse(2, 1, 1, 0), firstPage.Summary);
+        Assert.Equal(2, firstPage.TotalCount);
         Assert.Equal(2, firstPage.Items.Count);
-        Assert.Equal(["Customer", "고객 A", "고객 AB"], firstPage.Customers!.Order(StringComparer.Ordinal));
+        Assert.Equal(["고객 A", "고객 AB"], firstPage.Customers!.Order(StringComparer.Ordinal));
         Assert.DoesNotContain("Secret Customer", firstPage.Customers!);
         Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
             firstPage.Items.Select(item => item.ProjectId));
@@ -1176,18 +1176,9 @@ public sealed partial class OsanProjectRegistrationApiTests
             scope,
             TestContext.Current.CancellationToken);
         Assert.Equal(firstPage.Summary, secondPage.Summary);
-        Assert.Equal(3, secondPage.TotalCount);
+        Assert.Equal(2, secondPage.TotalCount);
         Assert.Equal(firstPage.Customers, secondPage.Customers);
-        var completedItem = Assert.Single(secondPage.Items);
-        Assert.Equal(completed.Value.Project.ProjectId, completedItem.ProjectId);
-        Assert.Equal(7, completedItem.CompletedStepCount);
-        Assert.Equal(7, completedItem.TotalStepCount);
-        Assert.Equal(100, completedItem.ProgressPercent);
-        Assert.All(completedItem.Stages, stage =>
-        {
-            Assert.Equal(1, stage.CompletedTargetCount);
-            Assert.Equal(1, stage.TotalTargetCount);
-        });
+        Assert.Empty(secondPage.Items);
 
         var filtered = await store.GetAsync(
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.InProgress, 1, 10),
@@ -1322,6 +1313,23 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(
             [todayCompleted.Value.Project.ProjectId, futureCompleted.Value.Project.ProjectId],
             homeCompleted.Items.Select(item => item.ProjectId));
+
+        // Same visible set and sort for home/progress, with old-due HOLD after every active project.
+        await database.ExecuteAsync("update projects set osan_delivery_hold=true where id=@id", TestContext.Current.CancellationToken,
+            ("id", pastUnfinished.Value.Project.ProjectId));
+        var heldHome = await store.GetAsync(new("", "All", 1, 10, "home"), homeScope, TestContext.Current.CancellationToken);
+        var heldProgress = await store.GetAsync(new("", "All", 1, 10, "progress"), homeScope, TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(5, 1, 1, 2, 1), heldHome.Summary);
+        Assert.Equal(heldHome.Summary, heldProgress.Summary);
+        Assert.Equal(heldHome.Items.Select(p => p.ProjectId), heldProgress.Items.Select(p => p.ProjectId));
+        Assert.Equal(pastUnfinished.Value.Project.ProjectId, heldHome.Items.Last().ProjectId);
+        Assert.Equal("Hold", heldHome.Items.Last().Status);
+        var heldOnly = await store.GetAsync(new("", "Hold", 1, 10, "progress"), homeScope, TestContext.Current.CancellationToken);
+        Assert.Equal(1, heldOnly.TotalCount);
+        Assert.Equal(pastUnfinished.Value.Project.ProjectId, Assert.Single(heldOnly.Items).ProjectId);
+        Assert.Equal(heldHome.Summary, heldOnly.Summary);
+        var heldPage = await store.GetAsync(new("", "All", 3, 2, "progress"), homeScope, TestContext.Current.CancellationToken);
+        Assert.Equal(pastUnfinished.Value.Project.ProjectId, Assert.Single(heldPage.Items).ProjectId);
     }
 
     [Fact]

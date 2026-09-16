@@ -6,9 +6,10 @@ public static class OsanDashboardStatuses
     public const string NotStarted = "NotStarted";
     public const string InProgress = "InProgress";
     public const string Completed = "Completed";
+    public const string Hold = "Hold";
 
     public static bool IsValid(string value) =>
-        value is All or NotStarted or InProgress or Completed;
+        value is All or NotStarted or InProgress or Completed or Hold;
 }
 
 public static class OsanDashboardViews
@@ -39,7 +40,8 @@ public sealed record OsanDashboardSummaryResponse(
     long TotalCount,
     long NotStartedCount,
     long InProgressCount,
-    long CompletedCount);
+    long CompletedCount,
+    long HoldCount = 0);
 
 public sealed record OsanDashboardProjectResponse(
     Guid ProjectId,

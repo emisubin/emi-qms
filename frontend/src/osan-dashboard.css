@@ -212,3 +212,5 @@
 @media(max-width:860px) { .osan-status-step { font-size:9px; } .osan-status-step small { font-size:9px; } .osan-status-track { height:40px; } }
 
 .app-shell .app-brand-lockup .osan-sidebar-logo { width: 80px; height: 29px; object-fit: contain; }
+
+.app-shell .osan-dashboard-summary[data-count="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }

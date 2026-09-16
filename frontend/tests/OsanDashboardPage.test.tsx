@@ -157,3 +157,16 @@ it('완료·부분 완료·미완료와 초기화된 단계를 실제 집계대�
   expect(screen.getByText('WO-KEY').tagName).toBe('STRONG');
   expect([...document.querySelectorAll('.osan-dashboard-project-meta dt')].map(node => node.textContent)).toEqual(['part 분류', '수량', '고객사', 'W/O', '코드', '납기일']);
 });
+
+it.each(['home', 'progress'] as const)('%s uses the same five summary labels and HOLD status filter', async view => {
+  const data = fixture(); data.summary.holdCount = 3;
+  vi.mocked(api.getOsanDashboard).mockResolvedValue(data);
+  render(<OsanDashboardPage view={view} onOpen={vi.fn()}/>);
+  await screen.findByText('관리 대상');
+  const summary = screen.getByLabelText('프로젝트 요약');
+  for (const label of ['관리 대상','공정 시작 전','공정 진행 중','포장완료','HOLD']) expect(within(summary).getByText(label)).toBeInTheDocument();
+  await waitFor(() => expect(within(summary).getByText('3')).toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', {name:'필터'}));
+  fireEvent.change(screen.getByRole('combobox', {name:'상태별'}), {target:{value:'Hold'}});
+  await waitFor(() => expect(vi.mocked(api.getOsanDashboard).mock.lastCall?.[1].status).toBe('Hold'));
+});

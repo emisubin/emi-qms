@@ -27,7 +27,7 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
     getOsanDashboard(developmentUserKey, isHome ? { ...query, view } : query, controller.signal).then(data => {
       if (!current) return;
       const lastPage = Math.max(1, Math.ceil(data.totalCount / data.pageSize));
-      if (isHome && query.page > lastPage) {
+      if (query.page > lastPage) {
         setQuery({ ...query, page: lastPage });
         return;
       }
@@ -39,7 +39,6 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
     return () => { current = false; controller.abort(); };
   }, [developmentUserKey, query, attempt, isHome, view]);
   useEffect(() => {
-    if (!isHome) return;
     const refresh = () => setAttempt(value => value + 1);
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener('focus', refresh);
@@ -47,12 +46,13 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
   }, [isHome]);
   const data = state.kind === 'ready' ? state.data : undefined;
   const totalPages = data ? Math.max(1, Math.ceil(data.totalCount / data.pageSize)) : 1;
-  const counts = data ? [data.summary.totalCount, data.summary.notStartedCount, data.summary.inProgressCount, data.summary.completedCount] : null;
+  const counts = data ? [data.summary.totalCount, data.summary.notStartedCount, data.summary.inProgressCount, data.summary.completedCount, data.summary.holdCount ?? 0] : null;
   const reset = () => { setDraft(''); setQuery({ search: '', customer: '', status: 'All', page: 1 }); };
   return <OsanListFrame
     className={isHome ? 'osan-home-dashboard' : ''}
     title={isHome ? '오산 홈' : '진행 현황'}
-    description={isHome ? '납기가 빠른 순서입니다. 납기 HOLD와 납기가 지난 완료 프로젝트는 홈에서 자동으로 제외됩니다.' : '프로젝트를 선택하면 해당 프로젝트의 진행 작업만 표시됩니다.'}
+    description="납기가 빠른 순서입니다. HOLD는 하단에 표시하며, 납기가 지난 완료 프로젝트는 제외됩니다."
+    summaryLabels={['관리 대상', '공정 시작 전', '공정 진행 중', '포장완료', 'HOLD']}
     counts={counts} search={draft} onSearchChange={setDraft}
     onSearch={() => setQuery({ ...query, search: draft.trim(), page: 1 })}
     status={query.status} onStatusChange={value => setQuery({ ...query, status: value as OsanDashboardStatus, page: 1 })}

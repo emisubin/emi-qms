@@ -269,7 +269,7 @@ public sealed partial class OsanProjectStore
                 where steps.project_id = projects.id
             ) progress
             where {string.Join(" and ", where)}
-            order by projects.delivery_date, projects.project_code, projects.id;
+            order by projects.osan_delivery_hold, projects.delivery_date, projects.project_code, projects.id;
             """);
         command.Parameters.AddRange(parameters.ToArray());
 

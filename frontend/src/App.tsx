@@ -4452,7 +4452,7 @@ function OsanProjectListPage({
   const [importRevision, setImportRevision] = useState(0);
   const [importMessage, setImportMessage] = useState('');
   const [customer, setCustomer] = useState('');
-  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
+  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed' | 'Hold'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4478,7 +4478,7 @@ function OsanProjectListPage({
     const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
       .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
     const matchesCustomer = !customer || project.customerName === customer;
-    const matchesStatus = tab === 'All' || project.status === tab;
+    const matchesStatus = tab === 'All' || (project.deliveryHold ? 'Hold' : project.status) === tab;
     return matchesSearch && matchesCustomer && matchesStatus;
   });
   const selection = useSelectedRows(filteredProjects.map(project => project.projectId));
@@ -4565,7 +4565,7 @@ function OsanProjectListPage({
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
               { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span>, align: 'center' },
-              { value: formatOsanProjectStatus(project.status), align: 'center' },
+              { value: project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
@@ -4575,7 +4575,7 @@ function OsanProjectListPage({
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
               { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> },
-              { label: '상태', value: formatOsanProjectStatus(project.status) },
+              { label: '상태', value: project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
           }))}
@@ -4876,7 +4876,7 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
     <>
       <section className="osan-detail-overview" aria-label="프로젝트 기본 정보">
         <div className="osan-detail-identity">
-          <span className="osan-detail-status">{formatOsanProjectStatus(project.status)}</span>
+          <span className="osan-detail-status">{project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status)}</span>
           <h2>{project.title}</h2>
           <p className="project-code-value">{project.projectCode}</p>
         </div>

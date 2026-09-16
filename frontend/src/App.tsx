@@ -3325,7 +3325,7 @@ function AppNavigation({
           aria-label="EMI PMS 로고로 홈 이동"
           onClick={() => onNavigate({ kind: 'home' })}
         >
-          <img className="app-brand-logo" src={isOsan ? emiInternalLogo : emiPmsProductLogo} alt={isOsan ? "EMI" : "EMI PMS - Project Management System"} />
+          <img className={`app-brand-logo${isOsan ? " osan-sidebar-logo" : ""}`} src={isOsan ? emiInternalLogo : emiPmsProductLogo} alt={isOsan ? "EMI" : "EMI PMS - Project Management System"} />
         </button>
       </div>
       <div className="app-sidebar-heading">

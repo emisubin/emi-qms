@@ -315,7 +315,7 @@ test("six workspaces desktop and 390px without horizontal page overflow", async 
         ),
       ).toBe(0);
       await page.screenshot({
-        path: `/private/tmp/emi-busbar-${width}-${label.replaceAll("·", "-")}.png`,
+        path: test.info().outputPath(`emi-busbar-${width}-${label.replaceAll("·", "-")}.png`),
         fullPage: true,
       });
     }
@@ -347,7 +347,7 @@ test("two photos auto complete with server time and block QR until publication",
   await expect(page.getByLabel("카메라로 앞면 촬영")).toHaveCount(0);
   await expect(page.getByLabel("앨범에서 앞면 선택")).toHaveCount(0);
   await page.screenshot({
-    path: "/private/tmp/emi-busbar-photo-complete.png",
+    path: test.info().outputPath("emi-busbar-photo-complete.png"),
     fullPage: true,
   });
 });
@@ -436,7 +436,7 @@ test("BOM reload replaces stale editable quantities with the newest version", as
   await expect(page.getByText("현재 버전: 2", { exact: true })).toBeVisible();
   await expect(quantity).toHaveValue("5");
   await page.screenshot({
-    path: "/private/tmp/emi-busbar-bom-reloaded.png",
+    path: test.info().outputPath("emi-busbar-bom-reloaded.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "새 버전 저장", exact: true }).click();
@@ -503,7 +503,7 @@ test("planned draft requires worker before uploads and shows permanent number on
   await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
   expect(data.products[0].number).toBeUndefined();
   await page.screenshot({
-    path: "/private/tmp/emi-busbar-plan-draft-390.png",
+    path: test.info().outputPath("emi-busbar-plan-draft-390.png"),
     fullPage: true,
   });
   await page
@@ -527,12 +527,12 @@ test("planned draft requires worker before uploads and shows permanent number on
     ),
   ).toBe(0);
   await page.screenshot({
-    path: "/private/tmp/emi-busbar-plan-complete-390.png",
+    path: test.info().outputPath("emi-busbar-plan-complete-390.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({
-    path: "/private/tmp/emi-busbar-plan-complete-1440.png",
+    path: test.info().outputPath("emi-busbar-plan-complete-1440.png"),
     fullPage: true,
   });
 });
@@ -742,7 +742,7 @@ test("project row opens independent detail with family shipment context", async 
   await expect(page.getByRole("heading", { name: "합성 납품 현장", exact: true })).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-project-context-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-project-context-${width}.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
 });
@@ -807,7 +807,7 @@ test("project detail shows linked panels, legacy history and read-only photos", 
   await expect(page.getByRole("cell", { name: "IB-00000001", exact: true })).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-project-history-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-project-history-${width}.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   }
   await page.getByRole("button", { name: "앞·뒤 사진 보기", exact: true }).click();
@@ -817,7 +817,7 @@ test("project detail shows linked panels, legacy history and read-only photos", 
   await expect(dialog.locator('input[type="file"]')).toHaveCount(0);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await dialog.screenshot({ path: `/private/tmp/emi-busbar-project-photos-${width}.png` });
+    await dialog.screenshot({ path: test.info().outputPath(`emi-busbar-project-photos-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   }
 });
@@ -873,7 +873,7 @@ test("keyboard QR scan rejects invalid and duplicate values then ships selected 
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
     await expect(page.getByRole("img", { name: "뒷면 등록 사진" })).toBeVisible();
-    await page.getByRole("dialog", { name: "패널 QR 분할 출하" }).screenshot({ path: `/private/tmp/emi-busbar-quick-scan-${width}.png` });
+    await page.getByRole("dialog", { name: "패널 QR 분할 출하" }).screenshot({ path: test.info().outputPath(`emi-busbar-quick-scan-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   await page.getByRole("button", { name: "예, 출하 등록", exact: true }).click();
@@ -984,7 +984,7 @@ test("monthly calendar selection and photo filters send server-side conditions",
   await page.getByRole("button", { name: "생산계획 팝업 닫기" }).click();
   const selectedDay = page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true });
   await expect(selectedDay.locator(".busbar-calendar-plan strong")).toHaveCSS("color", "rgb(51, 65, 85)");
-  await page.screenshot({ path: "/private/tmp/emi-busbar-final-selected-calendar.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("emi-busbar-final-selected-calendar.png"), fullPage: true });
   await page.getByLabel("계획 제품군", { exact: true }).selectOption(familyId);
   await selectPlanDate(page, "2026-09-09");
   await expect(page.getByRole("cell", { name: "합성 제품군 B", exact: true })).toHaveCount(0);
@@ -1072,9 +1072,9 @@ test("calendar month boundaries and new plans preserve selected family and date"
     await page.setViewportSize({ width, height: 900 });
     await selectPlanMonth(page, "2026-09");
     await selectPlanDate(page, "2026-09-09");
-    await page.screenshot({ path: `/private/tmp/emi-busbar-plan-popup-${width}.png`, fullPage: false });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-plan-popup-${width}.png`), fullPage: false });
     await page.getByRole("button", { name: "생산계획 팝업 닫기" }).click();
-    await page.screenshot({ path: `/private/tmp/emi-busbar-month-calendar-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-month-calendar-${width}.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
 });
@@ -1129,7 +1129,7 @@ test("all calendar cells match the busiest day across weeks and viewports", asyn
     expect(heights).toHaveLength(35);
     expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
-    await page.screenshot({ path: `/private/tmp/emi-busbar-calendar-equal-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-calendar-equal-${width}.png`), fullPage: true });
   }
   await page.getByLabel("계획 제품군", { exact: true }).selectOption(familyId);
   const heights = await page.locator(".busbar-calendar-grid > *").evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect().height));
@@ -1171,7 +1171,7 @@ test("photo popup contains registration only and table follows production order"
   const dialog = page.getByRole("dialog");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-photo-popup-${width}.png` });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-photo-popup-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
   await expect(dialog.getByRole("button", { name: "생산 취소" })).toHaveCount(0);
@@ -1202,7 +1202,7 @@ test("bulk QR prepares all eligible labels and prints separate cards", async ({ 
   await expect(dialog.getByRole("button", { name: "인쇄", exact: true })).toBeEnabled();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-bulk-qr-${width}.png` });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-bulk-qr-${width}.png`) });
   }
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
@@ -1216,7 +1216,7 @@ test("bulk QR prepares all eligible labels and prints separate cards", async ({ 
   await expect(page.locator("body")).toHaveAttribute("data-print-evidence", JSON.stringify({ display: "none", numbers: ["IB-00000001", "IB-00000002"], images: true }));
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".busbar-print-sheet")).toBeVisible();
-  await page.screenshot({ path: "/private/tmp/emi-busbar-bulk-print.png" });
+  await page.screenshot({ path: test.info().outputPath("emi-busbar-bulk-print.png") });
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
   await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
   await page.emulateMedia({ media: "screen" });
@@ -1311,7 +1311,7 @@ test("calendar today stays pastel red when selected", async ({ page }) => {
   await expect(day).toHaveAttribute("aria-pressed", "true");
   await expect(day).toHaveCSS("background-color", "rgb(254, 226, 226)");
   await expect(day).toHaveCSS("outline-color", "rgb(37, 99, 235)");
-  await page.screenshot({ path: "/private/tmp/emi-busbar-calendar-today.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("emi-busbar-calendar-today.png"), fullPage: true });
 });
 
 
@@ -1328,7 +1328,7 @@ test("deadline rows highlight only today through D-3 and selected calendar day i
   }
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-deadline-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-deadline-${width}.png`), fullPage: true });
   }
   await selectSection(page, "생산계획");
   const day = page.getByRole("button", { name: "2026-09-11 생산계획 선택", exact: true });
@@ -1337,7 +1337,7 @@ test("deadline rows highlight only today through D-3 and selected calendar day i
   await expect(day).toHaveCSS("background-color", "rgb(241, 245, 249)");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-gray-calendar-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-gray-calendar-${width}.png`), fullPage: true });
   }
 });
 
@@ -1362,7 +1362,7 @@ test("worker correction is in photo dialog and publication retry stays in extern
   expect(writes.some((item) => item.path === `/api/interior-busbar/products/${productId}`)).toBe(true);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/private/tmp/emi-busbar-worker-correction-${width}.png`, fullPage: true });
+    await page.screenshot({ path: test.info().outputPath(`emi-busbar-worker-correction-${width}.png`), fullPage: true });
   }
 });
 
@@ -1385,7 +1385,7 @@ test("commercial price is family only and preview stays read only", async ({page
   await page.getByLabel("도착지 / 업체명",{exact:true}).fill("합성 도착지");
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
-    await page.screenshot({path:`/private/tmp/emi-busbar-commercial-editor-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-commercial-editor-${width}.png`),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
   }
   await page.getByRole("button",{name:"저장",exact:true}).click();
@@ -1397,7 +1397,7 @@ test("commercial price is family only and preview stays read only", async ({page
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
     await page.getByText("공급가액",{exact:true}).scrollIntoViewIfNeeded();
-    await page.screenshot({path:`/private/tmp/emi-busbar-commercial-preview-${width}.png`});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-commercial-preview-${width}.png`)});
   }
   expect(writes.filter(w=>w.path.endsWith("/projects")).length).toBe(1);
 });
@@ -1419,7 +1419,7 @@ test("ecount status blocks uncertain retries and records a reason for definite f
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
     await page.getByRole("heading", {name:"이카운트 주문·판매"}).scrollIntoViewIfNeeded();
-    await page.screenshot({path:`/private/tmp/emi-busbar-ecount-status-${width}.png`});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-ecount-status-${width}.png`)});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
   }
   retried = true;
@@ -1451,7 +1451,7 @@ test("ecount connection resumes separately and manual verification records check
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
     await page.getByRole("heading",{name:"이카운트 주문·판매"}).scrollIntoViewIfNeeded();
-    await page.locator(".busbar-ecount-status").screenshot({path:`/private/tmp/emi-busbar-ecount-connection-${width}.png`});
+    await page.locator(".busbar-ecount-status").screenshot({path:test.info().outputPath(`emi-busbar-ecount-connection-${width}.png`)});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
   }
   await page.getByRole("button",{name:"확인 반영",exact:true}).click();
@@ -1468,7 +1468,7 @@ test("employee name is automatic without a mapping editor", async ({page}) => {
   await expect(page.getByRole("button",{name:"담당자 연결",exact:true})).toHaveCount(0);
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
-    await page.screenshot({path:`/private/tmp/emi-busbar-employee-auto-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-employee-auto-${width}.png`),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   }
 });
@@ -1510,7 +1510,7 @@ test("shipment sales show individual quantities and ERP slips on desktop and mob
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
     await status.scrollIntoViewIfNeeded();
-    await status.screenshot({path:`/private/tmp/emi-busbar-shipment-sales-${width}.png`});
+    await status.screenshot({path:test.info().outputPath(`emi-busbar-shipment-sales-${width}.png`)});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
   }
 });
@@ -1532,7 +1532,7 @@ test("department permissions show only owned input actions and LSE Task No", asy
     await expect(page.getByRole("button", {name:"자재 기초재고",exact:true})).toHaveCount(data.permissions.administration ? 1 : 0);
     await page.goto("/interior-busbar/production");
     await expect(page.getByRole("button", {name:"사진등록",exact:true})).toHaveCount(data.permissions.production ? 1 : 0);
-    await page.screenshot({path:`/private/tmp/emi-busbar-access-${team}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-access-${team}.png`),fullPage:true});
   }
 });
 
@@ -1549,7 +1549,7 @@ test("weekend date colors survive today and selection on desktop and mobile", as
     await sunday.click(); await page.getByRole("button", {name:"생산계획 팝업 닫기"}).click();
     await expect(sunday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(220, 38, 38)");
     await expect(sunday).toHaveCSS("background-color","rgb(241, 245, 249)");
-    await page.screenshot({path:`/private/tmp/emi-busbar-weekend-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-weekend-${width}.png`),fullPage:true});
   }
 });
 
@@ -1580,7 +1580,7 @@ test("home shows current work, near deliveries and material shortage instead of 
     await expect(family.getByRole("cell")).toHaveText(["합성 제품군 A","5","3","2","30","45","15"]);
     const material=page.getByRole("region",{name:"부족 자재",exact:true}).getByRole("row").last();
     await expect(material.getByRole("cell")).toHaveText(["합성 동대","m","-2","12","14"]);
-    await page.screenshot({path:`/private/tmp/emi-busbar-home-current-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-home-current-${width}.png`),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBeTruthy();
   }
 });
@@ -1601,7 +1601,7 @@ test("shipment button stays visible with its unavailable reason", async ({ page 
     if (reason === "완제품 재고 없음") {
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });
-        await page.screenshot({ path: `/private/tmp/emi-busbar-shipment-disabled-${width}.png` });
+        await page.screenshot({ path: test.info().outputPath(`emi-busbar-shipment-disabled-${width}.png`) });
       }
     }
   }
@@ -1625,7 +1625,7 @@ test("project Excel menu and monthly family totals", async ({ page }) => {
   await page.getByRole("button",{name:"프로젝트 엑셀 미리보기 닫기"}).click();
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:900});
-    await page.screenshot({path:`/private/tmp/emi-busbar-excel-menu-${width}.png`});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-excel-menu-${width}.png`)});
   }
   await page.goto("/interior-busbar/plans");
   await page.getByLabel("계획 월",{exact:true}).fill("2026-09");
@@ -1639,7 +1639,7 @@ test("project Excel menu and monthly family totals", async ({ page }) => {
       const nextBox = await page.getByRole("button", {name:"다음 달",exact:true}).boundingBox();
       expect(Math.abs((monthBox!.y + monthBox!.height) - (nextBox!.y + nextBox!.height))).toBeLessThan(3);
     }
-    await page.screenshot({path:`/private/tmp/emi-busbar-month-totals-${width}.png`});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-month-totals-${width}.png`)});
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   await page.getByLabel("계획 월",{exact:true}).fill("2026-10");
@@ -1715,7 +1715,7 @@ test("master access popup toggles immediately and keeps a hundred users out of t
   await expect(granted.getByText("합성 사용자 99",{exact:true})).toHaveCount(0);
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
-    await page.screenshot({path:`/private/tmp/emi-busbar-access-summary-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-access-summary-${width}.png`),fullPage:true});
   }
   await page.getByRole("button",{name:"권한 설정 수정",exact:true}).click();
   const dialog=page.getByRole("dialog",{name:"기준정보 권한 설정 수정"});
@@ -1723,7 +1723,7 @@ test("master access popup toggles immediately and keeps a hundred users out of t
   await expect(dialog.getByRole("checkbox",{name:"합성 사용자 0 조회 권한",exact:true})).toBeDisabled();
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
-    await page.screenshot({path:`/private/tmp/emi-busbar-access-popup-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-access-popup-${width}.png`),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
     expect(await page.locator(".busbar-access-list").evaluate(el=>el.scrollHeight>el.clientHeight && el.clientHeight<=innerHeight*.51)).toBe(true);
     expect(await page.locator(".busbar-access-list").evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
@@ -1764,7 +1764,7 @@ test("purchase workspace shows remaining receipts and opens Excel beside registr
   await expect(toolbar.getByRole("button",{name:"양식 다운로드",exact:true})).toBeVisible();
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:900});
-    await page.screenshot({path:`/private/tmp/emi-busbar-purchase-cleanup-${width}.png`,fullPage:true});
+    await page.screenshot({path:test.info().outputPath(`emi-busbar-purchase-cleanup-${width}.png`),fullPage:true});
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
   const chooser = page.waitForEvent("filechooser");

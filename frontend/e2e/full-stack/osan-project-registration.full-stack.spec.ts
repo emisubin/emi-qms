@@ -59,7 +59,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await page.getByLabel('W/O No').fill('  000-W/O  ');
   await page.getByLabel('납기일').fill('2026-10-31');
   await page.getByLabel('part 분류').fill('  전원장치 A  ');
-  await page.getByLabel('수량').fill('2');
+  await expect(page.getByLabel('수량', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 
   await expect(page.getByRole('heading', { name: '오산 통합 프로젝트' })).toBeVisible();
@@ -72,8 +72,8 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await expect(page.getByText('000-W/O', { exact: true })).toBeVisible();
   const targetTable = page.getByRole('table', { name: '진행 관리 대상 현황' });
   const targetRows = targetTable.getByRole('row');
-  await expect(targetRows).toHaveCount(3);
-  for (const target of [targetRows.nth(1), targetRows.nth(2)]) {
+  await expect(targetRows).toHaveCount(2);
+  for (const target of [targetRows.nth(1)]) {
     await expect(target).toContainText('시작 전');
     await expect(target).toContainText('0/7단계 완료');
   }
@@ -99,7 +99,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   });
   expect(osanDetail.status()).toBe(200);
   const detail = (await osanDetail.json()) as { targets: Array<{ steps: unknown[] }> };
-  expect(detail.targets).toHaveLength(2);
+  expect(detail.targets).toHaveLength(1);
   expect(detail.targets.every((target) => target.steps.length === 7)).toBe(true);
 
   const relatedUrl = `${backendUrl}/api/osan/projects/${osanItems.items[0].projectId}/progress/related-panels`;
@@ -107,7 +107,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect(relatedResponse.status()).toBe(200);
   const related = await relatedResponse.json();
   expect(related.workOrderNumber).toBe('000-W/O');
-  expect(related.panels).toHaveLength(2);
+  expect(related.panels).toHaveLength(1);
   expect(related.panels.every((panel: { projectId: string }) => panel.projectId === osanItems.items[0].projectId)).toBe(true);
   expect((await request.get(relatedUrl, { headers: requestHeaders('CHEONGJU') })).status()).toBe(403);
   expect((await request.post(relatedUrl, { headers: requestHeaders('OSAN') })).status()).toBe(403);

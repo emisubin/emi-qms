@@ -1979,6 +1979,12 @@ function QmsAppShellContent({
     }
   }, []);
 
+  useEffect(() => {
+    if (isOsan && view.kind === 'notification-preferences') {
+      replaceView({ kind: 'notifications' });
+    }
+  }, [isOsan, view.kind, replaceView]);
+
   const returnToProjectWithFeedback = useCallback((
     projectId: string,
     section: ProjectDetailSection,
@@ -3075,7 +3081,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notification-preferences' ? (
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'notification-preferences' ? (
         <NotificationPreferencesPage
           developmentUserKey={developmentUserKey}
           onBack={() => setView({ kind: 'notifications' })}
@@ -9883,7 +9889,7 @@ function NotificationsPage({
 
   if (osan) return <section className="osan-notifications">
     <header className="on-heading"><div><h1>알림</h1><p className="on-description">프로젝트와 진행 단계에 대한 알림을 확인합니다.</p></div><div className="on-actions">
-      <button type="button" onClick={onOpenPreferences}>알림 설정</button><button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</button><button type="button" onClick={refresh}>새로고침</button>
+      <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</button><button type="button" onClick={refresh}>새로고침</button>
     </div></header>
     <div className="on-summary" aria-label="알림 요약"><div><span>읽지 않음</span><strong>{summary?.unreadCount ?? '-'}</strong></div><div><span>긴급/차단</span><strong>{summary?.blockingCount ?? '-'}</strong></div></div>
     <div className="on-filters" role="tablist" aria-label="알림 읽음 상태">{(['unread','All','read'] as NotificationTab[]).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : undefined} onClick={() => selectTab(tab)}>{tab === 'unread' ? '읽지 않음' : tab === 'All' ? '전체' : '읽음'}</button>)}</div>

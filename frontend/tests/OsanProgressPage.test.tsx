@@ -10,7 +10,7 @@ function project(id = 'project-a'): api.OsanProgressDetail {
   return { projectId: id, title: id, projectCode: 'TEST', completedStepCount: 0, totalStepCount: 14, status: 'Active', targets: [1, 2].map(index => ({ targetId: `target-${index}`, sequenceNumber: index, displayName: `제품 ${index}`, status: 'InProgress', version: 1, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null, steps: api.osanStageNames.map((stepName, i) => ({ stepId: `${index}-${i}`, stepCode: String(i), canCompleteIndividual: true, canCompleteBatch: true, guidanceDescription: null, guidancePhotos: [], startedAtUtc: null, completedByUserId: null, sequenceNumber: i + 1, stepName, status: 'NotStarted', completedAtUtc: null, completedByDisplayName: null, photos: [] })) })) };
 }
 const renderPage = (id = 'project-a', initialStage?: string) => render(<OsanProgressPage projectId={id} initialStage={initialStage} developmentUserKey="dev-user" mutationAllowed />);
-async function openCompletion() { await screen.findByRole('button', { name: '완료' }); fireEvent.click(screen.getByRole('button', { name: '완료' })); }
+async function openCompletion() { await screen.findByRole('button', { name: 'Gate 완료' }); fireEvent.click(screen.getByRole('button', { name: 'Gate 완료' })); }
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(fetchJson).mockResolvedValue({ canApprove: false, currentUserId: 'dev-user', items: [] });
@@ -27,22 +27,22 @@ describe('오산 진행 상세', () => {
   it('없는 QR 패널은 다른 대상 작업 화면 대신 오류를 표시한다', async () => {
     render(<OsanProgressPage projectId="project-a" initialTargetId="missing" developmentUserKey="dev-user" mutationAllowed />);
     expect(await screen.findByText('해당 패널을 찾을 수 없습니다. QR이 유효한지 확인해 주세요.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '완료' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Gate 완료' })).not.toBeInTheDocument();
   });
   it('일반 사용자는 사진 없이 코멘트만으로 완료할 수 없다', async () => {
     renderPage(); await openCompletion();
     fireEvent.change(screen.getByRole('textbox'), {target:{value:'검사 완료'}});
-    fireEvent.click(screen.getByRole('button', {name:'업로드하고 단계 완료'}));
+    fireEvent.click(screen.getByRole('button', {name:'사진 저장 및 Gate 완료'}));
     expect(await screen.findByRole('alert')).toHaveTextContent('사진을 1장 이상');
     expect(api.completeOsanProgress).not.toHaveBeenCalled();
   });
   it('관리자는 사진 없이 코멘트로 저장하지만 빈 코멘트는 거부한다', async () => {
     vi.mocked(api.getOsanProgress).mockResolvedValue({...project(),canManageStages:true});
     renderPage(); await openCompletion();
-    fireEvent.click(screen.getByRole('button',{name:'업로드하고 단계 완료'}));
+    fireEvent.click(screen.getByRole('button',{name:'사진 저장 및 Gate 완료'}));
     expect(await screen.findByRole('alert')).toHaveTextContent('코멘트를 입력');
     fireEvent.change(screen.getByRole('textbox'),{target:{value:'관리자 검사 확인'}});
-    fireEvent.click(screen.getByRole('button',{name:'업로드하고 단계 완료'}));
+    fireEvent.click(screen.getByRole('button',{name:'사진 저장 및 Gate 완료'}));
     await waitFor(()=>expect(api.completeOsanProgress).toHaveBeenCalled());
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1]).toMatchObject({comment:'관리자 검사 확인',photos:[]});
   });
@@ -54,14 +54,14 @@ describe('오산 진행 상세', () => {
     expect(screen.getByRole('heading', { name: '배선검사' })).toBeInTheDocument();
     await openCompletion();
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'required.png', { type: 'image/png' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1]).toMatchObject({ stageSequence: 3, completionMode: 'individual' });
   });
   it('앞 단계가 미완료면 이후 단계 완료 화면을 열지 않는다', async () => {
-    renderPage(); await screen.findByRole('button', { name: '완료' });
+    renderPage(); await screen.findByRole('button', { name: 'Gate 완료' });
     fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
-    expect(screen.getByRole('button', { name: '완료' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Gate 완료' })).toBeDisabled();
     expect(screen.getByText(/이전 단계를 모두 완료하거나 이상을 등록한 후/)).toBeInTheDocument();
     expect(api.completeOsanProgress).not.toHaveBeenCalled();
   });
@@ -70,7 +70,7 @@ describe('오산 진행 상세', () => {
     await screen.findByRole('button', { name: '제품 2' });
     await openCompletion();
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'required.png', { type: 'image/png' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].targets).toEqual([{ targetId: 'target-2', expectedVersion: 1 }]);
   });
@@ -80,8 +80,8 @@ describe('오산 진행 상세', () => {
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: originals } });
     expect(await screen.findByRole('img', { name: 'gallery-0.jpg 미리보기' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'gallery-1.jpg 미리보기' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '업로드하고 단계 완료' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    expect(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
     const sent = vi.mocked(api.completeOsanProgress).mock.calls[0][1].photos;
     expect(sent[0]).toBe(originals[0]); expect(sent[1]).toBe(originals[1]);
@@ -97,7 +97,7 @@ describe('오산 진행 상세', () => {
     const original = new File(['jpeg'], 'camera.jpg', { type: 'image/jpeg' });
     fireEvent.change(camera, { target: { files: [original] } });
     expect(await screen.findByRole('img', { name: 'camera.jpg 미리보기' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     await waitFor(() => expect(api.completeOsanProgress).toHaveBeenCalled());
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].photos[0]).toBe(original);
   });
@@ -134,7 +134,7 @@ describe('오산 진행 상세', () => {
     fireEvent.click(screen.getByRole('button', { name: '새로고침' }));
     await screen.findByText('이 프로젝트의 진행 정보를 조회할 권한이 없습니다.');
     expect(screen.queryByRole('heading', { name: 'project-a' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '완료' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Gate 완료' })).not.toBeInTheDocument();
   });
   it('늦게 도착한 이전 프로젝트 조회를 새 프로젝트에 표시하지 않는다', async () => {
     let resolveOld!: (value: api.OsanProgressDetail) => void;
@@ -149,23 +149,23 @@ describe('오산 진행 상세', () => {
     vi.mocked(api.completeOsanProgress).mockRejectedValueOnce(new Error('연결 실패'));
     renderPage(); await openCompletion();
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'required.png', { type: 'image/png' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     await screen.findByRole('alert');
     const first = vi.mocked(api.completeOsanProgress).mock.calls[0][1];
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
-    await screen.findByText('선택한 대상의 단계 완료와 사진 저장을 확인했습니다.');
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
+    await screen.findByText('선택한 대상의 Gate 완료와 사진 저장을 확인했습니다.');
     expect(vi.mocked(api.completeOsanProgress).mock.calls[1][1]).toBe(first);
   });
   it('실패 후 사진을 변경하면 새 operation ID를 사용한다', async () => {
     vi.mocked(api.completeOsanProgress).mockRejectedValueOnce(new Error('연결 실패'));
     renderPage(); await openCompletion();
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'required.png', { type: 'image/png' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     await screen.findByRole('alert');
     const first = vi.mocked(api.completeOsanProgress).mock.calls[0][1];
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'new.png', { type: 'image/png' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
-    await screen.findByText('선택한 대상의 단계 완료와 사진 저장을 확인했습니다.');
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
+    await screen.findByText('선택한 대상의 Gate 완료와 사진 저장을 확인했습니다.');
     expect(vi.mocked(api.completeOsanProgress).mock.calls[1][1].operationId).not.toBe(first.operationId);
     expect(vi.mocked(api.completeOsanProgress).mock.calls[1][1].photos[0].name).toBe('new.png');
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview'));
@@ -175,19 +175,19 @@ describe('오산 진행 상세', () => {
     vi.mocked(api.completeOsanProgress).mockReturnValue(new Promise(resolve => { resolveSave = resolve; }));
     const view = renderPage(); await openCompletion();
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'required.png', { type: 'image/png' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
     vi.mocked(api.getOsanProgress).mockResolvedValue(project('new'));
     view.rerender(<OsanProgressPage projectId="new" developmentUserKey="dev-user" mutationAllowed />);
     await screen.findByRole('heading', { name: 'new' });
     await act(async () => resolveSave({ operationId: 'old', replayed: false, project: project('old') }));
     expect(screen.queryByRole('heading', { name: 'old' })).not.toBeInTheDocument();
-    expect(screen.queryByText('선택한 대상의 단계 완료와 사진 저장을 확인했습니다.')).not.toBeInTheDocument();
+    expect(screen.queryByText('선택한 대상의 Gate 완료와 사진 저장을 확인했습니다.')).not.toBeInTheDocument();
   });
   it('저장 중 중복 제출과 사진 교체를 막는다', async () => {
     vi.mocked(api.completeOsanProgress).mockReturnValue(new Promise(() => {}));
     renderPage(); await openCompletion();
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'required.png', { type: 'image/png' })] } });
-    const submit = screen.getByRole('button', { name: '업로드하고 단계 완료' });
+    const submit = screen.getByRole('button', { name: '사진 저장 및 Gate 완료' });
     fireEvent.click(submit); fireEvent.click(submit);
     expect(api.completeOsanProgress).toHaveBeenCalledTimes(1);
     expect(submit).toBeDisabled();
@@ -203,13 +203,13 @@ describe('오산 진행 상세', () => {
     expect(screen.getAllByRole('img', { name: /미리보기/ })).toHaveLength(5);
     fireEvent.change(camera, { target: { files: [new File(['png'], 'capture-6.png', { type: 'image/png' })] } });
     expect(screen.getByRole('alert')).toHaveTextContent('최대 5장');
-    expect(screen.getByRole('button', { name: '업로드하고 단계 완료' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' })).toBeDisabled();
     expect(screen.getAllByRole('img', { name: /미리보기/ })).toHaveLength(5);
     fireEvent.change(screen.getByLabelText('기존 사진 선택'), { target: { files: [new File(['png'], 'album.png', { type: 'image/png' })] } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: /미리보기/ })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: '업로드하고 단계 완료' }));
-    await screen.findByText('선택한 대상의 단계 완료와 사진 저장을 확인했습니다.');
+    fireEvent.click(screen.getByRole('button', { name: '사진 저장 및 Gate 완료' }));
+    await screen.findByText('선택한 대상의 Gate 완료와 사진 저장을 확인했습니다.');
     expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].photos.map(file => file.name)).toEqual(['album.png']);
   });
   it('잘못된 형식은 사진을 변경하지 않고 재선택을 안내한다', async () => {
@@ -276,7 +276,7 @@ describe('PC 단계 상세 팝업', () => {
     const dialog = await screen.findByRole('dialog', { name: '입고검사' });
     expect(within(dialog).getByRole('region', { name: '단계 설명' })).toHaveTextContent('60~150㎛');
     expect(within(dialog).getByText('검수 작업자')).toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: '완료' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Gate 완료' })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '단계 상세 닫기' }));
     expect(screen.queryByRole('dialog', { name: '입고검사' })).not.toBeInTheDocument();
   });
@@ -287,11 +287,11 @@ describe('PC 단계 상세 팝업', () => {
     renderPage();
     const overview = await screen.findByRole('navigation', { name: '전체 진행 단계' });
     fireEvent.click(within(overview).getByRole('button', { name: /배치검사/ }));
-    expect(within(screen.getByRole('dialog', { name: '배치검사' })).getByRole('button', { name: '완료' })).toBeDisabled();
+    expect(within(screen.getByRole('dialog', { name: '배치검사' })).getByRole('button', { name: 'Gate 완료' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '단계 상세 닫기' }));
     fireEvent.click(within(overview).getByRole('button', { name: /입고검사/ }));
-    fireEvent.click(within(screen.getByRole('dialog', { name: '입고검사' })).getByRole('button', { name: '완료' }));
-    const completion = screen.getByRole('dialog', { name: '해당 진행 단계를 완료하셨나요?' });
+    fireEvent.click(within(screen.getByRole('dialog', { name: '입고검사' })).getByRole('button', { name: 'Gate 완료' }));
+    const completion = screen.getByRole('dialog', { name: '해당 Gate를 완료하셨나요?' });
     expect(completion).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '단계 상세 닫기' })).toBeDisabled();
     fireEvent(completion, new Event('cancel', { bubbles: false, cancelable: true }));
@@ -331,4 +331,39 @@ describe('처음 진입할 작업 선택', () => {
     await screen.findByRole('button', { name: '제품 2' });
     expect(screen.getByRole('heading', { name: '입고검사' })).toBeInTheDocument();
   });
+});
+
+it('이상 패널과 정상 패널을 함께 선택해도 각 완료 동선을 보존한다', async () => {
+ const data=project(); data.canManageStages=true;
+ data.targets[0].steps[0].openIssue={issueId:'issue',registeredAtUtc:'2026-09-16T00:00:00Z',registeredByUserId:'u',registeredByDisplayName:'검수자',comment:'이상',photos:[],lastRecordedAtUtc:'2026-09-16T00:00:00Z',lastRecordedByDisplayName:'검수자'};
+ data.targets[0].steps[0].canResolveIssue=true;
+ vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+ renderPage('project-a','1');
+ fireEvent.click(await screen.findByRole('button',{name:'제품 1'}));
+ fireEvent.click(screen.getByLabelText('전체 선택'));
+ const issueArea=screen.getByLabelText('제품 1 완료 기록');
+ const normalArea=screen.getByLabelText('제품 2 완료 기록');
+ expect(within(issueArea).getByRole('button',{name:'조치 완료'}).closest('.osan-progress-actions')).not.toBeNull();
+ expect(issueArea.querySelector('.osan-record-actions')?.textContent).not.toContain('조치 완료');
+ fireEvent.click(within(normalArea).getByRole('button',{name:'Gate 완료'}));
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'정상 패널 확인'}});
+ fireEvent.click(screen.getByRole('button',{name:'사진 저장 및 Gate 완료'}));
+ await waitFor(()=>expect(api.completeOsanProgress).toHaveBeenCalledOnce());
+ expect(vi.mocked(api.completeOsanProgress).mock.calls[0][1].targets).toEqual([{targetId:'target-2',expectedVersion:1}]);
+});
+
+it('혼합 선택에서 응답 불명확 후 다른 대상은 이전 요청을 재사용하지 않는다', async () => {
+ const data=project();data.canManageStages=true;
+ const third=structuredClone(data.targets[1]);third.targetId='target-3';third.displayName='제품 3';data.targets.push(third);
+ data.targets[0].steps[0].openIssue={issueId:'i',registeredAtUtc:'2026-09-16T00:00:00Z',registeredByUserId:'u',registeredByDisplayName:'검수자',comment:'이상',photos:[],lastRecordedAtUtc:'2026-09-16T00:00:00Z',lastRecordedByDisplayName:'검수자'};
+ vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+ vi.mocked(api.completeOsanProgress).mockRejectedValueOnce(new Error('응답 불명확')).mockResolvedValueOnce({operationId:'new',replayed:false,project:data});
+ renderPage('project-a','1');fireEvent.click(await screen.findByRole('button',{name:'제품 1'}));fireEvent.click(screen.getByLabelText('전체 선택'));
+ fireEvent.click(within(screen.getByLabelText('제품 2 완료 기록')).getByRole('button',{name:'Gate 완료'}));
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'제품 2 검사'}});fireEvent.click(screen.getByRole('button',{name:'사진 저장 및 Gate 완료'}));
+ await screen.findByText(/응답 불명확/);fireEvent.click(within(screen.getByRole('dialog',{name:'해당 Gate를 완료하셨나요?'})).getByRole('button',{name:'닫기'}));
+ fireEvent.click(within(screen.getByLabelText('제품 3 완료 기록')).getByRole('button',{name:'Gate 완료'}));
+ expect(screen.getByRole('textbox')).toHaveValue('');fireEvent.change(screen.getByRole('textbox'),{target:{value:'제품 3 검사'}});fireEvent.click(screen.getByRole('button',{name:'사진 저장 및 Gate 완료'}));
+ await waitFor(()=>expect(api.completeOsanProgress).toHaveBeenCalledTimes(2));
+ const calls=vi.mocked(api.completeOsanProgress).mock.calls;expect(calls[1][1].targets).toEqual([{targetId:'target-3',expectedVersion:1}]);expect(calls[1][1].operationId).not.toBe(calls[0][1].operationId);
 });

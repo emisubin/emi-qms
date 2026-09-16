@@ -2,7 +2,8 @@ import { useState, type ReactNode } from 'react';
 import filterIcon from './assets/osan-dashboard-filter.png';
 import './osan-dashboard.css';
 
-export function OsanListFrame({ title, description, counts, search, onSearchChange, onSearch, status, onStatusChange, onReset, customer = '', customers = [], onCustomerChange, actions, className = '', children }: {
+export function OsanListFrame({ title, description, counts, search, onSearchChange, onSearch, status, onStatusChange, onReset, customer = '', customers = [], onCustomerChange, actions, className = '', summaryLabels = ['전체', '시작 전', '진행 중', '완료'], children }: {
+  summaryLabels?: string[];
   title: string; description: string; counts: number[] | null; search: string;
   onSearchChange: (value: string) => void; onSearch: () => void; status: string;
   onStatusChange: (value: string) => void; onReset: () => void;
@@ -11,8 +12,8 @@ export function OsanListFrame({ title, description, counts, search, onSearchChan
   const [filterOpen, setFilterOpen] = useState(false);
   return <section className={`osan-dashboard osan-list-frame ${className}`} aria-labelledby="osan-dashboard-title" data-presentation-contract="osan-list-frame">
     <OsanPageHeading title={title} description={description} actions={actions} />
-    <div className="osan-dashboard-summary" aria-label="프로젝트 요약">
-      {['전체', '시작 전', '진행 중', '완료'].map((label, i) => <div key={label}><span>{label}</span><strong>{counts ? counts[i].toLocaleString() : '—'}</strong></div>)}
+    <div className="osan-dashboard-summary" data-count={summaryLabels.length} aria-label="프로젝트 요약">
+      {summaryLabels.map((label, i) => <div key={label}><span>{label}</span><strong>{counts ? counts[i].toLocaleString() : '—'}</strong></div>)}
     </div>
     <div className="osan-dashboard-toolbar">
       <form className="osan-dashboard-search" onSubmit={event => { event.preventDefault(); onSearch(); }}>
@@ -26,7 +27,7 @@ export function OsanListFrame({ title, description, counts, search, onSearchChan
     {filterOpen && <div className="osan-dashboard-filter-options" id="osan-dashboard-filter-options">
       <label>고객사별 <select value={customer} onChange={event => onCustomerChange?.(event.target.value)}><option value="">전체</option>{customers.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
       <label>상태별 <select value={status} onChange={event => onStatusChange(event.target.value)}>
-        {['All', 'NotStarted', 'InProgress', 'Completed'].map((value, i) => <option key={value} value={value}>{['전체', '시작 전', '진행 중', '완료'][i]}</option>)}
+        {['All', 'NotStarted', 'InProgress', 'Completed', 'Hold'].map((value, i) => <option key={value} value={value}>{['전체', '공정 시작 전', '공정 진행 중', '포장완료', 'HOLD'][i]}</option>)}
       </select></label>
       <button type="button" onClick={onReset}>초기화</button>
       <button type="button" onClick={() => setFilterOpen(false)}>닫기</button>

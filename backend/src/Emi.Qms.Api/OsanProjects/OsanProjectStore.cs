@@ -269,7 +269,7 @@ public sealed partial class OsanProjectStore
                 where steps.project_id = projects.id
             ) progress
             where {string.Join(" and ", where)}
-            order by projects.delivery_date, projects.project_code, projects.id;
+            order by projects.osan_delivery_hold, projects.delivery_date, projects.project_code, projects.id;
             """);
         command.Parameters.AddRange(parameters.ToArray());
 
@@ -438,7 +438,7 @@ public sealed partial class OsanProjectStore
         foreach (var row in parsed.Rows)
         {
             var errors = new List<string>(row.Errors);
-            var (input, normalizationErrors) = OsanProjectInputNormalizer.Normalize(
+            var (input, normalizationErrors) = OsanProjectInputNormalizer.NormalizeFixedQuantity(
                 new CreateOsanProjectRequest(
                     row.Title,
                     row.ProjectCode,
@@ -480,7 +480,6 @@ public sealed partial class OsanProjectStore
                     ?? row.RawDeliveryDate
                     ?? row.DeliveryDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
                 input?.ProductName ?? row.ProductName,
-                input?.Quantity ?? row.RawQuantity ?? row.Quantity,
                 errors.Distinct(StringComparer.Ordinal).ToArray(),
                 FieldErrors: fieldErrors.Count == 0 ? null : fieldErrors);
             responseRows.Add(response);
@@ -491,18 +490,9 @@ public sealed partial class OsanProjectStore
         }
 
         var fileErrors = parsed.Errors.ToList();
-        var totalQuantityValue = normalizedRows.Sum(row => (long)row.Input.Quantity);
-        var totalQuantity = (int)Math.Min(totalQuantityValue, int.MaxValue);
-        if (totalQuantity > OsanProjectExcelParser.MaximumTotalQuantity)
-        {
-            fileErrors.Add($"전체 수량은 최대 {OsanProjectExcelParser.MaximumTotalQuantity}개까지 허용됩니다.");
-            normalizedRows.Clear();
-        }
-
         var responseValue = CreateExcelPreviewResponse(
             parsed.FileSha256,
             parsed.TotalRowCount,
-            totalQuantity,
             responseRows,
             fileErrors);
         return new ExcelPreviewBuild(responseValue, normalizedRows);
@@ -530,7 +520,6 @@ public sealed partial class OsanProjectStore
             CreateExcelPreviewResponse(
                 built.Response.FileSha256,
                 built.Response.TotalRowCount,
-                built.Response.TotalQuantity,
                 rows,
                 built.Response.Errors),
             built.NormalizedRows);
@@ -539,14 +528,12 @@ public sealed partial class OsanProjectStore
     private static OsanProjectExcelPreviewResponse CreateExcelPreviewResponse(
         string fileSha256,
         int totalRowCount,
-        int totalQuantity,
         IReadOnlyList<OsanProjectExcelPreviewRowResponse> rows,
         IReadOnlyList<string> errors) =>
         new(
             fileSha256,
             true,
             totalRowCount,
-            totalQuantity,
             rows.Count(row => row.Errors.Count > 0) + errors.Count,
             rows,
             errors.Distinct(StringComparer.Ordinal).ToArray());
@@ -636,15 +623,26 @@ public sealed partial class OsanProjectStore
 
         var rows = rowOverrides
             .OrderBy(row => row.RowNumber)
-            .Select(ToParsedOverrideRow)
+            .Select(row => ToParsedOverrideRow(
+                row,
+                parsed.Rows.Single(original => original.RowNumber == row.RowNumber)))
             .ToArray();
         return new ParsedOsanProjectExcelFile(parsed.FileSha256, rows.Length, rows, []);
     }
 
-    private static ParsedOsanProjectExcelRow ToParsedOverrideRow(OsanProjectExcelRowRequest row)
+    private static ParsedOsanProjectExcelRow ToParsedOverrideRow(
+        OsanProjectExcelRowRequest row,
+        ParsedOsanProjectExcelRow original)
     {
         var errors = new List<string>();
         var fieldErrors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+        if (original.Errors.Contains(OsanProjectExcelParser.LegacyQuantityError, StringComparer.Ordinal)
+            || row.Quantity is not null and not 1)
+        {
+            errors.Add(OsanProjectExcelParser.LegacyQuantityError);
+            fieldErrors["quantity"] = [OsanProjectExcelParser.LegacyQuantityError];
+        }
 
         DateOnly? deliveryDate = null;
         DateOnly parsedDeliveryDate = default;
@@ -665,23 +663,6 @@ public sealed partial class OsanProjectStore
             deliveryDate = parsedDeliveryDate;
         }
 
-        int? quantity = null;
-        if (row.Quantity is not null)
-        {
-            if (decimal.Truncate(row.Quantity.Value) != row.Quantity.Value
-                || row.Quantity.Value < int.MinValue
-                || row.Quantity.Value > int.MaxValue)
-            {
-                const string message = "수량은 정수여야 합니다.";
-                errors.Add($"수량: {message}");
-                fieldErrors["quantity"] = [message];
-            }
-            else
-            {
-                quantity = decimal.ToInt32(row.Quantity.Value);
-            }
-        }
-
         return new ParsedOsanProjectExcelRow(
             row.RowNumber,
             row.Title,
@@ -691,10 +672,10 @@ public sealed partial class OsanProjectStore
             row.WorkOrderNumber,
             deliveryDate,
             row.ProductName,
-            quantity,
+            1,
             errors,
             row.DeliveryDate,
-            row.Quantity,
+            1,
             fieldErrors);
     }
 

@@ -12,14 +12,15 @@ public enum OsanNotificationKind
     StepEdited = 3,
     ProjectCompleted = 4,
     StepIssueRegistered = 5,
-    StepIssueResolved = 6
+    StepIssueResolved = 6,
+    StepWorkRequested = 7
 }
 
 public sealed record OsanNotificationSnapshot(
     OsanNotificationKind Kind, string ProjectName, string ProjectCode, string PartCategory,
     string CustomerName, int Quantity, DateOnly? DueDate, string ActorName,
     DateTimeOffset OccurredAt, string? StepName, string[] Targets, string? Comment, int PhotoCount,
-    int? StageSequence = null);
+    int? StageSequence = null, string? WorkOrderNumber = null);
 
 /// <summary>Writes immutable in-app and mail snapshots in the caller's Osan business transaction.</summary>
 public static class OsanNotificationWriter
@@ -44,7 +45,7 @@ public static class OsanNotificationWriter
             read.Transaction = transaction;
             read.CommandText = """
                 select p.project_title, p.project_code, coalesce(p.osan_product_name,''),
-                    p.customer_name, p.osan_quantity, p.delivery_date, u.display_name
+                    p.customer_name, p.osan_quantity, p.delivery_date, u.display_name, p.osan_work_order_number
                 from projects p cross join qms_users u
                 where p.id=@project and p.project_profile='Osan' and u.id=@actor;
                 """;
@@ -56,7 +57,7 @@ public static class OsanNotificationWriter
             snapshot = new(kind, reader.GetString(0), reader.GetString(1), reader.GetString(2),
                 reader.GetString(3), reader.GetInt32(4), reader.IsDBNull(5) ? null : reader.GetFieldValue<DateOnly>(5),
                 reader.GetString(6), occurredAt, stepName, [], comment, photoCount,
-                stageSequence ?? StageSequence(stepName));
+                stageSequence ?? StageSequence(stepName), reader.IsDBNull(7) ? null : reader.GetString(7));
         }
         var targets = new List<string>();
         if (targetIds is { Count: > 0 })
@@ -146,13 +147,13 @@ public static class OsanNotificationWriter
             from notification_recipients r join qms_users u on u.id=r.user_id
             cross join lateral (select
               exists (
-                  select 1 from osan_notification_preferences preference
-                  where preference.user_id=r.user_id and preference.event_kind=@kind
+                  select 1 from osan_notification_global_preferences preference
+                  where preference.scope_id=1 and preference.event_kind=@kind
                     and preference.channel='Mail' and preference.stage_sequence=0
                     and preference.is_enabled=false
               ) or (@kind='StepCompleted' and exists (
-                  select 1 from osan_notification_preferences preference
-                  where preference.user_id=r.user_id and preference.event_kind='StepCompleted'
+                  select 1 from osan_notification_global_preferences preference
+                  where preference.scope_id=1 and preference.event_kind='StepCompleted'
                     and preference.channel='Mail' and preference.stage_sequence=@stage_sequence
                     and preference.is_enabled=false
               )) as preference_disabled) disabled

@@ -8,7 +8,6 @@ export interface CreateOsanProjectRequest {
   workOrderNumber: string | null;
   deliveryDate: string;
   productName: string;
-  quantity: number;
   operationId: string;
 }
 

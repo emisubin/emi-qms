@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 
@@ -16,7 +17,7 @@ public static class OsanNotificationPreferenceEndpointExtensions
         {
             var userId = CurrentUserId(principal);
             return userId is null ? Results.Unauthorized()
-                : !IsOsan(connectionStrings) ? Results.Forbid()
+                : !IsOsan(connectionStrings) || !principal.IsInRole(QmsRoles.SystemAdministrator) ? Results.Forbid()
                 : ToResult(await store.GetAsync(userId.Value, cancellationToken));
         }).RequireAuthorization().WithName("GetMyOsanNotificationPreferences");
 
@@ -29,7 +30,7 @@ public static class OsanNotificationPreferenceEndpointExtensions
         {
             var userId = CurrentUserId(principal);
             return userId is null ? Results.Unauthorized()
-                : !IsOsan(connectionStrings) ? Results.Forbid()
+                : !IsOsan(connectionStrings) || !principal.IsInRole(QmsRoles.SystemAdministrator) ? Results.Forbid()
                 : ToResult(await store.SaveAsync(userId.Value, request, cancellationToken));
         }).RequireAuthorization().WithName("SaveMyOsanNotificationPreferences");
 

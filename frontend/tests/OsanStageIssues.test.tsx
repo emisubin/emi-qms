@@ -28,27 +28,27 @@ it('자동 진입은 미조치 이상 다음의 실행 가능한 단계를 우�
 it('집계에 미조치 이상이 하나라도 있으면 빨강이 우선이고 가능 수량을 표시한다',()=>{
  render(<OsanStepper stages={[{sequenceNumber:3,stepCode:'WIRING',stepName:'배선검사',completedTargetCount:1,totalTargetCount:2,openIssueTargetCount:1,availableTargetCount:0},{sequenceNumber:4,stepCode:'EIGHT',stepName:'8계통',completedTargetCount:0,totalTargetCount:2,openIssueTargetCount:0,availableTargetCount:2}]}/>);
  expect(screen.getByLabelText(/배선검사.*미조치 이상/).querySelector('i')).toHaveClass('is-issue');
- expect(screen.getByText('가능 2대')).toBeInTheDocument();expect(document.querySelector('.is-next')).toBeInTheDocument();
+ expect(screen.getByText('진행 대기')).toBeInTheDocument();expect(document.querySelector('.is-next')).toBeInTheDocument();
  expect(screen.queryByText('✓')).not.toBeInTheDocument();
 });
-function renderActions(t=target(), canManage=false){const onSaved=vi.fn();render(<OsanStageIssueActions projectId="p" target={t} stage={3} mutationAllowed canManage={canManage} disabled={false} onBusy={vi.fn()} onSaved={onSaved}/>);return onSaved}
+function renderActions(t=target(), canManage=false, resolveOnly=false){const onSaved=vi.fn();render(<OsanStageIssueActions projectId="p" target={t} stage={3} resolveOnly={resolveOnly} mutationAllowed canManage={canManage} disabled={false} onBusy={vi.fn()} onSaved={onSaved}/>);return onSaved}
 it('등록 코멘트는 필수이고 사진 없이 등록하며 저장 중 중복 제출을 막는다',async()=>{
  let resolve!: (value:never)=>void;vi.mocked(mutateOsanIssue).mockImplementation(()=>new Promise(r=>{resolve=r}));const onSaved=renderActions();
- fireEvent.click(screen.getByRole('button',{name:'이상 등록'}));const dialog=screen.getByRole('dialog');
- fireEvent.click(within(dialog).getByRole('button',{name:'이상 등록'}));expect(screen.getByRole('alert')).toHaveTextContent('코멘트');expect(mutateOsanIssue).not.toHaveBeenCalled();
- fireEvent.change(screen.getByRole('textbox'),{target:{value:'단자 체결 불량'}});fireEvent.click(within(dialog).getByRole('button',{name:'이상 등록'}));
+ fireEvent.click(screen.getByRole('button',{name:'공정 이상 발생'}));const dialog=screen.getByRole('dialog');
+ fireEvent.click(within(dialog).getByRole('button',{name:'공정 이상 발생'}));expect(screen.getByRole('alert')).toHaveTextContent('코멘트');expect(mutateOsanIssue).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'단자 체결 불량'}});fireEvent.click(within(dialog).getByRole('button',{name:'공정 이상 발생'}));
  expect(within(dialog).getByRole('button',{name:'저장 중…'})).toBeDisabled();expect(mutateOsanIssue).toHaveBeenCalledTimes(1);
  expect(vi.mocked(mutateOsanIssue).mock.calls[0][2]).toMatchObject({comment:'단자 체결 불량',photos:[],targets:[{targetId:'t',expectedVersion:3}]});
  await act(async()=>resolve({} as never));expect(onSaved).toHaveBeenCalledOnce();
 });
 it('조치 완료는 일반 사용자 사진 필수, 관리자 코멘트만 허용',async()=>{
- const t=target();t.steps[2].openIssue=issue;const view=render(<OsanStageIssueActions projectId="p" target={t} stage={3} mutationAllowed canManage={false} disabled={false} onBusy={vi.fn()} onSaved={vi.fn()}/>);
+ const t=target();t.steps[2].openIssue=issue;const view=render(<OsanStageIssueActions projectId="p" target={t} stage={3} resolveOnly mutationAllowed canManage={false} disabled={false} onBusy={vi.fn()} onSaved={vi.fn()}/>);
  fireEvent.click(screen.getByRole('button',{name:'조치 완료'}));fireEvent.change(screen.getByRole('textbox'),{target:{value:'재체결 완료'}});fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'조치 완료'}));
  expect(screen.getByRole('alert')).toHaveTextContent('사진을 1장');expect(mutateOsanIssue).not.toHaveBeenCalled();view.unmount();
- vi.mocked(mutateOsanIssue).mockResolvedValue({} as never);renderActions(t,true);fireEvent.click(screen.getByRole('button',{name:'조치 완료'}));fireEvent.change(screen.getByRole('textbox'),{target:{value:'관리자 검증 완료'}});fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'조치 완료'}));
+ vi.mocked(mutateOsanIssue).mockResolvedValue({} as never);renderActions(t,true,true);fireEvent.click(screen.getByRole('button',{name:'조치 완료'}));fireEvent.change(screen.getByRole('textbox'),{target:{value:'관리자 검증 완료'}});fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'조치 완료'}));
  await waitFor(()=>expect(mutateOsanIssue).toHaveBeenCalledWith('p','resolve',expect.objectContaining({comment:'관리자 검증 완료'}),undefined));
 });
 it('응답이 불명확할 때 사진/코멘트를 고정하고 같은 요청 번호로 재시도한다',async()=>{
- vi.mocked(mutateOsanIssue).mockRejectedValueOnce(new Error('네트워크 오류')).mockResolvedValueOnce({} as never);renderActions();fireEvent.click(screen.getByRole('button',{name:'이상 등록'}));fireEvent.change(screen.getByRole('textbox'),{target:{value:'배선 확인 필요'}});fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'이상 등록'}));
+ vi.mocked(mutateOsanIssue).mockRejectedValueOnce(new Error('네트워크 오류')).mockResolvedValueOnce({} as never);renderActions();fireEvent.click(screen.getByRole('button',{name:'공정 이상 발생'}));fireEvent.change(screen.getByRole('textbox'),{target:{value:'배선 확인 필요'}});fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'공정 이상 발생'}));
  await screen.findByText('네트워크 오류');expect(screen.getByRole('textbox')).toBeDisabled();const request=vi.mocked(mutateOsanIssue).mock.calls[0][2];fireEvent.click(screen.getByRole('button',{name:'저장 재시도'}));await waitFor(()=>expect(mutateOsanIssue).toHaveBeenCalledTimes(2));expect(vi.mocked(mutateOsanIssue).mock.calls[1][2]).toBe(request);
 });

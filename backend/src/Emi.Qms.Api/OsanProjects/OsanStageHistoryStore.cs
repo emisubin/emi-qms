@@ -31,7 +31,18 @@ public sealed partial class OsanProgressStore
             if(cmd.Parameters.Contains("photos"))cmd.Parameters.Remove("photos");cmd.Parameters.AddWithValue("photos",r.Photos);
             await using(var reader=await cmd.ExecuteReaderAsync(ct))
                 while(await reader.ReadAsync(ct))photos.Add(new(reader.GetGuid(0),reader.GetInt32(1),reader.GetString(2),reader.GetString(3),reader.GetInt32(4),reader.GetString(5),reader.GetFieldValue<DateTimeOffset>(6),reader.GetGuid(7),reader.GetString(8)));
-            result.Add(new(r.Id,r.Type,r.Actor,r.Time,r.Comment,r.Reason,photos));
+            var recipients=new List<OsanWorkRequestRecipientResponse>();
+            cmd.CommandText="""
+                select recipient.recipient_user_id,recipient.display_name_snapshot,recipient.department_name_snapshot
+                from osan_stage_work_requests request
+                join osan_stage_work_request_recipients recipient on recipient.operation_id=request.operation_id
+                where request.history_record_id=@record
+                order by recipient.display_name_snapshot,recipient.recipient_user_id;
+                """;
+            if(cmd.Parameters.Contains("record"))cmd.Parameters.Remove("record");cmd.Parameters.AddWithValue("record",r.Id);
+            await using(var reader=await cmd.ExecuteReaderAsync(ct))
+                while(await reader.ReadAsync(ct))recipients.Add(new(reader.GetGuid(0),reader.GetString(1),reader.IsDBNull(2)?null:reader.GetString(2)));
+            result.Add(new(r.Id,r.Type,r.Actor,r.Time,r.Comment,r.Reason,photos,recipients));
         }
         return result;
     }

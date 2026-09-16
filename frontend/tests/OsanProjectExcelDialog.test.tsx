@@ -7,8 +7,8 @@ import { ApiError } from '../src/api';
 vi.mock('../src/osanProjectExcel', () => ({ downloadOsanProjectTemplate: vi.fn(), previewOsanProjectExcel: vi.fn(), applyOsanProjectExcel: vi.fn() }));
 const preview: api.OsanProjectExcelPreview = {
   supportsRowEditing: true,
-  fileSha256: 'file-hash', totalRowCount: 1, totalQuantity: 2, errorCount: 0, errors: [],
-  rows: [{ rowNumber: 2, title: '프로젝트', projectCode: 'AbC  001', customerName: '고객사', poNumber: '001-PO', workOrderNumber: null, deliveryDate: '2026-12-31', productName: '제품', quantity: 2, errors: [] }]
+  fileSha256: 'file-hash', totalRowCount: 1, errorCount: 0, errors: [],
+  rows: [{ rowNumber: 2, title: '프로젝트', projectCode: 'AbC  001', customerName: '고객사', poNumber: '001-PO', workOrderNumber: null, deliveryDate: '2026-12-31', productName: '제품', errors: [] }]
 };
 const file = () => new File(['synthetic workbook'], 'projects.xlsx');
 function selectFile(value = file()) { fireEvent.change(screen.getByLabelText('작성한 엑셀 파일'), { target: { files: [value] } }); }
@@ -26,7 +26,8 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     expect(screen.queryByRole('button', { name: /프로젝트 등록/ })).not.toBeInTheDocument();
     await showPreview();
     expect(screen.getAllByRole('columnheader').map(header => header.textContent))
-      .toEqual(['행', '장비명', '프로젝트 코드', 'part 분류', '수량', '고객사', 'PO No', 'W/O No', '납기일', '확인 결과']);
+      .toEqual(['행', '장비명', '프로젝트 코드', 'part 분류', '고객사', 'PO No', 'W/O No', '납기일', '확인 결과']);
+    expect(screen.queryByLabelText('2행 수량')).not.toBeInTheDocument();
     expect(screen.getByLabelText('2행 프로젝트 코드')).toHaveTextContent('AbC 001');
     expect(screen.getByLabelText('2행 PO No')).toHaveTextContent('001-PO');
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));

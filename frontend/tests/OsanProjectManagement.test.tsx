@@ -58,10 +58,10 @@ describe('오산 프로젝트 관리', () => {
     const { onSaved, onDeleted } = show();
     fireEvent.click(await screen.findByRole('button', { name: '프로젝트 정보 수정' }));
     expect(Array.from(document.querySelectorAll('.osan-management-fields input')).map(input => input.getAttribute('aria-label')))
-      .toEqual(['장비명 수정', '프로젝트 코드 수정', 'part 분류 수정', '수량 수정', '고객사 수정', 'PO No 수정', 'W/O No 수정', '납기일 수정']);
+      .toEqual(['장비명 수정', '프로젝트 코드 수정', 'part 분류 수정', '고객사 수정', 'PO No 수정', 'W/O No 수정', '납기일 수정']);
+    expect(screen.queryByLabelText('수량 수정')).not.toBeInTheDocument();
     expect(screen.getByLabelText('프로젝트 코드 수정')).toHaveValue('001 CODE');
     fireEvent.change(screen.getByLabelText('장비명 수정'), { target: { value: '수정 장비' } });
-    fireEvent.change(screen.getByLabelText('수량 수정'), { target: { value: '2' } });
     let resolve!: (value: unknown) => void;
     vi.mocked(fetchJson).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
     fireEvent.click(screen.getByRole('button', { name: '변경 저장' }));
@@ -72,7 +72,7 @@ describe('오산 프로젝트 관리', () => {
     const [url, user, init] = vi.mocked(fetchJson).mock.calls[1];
     expect([url, user, init?.method]).toEqual([path, 'admin', 'PUT']);
     expect(JSON.parse(init!.body as string)).toMatchObject({ expectedToken: 'project-snapshot-token', fields: {
-      title: '수정 장비', projectCode: '001 CODE', productName: '분류 A', quantity: 2,
+      title: '수정 장비', projectCode: '001 CODE', productName: '분류 A',
       customerName: '합성 고객사', poNumber: '001-PO', workOrderNumber: '', deliveryDate: '2026-12-31'
     } });
     await act(async () => resolve({}));
@@ -107,12 +107,18 @@ describe('오산 프로젝트 관리', () => {
     expect(JSON.parse(vi.mocked(fetchJson).mock.calls[1][2]!.body as string)).toMatchObject({
       deliveryHold: true, fields: { title: '장비명 보정', deliveryDate: project.deliveryDate } });
   });
-  it('이미 완료된 단계가 있으면 수량을 고정하고 다른 정보는 수정할 수 있다', async () => {
-    show({ ...project, targets: [{ ...project.targets[0], steps: [{ ...project.targets[0].steps[0], status: 'Completed' }] }] });
+  it('기존 다중 대상 프로젝트도 수량 입력 없이 다른 정보를 수정할 수 있다', async () => {
+    show({ ...project, quantity: 2, targets: [
+      project.targets[0],
+      { ...project.targets[0], targetId: 'target-b', sequenceNumber: 2, displayName: '분류 A 2' }
+    ] });
     fireEvent.click(await screen.findByRole('button', { name: '프로젝트 정보 수정' }));
-    expect(screen.getByLabelText('수량 수정')).toBeDisabled();
+    expect(screen.queryByLabelText('수량 수정')).not.toBeInTheDocument();
     expect(screen.getByLabelText('장비명 수정')).toBeEnabled();
-    expect(screen.getByText('진행이 시작된 프로젝트의 수량은 변경할 수 없습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '변경 저장' }));
+    await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(2));
+    const payload = JSON.parse(vi.mocked(fetchJson).mock.calls[1][2]!.body as string);
+    expect(payload.fields).not.toHaveProperty('quantity');
   });
   it('삭제 사유 입력과 확인을 거쳐 삭제하며 처리 중 사유와 취소를 잠근다', async () => {
     const { onDeleted, onSaved } = show();

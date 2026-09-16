@@ -1,3 +1,7 @@
+import { busbarApi } from "./interiorBusbar";
+import { InteriorBusbarPage } from './InteriorBusbarPage';
+import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
+import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
@@ -353,6 +357,7 @@ type View =
   | { kind: 'sales-settlement'; projectId: string }
   | { kind: 'sales-kpi'; year?: number; currency?: string }
   | { kind: 'sales-billing' }
+  | { kind: 'interior-busbar'; section?: BusbarSection; projectId?: string }
   | { kind: 'g2-home' }
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
@@ -399,6 +404,7 @@ type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
 
 function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
   switch (view.kind) {
+    case 'interior-busbar': return 'InteriorBusbar';
     case 'home': return 'Home';
     case 'privacy-notice': return 'PrivacyNotice';
     case 'notice-board': return 'NoticeBoard';
@@ -920,6 +926,14 @@ function initialViewFromLocation(): View {
     return { kind: 'operational-hub', area: 'materials' };
   }
 
+  if (window.location.pathname === '/interior-busbar') return { kind: 'interior-busbar', section: 'overview' };
+  const busbarProjectMatch = window.location.pathname.match(/^\/interior-busbar\/projects\/([^/]+)$/);
+  if (busbarProjectMatch?.[1]) {
+    return { kind: 'interior-busbar', section: 'projects', projectId: busbarProjectMatch[1] };
+  }
+  const busbarSection = busbarSections.find((item) => window.location.pathname === `/interior-busbar/${item.key}`);
+  if (busbarSection) return { kind: 'interior-busbar', section: busbarSection.key };
+
   if (window.location.pathname === '/manufacturing') {
     return { kind: 'manufacturing-work' };
   }
@@ -1335,6 +1349,10 @@ function pathForView(view: View) {
     }
     case 'sales-billing':
       return '/sales/billing-requests';
+    case 'interior-busbar':
+      return view.projectId
+        ? `/interior-busbar/projects/${view.projectId}`
+        : `/interior-busbar/${view.section ?? 'overview'}`;
     case 'g2-home':
       return '/g2';
     case 'g2-operations':
@@ -1904,6 +1922,19 @@ function QmsAppShellContent({
     || !hasSelectedBusinessUnit
     || isOsan;
   const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
+  const [busbarMasterScope, setBusbarMasterScope] = useState<{key:string;allowed:boolean} | null>(null);
+  const busbarScopeKey = `${developmentUserKey}:${siteAccessActorKey}:${selectedBusinessUnit}`;
+  useEffect(() => {
+    if (formTemplateScopeBlocked) return;
+    let active = true;
+    const refresh = () => { void busbarApi.access(developmentUserKey).then(scope => {
+      if(active) setBusbarMasterScope({key:busbarScopeKey,allowed:scope.mastersRead === true});
+    }, () => { if(active)setBusbarMasterScope({key:busbarScopeKey,allowed:false}); }); };
+    refresh(); window.addEventListener('focus',refresh);
+    return () => {active=false;window.removeEventListener('focus',refresh);};
+  },[busbarScopeKey,developmentUserKey,formTemplateScopeBlocked,view.kind]);
+  const canSeeBusbarMasters = !formTemplateScopeBlocked && busbarMasterScope?.key === busbarScopeKey && busbarMasterScope.allowed;
+
 
   useEffect(() => {
     setOsanNotificationSettingsOpen(false);
@@ -2360,6 +2391,7 @@ function QmsAppShellContent({
     { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' }
   ];
   const departmentNavigationItems: NavigationItem[] = [
+    { label: '인테리어 부스바', view: { kind: 'interior-busbar', section: 'overview' }, active: view.kind === 'interior-busbar', children: busbarSections.filter(item => item.key !== 'masters' || canSeeBusbarMasters).map((item) => ({ key: `busbar-${item.key}`, label: item.label, view: { kind: 'interior-busbar', section: item.key }, active: view.kind === 'interior-busbar' && (view.section ?? 'overview') === item.key })) },
     { label: '생산관리', view: productionChildren[0].view, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production'), children: productionChildren },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     { label: '자재', view: materialsChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting', children: materialsChildren },
@@ -2416,7 +2448,7 @@ function QmsAppShellContent({
       className="app-shell"
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
-      data-osan-project-theme={isOsan && (view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
+      data-osan-project-theme={(isOsan && (view.kind === 'list' || view.kind === 'detail')) || view.kind === 'interior-busbar' ? 'true' : undefined}
       data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
@@ -2545,7 +2577,7 @@ function QmsAppShellContent({
           </div>
         </header>
 
-        {osanNotificationSettingsOpen && isOsan && user ? (
+        {osanNotificationSettingsOpen && isOsan && isSystemAdministrator && user ? (
           <OsanNotificationSettings
             key={`${selectedBusinessUnit}:${user.actualUser.userId}:${developmentUserKey}`}
             developmentUserKey={developmentUserKey}
@@ -3013,6 +3045,25 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' && view.projectId ? (
+        <InteriorBusbarProjectDetailPage
+          key={`${developmentUserKey}:${view.projectId}`}
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          onBack={() => setView({ kind: 'interior-busbar', section: 'projects' })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' && !view.projectId ? (
+        <InteriorBusbarPage
+          key={developmentUserKey}
+          developmentUserKey={developmentUserKey}
+          section={view.section ?? 'overview'}
+          onNavigate={(section) => setView({ kind: 'interior-busbar', section })}
+          onOpenProject={(projectId) => setView({ kind: 'interior-busbar', section: 'projects', projectId })}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'manufacturing-work' ? (
         <ManufacturingPage
           developmentUserKey={developmentUserKey}
@@ -3320,7 +3371,7 @@ function AppNavigation({
 }) {
   // Departments start collapsed; the whole parent row is the disclosure and
   // at most one department is open. Child navigation keeps its parent open.
-  const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
+  const [expandedLabel, setExpandedLabel] = useState<string | null>(() => items.find((item) => item.active && item.label === '인테리어 부스바')?.label ?? null);
 
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
@@ -3875,7 +3926,7 @@ function AccountProfilePanel({
         <button type="button" className="account-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
       ) : null}
       {osan && onOpenNotificationSettings ? (
-        <button type="button" className="account-notification-settings-button" onClick={onOpenNotificationSettings}>알림 설정</button>
+        <div><button type="button" className="account-notification-settings-button" disabled={!user.roles.includes('system-administrator')} onClick={onOpenNotificationSettings}>알림 설정</button>{!user.roles.includes('system-administrator') && <small className="osan-settings-admin-note">관리자만 설정 가능</small>}</div>
       ) : null}
       <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
       {photoConsentOpen ? (
@@ -4452,7 +4503,7 @@ function OsanProjectListPage({
   const [importRevision, setImportRevision] = useState(0);
   const [importMessage, setImportMessage] = useState('');
   const [customer, setCustomer] = useState('');
-  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed'>('All');
+  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed' | 'Hold'>('All');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4478,7 +4529,7 @@ function OsanProjectListPage({
     const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
       .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
     const matchesCustomer = !customer || project.customerName === customer;
-    const matchesStatus = tab === 'All' || project.status === tab;
+    const matchesStatus = tab === 'All' || (project.deliveryHold ? 'Hold' : project.status) === tab;
     return matchesSearch && matchesCustomer && matchesStatus;
   });
   const selection = useSelectedRows(filteredProjects.map(project => project.projectId));
@@ -4564,8 +4615,8 @@ function OsanProjectListPage({
               { value: project.workOrderNumber || '—', align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
-              { value: formatOsanProjectStatus(project.status), align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span>, align: 'center' },
+              { value: project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
             mobileFields: [
@@ -4574,8 +4625,8 @@ function OsanProjectListPage({
               { label: 'W/O', value: project.workOrderNumber || '—' },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span> },
-              { label: '상태', value: formatOsanProjectStatus(project.status) },
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> },
+              { label: '상태', value: project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
           }))}
@@ -4600,7 +4651,6 @@ type OsanProjectDraft = {
   workOrderNumber: string;
   deliveryDate: string;
   productName: string;
-  quantity: string;
 };
 
 const emptyOsanProjectDraft: OsanProjectDraft = {
@@ -4610,8 +4660,7 @@ const emptyOsanProjectDraft: OsanProjectDraft = {
   poNumber: '',
   workOrderNumber: '',
   deliveryDate: '',
-  productName: '',
-  quantity: ''
+  productName: ''
 };
 
 const osanProjectVisibleFields = new Set<keyof OsanProjectDraft>([
@@ -4621,8 +4670,7 @@ const osanProjectVisibleFields = new Set<keyof OsanProjectDraft>([
   'poNumber',
   'workOrderNumber',
   'deliveryDate',
-  'productName',
-  'quantity'
+  'productName'
 ]);
 
 const osanProjectFieldLimits: Partial<Record<keyof OsanProjectDraft, number>> = {
@@ -4691,10 +4739,6 @@ function OsanProjectCreatePage({
         nextErrors[field] = `${maxLength}자 이하로 입력해 주세요.`;
       }
     }
-    const quantity = Number(draft.quantity);
-    if (!draft.quantity.trim() || !Number.isInteger(quantity) || quantity < 1 || quantity > 500) {
-      nextErrors.quantity = '수량은 1 이상 500 이하의 정수로 입력해 주세요.';
-    }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       setMessage('입력값을 확인해 주세요.');
@@ -4713,7 +4757,6 @@ function OsanProjectCreatePage({
         workOrderNumber: draft.workOrderNumber.trim() || null,
         deliveryDate: draft.deliveryDate,
         productName: draft.productName.trim(),
-        quantity,
         operationId: operationIdRef.current
       });
       onCreated(response.project.projectId);
@@ -4745,7 +4788,7 @@ function OsanProjectCreatePage({
         title="프로젝트 등록"
         description="프로젝트 기본 정보와 진행 대상을 한 번에 준비합니다."
       />
-      <DsInputFlow title="오산 프로젝트 정보" description="아래 8개 항목을 순서대로 입력해 주세요.">
+      <DsInputFlow title="오산 프로젝트 정보" description="아래 7개 항목을 순서대로 입력해 주세요. 진행 대상은 1개로 자동 생성됩니다.">
         <form className="osan-project-form" onSubmit={submit} noValidate>
           <OsanProjectField number={1} label="장비명" required error={fieldError('title')}>
             <input aria-label="장비명" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
@@ -4756,19 +4799,16 @@ function OsanProjectCreatePage({
           <OsanProjectField number={3} label="part 분류" required error={fieldError('productName')}>
             <input aria-label="part 분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
           </OsanProjectField>
-          <OsanProjectField number={4} label="수량" required error={fieldError('quantity')}>
-            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
-          </OsanProjectField>
-          <OsanProjectField number={5} label="고객사" required error={fieldError('customerName')}>
+          <OsanProjectField number={4} label="고객사" required error={fieldError('customerName')}>
             <input aria-label="고객사" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
           </OsanProjectField>
-          <OsanProjectField number={6} label="PO No" error={fieldError('poNumber')}>
+          <OsanProjectField number={5} label="PO No" error={fieldError('poNumber')}>
             <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={7} label="W/O No" error={fieldError('workOrderNumber')}>
+          <OsanProjectField number={6} label="W/O No" error={fieldError('workOrderNumber')}>
             <input aria-label="W/O No" value={draft.workOrderNumber} maxLength={100} onChange={(event) => setField('workOrderNumber', event.target.value)} aria-invalid={Boolean(fieldError('workOrderNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={8} label="납기일" required error={fieldError('deliveryDate')}>
+          <OsanProjectField number={7} label="납기일" required error={fieldError('deliveryDate')}>
             <input aria-label="납기일" type="date" value={draft.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} aria-invalid={Boolean(fieldError('deliveryDate'))} />
           </OsanProjectField>
 
@@ -4887,7 +4927,7 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
     <>
       <section className="osan-detail-overview" aria-label="프로젝트 기본 정보">
         <div className="osan-detail-identity">
-          <span className="osan-detail-status">{formatOsanProjectStatus(project.status)}</span>
+          <span className="osan-detail-status">{project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status)}</span>
           <h2>{project.title}</h2>
           <p className="project-code-value">{project.projectCode}</p>
         </div>
@@ -10122,10 +10162,13 @@ function NotificationsPage({
 }
 
 function osanNotificationLabel(item: NotificationItem) {
+  if (item.title.includes('공정 진행 요청')) return '공정 진행 요청';
+  if (item.title.includes('공정 이상 발생') || item.title.includes('이상 등록')) return '공정 이상 발생';
+  if (item.title.includes('조치 완료')) return '조치 완료';
   if (item.title.includes('반려')) return '단계 반려';
   if (item.title.includes('수정')) return '수정 완료';
   if (item.title.includes('프로젝트')) return item.title.includes('등록') ? '프로젝트 생성' : '프로젝트 완료';
-  return '단계 완료';
+  return 'Gate 완료';
 }
 function osanNotificationActor(item: NotificationItem) {
   return item.message.match(/(?:^|\n)(.+?)님이 /)?.[1] ?? '';

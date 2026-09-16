@@ -389,8 +389,8 @@ cd "${repo_root}"
   || { e2e_safety_error "Cheongju project rows changed during Osan registration E2E."; exit 1; }
 [[ "$(run_database_scalar "${osan_database}" "select count(*) from projects where project_profile = 'Osan';")" == "$((osan_projects_before + 1))" ]] \
   || { e2e_safety_error "Osan E2E did not create exactly one Osan project."; exit 1; }
-[[ "$(run_database_scalar "${osan_database}" "select count(*) from osan_project_targets;")" == "2" ]] \
-  || { e2e_safety_error "Osan E2E target row count was not 2."; exit 1; }
-[[ "$(run_database_scalar "${osan_database}" "select count(*) from osan_project_target_steps;")" == "14" ]] \
-  || { e2e_safety_error "Osan E2E step row count was not 14."; exit 1; }
+[[ "$(run_database_scalar "${osan_database}" "select count(*) from osan_project_targets;")" == "1" ]] \
+  || { e2e_safety_error "Osan E2E target row count was not 1."; exit 1; }
+[[ "$(run_database_scalar "${osan_database}" "select count(*) from osan_project_target_steps;")" == "7" ]] \
+  || { e2e_safety_error "Osan E2E step row count was not 7."; exit 1; }
 echo "Osan create/list/detail and unchanged Cheongju project row count verified against isolated databases."

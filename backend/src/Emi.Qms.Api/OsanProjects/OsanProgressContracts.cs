@@ -31,7 +31,7 @@ public sealed record OsanProgressResponse(
     int CompletedStepCount,
     int TotalStepCount,
     IReadOnlyList<OsanProgressTargetResponse> Targets,
-    bool CanManageStages = false, int OpenIssueCount = 0);
+    bool CanManageStages = false, int OpenIssueCount = 0, string? ProductName = null, string? WorkOrderNumber = null);
 
 public sealed record OsanRelatedPanelsResponse(
     Guid SourceProjectId,
@@ -130,7 +130,44 @@ public sealed record OsanProgressPhotoDownload(
 
 public sealed record OsanStageActionRequest(Guid OperationId, string Reason, int ExpectedVersion);
 public sealed record OsanStageHistoryItem(Guid Id, string EventType, string ActorDisplayName,
-    DateTimeOffset OccurredAtUtc, string Comment, string? Reason, IReadOnlyList<OsanProgressPhotoResponse> Photos);
+    DateTimeOffset OccurredAtUtc, string Comment, string? Reason, IReadOnlyList<OsanProgressPhotoResponse> Photos,
+    IReadOnlyList<OsanWorkRequestRecipientResponse>? Recipients = null);
+
+public sealed record OsanWorkRequestRecipientResponse(
+    Guid UserId, string DisplayName, string? DepartmentName);
+
+public sealed record OsanWorkRequestRecipientsResponse(
+    Guid ProjectId, IReadOnlyList<OsanWorkRequestRecipientResponse> Recipients);
+
+public sealed record CreateOsanWorkRequest(
+    Guid OperationId, Guid TargetId, int StageSequence, IReadOnlyList<Guid>? RecipientIds);
+
+public sealed record OsanWorkRequestResponse(
+    Guid OperationId,
+    bool Replayed,
+    DateTimeOffset RequestedAtUtc,
+    Guid RequesterUserId,
+    string RequesterDisplayName,
+    Guid TargetId,
+    string TargetDisplayName,
+    int StageSequence,
+    string StageName,
+    IReadOnlyList<OsanWorkRequestRecipientResponse> Recipients);
+
+public enum OsanWorkRequestStatus
+{
+    Success,
+    Validation,
+    NotFound,
+    Conflict
+}
+
+public sealed record OsanWorkRequestResult(
+    OsanWorkRequestStatus Status,
+    OsanWorkRequestResponse? Value = null,
+    string? ErrorCode = null,
+    string? Message = null,
+    IReadOnlyDictionary<string, string[]>? Errors = null);
 
 public sealed record OsanStageIssueResponse(Guid IssueId, DateTimeOffset RegisteredAtUtc,
     Guid RegisteredByUserId, string RegisteredByDisplayName, string Comment,

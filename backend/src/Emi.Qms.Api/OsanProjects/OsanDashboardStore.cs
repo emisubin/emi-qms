@@ -92,7 +92,8 @@ public sealed class OsanDashboardStore(
                 count(*)::bigint,
                 count(*) filter (where progress_status = '{OsanDashboardStatuses.NotStarted}')::bigint,
                 count(*) filter (where progress_status = '{OsanDashboardStatuses.InProgress}')::bigint,
-                count(*) filter (where progress_status = '{OsanDashboardStatuses.Completed}')::bigint
+                count(*) filter (where progress_status = '{OsanDashboardStatuses.Completed}')::bigint,
+                count(*) filter (where progress_status = '{OsanDashboardStatuses.Hold}')::bigint
             from scoped_projects;
             """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -101,7 +102,7 @@ public sealed class OsanDashboardStore(
             reader.GetInt64(0),
             reader.GetInt64(1),
             reader.GetInt64(2),
-            reader.GetInt64(3));
+            reader.GetInt64(3), reader.GetInt64(4));
     }
 
     private static async Task<long> ReadFilteredCountAsync(
@@ -133,10 +134,7 @@ public sealed class OsanDashboardStore(
         var statusFilter = query.Status == OsanDashboardStatuses.All
             ? string.Empty
             : "where progress_status = @status";
-        var ordering = query.View == OsanDashboardViews.Home
-            ? "delivery_date, project_code, project_id"
-            : $"case when progress_status = '{OsanDashboardStatuses.Completed}' then 1 else 0 end, "
-                + "delivery_date, project_code, project_id";
+        const string ordering = "osan_delivery_hold, delivery_date, project_code, project_id";
         await using var command = CreateScopedCommand(connection, transaction, scope, $"""
             select project_id, title, project_code, customer_name, product_name,
                    po_number, work_order_number, quantity, delivery_date, progress_status,
@@ -252,6 +250,7 @@ public sealed class OsanDashboardStore(
                        projects.osan_quantity as quantity,
                        projects.delivery_date, projects.osan_delivery_hold,
                        case
+                           when projects.osan_delivery_hold then '{OsanDashboardStatuses.Hold}'
                            when projects.status = 'Completed' then '{OsanDashboardStatuses.Completed}'
                            when progress.completed_step_count > 0 or exists(select 1 from osan_stage_issues i join osan_active_project_targets t on t.id=i.target_id where i.project_id=projects.id and i.status='Open') then '{OsanDashboardStatuses.InProgress}'
                            else '{OsanDashboardStatuses.NotStarted}'
@@ -286,9 +285,8 @@ public sealed class OsanDashboardStore(
             "projects.deleted_at_utc is null"
         };
         var parameters = new List<NpgsqlParameter>();
-        if (view == OsanDashboardViews.Home)
+        if (view is OsanDashboardViews.Home or OsanDashboardViews.Progress)
         {
-            where.Add("not projects.osan_delivery_hold");
             where.Add("not (projects.delivery_date < @today and projects.status = 'Completed')");
             parameters.Add(new NpgsqlParameter("today", NpgsqlDbType.Date) { Value = today });
         }

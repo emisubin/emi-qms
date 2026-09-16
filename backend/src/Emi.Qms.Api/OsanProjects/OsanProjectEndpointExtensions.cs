@@ -310,7 +310,7 @@ public static class OsanProjectEndpointExtensions
                 return Results.Unauthorized();
             }
 
-            var (input, errors) = OsanProjectInputNormalizer.Normalize(request);
+            var (input, errors) = OsanProjectInputNormalizer.NormalizeFixedQuantity(request);
             if (input is null)
             {
                 return Results.ValidationProblem(errors);

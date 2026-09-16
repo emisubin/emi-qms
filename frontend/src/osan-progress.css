@@ -309,3 +309,5 @@
 .osan-progress-stage-overview .is-complete .osan-stage-light { background:#24945d!important; }
 .osan-progress-stage-overview .has-issue .osan-stage-light { background:#da2127!important; }
 .osan-progress-stage-overview .is-next-work .osan-stage-light { outline:2px solid #282828; outline-offset:3px; }
+
+.app-shell .osan-progress-page .osan-record-actions button.osan-issue-register{color:#da2127!important}.osan-progress-history>.osan-progress-actions{grid-column:1/-1;}

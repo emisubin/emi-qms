@@ -36,11 +36,11 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(emptyCreateActions).toHaveCount(2);
   await emptyCreateActions.nth(1).click();
 
-  const expectedFields = ['장비명', '프로젝트 코드', 'part 분류', '수량', '고객사', 'PO No', 'W/O No', '납기일'];
+  const expectedFields = ['장비명', '프로젝트 코드', 'part 분류', '고객사', 'PO No', 'W/O No', '납기일'];
   for (const field of expectedFields) {
     await expect(page.getByLabel(field, { exact: true })).toBeVisible();
   }
-  await expect(page.locator('.osan-project-field')).toHaveCount(8);
+  await expect(page.locator('.osan-project-field')).toHaveCount(7);
   expect(await page.locator('.osan-project-form input').evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))).toEqual(expectedFields);
   await page.screenshot({ path: testInfo.outputPath('osan-project-create-desktop-1440.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 900 });
@@ -55,7 +55,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await page.getByLabel('W/O No').fill('  000-W/O  ');
   await page.getByLabel('납기일').fill('2026-12-31');
   await page.getByLabel('part 분류').fill('  제품  이름  ');
-  await page.getByLabel('수량').fill('2');
+  await expect(page.getByLabel('수량', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
 
   await expect(page.getByRole('heading', { name: '저장된 Title' })).toBeVisible();
@@ -67,9 +67,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
     poNumber: '001-PO/+',
     workOrderNumber: '000-W/O',
     deliveryDate: '2026-12-31',
-    productName: '제품  이름',
-    quantity: 2
+    productName: '제품  이름'
   });
+  expect(postedBodies[0]).not.toHaveProperty('quantity');
   expect(postedBodies[0].operationId).toMatch(/^[0-9a-f-]{36}$/i);
 
   const overview = page.getByRole('region', { name: '프로젝트 기본 정보' });
@@ -87,15 +87,15 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(desktopTargetTable).toBeVisible();
   await expect(desktopTargetTable).toHaveClass(/project-panel-status-table/);
   const desktopTargetRows = desktopTargetTable.getByRole('row');
-  await expect(desktopTargetRows).toHaveCount(3);
+  await expect(desktopTargetRows).toHaveCount(2);
   await expect(desktopTargetRows.first().getByRole('columnheader')).toHaveCount(5);
-  await expect(desktopTargetTable.locator('button')).toHaveCount(2);
+  await expect(desktopTargetTable.locator('button')).toHaveCount(1);
   const osanDesktopTargetRow = desktopTargetRows.nth(1);
   expect(await osanDesktopTargetRow.evaluate((element) => element.tagName)).toBe('BUTTON');
   await expect(osanDesktopTargetRow).toHaveAttribute('data-interactive', 'true');
   await expect(osanDesktopTargetRow).toHaveAttribute('type', 'button');
   expect(await osanDesktopTargetRow.evaluate((element) => (element as HTMLElement).tabIndex)).toBe(0);
-  for (let index = 1; index <= 2; index += 1) {
+  for (let index = 1; index <= 1; index += 1) {
     await expect(desktopTargetRows.nth(index).getByRole('cell')).toHaveCount(5);
     await expect(desktopTargetRows.nth(index)).toContainText('시작 전');
     await expect(desktopTargetRows.nth(index)).toContainText('0/7단계 완료');
@@ -110,7 +110,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(overview.getByText('000-W/O', { exact: true })).toBeVisible();
   await expect(overview.getByText('고객사', { exact: true })).toHaveCount(2);
   await expect(overview.getByText('제품 이름', { exact: true })).toBeVisible();
-  await expect(overview.getByText('2개', { exact: true })).toBeVisible();
+  await expect(overview.getByText('1개', { exact: true })).toBeVisible();
   await expect(overview.getByText('2026-12-31', { exact: true })).toBeVisible();
   const detailCode = overview.locator('.project-code-value');
   expect(await detailCode.textContent()).toBe('AbC  001');
@@ -142,8 +142,8 @@ test('Osan shares its page frame and preserves registration and target navigatio
   const mobileTargetCards = progressPanel.locator('.project-panel-status-cards');
   await expect(mobileTargetCards).toBeVisible();
   const mobileTargetItems = mobileTargetCards.locator('.project-panel-status-card');
-  await expect(mobileTargetItems).toHaveCount(2);
-  await expect(mobileTargetCards.locator('button')).toHaveCount(2);
+  await expect(mobileTargetItems).toHaveCount(1);
+  await expect(mobileTargetCards.locator('button')).toHaveCount(1);
   const osanMobileTarget = mobileTargetItems.first();
   expect(await osanMobileTarget.evaluate((element) => element.tagName)).toBe('BUTTON');
   await expect(osanMobileTarget).toHaveAttribute('data-interactive', 'true');
@@ -236,7 +236,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
     await page.goto(path);
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page.getByRole('list', { name: '프로젝트 진행 목록' })).toBeVisible();
-    expect(await osanListFrameContract(page)).toEqual(osanDesktopPageContract);
+    const dashboardContract = await osanListFrameContract(page);
+    expect(dashboardContract.order).toEqual(osanDesktopPageContract.order);
+    expect(dashboardContract.labels).toEqual(['관리 대상', '공정 시작 전', '공정 진행 중', '포장완료', 'HOLD']);
     expect(await hasHorizontalOverflow(page)).toBe(false);
   }
 
@@ -367,7 +369,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
     ];
     if (path.endsWith('/template')) return route.fulfill({ status: 200, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: 'synthetic template response' });
     if (path.endsWith('/preview')) return fulfillJson(route, {
-      supportsRowEditing: true, fileSha256: 'synthetic-file-hash', totalRowCount: rows.length, totalQuantity: 2 * rows.length, errorCount: rows.filter(row => !row.title).length, errors: [],
+      supportsRowEditing: true, fileSha256: 'synthetic-file-hash', totalRowCount: rows.length, totalQuantity: rows.length, errorCount: rows.filter(row => !row.title).length, errors: [],
       rows: rows.map(row => ({ ...row, errors: row.title ? [] : ['장비명 필요'], duplicateKind: applied && row.title ? 'identical' : null }))
     });
     if (path.endsWith('/apply')) {
@@ -437,6 +439,7 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
       });
     }
     if (path === '/api/me') return fulfillJson(route, currentUser(businessUnit));
+    if (path === '/api/interior-busbar/access') return fulfillJson(route, { projects: false, planning: false, production: false, mastersRead: false, mastersEdit: false, administrator: false });
     if (path === '/api/audit/site-access/signals') {
       return fulfillJson(route, {
         sessionId: '94000000-0000-0000-0000-000000000001',
@@ -524,7 +527,7 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
         summary: { totalCount: 1, notStartedCount: 1, inProgressCount: 0, completedCount: 0 },
         items: [{ ...projectDetail(), progressPercent: 0, stages: stepNames.map((stepName, index) => ({
           sequenceNumber: index + 1, stepCode: `STEP_${index + 1}`, stepName,
-          completedTargetCount: 0, totalTargetCount: 2
+          completedTargetCount: 0, totalTargetCount: 1
         })) }],
         totalCount: 1, page: 1, pageSize: 11
       });
@@ -598,12 +601,12 @@ function projectDetail() {
     workOrderNumber: '000-W/O',
     deliveryDate: '2026-12-31',
     productName: '제품  이름',
-    quantity: 2,
+    quantity: 1,
     status: 'NotStarted',
     completedStepCount: 0,
-    totalStepCount: 14,
+    totalStepCount: 7,
     createdAtUtc: '2026-09-07T00:00:00Z',
-    targets: Array.from({ length: 2 }, (_, targetIndex) => ({
+    targets: Array.from({ length: 1 }, (_, targetIndex) => ({
       targetId: `92000000-0000-0000-0000-${String(targetIndex + 1).padStart(12, '0')}`,
       sequenceNumber: targetIndex + 1,
       displayName: `제품  이름 ${targetIndex + 1}`,
@@ -995,7 +998,7 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
     status,
     contentType: 'application/json',
     headers: {
-      'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
+      'Access-Control-Allow-Origin': route.request().headers().origin ?? 'http://127.0.0.1:5173',
       'Access-Control-Allow-Headers': 'Content-Type, X-Dev-User, X-Qms-Business-Unit'
     },
     body: JSON.stringify(body)

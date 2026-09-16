@@ -350,7 +350,6 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(0, preview.ErrorCount);
             Assert.True(preview.SupportsRowEditing);
             Assert.Equal(2, preview.TotalRowCount);
-            Assert.Equal(3, preview.TotalQuantity);
             fileSha256 = preview.FileSha256;
             var sourceRow = preview.Rows[0];
             selectedRow = new OsanProjectExcelRowRequest(
@@ -362,7 +361,7 @@ public sealed partial class BusinessUnitIsolationTests
                 sourceRow.WorkOrderNumber,
                 sourceRow.DeliveryDate,
                 sourceRow.ProductName,
-                sourceRow.Quantity);
+                null);
             secondSourceRow = new OsanProjectExcelRowRequest(
                 preview.Rows[1].RowNumber,
                 preview.Rows[1].Title,
@@ -372,7 +371,7 @@ public sealed partial class BusinessUnitIsolationTests
                 preview.Rows[1].WorkOrderNumber,
                 preview.Rows[1].DeliveryDate,
                 preview.Rows[1].ProductName,
-                preview.Rows[1].Quantity);
+                null);
         }
 
         foreach (var (deliveryDate, quantity, expectedField) in new (string?, decimal?, string)[]
@@ -482,7 +481,7 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.NotNull(detail);
             Assert.Equal("HTTP Edited Title", detail.Title);
             Assert.Equal("00Http  Edited", detail.ProjectCode);
-            Assert.Equal(2, detail.Targets.Count);
+            Assert.Single(detail.Targets);
             Assert.All(detail.Targets, target => Assert.Equal(7, target.Steps.Count));
         }
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(
@@ -3093,7 +3092,7 @@ public sealed partial class BusinessUnitIsolationTests
             workOrderNumber = " WO/001 ",
             deliveryDate = new DateOnly(2026, 12, 31),
             productName = " Routed product ",
-            quantity = 2,
+            quantity = 1,
             operationId = osanCreateOperationId
         };
         using (var createOsanProject = Request(
@@ -3114,7 +3113,7 @@ public sealed partial class BusinessUnitIsolationTests
                 .EnumerateArray()
                 .Select(target => target.GetProperty("targetId").GetGuid())
                 .ToArray();
-            Assert.Equal(2, osanTargetIds.Length);
+            Assert.Single(osanTargetIds);
         }
 
         Guid mismatchedTargetId;
@@ -3142,6 +3141,58 @@ public sealed partial class BusinessUnitIsolationTests
             mismatchedTargetId = body.RootElement.GetProperty("project").GetProperty("targets")[0]
                 .GetProperty("targetId").GetGuid();
         }
+
+        var recipientsPath = $"/api/osan/projects/{osanProjectId:D}/progress/work-request-recipients";
+        using (var ordinaryRecipients = Request(HttpMethod.Get, recipientsPath, "dev-sales", BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(ordinaryRecipients, TestContext.Current.CancellationToken))
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using (var adminRecipients = Request(HttpMethod.Get, recipientsPath, "dev-admin", BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(adminRecipients, TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.Contains(body.RootElement.GetProperty("recipients").EnumerateArray(), recipient =>
+                recipient.GetProperty("userId").GetGuid() == SalesUserId
+                && !string.IsNullOrWhiteSpace(recipient.GetProperty("displayName").GetString()));
+        }
+
+        var workRequestPath = $"/api/osan/projects/{osanProjectId:D}/progress/work-requests";
+        var workRequestPayload = new
+        {
+            operationId = Guid.NewGuid(),
+            targetId = osanTargetIds[0],
+            stageSequence = 1,
+            recipientIds = new[] { SalesUserId }
+        };
+        using (var ordinaryRequest = Request(HttpMethod.Post, workRequestPath, "dev-sales", BusinessUnitCodes.Osan))
+        {
+            ordinaryRequest.Content = JsonContent.Create(workRequestPayload);
+            using var response = await client.SendAsync(ordinaryRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using (var wrongUnitRequest = Request(HttpMethod.Post, workRequestPath, "dev-admin", BusinessUnitCodes.Cheongju))
+        {
+            wrongUnitRequest.Content = JsonContent.Create(workRequestPayload);
+            using var response = await client.SendAsync(wrongUnitRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using (var adminRequest = Request(HttpMethod.Post, workRequestPath, "dev-admin", BusinessUnitCodes.Osan))
+        {
+            adminRequest.Content = JsonContent.Create(workRequestPayload);
+            using var response = await client.SendAsync(adminRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<OsanWorkRequestResponse>(TestContext.Current.CancellationToken);
+            Assert.NotNull(body);
+            Assert.False(body.Replayed);
+            Assert.Equal(SalesUserId, Assert.Single(body.Recipients).UserId);
+        }
+        Assert.Equal(1L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
+            $"select count(*) from osan_stage_work_requests where operation_id='{workRequestPayload.operationId:D}'",
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(
+            BusinessUnitCodes.Cheongju, BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from osan_stage_work_requests", TestContext.Current.CancellationToken));
 
         using (var anonymousQr = await client.GetAsync(
                    $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
@@ -3239,7 +3290,7 @@ public sealed partial class BusinessUnitIsolationTests
                 decodedTargetUrls.Add(decoded.Text);
             }
         }
-        Assert.Equal(2, decodedTargetUrls.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(osanTargetIds.Length, decodedTargetUrls.Distinct(StringComparer.Ordinal).Count());
 
         using (var targetQrDefaultSvg = Request(
                    HttpMethod.Get,
@@ -3273,11 +3324,11 @@ public sealed partial class BusinessUnitIsolationTests
         await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
-            $"update osan_project_targets set is_active=false where id='{osanTargetIds[1]:D}';",
+            $"update osan_project_targets set is_active=false where id='{osanTargetIds[0]:D}';",
             TestContext.Current.CancellationToken);
         using (var inactiveTargetQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[1]:D}/qr?format=png",
+                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
@@ -3289,7 +3340,7 @@ public sealed partial class BusinessUnitIsolationTests
         await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
-            $"update osan_project_targets set is_active=true where id='{osanTargetIds[1]:D}';",
+            $"update osan_project_targets set is_active=true where id='{osanTargetIds[0]:D}';",
             TestContext.Current.CancellationToken);
 
         using (var listOsanProjects = Request(
@@ -3461,7 +3512,7 @@ public sealed partial class BusinessUnitIsolationTests
                 .EnumerateArray()
                 .Select(target => target.GetProperty("targetId").GetGuid())
                 .ToArray();
-            Assert.Equal(2, progressTargetIds.Length);
+            Assert.Equal(osanTargetIds.Length, progressTargetIds.Length);
             Assert.All(body.RootElement.GetProperty("targets").EnumerateArray(), target =>
             {
                 Assert.Equal(1, target.GetProperty("version").GetInt32());
@@ -3639,7 +3690,7 @@ public sealed partial class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             $"select count(*) from osan_progress_photos where project_id = '{osanProjectId:D}';",
             TestContext.Current.CancellationToken));
-        Assert.Equal(2L, await databases.ReadScalarAsync<long>(
+        Assert.Equal(progressTargetIds.LongLength, await databases.ReadScalarAsync<long>(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
             $"select count(*) from osan_progress_step_photos where project_id = '{osanProjectId:D}';",
@@ -3854,6 +3905,29 @@ public sealed partial class BusinessUnitIsolationTests
             });
             var response = await client.SendAsync(decimalQuantity, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        using (var multipleQuantity = Request(
+                   HttpMethod.Post,
+                   "/api/osan/projects",
+                   "dev-sales",
+                   BusinessUnitCodes.Osan))
+        {
+            multipleQuantity.Content = JsonContent.Create(new
+            {
+                title = "Invalid multiple quantity",
+                projectCode = "OSAN-INVALID-MULTIPLE",
+                customerName = "Customer",
+                deliveryDate = new DateOnly(2026, 12, 31),
+                productName = "Product",
+                quantity = 2,
+                operationId = Guid.NewGuid()
+            });
+            var response = await client.SendAsync(multipleQuantity, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>(
+                TestContext.Current.CancellationToken);
+            Assert.Contains(nameof(CreateOsanProjectRequest.Quantity), problem!.Errors.Keys);
         }
 
         await databases.ExecuteAsync(
@@ -5069,7 +5143,7 @@ public sealed partial class BusinessUnitIsolationTests
             sheet.Cell(row, 5).Value = $"00{row}-W/O";
             sheet.Cell(row, 6).Value = new DateTime(2026, 12, row);
             sheet.Cell(row, 7).Value = "Synthetic Product";
-            sheet.Cell(row, 8).Value = row == 2 ? 2 : 1;
+            sheet.Cell(row, 8).Value = 1;
         }
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

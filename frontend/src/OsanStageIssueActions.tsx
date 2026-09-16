@@ -5,10 +5,10 @@ import { OsanPhotoPreview } from './OsanPhotoPreview';
 import { mutateOsanIssue, validateOsanPhotos, validateOsanRecord, type OsanCompletionRequest, type OsanProgressTarget } from './osanProgress';
 
 type Action = 'register' | 'record' | 'resolve';
-const labels = { register: '이상 등록', record: '기록 추가', resolve: '조치 완료' };
-export function OsanStageIssueActions({ projectId, target, stage, userKey, mutationAllowed, canManage, disabled, onBusy, onSaved }: {
+const labels = { register: '공정 이상 발생', record: '기록 추가', resolve: '조치 완료' };
+export function OsanStageIssueActions({ projectId, target, stage, userKey, mutationAllowed, canManage, disabled, onBusy, onSaved, resolveOnly = false }: {
   projectId: string; target: OsanProgressTarget; stage: number; userKey?: string; mutationAllowed: boolean;
-  canManage: boolean; disabled: boolean; onBusy: (busy: boolean) => void; onSaved: () => void;
+  canManage: boolean; disabled: boolean; resolveOnly?: boolean; onBusy: (busy: boolean) => void; onSaved: () => void;
 }) {
   const step = target.steps.find(s => s.sequenceNumber === stage)!;
   const [action, setAction] = useState<Action | null>(null);
@@ -45,13 +45,12 @@ export function OsanStageIssueActions({ projectId, target, stage, userKey, mutat
   }
   if (!mutationAllowed) return null;
   return <>
-    {step.openIssue ? <>
+    {resolveOnly ? step.openIssue && <button type="button" disabled={disabled || busy || !step.canResolveIssue} onClick={() => open('resolve')}>조치 완료</button> : step.openIssue ?
       <button type="button" disabled={disabled || busy || !step.canRegisterIssue} onClick={() => open('record')}>기록 추가</button>
-      <button type="button" disabled={disabled || busy || !step.canResolveIssue} onClick={() => open('resolve')}>조치 완료</button>
-    </> : step.canRegisterIssue && <button type="button" disabled={disabled || busy} onClick={() => open('register')}>이상 등록</button>}
-    <dialog ref={dialog} className="osan-progress-completion-modal osan-issue-modal" aria-labelledby={`issue-title-${target.targetId}`}
+      : step.canRegisterIssue && <button type="button" className="osan-issue-register" disabled={disabled || busy} onClick={() => open('register')}>공정 이상 발생</button>}
+    <dialog ref={dialog} className="osan-progress-completion-modal osan-issue-modal" aria-labelledby={`issue-title-${target.targetId}-${resolveOnly ? 'resolve' : 'record'}`}
       onCancel={e => { if (busy) e.preventDefault(); else setAction(null); }} onClick={e => dismissOnBackdrop(e, () => { if (!busy) setAction(null); })}>
-      <h2 id={`issue-title-${target.targetId}`}>{action ? labels[action] : '이상 처리'}</h2>
+      <h2 id={`issue-title-${target.targetId}-${resolveOnly ? 'resolve' : 'record'}`}>{action ? labels[action] : '이상 처리'}</h2>
       <p>{target.displayName} · {step.stepName}</p>
       <label className="osan-comment-input">{action === 'resolve' ? '조치 내용' : action === 'register' ? '이상 내용' : '추가 내용'} <small>필수</small>
         <textarea value={comment} maxLength={1000} disabled={busy || submitted} onChange={e => setComment(e.target.value)}/><span>{comment.length} / 1000자</span></label>
@@ -62,7 +61,7 @@ export function OsanStageIssueActions({ projectId, target, stage, userKey, mutat
       <input hidden ref={album} type="file" multiple accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" aria-label="이상 처리 사진 선택" disabled={busy || submitted} onChange={e => { select(e.target.files, false); e.target.value = ''; }}/>
       <p>{action === 'resolve' ? (canManage ? '관리자는 사진 없이 코멘트만으로 저장할 수 있습니다.' : '완료 사진을 1장 이상 첨부해 주세요.') : '이상 사진은 선택 첨부입니다.'}</p>
       <p>JPEG·PNG·HEIC 최대 5장, 전체 40MiB. 원본을 저장합니다.</p>
-      <p>{action === 'resolve' ? '저장하면 이상 조치와 해당 단계 완료가 함께 처리됩니다.' : '다음 단계는 진행할 수 있습니다. 포장 전에는 이상 조치를 완료해야 합니다.'}</p>
+      <p>{action === 'resolve' ? '저장하면 이상 조치와 해당 Gate 완료가 함께 처리됩니다.' : '다음 단계는 진행할 수 있습니다. 포장 전에는 이상 조치를 완료해야 합니다.'}</p>
       {error && <p role="alert">{error}</p>}
       <button type="button" className="osan-progress-submit" disabled={busy || !mutationAllowed} onClick={() => void save()}>{busy ? '저장 중…' : submitted ? '저장 재시도' : action ? labels[action] : '저장'}</button>
       <button type="button" className="osan-progress-close" disabled={busy} onClick={() => setAction(null)}>닫기</button>

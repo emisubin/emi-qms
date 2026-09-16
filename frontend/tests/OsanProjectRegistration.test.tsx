@@ -114,7 +114,6 @@ function fillCreateForm() {
   fireEvent.change(screen.getByLabelText('W/O No'), { target: { value: ' 000-W/O ' } });
   fireEvent.change(screen.getByLabelText(/^납기일/), { target: { value: '2026-12-31' } });
   fireEvent.change(screen.getByLabelText(/^part 분류/), { target: { value: ' 제품  이름 ' } });
-  fireEvent.change(screen.getByLabelText(/^수량/), { target: { value: '2' } });
 }
 
 describe('Osan project registration', () => {
@@ -184,7 +183,7 @@ describe('Osan project registration', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    const action = await screen.findByRole('button', { name: '완료' }, { timeout: 5000 });
+    const action = await screen.findByRole('button', { name: 'Gate 완료' }, { timeout: 5000 });
     await waitFor(() => allowed ? expect(action).toBeEnabled() : expect(action).toBeDisabled());
     const progressRequest = fetchMock.mock.calls.find(([input]) => String(input).includes(`/projects/${projectId}/progress`));
     expect(new Headers(progressRequest?.[1]?.headers).get('X-Qms-Business-Unit')).toBe('OSAN');
@@ -319,7 +318,7 @@ describe('Osan project registration', () => {
     ))).toHaveLength(1);
   });
 
-  it('lists projects and completes the exact eight-field create-to-detail flow once', async () => {
+  it('lists projects and completes the fixed-one create-to-detail flow once', async () => {
     let releaseCreate: ((response: Response) => void) | undefined;
     const pendingCreate = new Promise<Response>((resolve) => {
       releaseCreate = resolve;
@@ -334,7 +333,7 @@ describe('Osan project registration', () => {
         return pendingCreate;
       }
       if (url.pathname === `/api/osan/projects/${projectId}`) {
-        return json(projectDetail());
+        return json(projectDetail(1));
       }
       return undefined;
     });
@@ -351,9 +350,10 @@ describe('Osan project registration', () => {
     expect(window.location.pathname).toBe('/projects/create');
 
     expect(screen.getAllByRole('textbox')).toHaveLength(6);
-    expect(screen.getAllByRole('spinbutton')).toHaveLength(1);
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
     expect(Array.from(document.querySelectorAll('.osan-project-form input')).map(input => input.getAttribute('aria-label')))
-      .toEqual(['장비명', '프로젝트 코드', 'part 분류', '수량', '고객사', 'PO No', 'W/O No', '납기일']);
+      .toEqual(['장비명', '프로젝트 코드', 'part 분류', '고객사', 'PO No', 'W/O No', '납기일']);
+    expect(screen.queryByLabelText(/^수량/)).not.toBeInTheDocument();
     fillCreateForm();
     const submit = screen.getByRole('button', { name: '프로젝트 등록' });
     fireEvent.click(submit);
@@ -367,12 +367,12 @@ describe('Osan project registration', () => {
       poNumber: '001-PO/+',
       workOrderNumber: '000-W/O',
       deliveryDate: '2026-12-31',
-      productName: '제품  이름',
-      quantity: 2
+      productName: '제품  이름'
     });
+    expect(postedBodies[0]).not.toHaveProperty('quantity');
     expect((postedBodies[0] as { operationId: string }).operationId).toMatch(/^[0-9a-f-]{36}$/i);
 
-    releaseCreate?.(json({ operationId: (postedBodies[0] as { operationId: string }).operationId, replayed: false, project: projectDetail() }, 201));
+    releaseCreate?.(json({ operationId: (postedBodies[0] as { operationId: string }).operationId, replayed: false, project: projectDetail(1) }, 201));
     expect(await screen.findByRole('heading', { name: '저장된 Title' })).toBeInTheDocument();
     expect(window.location.pathname).toBe(`/projects/${projectId}`);
     expect(screen.getByText('001-PO/+')).toBeInTheDocument();
@@ -397,9 +397,9 @@ describe('Osan project registration', () => {
     const targetTable = within(progressPanel).getByRole('table', { name: '진행 관리 대상 현황' });
     expect(targetTable).toHaveClass('project-panel-status-table');
     const targetRows = within(targetTable).getAllByRole('row');
-    expect(targetRows).toHaveLength(3);
+    expect(targetRows).toHaveLength(2);
     expect(within(targetRows[0]).getAllByRole('columnheader')).toHaveLength(5);
-    expect(targetTable.querySelectorAll('button')).toHaveLength(2);
+    expect(targetTable.querySelectorAll('button')).toHaveLength(1);
     for (const targetRow of targetRows.slice(1)) {
       expect(targetRow).toHaveClass('project-panel-status-row');
       expect(targetRow.tagName).toBe('BUTTON');
@@ -486,7 +486,7 @@ describe('Osan project registration', () => {
     expect(posts[1].operationId).not.toBe(posts[0].operationId);
   });
 
-  it('shows client validation and does not send decimals or out-of-range quantities', async () => {
+  it('explains that one progress target is created automatically', async () => {
     const fetchMock = shellFetch((url, init) => {
       if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
       return undefined;
@@ -495,16 +495,8 @@ describe('Osan project registration', () => {
     render(<App />);
     await screen.findByRole('heading', { name: '프로젝트 목록' });
     fireEvent.click(screen.getAllByRole('button', { name: '신규 프로젝트' })[0]);
-    fillCreateForm();
-
-    for (const quantity of ['1.5', '0', '-1', '501']) {
-      fireEvent.change(screen.getByLabelText(/^수량/), { target: { value: quantity } });
-      fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
-      expect(await screen.findByText('수량은 1 이상 500 이하의 정수로 입력해 주세요.')).toBeInTheDocument();
-    }
-    expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname === '/api/osan/projects' && init?.method === 'POST'
-    ))).toHaveLength(0);
+    expect(screen.getByText(/진행 대상은 1개로 자동 생성됩니다/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^수량/)).not.toBeInTheDocument();
   });
 
   it('renders forbidden list/create states and keeps create hidden without permission', async () => {
@@ -568,4 +560,13 @@ describe('Osan project registration', () => {
     expect(await screen.findByText('등록된 프로젝트가 없습니다.')).toBeInTheDocument();
     expect(listCalls).toBe(2);
   });
+});
+
+it('일반 오산 계정에는 알림 설정을 표시하되 변경 버튼을 비활성화한다', async () => {
+ const user=currentUser();user.roles=[];user.actualUser.roles=[];user.effectiveUser.roles=[];user.businessUnitAccess.isOverallAdministrator=false;
+ vi.stubGlobal('fetch',shellFetch(url=>url.pathname==='/api/me'?json(user):undefined));
+ render(<App/>);
+ const profile=await screen.findByRole('button',{name:/Osan Admin 프로필 사진/});fireEvent.click(profile);
+ expect(await screen.findByRole('button',{name:'알림 설정'})).toBeDisabled();
+ expect(screen.getByText('관리자만 설정 가능')).toBeInTheDocument();
 });

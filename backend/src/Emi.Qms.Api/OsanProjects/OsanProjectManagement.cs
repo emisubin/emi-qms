@@ -16,7 +16,8 @@ public sealed partial class OsanProjectStore
             p.PoNumber, p.WorkOrderNumber, p.DeliveryDate, p.ProductName, p.Quantity, p.DeliveryHold }))));
 
     public async Task<OsanManagementResult> ManageAsync(Guid id, string expectedToken,
-        NormalizedCreateOsanProjectInput? input, string? deleteReason, Guid actor, CancellationToken ct, bool? deliveryHold = null, string? holdReason = null)
+        NormalizedCreateOsanProjectInput? input, string? deleteReason, Guid actor, CancellationToken ct,
+        bool? deliveryHold = null, string? holdReason = null, bool quantityWasSpecified = true)
     {
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(ct);
@@ -35,26 +36,9 @@ public sealed partial class OsanProjectStore
         var holdChanged = input is not null && nextHold != current.DeliveryHold;
         if (holdChanged && (string.IsNullOrWhiteSpace(holdReason) || holdReason.Trim().Length > 500))
             return new(400, Message: "납기 HOLD 변경 사유를 1~500자로 입력해 주세요.");
-        // The same project lock is acquired by progress completion, so quantity cannot race with first work.
-        if (input is not null && input.Quantity != current.Quantity)
+        if (input is not null && quantityWasSpecified && input.Quantity != current.Quantity)
         {
-            command.CommandText = """
-                select exists(select 1 from osan_project_targets where project_id=@id
-                  and (version>1 or started_at_utc is not null or status<>'NotStarted'))
-                or exists(select 1 from osan_project_target_steps where project_id=@id
-                  and (status<>'NotStarted' or started_at_utc is not null or completed_at_utc is not null))
-                or exists(select 1 from osan_progress_operations where project_id=@id);
-                """;
-            if ((bool)(await command.ExecuteScalarAsync(ct))!)
-                return new(409, Message: "진행이 시작된 프로젝트의 수량은 변경할 수 없습니다.");
-            // Keep all rows and identities: a pristine excess target is hidden, never deleted.
-            if (input.Quantity < current.Quantity)
-            {
-                command.Parameters.AddWithValue("new_quantity", input.Quantity);
-                command.CommandText = "update osan_project_targets set is_active=false,updated_at_utc=now() where project_id=@id and sequence_number>@new_quantity";
-                await command.ExecuteNonQueryAsync(ct);
-            }
-            else await InsertTargetsAndStepsAsync(connection, tx, id, input, ct, current.Quantity + 1);
+            return new(400, Message: "오산 프로젝트 수량은 변경할 수 없습니다.");
         }
         if (input is null)
         {
@@ -75,7 +59,7 @@ public sealed partial class OsanProjectStore
             command.Parameters.AddWithValue("wo", (object?)input.WorkOrderNumber ?? DBNull.Value);
             command.Parameters.AddWithValue("date", input.DeliveryDate);
             command.Parameters.AddWithValue("part", input.ProductName);
-            command.Parameters.AddWithValue("quantity", input.Quantity);
+            command.Parameters.AddWithValue("quantity", current.Quantity);
             command.Parameters.AddWithValue("hold", nextHold);
             command.CommandText = """
                 update projects set project_title=@title, project_code=@code, customer_name=@customer,
@@ -92,7 +76,12 @@ public sealed partial class OsanProjectStore
             """;
         command.Parameters.AddWithValue("action", input is null ? "Delete" : "Update");
         command.Parameters.AddWithValue("before", JsonSerializer.Serialize(current));
-        command.Parameters.AddWithValue("after", JsonSerializer.Serialize(new { Fields = input, DeliveryHold = nextHold, HoldReason = holdChanged ? holdReason!.Trim() : null }));
+        command.Parameters.AddWithValue("after", JsonSerializer.Serialize(new
+        {
+            Fields = input is null ? null : input with { Quantity = current.Quantity },
+            DeliveryHold = nextHold,
+            HoldReason = holdChanged ? holdReason!.Trim() : null
+        }));
         await command.ExecuteNonQueryAsync(ct);
         await tx.CommitAsync(ct);
         return new(200, new { saved = true });

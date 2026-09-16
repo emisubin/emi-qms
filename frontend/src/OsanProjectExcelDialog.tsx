@@ -6,7 +6,7 @@ import './osan-project-excel.css';
 
 const fields = [
   ['title', '장비명', 200], ['projectCode', '프로젝트 코드', 80], ['productName', 'part 분류', 100],
-  ['quantity', '수량', 0], ['customerName', '고객사', 200], ['poNumber', 'PO No', 100],
+  ['customerName', '고객사', 200], ['poNumber', 'PO No', 100],
   ['workOrderNumber', 'W/O No', 100], ['deliveryDate', '납기일', 10]
 ] as const;
 type Field = typeof fields[number][0];
@@ -19,7 +19,6 @@ function inputErrors(row: OsanProjectExcelRow) {
     if (key !== 'poNumber' && key !== 'workOrderNumber' && !value) errors.push(`${label}을(를) 입력해 주세요.`);
     if (max && value.length > max) errors.push(`${label}: ${max}자 이하로 입력해 주세요.`);
   }
-  if (row.quantity !== null && (!Number.isInteger(row.quantity) || row.quantity < 1 || row.quantity > 500)) errors.push('수량은 1~500의 정수로 입력해 주세요.');
   if (row.deliveryDate && (!/^\d{4}-\d{2}-\d{2}$/.test(row.deliveryDate) || !Number.isFinite(Date.parse(`${row.deliveryDate}T00:00:00Z`)) || new Date(`${row.deliveryDate}T00:00:00Z`).toISOString().slice(0, 10) !== row.deliveryDate)) errors.push('납기일은 올바른 YYYY-MM-DD 날짜로 입력해 주세요.');
   return errors;
 }
@@ -69,7 +68,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
     setConfirmation(null); setMessage('');
     setPreview(current => current && { ...current, rows: current.rows.map(row => {
       if (row.rowNumber !== rowNumber) return row;
-      const updated = { ...row, [key]: key === 'quantity' ? (value === '' ? null : Number(value)) : value, duplicateKind: null };
+      const updated = { ...row, [key]: value, duplicateKind: null };
       return { ...updated, errors: inputErrors(updated) };
     }) });
   }
@@ -137,7 +136,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
     <div className="dialog osan-excel-dialog" ref={dialog} tabIndex={-1} onKeyDown={keyboard}>
       <div className="osan-excel-heading"><h2>프로젝트 엑셀 업로드</h2><button type="button" disabled={locked} onClick={onClose}>닫기</button></div>
       <p>한 행에 프로젝트 하나씩 입력해 주세요. 미리보기 셀을 눌러 수정할 수 있습니다. PO No·W/O No는 선택 항목입니다.</p>
-      <p className="osan-excel-hint">.xlsx · 최대 5MiB · 프로젝트 100개 · 전체 수량 1,000개 이하</p>
+      <p className="osan-excel-hint">.xlsx · 최대 5MiB · 프로젝트 100개 · 프로젝트별 진행 대상 1개 자동 생성</p>
       <button type="button" disabled={locked} onClick={() => void run('download')}>{busy === 'download' ? '다운로드 중…' : '엑셀 양식 다운로드'}</button>
       {downloaded && <p role="status">양식을 다운로드했습니다.</p>}
       <label className="osan-excel-file">작성한 엑셀 파일
@@ -169,8 +168,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
                   onBlur={() => setEditingCell(null)}
                   onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dialog.current?.focus(); setEditingCell(null); } }}
                   aria-label={`${row.rowNumber}행 ${label}`} aria-invalid={!complete && key !== 'poNumber' && key !== 'workOrderNumber' && !String(row[key] ?? '').trim()}
-                  type={key === 'quantity' ? 'number' : 'text'} inputMode={key === 'quantity' ? 'numeric' : undefined}
-                  min={key === 'quantity' ? 1 : undefined} max={key === 'quantity' ? 500 : undefined} step={key === 'quantity' ? 1 : undefined}
+                  type="text"
                   maxLength={max || undefined} placeholder={key === 'deliveryDate' ? 'YYYY-MM-DD' : key === 'poNumber' || key === 'workOrderNumber' ? '선택' : '입력 필요'}
                   value={row[key] ?? ''} disabled={locked || complete} onChange={event => edit(row.rowNumber, key, event.target.value)}
                 /> : <button type="button" className="osan-excel-cell-value" aria-label={`${row.rowNumber}행 ${label}`} disabled={locked || complete}
@@ -182,7 +180,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
         {confirmation && <section className="osan-excel-confirm" aria-label="중복 프로젝트 확인" ref={confirmationPanel} tabIndex={-1}>
           <h3>중복 프로젝트 확인</h3>
           <p>아래 프로젝트가 이미 등록되어 있거나 이번 파일에 중복되어 있습니다. 그래도 등록하시겠습니까?</p>
-          <ul>{confirmation.rows.filter(row => row.duplicateKind).map(row => <li key={row.rowNumber}>{row.rowNumber}행 · {row.title} · {row.projectCode}: {row.duplicateKind === 'identical' ? '장비명·코드·고객사·part 분류·수량이 모두 같습니다.' : '같은 프로젝트 코드가 사용되고 있습니다.'}</li>)}</ul>
+          <ul>{confirmation.rows.filter(row => row.duplicateKind).map(row => <li key={row.rowNumber}>{row.rowNumber}행 · {row.title} · {row.projectCode}: {row.duplicateKind === 'identical' ? '장비명·코드·고객사·part 분류가 모두 같습니다.' : '같은 프로젝트 코드가 사용되고 있습니다.'}</li>)}</ul>
           <button type="button" disabled={locked} onClick={() => setConfirmation(null)}>돌아가기</button>
           <button type="button" className="primary-button" disabled={locked} onClick={() => void run('apply', { ...confirmation, confirmed: confirmation.rows.filter(row => row.duplicateKind).map(row => row.rowNumber) })}>중복 포함 {confirmation.rows.length}개 등록</button>
         </section>}

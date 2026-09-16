@@ -14,11 +14,12 @@ public static class OsanNotificationTemplates
         var action = item.Kind switch
         {
             OsanNotificationKind.ProjectCreated => "신규 프로젝트 등록",
-            OsanNotificationKind.StepCompleted => $"{item.StepName} 완료",
+            OsanNotificationKind.StepCompleted => $"{item.StepName} Gate 완료",
             OsanNotificationKind.StepRejected => $"{item.StepName} 반려",
             OsanNotificationKind.StepEdited => $"{item.StepName} 수정 완료",
-            OsanNotificationKind.StepIssueRegistered => $"{item.StepName} 이상 발생",
+            OsanNotificationKind.StepIssueRegistered => $"{item.StepName} 공정 이상 발생",
             OsanNotificationKind.StepIssueResolved => $"{item.StepName} 조치 완료",
+            OsanNotificationKind.StepWorkRequested => $"{item.StepName} 공정 진행 요청",
             OsanNotificationKind.ProjectCompleted => "프로젝트 완료",
             _ => throw new ArgumentOutOfRangeException(nameof(item))
         };
@@ -26,40 +27,46 @@ public static class OsanNotificationTemplates
         {
             OsanNotificationKind.ProjectCreated => "새 프로젝트가 등록되었습니다",
             OsanNotificationKind.ProjectCompleted => "프로젝트가 완료되었습니다",
-            OsanNotificationKind.StepIssueRegistered => $"{item.StepName} 이상 발생",
+            OsanNotificationKind.StepIssueRegistered => $"{item.StepName} 공정 이상 발생",
             OsanNotificationKind.StepIssueResolved => $"{item.StepName} 조치 완료",
+            OsanNotificationKind.StepWorkRequested => $"{item.StepName} 공정 진행 요청",
             _ => action
         };
         var intro = item.Kind switch
         {
             OsanNotificationKind.ProjectCreated => "새 프로젝트가 등록되었습니다.",
-            OsanNotificationKind.StepCompleted => "진행단계가 완료되었습니다.",
+            OsanNotificationKind.StepCompleted => "Gate가 완료되었습니다.",
             OsanNotificationKind.StepRejected => "등록된 진행단계가 반려되었습니다. 아래 사유를 확인하고 내용을 보완해 주세요.",
             OsanNotificationKind.StepEdited => "진행단계의 사진·코멘트가 수정 저장되었습니다.",
-            OsanNotificationKind.StepIssueRegistered => "진행단계에 이상이 등록되었습니다. 이상 내용을 확인하고 조치해 주세요. 이후 단계는 진행할 수 있지만, 앞 6단계 완료와 모든 이상 조치 전에는 포장할 수 없습니다.",
-            OsanNotificationKind.StepIssueResolved => "등록된 이상 조치가 완료되었으며 해당 진행단계도 완료되었습니다.",
-            _ => "모든 진행 대상의 7단계가 완료되어 프로젝트가 완료 처리되었습니다."
+            OsanNotificationKind.StepIssueRegistered => "공정 이상이 발생했습니다. 이상 내용을 확인하고 조치해 주세요. 이후 단계는 진행할 수 있지만, 앞 6단계 완료와 모든 이상 조치 전에는 포장할 수 없습니다.",
+            OsanNotificationKind.StepIssueResolved => "등록된 이상 조치가 완료되었으며 해당 Gate도 완료되었습니다.",
+            OsanNotificationKind.StepWorkRequested => "선택한 수신자에게 공정 진행이 요청되었습니다.",
+            _ => "모든 진행 대상의 7개 Gate가 완료되어 프로젝트가 완료 처리되었습니다."
         };
         var message = item.Kind switch
         {
             OsanNotificationKind.ProjectCreated => $"{item.ActorName}님이 {item.ProjectName} 프로젝트를 등록했습니다.\nCode: {item.ProjectCode}",
-            OsanNotificationKind.ProjectCompleted => $"{item.ProjectName}의 모든 진행 대상이 7단계를 완료했습니다.\nCode: {item.ProjectCode}",
-            _ => $"{item.ProjectName} · {targets}\nCode: {item.ProjectCode}\n{item.ActorName}님이 " +
+            OsanNotificationKind.ProjectCompleted => $"{item.ProjectName}의 모든 진행 대상이 7개 Gate를 완료했습니다.\nCode: {item.ProjectCode}",
+            _ => $"{item.ProjectName} · {targets}\nCode: {item.ProjectCode}" +
+                (string.IsNullOrWhiteSpace(item.WorkOrderNumber) ? "" : $"\nW/O: {item.WorkOrderNumber}") +
+                $"\n{item.ActorName}님이 " +
                 (item.Kind == OsanNotificationKind.StepRejected ? $"단계를 반려했습니다.\n사유: {item.Comment}" :
                  item.Kind == OsanNotificationKind.StepEdited ? "사진·코멘트를 수정 저장했습니다." :
-                 item.Kind == OsanNotificationKind.StepIssueRegistered ? $"이상을 등록했습니다.\n이상 내용: {item.Comment}" :
-                 item.Kind == OsanNotificationKind.StepIssueResolved ? $"이상 조치와 단계를 완료했습니다.\n조치 내용: {item.Comment}" : "단계를 완료했습니다.") +
+                 item.Kind == OsanNotificationKind.StepIssueRegistered ? $"공정 이상 발생 내용을 등록했습니다.\n공정 이상 내용: {item.Comment}" :
+                 item.Kind == OsanNotificationKind.StepIssueResolved ? $"이상 조치와 Gate를 완료했습니다.\n조치 내용: {item.Comment}" :
+                 item.Kind == OsanNotificationKind.StepWorkRequested ? "공정 진행을 요청했습니다." : "Gate를 완료했습니다.") +
                 $"\n진행 대상: {string.Join(", ", item.Targets)}"
         };
         var timestamp = item.OccurredAt.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm:ss") + " (한국 시간)";
         message += $"\n{timestamp}";
         var button = item.Kind switch
         {
-            OsanNotificationKind.StepCompleted => "완료 기록 보기",
+            OsanNotificationKind.StepCompleted => "Gate 완료 기록 보기",
             OsanNotificationKind.StepRejected => "반려 내용 확인하기",
             OsanNotificationKind.StepEdited => "수정 기록 보기",
-            OsanNotificationKind.StepIssueRegistered => "이상 내용 확인하기",
+            OsanNotificationKind.StepIssueRegistered => "공정 이상 내용 확인하기",
             OsanNotificationKind.StepIssueResolved => "조치 완료 기록 보기",
+            OsanNotificationKind.StepWorkRequested => "요청 공정 보기",
             _ => "프로젝트 상세 보기"
         };
         var subject = $"[EMI PMS · 오산] {action} · {item.ProjectName}" + (isProject ? "" : $" · {targets}");
@@ -72,18 +79,23 @@ public static class OsanNotificationTemplates
             Field(item.Kind == OsanNotificationKind.ProjectCompleted ? "완료 수량" : "수량", item.Quantity.ToString());
             Field("납기일", item.DueDate?.ToString("yyyy-MM-dd") ?? "미지정");
         }
-        else { Field("진행 대상", string.Join(", ", item.Targets)); Field("진행 단계", item.StepName ?? ""); }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(item.WorkOrderNumber)) Field("W/O", item.WorkOrderNumber);
+            if (item.Kind == OsanNotificationKind.StepWorkRequested) Field("Part 분류", item.PartCategory);
+            Field("진행 대상", string.Join(", ", item.Targets)); Field("진행 단계", item.StepName ?? "");
+        }
         if (item.Kind != OsanNotificationKind.ProjectCompleted)
-            Field(item.Kind == OsanNotificationKind.StepRejected ? "반려 처리자" : item.Kind == OsanNotificationKind.StepEdited ? "최종 등록자" : item.Kind == OsanNotificationKind.StepIssueResolved ? "조치 완료자" : "등록자", item.ActorName);
+            Field(item.Kind == OsanNotificationKind.StepRejected ? "반려 처리자" : item.Kind == OsanNotificationKind.StepEdited ? "최종 등록자" : item.Kind == OsanNotificationKind.StepIssueRegistered ? "공정 이상 등록자" : item.Kind == OsanNotificationKind.StepIssueResolved ? "조치 완료자" : item.Kind == OsanNotificationKind.StepWorkRequested ? "요청자" : "등록자", item.ActorName);
         Field(item.Kind switch {
             OsanNotificationKind.ProjectCreated => "등록 일시", OsanNotificationKind.StepRejected => "반려 일시",
-            OsanNotificationKind.StepEdited => "수정 일시", OsanNotificationKind.StepIssueRegistered => "이상 등록 일시",
-            OsanNotificationKind.StepIssueResolved => "조치 완료 일시", _ => "완료 일시" }, timestamp);
-        if (!isProject && item.Kind != OsanNotificationKind.StepRejected) Field("등록 사진", $"{item.PhotoCount}장");
+            OsanNotificationKind.StepEdited => "수정 일시", OsanNotificationKind.StepIssueRegistered => "공정 이상 발생 일시",
+            OsanNotificationKind.StepIssueResolved => "조치 완료 일시", OsanNotificationKind.StepWorkRequested => "요청 일시", _ => "완료 일시" }, timestamp);
+        if (!isProject && item.Kind is not (OsanNotificationKind.StepRejected or OsanNotificationKind.StepWorkRequested)) Field("등록 사진", $"{item.PhotoCount}장");
         html.Append("</dl>");
-        if (!isProject)
+        if (!isProject && item.Kind != OsanNotificationKind.StepWorkRequested)
         {
-            html.Append("<h3>").Append(item.Kind == OsanNotificationKind.StepRejected ? "반려 사유" : item.Kind == OsanNotificationKind.StepEdited ? "최종 코멘트" : item.Kind == OsanNotificationKind.StepIssueRegistered ? "이상 내용" : item.Kind == OsanNotificationKind.StepIssueResolved ? "조치 내용" : "코멘트")
+            html.Append("<h3>").Append(item.Kind == OsanNotificationKind.StepRejected ? "반려 사유" : item.Kind == OsanNotificationKind.StepEdited ? "최종 코멘트" : item.Kind == OsanNotificationKind.StepIssueRegistered ? "공정 이상 내용" : item.Kind == OsanNotificationKind.StepIssueResolved ? "조치 내용" : "코멘트")
                 .Append("</h3><p style=\"white-space:pre-wrap\">").Append(E(string.IsNullOrWhiteSpace(item.Comment) ? "등록된 코멘트가 없습니다." : item.Comment)).Append("</p>");
         }
         if (item.Kind == OsanNotificationKind.StepRejected)

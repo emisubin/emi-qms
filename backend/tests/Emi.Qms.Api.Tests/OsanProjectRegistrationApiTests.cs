@@ -46,7 +46,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(25, endpoints.Length);
+        Assert.Equal(27, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -88,6 +88,16 @@ public sealed partial class OsanProjectRegistrationApiTests
             endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/related-panels"
             && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
                 HttpMethods.Get,
+                StringComparer.OrdinalIgnoreCase) == true);
+        Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/work-request-recipients"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Get,
+                StringComparer.OrdinalIgnoreCase) == true);
+        Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/work-requests"
+            && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Post,
                 StringComparer.OrdinalIgnoreCase) == true);
         Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/targets/{targetId:guid}/qr"
@@ -261,6 +271,15 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(500, input.Quantity);
         Assert.Equal(operationId, input.OperationId);
 
+        var (fixedInput, fixedErrors) = OsanProjectInputNormalizer.NormalizeFixedQuantity(
+            ValidRequest(quantity: null));
+        Assert.Empty(fixedErrors);
+        Assert.Equal(1, fixedInput!.Quantity);
+        var (rejectedFixedInput, rejectedFixedErrors) = OsanProjectInputNormalizer.NormalizeFixedQuantity(
+            ValidRequest(quantity: 2));
+        Assert.Null(rejectedFixedInput);
+        Assert.Contains(nameof(CreateOsanProjectRequest.Quantity), rejectedFixedErrors.Keys);
+
         foreach (var quantity in new int?[] { null, 0, -1, 501 })
         {
             var (_, invalidErrors) = OsanProjectInputNormalizer.Normalize(ValidRequest(quantity: quantity));
@@ -299,9 +318,22 @@ public sealed partial class OsanProjectRegistrationApiTests
         {
             var sheet = Assert.Single(workbook.Worksheets);
             Assert.Equal(
-                ["장비명 *", "프로젝트 코드 *", "part 분류 *", "수량 *", "고객사 *", "PO No", "W/O No", "납기일 *"],
-                Enumerable.Range(1, 8).Select(column => sheet.Cell(3, column).GetString()));
+                ["장비명 *", "프로젝트 코드 *", "part 분류 *", "고객사 *", "PO No", "W/O No", "납기일 *"],
+                Enumerable.Range(1, 7).Select(column => sheet.Cell(3, column).GetString()));
             Assert.DoesNotContain(sheet.RowsUsed(), row => row.RowNumber() > 3);
+
+            sheet.Cell(4, 1).Value = "New template";
+            sheet.Cell(4, 2).Value = "NEW-TEMPLATE";
+            sheet.Cell(4, 3).Value = "Product";
+            sheet.Cell(4, 4).Value = "Customer";
+            sheet.Cell(4, 7).Value = new DateOnly(2026, 12, 31).ToDateTime(TimeOnly.MinValue);
+            using var currentStream = new MemoryStream();
+            workbook.SaveAs(currentStream);
+            var currentParsed = await parser.ParseAsync(
+                Upload("current-template.xlsx", currentStream.ToArray()),
+                TestContext.Current.CancellationToken);
+            Assert.Empty(currentParsed.Errors);
+            Assert.Equal(1, Assert.Single(currentParsed.Rows).Quantity);
         }
 
         var valid = CreateOsanExcel(workbook =>
@@ -310,7 +342,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             workbook.Worksheet(1).Cell(1, 3).Value = "고객사";
             workbook.Worksheet(1).Cell(1, 7).Value = "part 분류";
             AddExcelRow(workbook.Worksheet(1), 2, "  Title  Case ", " 00Ab  01 ", " Customer ",
-                " 001-PO ", " 000-W/O ", new DateOnly(2026, 12, 31), " Product  X ", 2);
+                " 001-PO ", " 000-W/O ", new DateOnly(2026, 12, 31), " Product  X ", 1);
         });
         var parsed = await parser.ParseAsync(Upload("valid.xlsx", valid), TestContext.Current.CancellationToken);
         Assert.Empty(parsed.Errors);
@@ -319,6 +351,16 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal("001-PO", parsedRow.PoNumber);
         Assert.Equal("000-W/O", parsedRow.WorkOrderNumber);
         Assert.Equal("Title  Case", parsedRow.Title);
+
+        var legacyMultiple = CreateOsanExcel(workbook =>
+        {
+            AddExcelHeaders(workbook.Worksheet(1));
+            AddExcelRow(workbook.Worksheet(1), 2, "Legacy multiple", "LEGACY-MULTI", "Customer",
+                null, null, new DateOnly(2026, 12, 31), "Product", 2);
+        });
+        var legacyMultipleParsed = await parser.ParseAsync(
+            Upload("legacy-multiple.xlsx", legacyMultiple), TestContext.Current.CancellationToken);
+        Assert.Contains(OsanProjectExcelParser.LegacyQuantityError, Assert.Single(legacyMultipleParsed.Rows).Errors);
 
         var fractional = CreateOsanExcel(workbook =>
         {
@@ -332,7 +374,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         });
         var fractionalParsed = await parser.ParseAsync(
             Upload("fractional.xlsx", fractional), TestContext.Current.CancellationToken);
-        Assert.All(fractionalParsed.Rows, row => Assert.Contains("수량은 정수여야 합니다.", row.Errors));
+        Assert.All(fractionalParsed.Rows, row => Assert.Contains(OsanProjectExcelParser.LegacyQuantityError, row.Errors));
 
         var formula = CreateOsanExcel(workbook =>
         {
@@ -376,9 +418,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         var preview = await new OsanProjectStore(
                 new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build()), parser)
             .PreviewExcelAsync(Upload("huge.xlsx", hugeQuantities), TestContext.Current.CancellationToken);
-        Assert.Equal(0, preview.TotalQuantity);
         Assert.True(preview.ErrorCount > 0);
-        Assert.All(preview.Rows, row => Assert.Contains("quantity", row.FieldErrors!.Keys));
+        Assert.All(preview.Rows, row => Assert.Contains(OsanProjectExcelParser.LegacyQuantityError, row.Errors));
     }
 
     [Fact]
@@ -399,10 +440,9 @@ public sealed partial class OsanProjectRegistrationApiTests
 
         var parser = new OsanProjectExcelParser();
         var store = new OsanProjectStore(provider, parser);
-        var file = Upload("batch.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 2), ("Excel B", "Bb-002", 3)]));
+        var file = Upload("batch.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 1), ("Excel B", "Bb-002", 1)]));
         var preview = await store.PreviewExcelAsync(file, TestContext.Current.CancellationToken);
         Assert.Equal(2, preview.TotalRowCount);
-        Assert.Equal(5, preview.TotalQuantity);
         Assert.Equal(0, preview.ErrorCount);
         Assert.Equal(["00Aa  01", "Bb-002"], preview.Rows.Select(row => row.ProjectCode));
 
@@ -412,17 +452,17 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(OsanProjectExcelApplyStatus.Success, created.Status);
         Assert.False(created.Value!.Replayed);
         Assert.Equal(2, created.Value.CreatedCount);
-        Assert.Equal(5L, await database.ReadScalarAsync<long>(
+        Assert.Equal(2L, await database.ReadScalarAsync<long>(
             "select count(*) from osan_project_targets;", TestContext.Current.CancellationToken));
-        Assert.Equal(35L, await database.ReadScalarAsync<long>(
+        Assert.Equal(14L, await database.ReadScalarAsync<long>(
             "select count(*) from osan_project_target_steps;", TestContext.Current.CancellationToken));
         Assert.Equal(2L, await database.ReadScalarAsync<long>(
             "select count(*) from osan_project_events where event_type='ProjectCreated';",
             TestContext.Current.CancellationToken));
         var firstDetail = await store.GetAsync(created.Value.ProjectIds[0], TestContext.Current.CancellationToken);
         Assert.NotNull(firstDetail);
-        Assert.Equal(2, firstDetail.Quantity);
-        Assert.Equal(2, firstDetail.Targets.Count);
+        Assert.Equal(1, firstDetail.Quantity);
+        Assert.Single(firstDetail.Targets);
         Assert.All(firstDetail.Targets, target => Assert.Equal(7, target.Steps.Count));
 
         var replayed = await store.ApplyExcelAsync(
@@ -482,7 +522,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var existingPreview = await store.PreviewExcelAsync(existing, TestContext.Current.CancellationToken);
         Assert.Equal(0, existingPreview.ErrorCount);
         Assert.Equal("code", Assert.Single(existingPreview.Rows).DuplicateKind);
-        var identical = Upload("identical.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 2)]));
+        var identical = Upload("identical.xlsx", CreateBatchExcel([("Excel A", "00Aa  01", 1)]));
         Assert.Equal("identical", Assert.Single((await store.PreviewExcelAsync(
             identical,
             TestContext.Current.CancellationToken)).Rows).DuplicateKind);
@@ -511,7 +551,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var editedRows = new[]
         {
             new OsanProjectExcelRowRequest(2, "Edited  Title", "00Edit  A", "Customer", "001-PO", null,
-                "2027-01-02", "Edited Product", 2),
+                "2027-01-02", "Edited Product", 1),
             new OsanProjectExcelRowRequest(3, " ", "EDIT-B", "Customer", null, null,
                 "2027-01-03", "Product", 1)
         };
@@ -534,7 +574,6 @@ public sealed partial class OsanProjectRegistrationApiTests
                     "2027-01-04", "Product", 1.4m)
             ],
             TestContext.Current.CancellationToken);
-        Assert.Equal(2, rawInvalidPreview.TotalQuantity);
         Assert.Empty(rawInvalidPreview.Rows[0].Errors);
         Assert.Contains("deliveryDate", rawInvalidPreview.Rows[1].FieldErrors!.Keys);
         Assert.Contains("deliveryDate", rawInvalidPreview.Rows[2].FieldErrors!.Keys);
@@ -1116,10 +1155,10 @@ public sealed partial class OsanProjectRegistrationApiTests
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 2),
             scope,
             TestContext.Current.CancellationToken);
-        Assert.Equal(new OsanDashboardSummaryResponse(3, 1, 1, 1), firstPage.Summary);
-        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Equal(new OsanDashboardSummaryResponse(2, 1, 1, 0), firstPage.Summary);
+        Assert.Equal(2, firstPage.TotalCount);
         Assert.Equal(2, firstPage.Items.Count);
-        Assert.Equal(["Customer", "고객 A", "고객 AB"], firstPage.Customers!.Order(StringComparer.Ordinal));
+        Assert.Equal(["고객 A", "고객 AB"], firstPage.Customers!.Order(StringComparer.Ordinal));
         Assert.DoesNotContain("Secret Customer", firstPage.Customers!);
         Assert.Equal([partial.Value.Project.ProjectId, notStarted.Value.Project.ProjectId],
             firstPage.Items.Select(item => item.ProjectId));
@@ -1137,18 +1176,9 @@ public sealed partial class OsanProjectRegistrationApiTests
             scope,
             TestContext.Current.CancellationToken);
         Assert.Equal(firstPage.Summary, secondPage.Summary);
-        Assert.Equal(3, secondPage.TotalCount);
+        Assert.Equal(2, secondPage.TotalCount);
         Assert.Equal(firstPage.Customers, secondPage.Customers);
-        var completedItem = Assert.Single(secondPage.Items);
-        Assert.Equal(completed.Value.Project.ProjectId, completedItem.ProjectId);
-        Assert.Equal(7, completedItem.CompletedStepCount);
-        Assert.Equal(7, completedItem.TotalStepCount);
-        Assert.Equal(100, completedItem.ProgressPercent);
-        Assert.All(completedItem.Stages, stage =>
-        {
-            Assert.Equal(1, stage.CompletedTargetCount);
-            Assert.Equal(1, stage.TotalTargetCount);
-        });
+        Assert.Empty(secondPage.Items);
 
         var filtered = await store.GetAsync(
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.InProgress, 1, 10),
@@ -1283,6 +1313,23 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(
             [todayCompleted.Value.Project.ProjectId, futureCompleted.Value.Project.ProjectId],
             homeCompleted.Items.Select(item => item.ProjectId));
+
+        // Same visible set and sort for home/progress, with old-due HOLD after every active project.
+        await database.ExecuteAsync("update projects set osan_delivery_hold=true where id=@id", TestContext.Current.CancellationToken,
+            ("id", pastUnfinished.Value.Project.ProjectId));
+        var heldHome = await store.GetAsync(new("", "All", 1, 10, "home"), homeScope, TestContext.Current.CancellationToken);
+        var heldProgress = await store.GetAsync(new("", "All", 1, 10, "progress"), homeScope, TestContext.Current.CancellationToken);
+        Assert.Equal(new OsanDashboardSummaryResponse(5, 1, 1, 2, 1), heldHome.Summary);
+        Assert.Equal(heldHome.Summary, heldProgress.Summary);
+        Assert.Equal(heldHome.Items.Select(p => p.ProjectId), heldProgress.Items.Select(p => p.ProjectId));
+        Assert.Equal(pastUnfinished.Value.Project.ProjectId, heldHome.Items.Last().ProjectId);
+        Assert.Equal("Hold", heldHome.Items.Last().Status);
+        var heldOnly = await store.GetAsync(new("", "Hold", 1, 10, "progress"), homeScope, TestContext.Current.CancellationToken);
+        Assert.Equal(1, heldOnly.TotalCount);
+        Assert.Equal(pastUnfinished.Value.Project.ProjectId, Assert.Single(heldOnly.Items).ProjectId);
+        Assert.Equal(heldHome.Summary, heldOnly.Summary);
+        var heldPage = await store.GetAsync(new("", "All", 3, 2, "progress"), homeScope, TestContext.Current.CancellationToken);
+        Assert.Equal(pastUnfinished.Value.Project.ProjectId, Assert.Single(heldPage.Items).ProjectId);
     }
 
     [Fact]
@@ -2264,7 +2311,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             row.WorkOrderNumber,
             row.DeliveryDate,
             row.ProductName,
-            row.Quantity);
+            null);
 
     private static byte[] CreateBatchExcel(IReadOnlyList<(string Title, string Code, int Quantity)> rows) =>
         CreateOsanExcel(workbook =>

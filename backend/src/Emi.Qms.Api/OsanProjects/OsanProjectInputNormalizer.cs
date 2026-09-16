@@ -9,6 +9,22 @@ public static class OsanProjectInputNormalizer
     public const int ProductNameMaxLength = 100;
     public const int QuantityMax = 500;
 
+    public static (NormalizedCreateOsanProjectInput? Input, IReadOnlyDictionary<string, string[]> Errors) NormalizeFixedQuantity(
+        CreateOsanProjectRequest request)
+    {
+        var (input, normalizedErrors) = Normalize(request with { Quantity = 1 });
+        if (request.Quantity is null or 1)
+        {
+            return (input, normalizedErrors);
+        }
+
+        var errors = new Dictionary<string, string[]>(normalizedErrors, StringComparer.Ordinal)
+        {
+            [nameof(request.Quantity)] = ["오산 프로젝트 수량은 1로 고정됩니다. 수량을 비우거나 1로 입력해 주세요."]
+        };
+        return (null, errors);
+    }
+
     public static (NormalizedCreateOsanProjectInput? Input, IReadOnlyDictionary<string, string[]> Errors) Normalize(
         CreateOsanProjectRequest request)
     {

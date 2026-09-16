@@ -15,7 +15,7 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class BusinessUnitIsolationTests
 {
     [Fact]
-    public async Task OsanNotificationPreferences_AreSelfOnlyIsolatedAndDefaultOn()
+    public async Task OsanNotificationPreferences_AreAdminOnlyGlobalIsolatedAndDefaultOn()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var databases = await IsolationDatabaseSet.CreateAsync(ct);
@@ -31,11 +31,13 @@ public sealed partial class BusinessUnitIsolationTests
         databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
         await databases.ExecuteAsync("DIRECTORY", BusinessUnitConnectionPurpose.Migration, $"""
             insert into directory_identities(user_id,auth_provider,external_subject,display_name,is_active)
-            values('{SalesUserId}','Dev','dev-sales','Sales',true),('50000000-0000-0000-0000-000000000005','Dev','dev-quality','Quality',true)
+            values('{AdminUserId}','Dev','dev-admin','Admin',true),('{SalesUserId}','Dev','dev-sales','Sales',true),('50000000-0000-0000-0000-000000000005','Dev','dev-quality','Quality',true)
             on conflict(user_id) do nothing;
             insert into directory_business_unit_memberships(user_id,business_unit_code,is_active)
-            values('{SalesUserId}','OSAN',true),('50000000-0000-0000-0000-000000000005','OSAN',true)
+            values('{AdminUserId}','OSAN',true),('{SalesUserId}','OSAN',true),('50000000-0000-0000-0000-000000000005','OSAN',true)
             on conflict(user_id,business_unit_code) do update set is_active=true;
+            insert into directory_overall_administrators(user_id,is_active)
+            values('{AdminUserId}',true) on conflict(user_id) do update set is_active=true;
             """, ct);
         using var factory = QmsWebApplicationFactory.Create(DevelopmentFeaturePolicy.TestingEnvironmentName,
             databases.ConfigurationValues, includeDefaultDevelopmentAuthentication: true);
@@ -49,11 +51,11 @@ public sealed partial class BusinessUnitIsolationTests
         }
 
         OsanNotificationPreferenceResponse defaults;
-        using (var response = await Send(HttpMethod.Get, "dev-sales", BusinessUnitCodes.Osan))
+        using (var response = await Send(HttpMethod.Get, "dev-admin", BusinessUnitCodes.Osan))
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             defaults = (await response.Content.ReadFromJsonAsync<OsanNotificationPreferenceResponse>(ct))!;
-            Assert.Equal(7, defaults.Items.Count);
+            Assert.Equal(8, defaults.Items.Count);
             Assert.Equal(7, defaults.StepCompletedStages.Count);
             Assert.All(defaults.Items, item => { Assert.True(item.MailEnabled); Assert.True(item.PushEnabled); });
         }
@@ -64,7 +66,7 @@ public sealed partial class BusinessUnitIsolationTests
             var malformedStages = defaults.StepCompletedStages.Cast<object?>().ToArray();
             if (nullStage) malformedStages[0] = null;
             else malformedItems[0] = null;
-            using var invalid = await Send(HttpMethod.Put, "dev-sales", BusinessUnitCodes.Osan,
+            using var invalid = await Send(HttpMethod.Put, "dev-admin", BusinessUnitCodes.Osan,
                 new { expectedVersion = defaults.Version, items = malformedItems, stepCompletedStages = malformedStages });
             Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
         }
@@ -75,7 +77,7 @@ public sealed partial class BusinessUnitIsolationTests
         var updatedStages = defaults.StepCompletedStages.Select(stage => stage.Sequence == 3
             ? stage with { PushEnabled = false }
             : stage).ToArray();
-        using (var response = await Send(HttpMethod.Put, "dev-sales", BusinessUnitCodes.Osan,
+        using (var response = await Send(HttpMethod.Put, "dev-admin", BusinessUnitCodes.Osan,
                    new UpdateOsanNotificationPreferencesRequest(defaults.Version, updatedItems, updatedStages)))
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -86,28 +88,26 @@ public sealed partial class BusinessUnitIsolationTests
 
         Assert.Equal(2L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
-            "select count(distinct target_type) from audit_event_changes where target_type in ('osan_notification_preference_profiles','osan_notification_preferences');", ct));
+            "select count(distinct target_type) from audit_event_changes where target_type in ('osan_notification_global_preference_profiles','osan_notification_global_preferences');", ct));
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
             BusinessUnitConnectionPurpose.Migration,
-            "select count(*) from audit_event_changes where target_type in ('osan_notification_preference_profiles','osan_notification_preferences');", ct));
+            "select count(*) from audit_event_changes where target_type in ('osan_notification_global_preference_profiles','osan_notification_global_preferences');", ct));
 
         using (var other = await Send(HttpMethod.Get, "dev-quality", BusinessUnitCodes.Osan))
-        {
-            Assert.True(other.StatusCode == HttpStatusCode.OK,
-                $"Expected second user's Osan preferences, got {(int)other.StatusCode}: {await other.Content.ReadAsStringAsync(ct)}");
-            var own = (await other.Content.ReadFromJsonAsync<OsanNotificationPreferenceResponse>(ct))!;
-            Assert.All(own.Items, item => { Assert.True(item.MailEnabled); Assert.True(item.PushEnabled); });
-        }
+            Assert.Equal(HttpStatusCode.Forbidden, other.StatusCode);
+        using (var denied = await Send(HttpMethod.Put, "dev-quality", BusinessUnitCodes.Osan,
+                   new UpdateOsanNotificationPreferencesRequest(defaults.Version, updatedItems, updatedStages)))
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         using (var wrongUnit = await Send(HttpMethod.Get, "dev-quality", BusinessUnitCodes.Cheongju))
             Assert.Equal(HttpStatusCode.Forbidden, wrongUnit.StatusCode);
-        using (var conflict = await Send(HttpMethod.Put, "dev-sales", BusinessUnitCodes.Osan,
+        using (var conflict = await Send(HttpMethod.Put, "dev-admin", BusinessUnitCodes.Osan,
                    new UpdateOsanNotificationPreferencesRequest(defaults.Version, updatedItems, updatedStages)))
             Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
 
         Assert.Equal(2L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
-            BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_notification_preferences;", ct));
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_notification_global_preferences;", ct));
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
-            BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_notification_preferences;", ct));
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_notification_global_preferences;", ct));
     }
 
     [Fact]
@@ -136,9 +136,9 @@ public sealed partial class BusinessUnitIsolationTests
                 '{SalesUserId}','Osan','Synthetic Product',1);
             insert into web_push_subscriptions(id,user_id,endpoint,endpoint_hash,p256dh_key,auth_key,activated_at_utc)
             values('{subscriptionId}','{SalesUserId}','https://push.example.test/prefs','prefs-hash','p256dh','auth',now()-interval '1 day');
-            insert into osan_notification_preferences(user_id,event_kind,channel,stage_sequence,is_enabled)
-            values('{SalesUserId}','ProjectCreated','Mail',0,false),
-                  ('{SalesUserId}','ProjectCreated','WebPush',0,false);
+            insert into osan_notification_global_preferences(scope_id,event_kind,channel,stage_sequence,is_enabled)
+            values(1,'ProjectCreated','Mail',0,false),
+                  (1,'ProjectCreated','WebPush',0,false);
             """, ct);
 
         var osan = databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Osan);
@@ -182,16 +182,20 @@ public sealed partial class BusinessUnitIsolationTests
                 """, ct));
 
         await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
-            $"delete from osan_notification_preferences where user_id='{SalesUserId}';", ct);
+            $"delete from osan_notification_global_preferences where scope_id=1;", ct);
         Assert.Equal(0, await deliveryStore.CreateImmediateDeliveriesAsync(options, ct, osan));
 
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration, $"""
+            insert into osan_notification_preferences(user_id,event_kind,channel,stage_sequence,is_enabled)
+            values('{SalesUserId}','ProjectCreated','Mail',0,false),('{SalesUserId}','ProjectCreated','WebPush',0,false);
+            """, ct);
         var queuedOperation = Guid.NewGuid();
         await Write(queuedOperation);
         Assert.Equal(1, await deliveryStore.CreateImmediateDeliveriesAsync(options, ct, osan));
         await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration, $"""
-            insert into osan_notification_preferences(user_id,event_kind,channel,stage_sequence,is_enabled)
-            values('{SalesUserId}','ProjectCreated','Mail',0,false),
-                  ('{SalesUserId}','ProjectCreated','WebPush',0,false);
+            insert into osan_notification_global_preferences(scope_id,event_kind,channel,stage_sequence,is_enabled)
+            values(1,'ProjectCreated','Mail',0,false),
+                  (1,'ProjectCreated','WebPush',0,false);
             """, ct);
 
         var mail = new PreferenceCountingHandler(NotificationDeliveryChannels.Mail);

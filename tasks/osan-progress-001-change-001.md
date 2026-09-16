@@ -46,3 +46,19 @@
 - 미병합 migration 0102/0103의 mutable 원본 3개(`osan_stage_issues`, 개인 알림 preference/profile)에 기존 중앙 감사 trigger를 추가했다. 발송 식별 메타데이터 `osan_notification_events`는 기존 notifications와 같은 생성물 분류로 명시했다.
 - 감사 relation 목록·실제 trigger 수 검증과 오산 preference API 감사 생성/청주 미기록, stage issue 실제 감사 생성 검증을 보강했다. 중앙 개인정보 projection 정책은 유지한다.
 - 독립 diff review에 차단 finding 없음. 관련 직접 검증과 보정 커밋의 required CI를 다시 확인하고 통과 후 배포한다.
+
+## 원격 main 병합·공개배포 완료 · 2026-09-16
+
+- 사용자 승인 범위의 오산 변경만 PR #144로 병합했다. 최종 후보 `dd257f6`, main merge `70305eb24e3cd965a8b670eea3c28e0682c20489`. 인테리어 부스바 파일·커밋 및 원본 checkout WIP는 포함하지 않았다.
+- 감사 보정 직접 검증 17개 통과. 최종 CI `35051921481`에서 Backend 680/680, Frontend, Workflow Validation, Full-Stack E2E(브라우저·사업부 접근·오산 프로젝트 등록), CI Gate 모두 통과. main CI도 성공했다.
+- Azure release `35054251716` 성공. 첫 Frontend 작업의 GitHub OIDC 토큰 발급 실패는 운영 변경 전에 발생했으며, 실패 작업 재실행에서 인증·이미지 생성·배포 모두 성공했다. 인증/비밀값/보호 규칙 변경 없음.
+- migration `migration-0zi6xo7` 성공. Backend `backend--0000054`, Frontend `frontend--0000047`: latest=ready, provisioning Succeeded, 새 revision 트래픽 100%. ClamAV 기존 revision 유지.
+- 공개 `/health/live` 200, 익명 `/` 및 `/api/projects` 401로 기존 접근 차단 유지. 배포 workflow의 migration/backend/frontend/public-security 검증 모두 PASS.
+- bootstrap·membership backfill·drop/reset·기존 데이터 정정은 실행하지 않았다. 기존 데이터 보존은 migration 회귀와 운영 migration 성공 근거이며 운영 사진·이력을 전수 대조한 것은 아니다. 실제 사용자 메일/푸시를 인위적으로 발송하지 않았으므로 새 기능의 실기기 수신 확인은 실제 사용 중 확인한다.
+- 배포 결과 기록은 배포 후 문서 전용 로컬 커밋으로 남긴다. 제품 변경은 원격 main 및 공개 환경에 반영 완료했다.
+
+### 알림 설정 메뉴 정렬 보정 · 2026-09-16
+
+사용자가 공개배포까지 승인한 작은 UI 보정: 프로필 메뉴의 오산 `알림 설정` 버튼을 가운데 정렬하고 우측 장식 화살표를 제거했다. PC 및 390px 모바일 실제 화면에서 확인했고 타입 검사 통과. 알림 설정 동작·API·DB 변경 없음. 필수 CI 후 프런트엔드만 공개배포한다.
+
+같은 배포 전 사용자 추가 요청으로 오산 알림 목록의 중복 `알림 설정` 버튼을 제거했다. 오산에서 기존 `/notification-settings`로 접근하면 알림 목록으로 replace 이동하며 기존 설정 페이지는 렌더링하지 않는다. 청주 기존 설정 페이지와 오산 프로필 팝업은 유지한다. PC·390px 알림 목록 및 구 주소 이동 직접 확인, 관련 navigation/청주 설정/오산 팝업 검증과 타입·lint 확인.

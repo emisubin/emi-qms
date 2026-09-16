@@ -1685,19 +1685,65 @@ test("masters designation controls menu read edit and administrator grants", asy
     await selectSection(page,"기준정보");
     await expect(page.getByRole("heading",{name:"제품군",exact:true})).toBeVisible();
     await expect(page.getByRole("button",{name:"제품군 등록",exact:true})).toHaveCount(mode === "Read" ? 0 : 1);
-    await expect(page.getByRole("heading",{name:"기준정보 권한 설정",exact:true})).toHaveCount(mode === "Admin" ? 1 : 0);
+    await expect(page.getByRole("heading",{name:"기준정보 접근 사용자",exact:true})).toHaveCount(mode === "Admin" ? 1 : 0);
     if(mode === "Admin") {
-      await page.getByRole("button",{name:"권한 설정",exact:true}).click();
-      await page.getByRole("combobox",{name:"접근 권한",exact:true}).selectOption("Edit");
-      await page.getByLabel("변경 사유",{exact:true}).fill("합성 업무 배정");
-      for(const width of [1440,390]) {
-        await page.setViewportSize({width,height:1000});
-        await page.screenshot({path:`/private/tmp/emi-busbar-master-access-${width}.png`,fullPage:true});
-        expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
-      }
-      await page.getByRole("button",{name:"저장",exact:true}).click();
+      await page.getByRole("button",{name:"권한 설정 수정",exact:true}).click();
+      await page.getByRole("checkbox",{name:"합성 사용자 수정 권한",exact:true}).click();
       await expect.poll(()=>writes.filter(w=>w.path.endsWith("/master-access")).length).toBe(1);
-      expect(writes.find(w=>w.path.endsWith("/master-access"))?.body).toMatchObject({userId:workerId,access:"Edit",reason:"합성 업무 배정"});
+      expect(writes.find(w=>w.path.endsWith("/master-access"))?.body).toMatchObject({userId:workerId,access:"Edit"});
     }
   }
+});
+
+test("master access popup toggles immediately and keeps a hundred users out of the page", async ({page}) => {
+  await mock(page,fixture());
+  const users=Array.from({length:100},(_,i)=>({userId:`user-${i}`,displayName:`합성 사용자 ${i}`,departmentName:"합성 부서",access:i===1 ? "Read" : "None",automatic:i===0}));
+  const writes:Array<{userId:string;access:string;reason:string}>=[];
+  let failAfterSave=false;
+  await page.route("**/api/interior-busbar/master-access",async route=>{
+    if(route.request().method()==="PUT") {
+      const body=route.request().postDataJSON();writes.push(body);
+      users.find(u=>u.userId===body.userId)!.access=body.access;
+      await route.fulfill({status:failAfterSave?500:200,contentType:"application/json",body:JSON.stringify(failAfterSave?{message:"합성 응답 오류"}:{id:body.userId})});
+      return;
+    }
+    await route.fulfill({contentType:"application/json",body:JSON.stringify(users)});
+  });
+  await page.goto("/interior-busbar/masters");
+  const granted=page.getByRole("list",{name:"기준정보 접근 사용자"});
+  await expect(granted.getByRole("listitem")).toHaveCount(2);
+  await expect(granted.getByText("합성 사용자 99",{exact:true})).toHaveCount(0);
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.screenshot({path:`/private/tmp/emi-busbar-access-summary-${width}.png`,fullPage:true});
+  }
+  await page.getByRole("button",{name:"권한 설정 수정",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"기준정보 권한 설정 수정"});
+  await expect(dialog.getByRole("checkbox")).toHaveCount(200);
+  await expect(dialog.getByRole("checkbox",{name:"합성 사용자 0 조회 권한",exact:true})).toBeDisabled();
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    await page.screenshot({path:`/private/tmp/emi-busbar-access-popup-${width}.png`,fullPage:true});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    expect(await page.locator(".busbar-access-list").evaluate(el=>el.scrollHeight>el.clientHeight && el.clientHeight<=innerHeight*.51)).toBe(true);
+    expect(await page.locator(".busbar-access-list").evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+    expect(await dialog.evaluate(el=>Math.abs(el.getBoundingClientRect().width-innerWidth)<2)).toBe(true);
+  }
+  await dialog.getByLabel("사용자 검색").fill("합성 사용자 99");
+  const read=dialog.getByRole("checkbox",{name:"합성 사용자 99 조회 권한",exact:true});
+  const edit=dialog.getByRole("checkbox",{name:"합성 사용자 99 수정 권한",exact:true});
+  await read.click();await expect.poll(()=>writes.length).toBe(1);await expect(read).toBeEnabled();
+  await edit.click();await expect.poll(()=>writes.length).toBe(2);await expect(edit).toBeEnabled();
+  await edit.click();await expect.poll(()=>writes.length).toBe(3);await expect(edit).toBeEnabled();
+  await expect(read).toBeChecked();
+  await read.click();await expect.poll(()=>writes.length).toBe(4);await expect(read).toBeEnabled();
+  expect(writes.map(w=>w.access)).toEqual(["Read","Edit","Read","None"]);
+  failAfterSave=true;
+  await edit.click();
+  await expect(dialog.getByText("합성 응답 오류",{exact:true})).toBeVisible();
+  await expect(edit).toBeChecked();await expect(read).toBeChecked();
+  await page.getByRole("button",{name:"권한 설정 닫기"}).click();
+  await expect(granted.getByRole("listitem")).toHaveCount(3);
+  await page.reload();
+  await expect(granted.getByRole("listitem")).toHaveCount(3);
 });

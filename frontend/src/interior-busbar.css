@@ -498,3 +498,18 @@
 .busbar-project-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 520px; }
 
 .busbar-basic-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+
+.busbar-access-granted { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; margin: 12px 0 0; list-style: none; max-height: 160px; overflow-y: auto; }
+.busbar-access-granted li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
+.busbar-access-granted span { color: var(--text-muted, #64748b); font-size: 13px; }
+.busbar-access-dialog .dialog { width: min(800px, calc(100vw - 32px)); max-width: 800px; }
+.busbar-access-list { max-height: 50vh; overflow: auto; margin-top: 8px; }
+.busbar-access-list input[type="checkbox"] { width: 22px; height: 22px; cursor: pointer; }
+.busbar-access-list input:disabled { cursor: default; }
+
+.busbar-access-toggle { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
+
+.busbar-access-list table { width: 100%; min-width: 0; table-layout: fixed; }
+.busbar-access-list :is(th, td) { white-space: normal; overflow-wrap: anywhere; padding: 8px 4px; }
+.busbar-access-list :is(th, td):nth-child(3), .busbar-access-list :is(th, td):nth-child(4) { width: 56px; text-align: center; }
+.busbar-access-list :is(th, td):nth-child(2) { width: 25%; }

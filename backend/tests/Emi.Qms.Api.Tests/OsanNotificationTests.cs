@@ -1,4 +1,5 @@
 using Emi.Qms.Api.Notifications;
+using System.Text.Json;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -15,6 +16,8 @@ public sealed class OsanNotificationTests
     [InlineData(OsanNotificationKind.StepCompleted, "배선검사 완료")]
     [InlineData(OsanNotificationKind.StepRejected, "배선검사 반려")]
     [InlineData(OsanNotificationKind.StepEdited, "배선검사 수정 완료")]
+    [InlineData(OsanNotificationKind.StepIssueRegistered, "배선검사 이상 발생")]
+    [InlineData(OsanNotificationKind.StepIssueResolved, "배선검사 조치 완료")]
     [InlineData(OsanNotificationKind.ProjectCompleted, "프로젝트 완료")]
     public void Templates_preserve_event_snapshot_and_encode_untrusted_text(OsanNotificationKind kind, string subject)
     {
@@ -26,11 +29,38 @@ public sealed class OsanNotificationTests
         Assert.Contains("&lt;script&gt;", result.HtmlBody);
         Assert.Contains("targetId=2", result.HtmlBody);
         Assert.Contains("로그인", result.HtmlBody);
-        if (kind is OsanNotificationKind.StepCompleted or OsanNotificationKind.StepEdited or OsanNotificationKind.StepRejected)
+        if (kind is OsanNotificationKind.StepCompleted or OsanNotificationKind.StepEdited or OsanNotificationKind.StepRejected
+            or OsanNotificationKind.StepIssueRegistered or OsanNotificationKind.StepIssueResolved)
         {
             Assert.Contains("패널 01 외 1개", result.Subject);
             Assert.Contains("패널 01, 패널 02", result.HtmlBody);
         }
+    }
+
+    [Fact]
+    public void Issue_templates_include_required_action_copy_and_buttons()
+    {
+        var registered = OsanNotificationTemplates.Render(Snapshot(OsanNotificationKind.StepIssueRegistered));
+        Assert.Equal("배선검사 이상 발생", registered.Title);
+        Assert.Equal("이상 내용 확인하기", registered.ButtonText);
+        Assert.Contains("앞 6단계 완료와 모든 이상 조치 전에는 포장할 수 없습니다", registered.HtmlBody);
+        Assert.Contains("검사 완료", registered.HtmlBody);
+
+        var resolved = OsanNotificationTemplates.Render(Snapshot(OsanNotificationKind.StepIssueResolved));
+        Assert.Equal("배선검사 조치 완료", resolved.Title);
+        Assert.Equal("조치 완료 기록 보기", resolved.ButtonText);
+        Assert.Contains("이상 조치가 완료되었으며 해당 진행단계도 완료", resolved.HtmlBody);
+        Assert.Contains("검사 완료", resolved.HtmlBody);
+    }
+
+    [Fact]
+    public void Legacy_numeric_project_completion_snapshot_preserves_its_enum_identity()
+    {
+        var json = JsonSerializer.Serialize(Snapshot(OsanNotificationKind.ProjectCompleted));
+        Assert.Contains("\"Kind\":4", json);
+        var restored = JsonSerializer.Deserialize<OsanNotificationSnapshot>(json)!;
+        Assert.Equal(OsanNotificationKind.ProjectCompleted, restored.Kind);
+        Assert.Equal("프로젝트가 완료되었습니다", OsanNotificationTemplates.Render(restored).Title);
     }
 
     [Fact]

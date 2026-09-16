@@ -125,6 +125,9 @@ public static partial class AuditMutationRegistry
         POST /api/osan/projects/
         POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/reject
         POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/reset
+        POST /api/osan/projects/{projectId:guid}/progress/issues
+        POST /api/osan/projects/{projectId:guid}/progress/issues/records
+        POST /api/osan/projects/{projectId:guid}/progress/issues/resolve
         POST /api/osan/projects/{projectId:guid}/progress/completions
         POST /api/osan/projects/{projectId:guid}/progress/photo-edits
         POST /api/osan/projects/{projectId:guid}/progress/photo-edits/{requestId:guid}/approve
@@ -212,6 +215,7 @@ public static partial class AuditMutationRegistry
         PUT /api/logistics/packing-units/{unitId:guid}/panels
         PUT /api/logistics/{stage:regex(^(departure|delivery)$)}-batches/{batchId:guid}/units
         PUT /api/me/profile-photo
+        PUT /api/osan/my/notification-preferences
         PUT /api/my/notification-preferences
         PUT /api/my/web-push/subscriptions
         PUT /api/notices/{noticeId:guid}

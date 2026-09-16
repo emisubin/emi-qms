@@ -1,3 +1,4 @@
+import { OsanStageHistory } from './OsanStageHistory';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, getOsanProject } from './api';
 import type { OsanProjectDetail } from './projects';
@@ -42,17 +43,21 @@ export function OsanQrPage({ projectId, targetId, userKey }: { projectId: string
       <h2>{targetId ? `${visibleTargets[0]?.displayName ?? "패널"} 진행 현황` : "대상별 진행 현황"}</h2><p className="osan-qr-hint">단계를 누르면 작업 설명과 완료 기록을 볼 수 있습니다.</p>
       <div className="osan-qr-panels">{visibleTargets.map(item => {
         const count = item.steps.filter(s => s.status === 'Completed').length;
-        return <section className="osan-qr-panel" key={item.targetId}><header><strong>{item.displayName}</strong><span>{count === 7 ? '완료' : count > 0 ? '진행 중' : '시작 전'} · {count}/7단계</span></header><div className="osan-qr-stages">{osanStageNames.map((name, i) => {
-          const done = item.steps.some(s => s.sequenceNumber === i + 1 && s.status === 'Completed');
-          return <button key={name} className={done ? 'done' : ''} aria-haspopup="dialog" aria-label={`${item.displayName} ${name} ${done ? '완료' : '미완료'} 기록`} onClick={() => setSelected({ targetId: item.targetId, sequence: i + 1 })}><span>{done ? '✓' : i + 1}</span><b>{name}</b><small>{done ? '완료' : '미완료'}</small></button>;
+        return <section className="osan-qr-panel" key={item.targetId}><header><strong>{item.displayName}</strong><span>{count === 7 ? '완료' : count > 0 || item.steps.some(s => s.openIssue) ? '진행 중' : '시작 전'} · {count}/7단계</span></header><div className="osan-qr-stages">{osanStageNames.map((name, i) => {
+          const current = item.steps.find(s => s.sequenceNumber === i + 1);
+          const issue = !!current?.openIssue;
+          const done = !issue && current?.status === 'Completed';
+          const next = !!current?.canCompleteIndividual && i !== 4;
+          const label = issue ? '미조치 이상' : done ? '완료' : i === 4 ? '상시 가능' : next ? '다음 작업' : i === 6 ? '포장 대기' : '미완료';
+          return <button key={name} className={`${issue ? 'has-issue' : done ? 'done' : ''}${next ? ' is-next-work' : ''}`} aria-haspopup="dialog" aria-label={`${item.displayName} ${name} ${label} 기록`} onClick={() => setSelected({ targetId: item.targetId, sequence: i + 1 })}><span className="osan-qr-stage-light" aria-hidden="true"/><b>{name}</b><small>{label}</small></button>;
         })}</div></section>;
       })}</div>
       {data.progress.targets.length === 0 && <p>진행 대상이 없습니다.</p>}
-      <p className="osan-qr-legend"><span>✓ 완료</span> ○ 미완료</p>
+      <p className="osan-qr-legend"><span>● 정상 완료</span> · <span className="osan-qr-issue-legend">● 미조치 이상</span> · ○ 미완료</p>
       <footer className="osan-qr-footer"><button onClick={() => setRevision(v => v + 1)}>새로고침</button><p>로그인한 계정의 프로젝트 조회 권한으로 제공됩니다.</p></footer>
     </article>}
     <dialog className="osan-qr-dialog" ref={dialog} aria-labelledby="osan-qr-stage-title" onCancel={() => setSelected(undefined)}>
-      {selected && <><header className="osan-qr-dialog-header"><div><h2 id="osan-qr-stage-title">{osanStageNames[selected.sequence - 1]}</h2><p>{data?.project.title} · {target?.displayName}</p></div><button onClick={() => setSelected(undefined)}>닫기</button></header><div className="osan-qr-dialog-body"><details key={`${selected.targetId}:${selected.sequence}`} className="osan-qr-guidance" open={step?.status === 'Completed' ? undefined : true}><summary>작업 설명</summary><OsanStageGuidance stage={selected.sequence} /></details><h3>완료 기록</h3>{step?.status === 'Completed' ? <><div>{step.photos.map(photo => <SavedPhoto key={photo.photoId} projectId={projectId} photo={photo} userKey={userKey} />)}{step.photos.length === 0 && <p className="osan-qr-empty">등록된 완료 사진이 없습니다.</p>}</div><section className="osan-qr-comment"><h3>완료 코멘트</h3><p>{step.comment || '등록된 코멘트가 없습니다.'}</p></section><dl className="osan-qr-record"><div><dt>작업자</dt><dd>{step.completedByDisplayName || '기록 없음'}</dd></div><div><dt>완료 일시</dt><dd>{step.completedAtUtc ? new Date(step.completedAtUtc).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '기록 없음'}</dd></div></dl></> : <p className="osan-qr-empty">아직 완료 기록이 없습니다.</p>}</div></>}
+      {selected && <><header className="osan-qr-dialog-header"><div><h2 id="osan-qr-stage-title">{osanStageNames[selected.sequence - 1]}</h2><p>{data?.project.title} · {target?.displayName}</p></div><button onClick={() => setSelected(undefined)}>닫기</button></header><div className="osan-qr-dialog-body"><details key={`${selected.targetId}:${selected.sequence}`} className="osan-qr-guidance" open={step?.status === 'Completed' ? undefined : true}><summary>작업 설명</summary><OsanStageGuidance stage={selected.sequence} /></details><h3>{step?.openIssue ? '이상 기록' : '완료 기록'}</h3>{step?.openIssue ? <><div>{step.openIssue.photos.map(photo => <SavedPhoto key={photo.photoId} projectId={projectId} photo={photo} userKey={userKey}/>)}</div><section className="osan-qr-comment"><h3>이상 내용 · 최근 기록</h3><p>{step.openIssue.comment}</p><p>{step.openIssue.lastRecordedByDisplayName} · {new Date(step.openIssue.lastRecordedAtUtc).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p></section><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target?.displayName} · ${step.stepName}`} userKey={userKey}/></> : step?.status === 'Completed' ? <><div>{step.photos.map(photo => <SavedPhoto key={photo.photoId} projectId={projectId} photo={photo} userKey={userKey} />)}{step.photos.length === 0 && <p className="osan-qr-empty">등록된 완료 사진이 없습니다.</p>}</div><section className="osan-qr-comment"><h3>완료 코멘트</h3><p>{step.comment || '등록된 코멘트가 없습니다.'}</p></section><dl className="osan-qr-record"><div><dt>작업자</dt><dd>{step.completedByDisplayName || '기록 없음'}</dd></div><div><dt>완료 일시</dt><dd>{step.completedAtUtc ? new Date(step.completedAtUtc).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '기록 없음'}</dd></div></dl></> : <p className="osan-qr-empty">아직 완료 기록이 없습니다.</p>}</div></>}
     </dialog>
   </main>;
 }

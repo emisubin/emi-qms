@@ -80,6 +80,26 @@ public sealed partial class BusinessUnitIsolationTests
             stepId=body.RootElement.GetProperty("targets").EnumerateArray().Single(t=>t.GetProperty("targetId").GetGuid()==completedTargetId)
                 .GetProperty("steps")[0].GetProperty("stepId").GetGuid();
         }
+        foreach (var route in new[] { "issues", "issues/records", "issues/resolve" })
+        {
+            using (var osanRequest = Request(HttpMethod.Post,
+                       $"/api/osan/projects/{projectId:D}/progress/{route}",
+                       "dev-manufacturing", BusinessUnitCodes.Osan))
+            {
+                osanRequest.Content = JsonContent.Create(new { });
+                using var response = await client.SendAsync(osanRequest, cancellationToken);
+                Assert.True(response.StatusCode == HttpStatusCode.BadRequest,
+                    $"OSAN {route} should reach handler validation, got {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(cancellationToken)}");
+            }
+            using (var cheongjuRequest = Request(HttpMethod.Post,
+                       $"/api/osan/projects/{projectId:D}/progress/{route}",
+                       "dev-admin", BusinessUnitCodes.Cheongju))
+            {
+                cheongjuRequest.Content = JsonContent.Create(new { });
+                using var response = await client.SendAsync(cheongjuRequest, cancellationToken);
+                Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            }
+        }
         foreach(var action in new[]{"reject","reset"})
         foreach(var pair in new[]{("dev-manufacturing",BusinessUnitCodes.Osan),("dev-admin",BusinessUnitCodes.Cheongju)})
         {

@@ -4,7 +4,7 @@ import { fetchJson } from './api';
 import { OsanPhotoGallery } from './OsanPhotoGallery';
 import type { OsanProgressPhoto } from './osanProgress';
 interface HistoryItem { id:string;eventType:string;actorDisplayName:string;occurredAtUtc:string;comment:string|null;reason:string|null;photos:OsanProgressPhoto[] }
-const labels:Record<string,string>={Completed:'완료',Edited:'수정 완료',Rejected:'반려',Approved:'수정 승인',Reset:'초기화',Edit:'수정 완료',Complete:'완료',Request:'수정 요청',Completion:'완료',PhotoEdit:'수정 완료',Reject:'반려',Approve:'수정 승인'};
+const labels:Record<string,string>={IssueRegistered:'이상 등록',IssueRecorded:'이상 추가 기록',IssueResolved:'조치 완료',Completed:'완료',Edited:'수정 완료',Rejected:'반려',Approved:'수정 승인',Reset:'초기화',Edit:'수정 완료',Complete:'완료',Request:'수정 요청',Completion:'완료',PhotoEdit:'수정 완료',Reject:'반려',Approve:'수정 승인'};
 export function OsanStageHistory({projectId,stepId,title,userKey}:{projectId:string;stepId:string;title:string;userKey?:string}) {
  const [open,setOpen]=useState(false);const [items,setItems]=useState<HistoryItem[]>();const [error,setError]=useState('');const [retry,setRetry]=useState(0);const dialog=useRef<HTMLDialogElement>(null);
  useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);

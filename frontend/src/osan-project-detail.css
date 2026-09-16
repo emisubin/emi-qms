@@ -30,3 +30,7 @@
 .osan-detail-management-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .app-shell .osan-detail-header .osan-list-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 600px) { .app-shell .osan-detail-header .osan-list-actions { position: static; margin-top: 12px; justify-content: flex-end; } }
+
+.app-shell .osan-management .osan-management-hold { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-height: 44px; width: fit-content; margin-top: 8px; cursor: pointer; }
+.app-shell .osan-management .osan-management-hold input[type='checkbox'] { flex: 0 0 18px; width: 18px !important; min-width: 18px !important; height: 18px !important; min-height: 18px !important; margin: 0 !important; padding: 0 !important; accent-color: #da2127; }
+.app-shell .osan-management .osan-management-hold-help { margin-top: 0; }

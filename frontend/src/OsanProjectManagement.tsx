@@ -46,8 +46,8 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
             min={key==='quantity'?1:undefined} max={key==='quantity'?500:undefined}
             maxLength={key==='title'||key==='customerName'?200:key==='projectCode'?80:100}
             value={draft[key]??''} onChange={e=>setDraft({...draft,[key]:e.target.value})}/></label>)}</div>
-          <label><input type="checkbox" checked={deliveryHold} disabled={busy} onChange={e=>setDeliveryHold(e.target.checked)}/> 납기 HOLD</label>
-          <p>HOLD 중에는 홈에서 숨겨지며 진행 작업은 계속 등록할 수 있습니다. 기존 납기일은 유지됩니다.</p>
+          <label className="osan-management-hold"><input type="checkbox" checked={deliveryHold} disabled={busy} onChange={e=>setDeliveryHold(e.target.checked)}/><span>납기 HOLD</span></label>
+          <p className="osan-management-hold-help">HOLD 중에는 홈에서 숨겨지며 진행 작업은 계속 등록할 수 있습니다. 기존 납기일은 유지됩니다.</p>
           {deliveryHold !== (project.deliveryHold ?? false) && <label>납기 HOLD 변경 사유<textarea required maxLength={500} disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/></label>}
           {started&&<p>진행이 시작된 프로젝트의 수량은 변경할 수 없습니다.</p>}</>
         :<><p>홈·프로젝트·진행 현황에서 숨깁니다. 진행 이력과 사진은 보존됩니다.</p><label>삭제 사유<textarea aria-label="삭제 사유" required maxLength={500} disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/></label></>}

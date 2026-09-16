@@ -3,7 +3,7 @@ import { fetchJson } from './api';
 export type OsanDashboardStatus = 'All' | 'NotStarted' | 'InProgress' | 'Completed';
 export interface OsanDashboardStage {
   sequenceNumber: number; stepCode: string; stepName: string;
-  completedTargetCount: number; totalTargetCount: number;
+  completedTargetCount: number; totalTargetCount: number; openIssueTargetCount?: number; availableTargetCount?: number;
 }
 export interface OsanDashboardProject {
   deliveryHold?: boolean;

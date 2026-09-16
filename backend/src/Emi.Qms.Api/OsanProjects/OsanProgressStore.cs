@@ -1,3 +1,4 @@
+using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -16,7 +17,10 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await ReadProgressAsync(connection, null, projectId, cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
+        var progress = await ReadProgressAsync(connection, transaction, projectId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return progress;
     }
 
     public async Task<OsanRelatedPanelsResponse?> ListRelatedPanelsAsync(
@@ -255,6 +259,9 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                 }
 
                 var selectedStep = targetSteps.Single(step => step.SequenceNumber == input.StageSequence);
+                if (selectedStep.HasOpenIssue)
+                    return await RollbackConflictAsync(transaction, "osan_issue_open", "미해결 이상이 있습니다. 이상 해결로 완료해 주세요.", cancellationToken);
+
                 if (string.Equals(selectedStep.Status, "Completed", StringComparison.Ordinal))
                 {
                     return await RollbackConflictAsync(
@@ -264,10 +271,7 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                         cancellationToken);
                 }
 
-                if (targetSteps.Take(input.StageSequence - 1).Any(step => !string.Equals(
-                        step.Status,
-                        "Completed",
-                        StringComparison.Ordinal)))
+                if (!PrerequisitesMet(input.StageSequence, targetSteps))
                 {
                     return await RollbackConflictAsync(
                         transaction,
@@ -522,8 +526,9 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            select id, target_id, sequence_number, status
-            from osan_active_project_target_steps
+            select id, target_id, sequence_number, status,
+                exists(select 1 from osan_stage_issues i where i.step_id=osan.id and i.status='Open')
+            from osan_active_project_target_steps osan
             where project_id = @project_id
               and target_id = any(@target_ids)
             order by target_id, sequence_number
@@ -539,7 +544,7 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                 reader.GetGuid(0),
                 reader.GetGuid(1),
                 reader.GetInt32(2),
-                reader.GetString(3)));
+                reader.GetString(3), reader.GetBoolean(4)));
         }
         return result;
     }
@@ -888,12 +893,45 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             }
         }
 
+        await using (var issueCommand = connection.CreateCommand())
+        {
+            issueCommand.Transaction = transaction;
+            issueCommand.CommandText = """
+                select i.step_id,i.id,i.registered_at_utc,i.registered_by_user_id,u.display_name,
+                  r.comment,r.occurred_at_utc,a.display_name,r.photo_ids
+                from osan_stage_issues i join qms_users u on u.id=i.registered_by_user_id
+                join osan_stage_records r on r.id=i.latest_record_id join qms_users a on a.id=r.actor_user_id
+                where i.project_id=@project and i.status='Open';
+                """;
+            issueCommand.Parameters.AddWithValue("project", projectId);
+            var issues = new List<(Guid Step, OsanStageIssueResponse Value, Guid[] Photos)>();
+            await using (var reader = await issueCommand.ExecuteReaderAsync(cancellationToken))
+                while (await reader.ReadAsync(cancellationToken))
+                    issues.Add((reader.GetGuid(0), new(reader.GetGuid(1), reader.GetFieldValue<DateTimeOffset>(2), reader.GetGuid(3),
+                        reader.GetString(4), reader.GetString(5), [], reader.GetFieldValue<DateTimeOffset>(6), reader.GetString(7)), reader.GetFieldValue<Guid[]>(8)));
+            foreach (var issue in issues)
+            {
+                if (!stepsById.TryGetValue(issue.Step, out var step)) continue;
+                issueCommand.CommandText = """
+                    select p.id,ids.ordinality::integer,p.original_file_name,p.normalized_mime,p.byte_size,p.sha256,p.uploaded_at_utc,p.uploaded_by_user_id,u.display_name
+                    from unnest(@photos) with ordinality ids(id,ordinality)
+                    join osan_all_progress_photos p on p.id=ids.id and p.project_id=@project join qms_users u on u.id=p.uploaded_by_user_id order by ids.ordinality;
+                    """;
+                if (issueCommand.Parameters.Contains("photos")) issueCommand.Parameters.Remove("photos");
+                issueCommand.Parameters.AddWithValue("photos", issue.Photos);
+                var photos = new List<OsanProgressPhotoResponse>();
+                await using (var reader = await issueCommand.ExecuteReaderAsync(cancellationToken))
+                    while (await reader.ReadAsync(cancellationToken)) photos.Add(new(reader.GetGuid(0),reader.GetInt32(1),reader.GetString(2),reader.GetString(3),reader.GetInt32(4),reader.GetString(5),reader.GetFieldValue<DateTimeOffset>(6),reader.GetGuid(7),reader.GetString(8)));
+                step.OpenIssue = issue.Value with { Photos = photos };
+            }
+        }
+
         var targetResponses = targets.Select(target => target.ToResponse()).ToArray();
         var completedStepCount = targetResponses.Sum(target => target.Steps.Count(step => step.Status == "Completed"));
         var totalStepCount = targetResponses.Sum(target => target.Steps.Count);
         var progressStatus = storedStatus == "Completed"
             ? "Completed"
-            : completedStepCount > 0
+            : completedStepCount > 0 || targetResponses.Any(t => t.OpenIssueCount > 0)
                 ? "InProgress"
                 : "NotStarted";
         return new OsanProgressResponse(
@@ -903,7 +941,7 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             progressStatus,
             completedStepCount,
             totalStepCount,
-            targetResponses);
+            targetResponses, OpenIssueCount: targetResponses.Sum(t => t.OpenIssueCount));
     }
 
     private static string Fingerprint<T>(T payload)
@@ -954,7 +992,10 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
     }
 
     private sealed record TargetSnapshot(Guid TargetId, string DisplayName, string Status, int Version);
-    private sealed record StepSnapshot(Guid StepId, Guid TargetId, int SequenceNumber, string Status);
+    private sealed record StepSnapshot(Guid StepId, Guid TargetId, int SequenceNumber, string Status, bool HasOpenIssue);
+    private static bool PrerequisitesMet(int stage, IReadOnlyList<StepSnapshot> steps) => stage == 5 ||
+        (stage == 7 ? steps.Where(s => s.SequenceNumber < 7).All(s => s.Status == "Completed") && !steps.Any(s => s.HasOpenIssue)
+        : steps.Where(s => s.SequenceNumber < stage).All(s => s.Status == "Completed" || s.HasOpenIssue));
     private sealed record OperationSnapshot(
         Guid ProjectId,
         string Action,
@@ -976,7 +1017,7 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
         public OsanProgressTargetResponse ToResponse()
         {
             var completedStepCount = Steps.Count(step => step.Status == "Completed");
-            var projectedStatus = completedStepCount == 0
+            var projectedStatus = completedStepCount == 0 && Steps.All(s => s.OpenIssue is null)
                 ? "NotStarted"
                 : completedStepCount == Steps.Count
                     ? "Completed"
@@ -990,14 +1031,19 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                 startedAtUtc,
                 startedByUserId,
                 startedByDisplayName,
-                Steps.Select((step, index) => step.ToResponse(
-                    projectedStatus != "Completed"
-                        && step.Status != "Completed" && !step.Rejected
-                        && Steps.Take(index).All(previous => previous.Status == "Completed"),
-                    projectedStatus != "Completed"
-                        && step.Status != "Completed" && !step.Rejected
-                        && Steps.Take(index).All(previous => previous.Status == "Completed")))
-                    .ToArray());
+                Steps.Select(step => step.ToResponse(
+                    CanComplete(step), CanComplete(step), !Steps.Any(s => s.SequenceNumber == 7 && s.Status == "Completed"),
+                    step.OpenIssue is not null && !Steps.Any(s => s.SequenceNumber == 7 && s.Status == "Completed")
+                        && Prerequisites(step, resolving: true)))
+                    .ToArray(), Steps.Count(s => s.OpenIssue is not null));
+
+            bool CanComplete(StepBuilder step) => projectedStatus != "Completed" && step.Status != "Completed"
+                && !step.Rejected && step.OpenIssue is null && Prerequisites(step, resolving: false);
+
+            bool Prerequisites(StepBuilder selected, bool resolving) => PrerequisitesMet(selected.SequenceNumber,
+                Steps.Select(s => new StepSnapshot(s.StepId, TargetId, s.SequenceNumber, s.Status,
+                    s.OpenIssue is not null && (!resolving || s.StepId != selected.StepId))).ToArray());
+
         }
     }
 
@@ -1016,11 +1062,12 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
         public int SequenceNumber { get; } = sequenceNumber;
         public string Status { get; } = status;
         public bool Rejected { get; } = rejected;
+        public OsanStageIssueResponse? OpenIssue { get; set; }
         public List<OsanProgressPhotoResponse> Photos { get; } = [];
 
         public OsanProgressStepResponse ToResponse(
             bool canCompleteIndividual,
-            bool canCompleteBatch) =>
+            bool canCompleteBatch, bool canRegisterIssue, bool canResolveIssue) =>
             new(
                 StepId,
                 SequenceNumber,
@@ -1035,6 +1082,6 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                 canCompleteBatch,
                 null,
                 [],
-                Photos, comment, editOpen, Rejected);
+                Photos, comment, editOpen, Rejected, OpenIssue, canRegisterIssue, canResolveIssue);
     }
 }

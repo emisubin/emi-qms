@@ -1637,6 +1637,11 @@ test("project Excel menu and monthly family totals", async ({ page }) => {
   await expect(totals).toContainText("생산 완료 1대");
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:900});
+    if (width === 1440) {
+      const monthBox = await page.getByLabel("계획 월", {exact:true}).boundingBox();
+      const nextBox = await page.getByRole("button", {name:"다음 달",exact:true}).boundingBox();
+      expect(Math.abs((monthBox!.y + monthBox!.height) - (nextBox!.y + nextBox!.height))).toBeLessThan(3);
+    }
     await page.screenshot({path:`/private/tmp/emi-busbar-month-totals-${width}.png`});
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }

@@ -470,15 +470,16 @@
 .busbar-quick-confirm .busbar-form-actions .primary { flex: 1; min-height: 52px; background: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 18px; font-weight: 700; }
 
 @media screen {
-  .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(150px, .8fr) minmax(170px, .8fr) minmax(280px, 1.8fr); align-items: start; }
-  .busbar-plan-filter > .busbar-filter-actions { grid-column: 1 / -1; }
-  .busbar-month-totals { display: grid; gap: 8px; max-height: 180px; overflow-y: auto; min-width: 0; }
-  .busbar-month-totals > div { display: grid; grid-template-columns: minmax(100px, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px; background: white; border: 1px solid #d9e5ec; border-radius: 8px; font-size: 13px; }
+  .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(120px, .8fr) minmax(145px, .8fr) minmax(200px, 1.3fr) auto; align-items: end; }
+  .busbar-plan-filter > .busbar-filter-actions { grid-column: auto; flex-wrap: nowrap; gap: 6px; }
+  .busbar-month-totals { display: grid; gap: 4px; max-height: 104px; overflow-y: auto; min-width: 0; }
+  .busbar-month-totals > div { display: grid; grid-template-columns: minmax(60px, 1fr) auto auto; gap: 6px; align-items: center; padding: 5px 8px; background: white; border: 1px solid #d9e5ec; border-radius: 8px; font-size: 13px; }
+  .busbar-month-totals > .busbar-note { margin: 0; font-size: 12px; }
   .busbar-month-totals strong { overflow-wrap: anywhere; }
-  .busbar-month-totals b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .busbar-month-totals b { font-size: 14px; font-variant-numeric: tabular-nums; }
   .busbar-import-menu { display: grid; gap: 8px; }
   .busbar-import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  @media (max-width: 900px) {
+  @media (max-width: 1050px) {
     .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .busbar-plan-filter .busbar-month-totals { grid-column: 1 / -1; }
   }

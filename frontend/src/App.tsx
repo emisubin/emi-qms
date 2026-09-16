@@ -2414,7 +2414,7 @@ function QmsAppShellContent({
       data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
-      <AppNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
+      <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
       {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
@@ -2431,7 +2431,7 @@ function QmsAppShellContent({
               aria-label="EMI PMS 모바일 로고로 홈 이동"
               onClick={() => setView({ kind: 'home' })}
             >
-              <img className="app-brand-logo" src={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
+              <img className="app-brand-logo" src={isOsan ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
             </button>
             <span>
               <small>EMI PROJECT</small>
@@ -3302,10 +3302,12 @@ const mobileNavigationHints: Record<string, string> = {
 };
 
 function AppNavigation({
+  isOsan = false,
   items,
   onNavigate,
   footer
 }: {
+  isOsan?: boolean;
   items: NavigationItem[];
   onNavigate: (view: View) => void;
   footer?: ReactNode;
@@ -3323,7 +3325,7 @@ function AppNavigation({
           aria-label="EMI PMS 로고로 홈 이동"
           onClick={() => onNavigate({ kind: 'home' })}
         >
-          <img className="app-brand-logo" src={emiPmsProductLogo} alt="EMI PMS - Project Management System" />
+          <img className="app-brand-logo" src={isOsan ? emiInternalLogo : emiPmsProductLogo} alt={isOsan ? "EMI" : "EMI PMS - Project Management System"} />
         </button>
       </div>
       <div className="app-sidebar-heading">

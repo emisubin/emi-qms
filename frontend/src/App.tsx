@@ -3869,7 +3869,7 @@ function AccountProfilePanel({
         <button type="button" className="account-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
       ) : null}
       {osan && onOpenNotificationSettings ? (
-        <button type="button" className="account-notification-settings-button" onClick={onOpenNotificationSettings}>알림 설정 <span aria-hidden="true">›</span></button>
+        <button type="button" className="account-notification-settings-button" onClick={onOpenNotificationSettings}>알림 설정</button>
       ) : null}
       <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
       {photoConsentOpen ? (

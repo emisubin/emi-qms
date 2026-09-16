@@ -1,5 +1,5 @@
 .dialog-backdrop.osan-notification-backdrop { z-index: 1200; }
-.app-shell .account-notification-settings-button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: var(--ink); font-size: .72rem; font-weight: 800; }
+.app-shell .account-notification-settings-button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: var(--ink); font-size: .72rem; font-weight: 800; }
 .osan-notification-dialog { width: 560px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; background: #fff; color: #282828; box-shadow: 0 12px 50px #0002; }
 .osan-notification-dialog > header { padding: 24px 24px 16px; flex: 0 0 auto; }
 .osan-notification-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

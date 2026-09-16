@@ -1070,7 +1070,7 @@ public sealed class PostgreSqlMigrationTests
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal(98L, await ReadScalarAsync<long>(
+        Assert.Equal(101L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_qms_global_audit_%';",
             TestContext.Current.CancellationToken));

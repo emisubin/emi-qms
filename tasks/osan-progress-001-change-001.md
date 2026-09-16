@@ -39,3 +39,10 @@
 ## 사용자 검수 완료 및 공개배포 승인 · 2026-09-16
 
 사용자가 최종 로고 축소까지 확인하고 이번 변경의 원격 main 병합·공개배포를 명시 승인했다. 인테리어 부스바는 제외한다. 원격 main c173552와 동일 기준선에서 시작한 오산 커밋만 게시하며 기존 원본 checkout WIP는 포함하지 않는다. 최종 후보 전체 회귀는 PR CI가 책임 실행하고 required CI를 우회하지 않는다. 운영에는 추가 migration0102/0103과 Backend/Frontend를 기존 수동 release로 적용하며 bootstrap·membership backfill·DB초기화·provider설정변경은 실행하지 않는다. 실제 원격/배포 결과는 후속 기록한다.
+
+### 최종 CI 감사 분류 보정 · 2026-09-16
+
+- PR #144 첫 CI는 Frontend·Full-Stack E2E·Workflow 검증을 통과했고 Backend 680개 중 679개 통과, 신규 relation 감사 분류 1개가 실패했다.
+- 미병합 migration 0102/0103의 mutable 원본 3개(`osan_stage_issues`, 개인 알림 preference/profile)에 기존 중앙 감사 trigger를 추가했다. 발송 식별 메타데이터 `osan_notification_events`는 기존 notifications와 같은 생성물 분류로 명시했다.
+- 감사 relation 목록·실제 trigger 수 검증과 오산 preference API 감사 생성/청주 미기록, stage issue 실제 감사 생성 검증을 보강했다. 중앙 개인정보 projection 정책은 유지한다.
+- 독립 diff review에 차단 finding 없음. 관련 직접 검증과 보정 커밋의 required CI를 다시 확인하고 통과 후 배포한다.

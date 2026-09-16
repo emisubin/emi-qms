@@ -21,3 +21,7 @@ create table osan_stage_issues (
 );
 create unique index ux_osan_stage_issue_open on osan_stage_issues(step_id) where status='Open';
 create index ix_osan_stage_issue_project on osan_stage_issues(project_id,target_id) where status='Open';
+
+create trigger trg_qms_global_audit_osan_stage_issues
+after insert or update or delete on osan_stage_issues
+for each row execute function qms_audit_capture_row_change();

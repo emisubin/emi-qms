@@ -84,3 +84,13 @@ where delivery.delivery_type='OsanWorkflow'
       or delivery.manual_payload_json->>'StepName' in ('입고검사','배치검사','배선검사','8계통','동작검사','출하검사','포장')
   )
 on conflict(notification_id) do nothing;
+
+drop trigger if exists trg_qms_global_audit_osan_notification_preference_profiles on osan_notification_preference_profiles;
+create trigger trg_qms_global_audit_osan_notification_preference_profiles
+after insert or update or delete on osan_notification_preference_profiles
+for each row execute function qms_audit_capture_row_change();
+
+drop trigger if exists trg_qms_global_audit_osan_notification_preferences on osan_notification_preferences;
+create trigger trg_qms_global_audit_osan_notification_preferences
+after insert or update or delete on osan_notification_preferences
+for each row execute function qms_audit_capture_row_change();

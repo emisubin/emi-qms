@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Emi.Qms.Api.Audit;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
@@ -36,7 +37,11 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(OsanProgressMutationStatus.Success, (await store.CompleteAsync(id, await Input(5), UserId, ct, true)).Status);
         var registration = (await Input(1)) with { Photos = [photo] };
         Assert.Equal(OsanProgressMutationStatus.Validation, (await store.RecordIssueAsync(id, registration with { Comment = " " }, UserId, false, ct)).Status);
+        using var auditScope = AuditRequestContext.Push(new AuditMutationContext(
+            UserId, null, Guid.NewGuid(), null, "OsanProjects", "RegisterStageIssue", "RegisterStageIssue"));
         var registered = await store.RecordIssueAsync(id, registration, UserId, false, ct);
+        Assert.True(await database.ReadScalarAsync<long>(
+            "select count(*) from audit_event_changes where target_type='osan_stage_issues'", ct) > 0);
         Assert.Equal(OsanProgressMutationStatus.Success, registered.Status);
         var issue = registered.Value!.Project.Targets[0].Steps[0].OpenIssue!;
         Assert.Single(issue.Photos); var issuePhoto = issue.Photos[0].PhotoId;

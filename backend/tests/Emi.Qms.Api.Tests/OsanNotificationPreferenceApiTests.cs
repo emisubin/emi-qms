@@ -84,6 +84,13 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.False(saved.StepCompletedStages.Single(stage => stage.Sequence == 3).PushEnabled);
         }
 
+        Assert.Equal(2L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(distinct target_type) from audit_event_changes where target_type in ('osan_notification_preference_profiles','osan_notification_preferences');", ct));
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Migration,
+            "select count(*) from audit_event_changes where target_type in ('osan_notification_preference_profiles','osan_notification_preferences');", ct));
+
         using (var other = await Send(HttpMethod.Get, "dev-quality", BusinessUnitCodes.Osan))
         {
             Assert.True(other.StatusCode == HttpStatusCode.OK,

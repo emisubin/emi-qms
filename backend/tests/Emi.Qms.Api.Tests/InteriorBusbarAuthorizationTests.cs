@@ -45,11 +45,14 @@ public sealed class InteriorBusbarAuthorizationTests
         using var factory = new QmsWebApplicationFactory();
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, key);
-        var response = await client.PostAsJsonAsync("/api/interior-busbar/workers", new BusbarMasterRequest(null, "W", "Synthetic"), TestContext.Current.CancellationToken);
+        var response = await client.PostAsJsonAsync("/api/interior-busbar/adjustments", new BusbarAdjustmentRequest(Guid.NewGuid(), "Finished", Guid.NewGuid(), 1, "Synthetic", true), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Theory]
+    [InlineData("GET", "/api/interior-busbar/access")]
+    [InlineData("GET", "/api/interior-busbar/masters")]
+    [InlineData("GET", "/api/interior-busbar/master-access")]
     [InlineData("GET", "/api/interior-busbar/workspace")]
     [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001")]
     [InlineData("GET", "/api/interior-busbar/projects/00000000-0000-0000-0000-000000000001/scan?code=IB-00000001")]
@@ -81,6 +84,15 @@ public sealed class InteriorBusbarAuthorizationTests
         var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.True(response.StatusCode == HttpStatusCode.Forbidden, string.Join("\n", factory.Logs.Entries.Select(x => x.Message + " " + x.Exception)));
         Assert.Contains("business_unit_capability_disabled", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void OverallAdministratorAlwaysHasMasterAccessWithoutDesignation()
+    {
+        var profile = new UserAuthorizationProfile(new QmsUser(Guid.NewGuid(),"synthetic","Synthetic",null,true),null,[],[],[]);
+        var access = BusbarAccess.For(profile, true);
+        Assert.True(access.MastersRead && access.MastersWrite && access.ManageMasterPermissions);
+        Assert.True(access.Allows("/api/interior-busbar/master-access"));
     }
 
     [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
@@ -316,16 +328,59 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, afterTransfer.StatusCode);
     }
 
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task MasterGrantsAreSeparateFromAdministrationAndRevokedOnNextRequest()
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var identity = new MutableIdentity(f.Actor) { BusbarOnly = true };
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string,string?> {
+            ["DevAuthentication:Enabled"]="true",["Database:ApplyMigrationsOnStartup"]="false",["ConnectionStrings:QmsDatabase"]=f.Connection
+        },identityStore:identity);
+        using var client=factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader,"busbar-fixture");
+        async Task<HttpStatusCode> Read(string path) => (await client.GetAsync("/api/interior-busbar"+path,TestContext.Current.CancellationToken)).StatusCode;
+        async Task<HttpStatusCode> WriteWorker() => (await client.PostAsJsonAsync("/api/interior-busbar/workers",new BusbarMasterRequest(null,Guid.NewGuid().ToString(),"Synthetic"),TestContext.Current.CancellationToken)).StatusCode;
+        Assert.Equal(HttpStatusCode.Forbidden,await Read("/masters"));
+        Assert.Equal(HttpStatusCode.Forbidden,await WriteWorker());
+        Assert.Equal(HttpStatusCode.Forbidden,await Read("/master-access"));
+        var denied=await client.PutAsJsonAsync("/api/interior-busbar/master-access",new BusbarMasterAccessRequest(f.Actor,"Edit","Self grant denied"),TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+        // System administrator can assign even without a grant; ordinary users cannot grant themselves.
+        identity.BusbarOnly=false;
+        Assert.Equal(HttpStatusCode.OK,await Read("/masters"));
+        var listed = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/interior-busbar/master-access",TestContext.Current.CancellationToken);
+        Assert.Equal(f.Actor,listed[0].GetProperty("userId").GetGuid());
+        Assert.True(listed[0].GetProperty("automatic").GetBoolean());
+        var granted=await client.PutAsJsonAsync("/api/interior-busbar/master-access",new BusbarMasterAccessRequest(f.Actor,"Read","Synthetic read grant"),TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK,granted.StatusCode);
+        identity.Manager=false;
+        Assert.Equal(HttpStatusCode.OK,await Read("/masters"));
+        Assert.Equal(HttpStatusCode.Forbidden,await WriteWorker());
+        await f.Store.SetMasterAccess(new(f.Actor,"Edit","Synthetic edit grant"),f.Actor);
+        Assert.Equal(HttpStatusCode.OK,await WriteWorker());
+        var adjustment=await client.PostAsJsonAsync("/api/interior-busbar/adjustments",new BusbarAdjustmentRequest(Guid.NewGuid(),"Finished",Guid.NewGuid(),1,"Not delegated",true),TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden,adjustment.StatusCode);
+        await f.Store.SetMasterAccess(new(f.Actor,"None","Synthetic revoke"),f.Actor);
+        Assert.Equal(HttpStatusCode.Forbidden,await Read("/masters"));
+        Assert.Equal(HttpStatusCode.Forbidden,await WriteWorker());
+        await f.Store.SetMasterAccess(new(f.Actor,"Edit","Synthetic grant"),f.Actor);
+        identity.Active=false;
+        Assert.Equal(HttpStatusCode.Unauthorized,await Read("/masters"));
+        Assert.Equal(4,await f.Scalar("select count(*) from busbar_audit where entity_kind='MasterAccess'"));
+    }
+
     private sealed class MutableIdentity(Guid id) : IIdentityStore
     {
         public bool Manager { get; set; } = true;
+        public bool BusbarOnly { get; set; }
+        public bool Active { get; set; } = true;
         public string DepartmentCode { get; set; } = "manufacturing";
-        private UserAuthorizationProfile Profile => new(new QmsUser(id, "busbar-fixture", "Synthetic Manager", DepartmentCode, true),
+        private UserAuthorizationProfile Profile => new(new QmsUser(id, "busbar-fixture", "Synthetic Manager", DepartmentCode, Active),
             SeedIdentityData.Departments.Single(d => d.Code == DepartmentCode),
-            Manager ? [new Role(Guid.NewGuid(), InteriorBusbarEndpointExtensions.ManagerRole, "Busbar Manager")] : [new Role(Guid.NewGuid(), QmsRoles.ReadOnly, "Read Only")], [], []);
+            Manager ? [new Role(Guid.NewGuid(), BusbarOnly ? InteriorBusbarEndpointExtensions.ManagerRole : QmsRoles.SystemAdministrator, "Synthetic administrator")] : [new Role(Guid.NewGuid(), QmsRoles.ReadOnly, "Read Only")], [], []);
         public Task<UserAuthorizationProfile?> GetProfileByDevelopmentUserKeyAsync(string key, CancellationToken token) => Task.FromResult<UserAuthorizationProfile?>(key == "busbar-fixture" ? Profile : null);
         public Task<UserAuthorizationProfile?> GetProfileByUserIdAsync(Guid userId, CancellationToken token) => Task.FromResult<UserAuthorizationProfile?>(userId == id ? Profile : null);
         public Task<QmsProject?> GetProjectByKeyAsync(string key, CancellationToken token) => Task.FromResult<QmsProject?>(null);
-        public Task<IReadOnlyList<UserSummary>> GetUsersAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<UserSummary>>([]);
+        public Task<IReadOnlyList<UserSummary>> GetUsersAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<UserSummary>>([new("busbar-fixture","Synthetic Manager",DepartmentCode,Profile.Roles.Select(r=>r.Code).ToArray(),id,IsActive:Active)]);
     }
 }

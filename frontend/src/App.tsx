@@ -1,3 +1,4 @@
+import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
 import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
@@ -1883,6 +1884,19 @@ function QmsAppShellContent({
     || !hasSelectedBusinessUnit
     || isOsan;
   const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
+  const [busbarMasterScope, setBusbarMasterScope] = useState<{key:string;allowed:boolean} | null>(null);
+  const busbarScopeKey = `${developmentUserKey}:${siteAccessActorKey}:${selectedBusinessUnit}`;
+  useEffect(() => {
+    if (formTemplateScopeBlocked) return;
+    let active = true;
+    const refresh = () => { void busbarApi.access(developmentUserKey).then(scope => {
+      if(active) setBusbarMasterScope({key:busbarScopeKey,allowed:scope.mastersRead === true});
+    }, () => { if(active)setBusbarMasterScope({key:busbarScopeKey,allowed:false}); }); };
+    refresh(); window.addEventListener('focus',refresh);
+    return () => {active=false;window.removeEventListener('focus',refresh);};
+  },[busbarScopeKey,developmentUserKey,formTemplateScopeBlocked,view.kind]);
+  const canSeeBusbarMasters = !formTemplateScopeBlocked && busbarMasterScope?.key === busbarScopeKey && busbarMasterScope.allowed;
+
 
   useEffect(() => {
     if (currentUser.kind !== 'ready' || !hasSelectedBusinessUnit || isOsan) return;
@@ -2314,7 +2328,7 @@ function QmsAppShellContent({
     { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' }
   ];
   const departmentNavigationItems: NavigationItem[] = [
-    { label: '인테리어 부스바', view: { kind: 'interior-busbar', section: 'overview' }, active: view.kind === 'interior-busbar', children: busbarSections.map((item) => ({ key: `busbar-${item.key}`, label: item.label, view: { kind: 'interior-busbar', section: item.key }, active: view.kind === 'interior-busbar' && (view.section ?? 'overview') === item.key })) },
+    { label: '인테리어 부스바', view: { kind: 'interior-busbar', section: 'overview' }, active: view.kind === 'interior-busbar', children: busbarSections.filter(item => item.key !== 'masters' || canSeeBusbarMasters).map((item) => ({ key: `busbar-${item.key}`, label: item.label, view: { kind: 'interior-busbar', section: item.key }, active: view.kind === 'interior-busbar' && (view.section ?? 'overview') === item.key })) },
     { label: '생산관리', view: productionChildren[0].view, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production'), children: productionChildren },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     { label: '자재', view: materialsChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting', children: materialsChildren },

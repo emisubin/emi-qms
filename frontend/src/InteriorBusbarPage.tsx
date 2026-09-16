@@ -1,3 +1,4 @@
+import { BusbarMasterAccess } from "./BusbarMasterAccess";
 import { projectEditorSpec, type Values, type Field, type EditorSpec } from "./interiorBusbarProjectEditor";
 import {
   useCallback,
@@ -26,7 +27,6 @@ import {
   busbarDateTime,
   busbarNumber as n,
   type BusbarImport,
-  type BusbarLedger,
   type BusbarMaster,
   type BusbarProduct,
   type BusbarWorkspace,
@@ -69,15 +69,6 @@ const productionStatusLabel = (product: BusbarProduct) => product.status === "Dr
   : product.status === "Complete" ? "생산 완료" : "취소";
 const canPrintQr = (product: BusbarProduct) => product.status === "Complete" && product.publicationState === "Published" &&
   product.revision === product.publishedRevision && Boolean(product.number);
-const operationLabel = (kind: string) =>
-  ({
-    Opening: "기초재고",
-    Adjustment: "재고 보정",
-    Receipt: "입고",
-    Shipment: "출하",
-    Production: "생산",
-    Reversal: "취소·복원",
-  })[kind] ?? "재고 변경";
 
 export function InteriorBusbarPage({
   developmentUserKey: user,
@@ -164,7 +155,7 @@ export function InteriorBusbarPage({
   const load = useCallback(async () => {
     const current = ++generation.current;
     try {
-      const next = await busbarApi.workspace(user, page, filters);
+      const next = await (tab === "masters" ? busbarApi.masters(user) : busbarApi.workspace(user, page, filters));
       if (current !== generation.current) return;
       setData(next);
       setError("");
@@ -175,7 +166,7 @@ export function InteriorBusbarPage({
       setDenied(e instanceof ApiError && e.status === 403);
       if (e instanceof ApiError && [401, 403].includes(e.status)) setData(null);
     }
-  }, [user, page, filters]);
+  }, [user, page, filters, tab]);
   const latestLoad = useRef(load);
   useEffect(() => {
     latestLoad.current = load;
@@ -382,16 +373,6 @@ export function InteriorBusbarPage({
       }),
     });
   }
-  function reverse(row: BusbarLedger) {
-    const requestId = crypto.randomUUID();
-    open({
-      title: `${operationLabel(row.kind)} 취소`,
-      path: `/ledger/${row.id}/reverse`,
-      fields: [reasonField],
-      note: "원래 기록은 보존하고 반대 수량을 기록합니다. 생산 취소는 생산 화면에서 처리하세요.",
-      makeBody: (v) => ({ ...v, requestId }),
-    });
-  }
   if (!data)
     return (
       <div className="busbar-page">
@@ -435,7 +416,7 @@ export function InteriorBusbarPage({
   const access = data.permissions;
   const canAdminister = access?.administration ?? false;
   const canWrite = access ? ({ overview: false, projects: access.projects, plans: access.planning,
-    production: access.production, purchases: access.purchases, masters: access.administration }[tab]) : false;
+    production: access.production, purchases: access.purchases, masters: access.mastersWrite === true }[tab]) : false;
   const visibleProducts = data.products.filter((product) => matches(productLabel(product), familyName(product.productFamilyId), product.workerName));
   const eligibleProducts = visibleProducts.filter(canPrintQr);
   const selectedIds = selectedQrIds.filter((id) => eligibleProducts.some((product) => product.id === id));
@@ -904,43 +885,12 @@ export function InteriorBusbarPage({
               rows={data.productFamilies.map((x) => [x.name, n(stock(x))])}
             />
           </DsSurface>
-          <DsSurface label="재고 변경 이력">
-            <h3>입고·생산·출하·재고 정정 이력</h3>
-            <Table
-              headings={[
-                "처리 시각",
-                "구분",
-                "증감 내역",
-                "사유",
-                "상태",
-                "작업",
-              ]}
-              rows={data.ledger.map((x) => [
-                busbarDateTime(x.createdAtUtc),
-                operationLabel(x.kind),
-                data.ledgerLines
-                  .filter((l) => l.operationId === x.id)
-                  .map((l, i) => (
-                    <div key={i}>
-                      {l.stockKind === "Material"
-                        ? materialName(l.itemId)
-                        : familyName(l.itemId)}{" "}
-                      {l.quantity > 0 ? "+" : ""}
-                      {n(l.quantity)}
-                    </div>
-                  )),
-                x.reason,
-                x.reversed ? "취소됨" : "반영",
-                !x.reversed && !["Production", "Reversal"].includes(x.kind)
-                  ? writeButton("취소·복원", () => reverse(x), canAdminister)
-                  : null,
-              ])}
-            />
-          </DsSurface>
+
         </>
       )}
-      {tab === "masters" && (
+      {tab === "masters" && access?.mastersRead && (
         <>
+          {access.manageMasterPermissions && <BusbarMasterAccess key={user} user={user} />}
           <DsSurface>
             <DsToolbar>
               <h3>공통 프로젝트·이카운트 설정</h3>

@@ -100,7 +100,7 @@ export type BusbarWorkspace = {
   };
   publicationOutstandingCount?: number;
   canWrite: boolean;
-  permissions?: { projects: boolean; planning: boolean; production: boolean; purchases: boolean; administration: boolean };
+  permissions?: { projects: boolean; planning: boolean; production: boolean; purchases: boolean; administration: boolean; mastersRead?: boolean; mastersWrite?: boolean; manageMasterPermissions?: boolean };
   settings: { commonProjectCode: string; ecountCustomerCode?: string; ecountWarehouseCode?: string };
   productFamilies: BusbarMaster[];
   materials: BusbarMaster[];
@@ -148,6 +148,9 @@ export type BusbarCommercialPreview = {
 export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
 const root = "/api/interior-busbar";
 export const busbarApi = {
+  access: (user: string) => fetchJson<NonNullable<BusbarWorkspace["permissions"]>>(`${root}/access`, user),
+  masters: (user: string) => fetchJson<BusbarWorkspace>(`${root}/masters`, user),
+  masterAccess: (user: string) => fetchJson<Array<{userId: string; displayName: string; departmentName?: string; access: string; automatic: boolean}>>(`${root}/master-access`, user),
   projectDetail: (user: string, id: string) =>
     fetchJson<BusbarProjectDetail>(`${root}/projects/${id}`, user),
   scanProjectPanel: (user: string, id: string, code: string) =>

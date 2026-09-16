@@ -29,7 +29,7 @@ async function selectSection(page: Page, name: string) {
 function fixture(canWrite = true): BusbarWorkspace {
   return {
     canWrite,
-    permissions: { projects: canWrite, planning: canWrite, production: canWrite, purchases: canWrite, administration: canWrite },
+    permissions: { projects: canWrite, planning: canWrite, production: canWrite, purchases: canWrite, administration: canWrite, mastersRead: true, mastersWrite: canWrite, manageMasterPermissions: canWrite },
     settings: { commonProjectCode: "SYN-INTERIOR" },
     productFamilies: [
       {
@@ -167,6 +167,9 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false, commercia
         },
       });
     }
+    if (path === "/api/interior-busbar/access") return json(data.permissions);
+    if (path === "/api/interior-busbar/master-access" && req.method() === "GET") return json([{userId:workerId,displayName:"합성 사용자",departmentName:"생산관리",access:"None",automatic:false}]);
+    if (path === "/api/interior-busbar/masters") return data.permissions?.mastersRead ? json(data) : json({message:"기준정보 접근 권한이 없습니다."},403);
     if (path === "/api/interior-busbar/workspace")
       return denied
         ? json({ message: "청주에서만 사용할 수 있습니다." }, 403)
@@ -1661,4 +1664,40 @@ test("project detail edits its own project and places Ecount below shipments", a
   await editor.getByRole("button",{name:"저장",exact:true}).click();
   await expect(editor).toHaveCount(0);
   expect(writes.find(w=>w.path.endsWith("/projects"))?.body).toMatchObject({id:projectId,destination:"수정된 합성 도착지",reason:"도착지 확인"});
+});
+
+
+test("masters designation controls menu read edit and administrator grants", async ({page}) => {
+  test.setTimeout(60000);
+  for (const mode of ["None","Read","Edit","Admin"]) {
+    const data=fixture();
+    data.permissions={projects:true,planning:false,production:false,purchases:false,administration:mode === "Admin",mastersRead:mode !== "None",mastersWrite:["Edit","Admin"].includes(mode),manageMasterPermissions:mode === "Admin"};
+    const writes=await mock(page,data);
+    await page.goto("/interior-busbar/purchases");
+    await expect(page.getByRole("heading",{name:"입고·생산·출하·재고 정정 이력"})).toHaveCount(0);
+    if(mode === "None") {
+      await expect(page.getByRole("button",{name:"기준정보",exact:true})).toHaveCount(0);
+      await page.goto("/interior-busbar/masters");
+      await expect(page.getByText("기준정보 접근 권한이 없습니다.")).toBeVisible();
+      await expect(page.getByRole("heading",{name:"제품군",exact:true})).toHaveCount(0);
+      continue;
+    }
+    await selectSection(page,"기준정보");
+    await expect(page.getByRole("heading",{name:"제품군",exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"제품군 등록",exact:true})).toHaveCount(mode === "Read" ? 0 : 1);
+    await expect(page.getByRole("heading",{name:"기준정보 권한 설정",exact:true})).toHaveCount(mode === "Admin" ? 1 : 0);
+    if(mode === "Admin") {
+      await page.getByRole("button",{name:"권한 설정",exact:true}).click();
+      await page.getByRole("combobox",{name:"접근 권한",exact:true}).selectOption("Edit");
+      await page.getByLabel("변경 사유",{exact:true}).fill("합성 업무 배정");
+      for(const width of [1440,390]) {
+        await page.setViewportSize({width,height:1000});
+        await page.screenshot({path:`/private/tmp/emi-busbar-master-access-${width}.png`,fullPage:true});
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+      }
+      await page.getByRole("button",{name:"저장",exact:true}).click();
+      await expect.poll(()=>writes.filter(w=>w.path.endsWith("/master-access")).length).toBe(1);
+      expect(writes.find(w=>w.path.endsWith("/master-access"))?.body).toMatchObject({userId:workerId,access:"Edit",reason:"합성 업무 배정"});
+    }
+  }
 });

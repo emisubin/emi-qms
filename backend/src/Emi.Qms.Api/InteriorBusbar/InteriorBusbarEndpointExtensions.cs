@@ -35,6 +35,11 @@ public static class InteriorBusbarEndpointExtensions
             var profile = await http.RequestServices.GetRequiredService<IIdentityStore>().GetProfileByUserIdAsync(actor, http.RequestAborted);
             if (profile?.User.IsActive != true || ApprovalReadinessPolicy.IsApprovalPending(profile)) return Results.Forbid();
             var access = BusbarAccess.For(profile, string.Equals(http.User.FindFirstValue(QmsClaimTypes.IsOverallAdministrator), bool.TrueString, StringComparison.OrdinalIgnoreCase));
+            var routePath = (http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText;
+            if (routePath is "/api/interior-busbar/access" or "/api/interior-busbar/workspace" or "/api/interior-busbar/masters" or
+                "/api/interior-busbar/product-families" or "/api/interior-busbar/materials" or "/api/interior-busbar/workers" or "/api/interior-busbar/boms" or "/api/interior-busbar/settings")
+                access = await http.RequestServices.GetRequiredService<InteriorBusbarStore>().MasterAccess(actor, access);
+            if (routePath == "/api/interior-busbar/masters" && !access.MastersRead || routePath == "/api/interior-busbar/master-access" && !access.ManageMasterPermissions) return Results.Forbid();
             http.Items["busbarAccess"] = access;
             if (http.Request.Method != "GET" && !access.Allows((http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText)) return Results.Forbid();
             try
@@ -59,6 +64,22 @@ public static class InteriorBusbarEndpointExtensions
                 }
                , statusCode: 409);
             }
+        });
+        api.MapGet("/access", (HttpContext h) => Results.Ok(h.Items["busbarAccess"]));
+        api.MapGet("/masters", (HttpContext h, InteriorBusbarStore s) => s.Workspace(((BusbarAccess)h.Items["busbarAccess"]!).Any, permissions: (BusbarAccess)h.Items["busbarAccess"]!));
+        api.MapGet("/master-access", async (IIdentityStore identities, InteriorBusbarStore s, CancellationToken ct) =>
+        {
+            var eligible = (await identities.GetUsersAsync(ct)).Where(u => u.IsActive && !u.ApprovalPending && u.UserId != null).DistinctBy(u => u.UserId).ToDictionary(u => u.UserId!.Value);
+            var users = await s.MasterAccessUsers();
+            return Results.Ok(users.Where(u => eligible.ContainsKey((Guid)u["userId"]!)).Select(u => new { userId = u["userId"], displayName = u["displayName"], departmentName = eligible[(Guid)u["userId"]!].DepartmentName,
+                access = u["canEdit"] is bool edit ? edit ? "Edit" : "Read" : "None",
+                automatic = eligible[(Guid)u["userId"]!].Roles.Contains(QmsRoles.SystemAdministrator) }));
+        });
+        api.MapPut("/master-access", async (BusbarMasterAccessRequest r, ClaimsPrincipal u, IIdentityStore identities, InteriorBusbarStore s, CancellationToken ct) =>
+        {
+            var target = await identities.GetProfileByUserIdAsync(r.UserId, ct);
+            if (target?.User.IsActive != true || ApprovalReadinessPolicy.IsApprovalPending(target)) return Results.BadRequest(new { message = "활성 청주 사용자를 선택하세요." });
+            return Results.Ok(new { id = await s.SetMasterAccess(r, Actor(u)) });
         });
         api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId, Guid? productFamilyId, DateOnly? planDateFrom, DateOnly? planDateTo, string? status) => s.Workspace(((BusbarAccess)h.Items["busbarAccess"]!).Any, page ?? 1, pageSize ?? 100, planId, productFamilyId, planDateFrom, planDateTo, status, (BusbarAccess)h.Items["busbarAccess"]!));
         foreach (var kind in new[] { "product-families", "materials", "workers" })

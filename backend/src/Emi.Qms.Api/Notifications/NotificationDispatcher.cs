@@ -166,6 +166,14 @@ public sealed class NotificationDispatcher(
         }
         var retryCount = Math.Max(1, retryCountOverride ?? currentOptions.Dispatch.RetryCount);
         var delivery = claimed.Delivery;
+        if (!await deliveryStore.IsOsanPreferenceEnabledAsync(delivery, cancellationToken, target))
+        {
+            var suppressed = NotificationChannelResult.Suppressed(
+                "SuppressedByUserPreference",
+                "사용자 알림 설정에 따라 외부 알림을 보내지 않았습니다.");
+            await CompleteAsync(claimed, suppressed, retryCount, cancellationToken, target);
+            return suppressed;
+        }
         if (!handlers.TryGetValue(delivery.Channel, out var handler))
         {
             var disabled = NotificationChannelResult.Disabled(

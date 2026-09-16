@@ -1,0 +1,48 @@
+.osan-notification-backdrop { z-index: 1200; }
+.app-shell .account-notification-settings-button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: #fff; color: var(--ink); font-size: .72rem; font-weight: 800; }
+.osan-notification-dialog { width: 560px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; background: #fff; color: #282828; box-shadow: 0 12px 50px #0002; }
+.osan-notification-dialog > header { padding: 24px 24px 16px; flex: 0 0 auto; }
+.osan-notification-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.osan-notification-heading h2 { margin: 0; font-size: 20px; line-height: 1.4; }
+.osan-notification-dialog header > p { margin: 8px 0 0; color: #737373; font-size: 13px; line-height: 1.6; }
+.osan-notification-close, .osan-notification-back { min-width: 44px; min-height: 44px; border: 0; border-radius: 6px; background: transparent; }
+.osan-notification-close { margin: -8px -10px -8px 0; font-size: 24px; }
+.osan-notification-back { margin: 0 0 8px; padding: 0; color: #666; font-size: 13px; text-align: left; }
+.osan-notification-content { min-height: 140px; padding: 0 24px 20px; overflow-y: auto; }
+.osan-notification-columns, .osan-notification-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 8px; align-items: center; }
+.osan-notification-columns { padding: 10px 0; border-radius: 6px; background: #f6f6f6; color: #737373; font-size: 12px; text-align: center; }
+.osan-notification-columns > span:first-child { padding-left: 12px; text-align: left; }
+.osan-notification-row { min-height: 64px; padding: 8px 0; border-bottom: 1px solid #eee; }
+.osan-notification-name { padding-right: 4px; font-size: 14px; line-height: 1.4; }
+.osan-notification-detail { display: block; padding: 8px 0 2px; border: 0; background: transparent; color: #666; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.osan-notification-toggle { min-width: 64px; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 3px; border: 0; border-radius: 6px; background: transparent; }
+.osan-notification-toggle:focus-visible, .osan-notification-close:focus-visible, .osan-notification-back:focus-visible, .osan-notification-button:focus-visible { outline: 2px solid #282828; outline-offset: 2px; }
+.osan-notification-toggle:disabled { cursor: not-allowed; opacity: .4; }
+.osan-notification-rail { position: relative; width: 36px; height: 20px; border-radius: 12px; background: #b8b8b8; }
+.osan-notification-rail i { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0002; transition: left 120ms ease; }
+.osan-notification-toggle[aria-checked='true'] .osan-notification-rail { background: #da2127; }
+.osan-notification-toggle[aria-checked='true'] .osan-notification-rail i { left: 19px; }
+.osan-notification-toggle small { color: #666; font-size: 10px; line-height: 12px; }
+.osan-notification-note, .osan-notification-off-note, .osan-notification-state, .osan-notification-save-error { font-size: 12px; line-height: 1.7; }
+.osan-notification-note { margin: 16px 0 0; color: #737373; }
+.osan-notification-push-note { padding-top: 12px; border-top: 1px solid #eee; }
+.osan-notification-off-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 6px; background: #f6f6f6; }
+.osan-notification-state { margin: 24px 0; color: #737373; }
+.osan-notification-state--error, .osan-notification-save-error { color: #a41318; }
+.osan-notification-dialog > footer { padding: 16px 24px; display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #eee; background: #fff; }
+.osan-notification-dialog > footer > span { color: #737373; font-size: 12px; }
+.osan-notification-dialog > footer > div { display: flex; gap: 8px; }
+.osan-notification-button { min-height: 44px; padding: 10px 18px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+.osan-notification-button--primary { border-color: #da2127; background: #da2127; color: #fff; }
+.osan-notification-button:disabled { cursor: not-allowed; opacity: .5; }
+@media (max-width: 480px) {
+  .osan-notification-dialog > header { padding: 20px 18px 14px; }
+  .osan-notification-content { padding: 0 18px 16px; }
+  .osan-notification-dialog > footer { padding: 14px 18px; }
+  .osan-notification-columns, .osan-notification-row { grid-template-columns: minmax(0, 1fr) 58px 58px; gap: 4px; }
+  .osan-notification-toggle { min-width: 54px; }
+  .osan-notification-name { font-size: 13px; }
+  .osan-notification-heading h2 { font-size: 18px; }
+  .osan-notification-button { padding: 10px 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .osan-notification-rail i { transition: none; } }

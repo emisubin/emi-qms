@@ -13,6 +13,7 @@ import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
+import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
@@ -1870,6 +1871,7 @@ function QmsAppShellContent({
   const [shellBadges, setShellBadges] = useState<ShellBadgeState>({ requestedWorkCount: 0, unreadNotificationCount: 0 });
   const [adminTestUserKey, setAdminTestUserKeyState] = useState('');
   const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
+  const [osanNotificationSettingsOpen, setOsanNotificationSettingsOpen] = useState(false);
   const [profilePhotoState, setProfilePhotoState] = useState<{ key: string; url: string | null } | null>(null);
   const [profilePhotoNonce, setProfilePhotoNonce] = useState(0);
   const [formTemplateScope, setFormTemplateScope] = useState<{ canManage: boolean; isSystemAdministrator: boolean; domains: string[] } | null>(null);
@@ -1902,6 +1904,10 @@ function QmsAppShellContent({
     || !hasSelectedBusinessUnit
     || isOsan;
   const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
+
+  useEffect(() => {
+    setOsanNotificationSettingsOpen(false);
+  }, [developmentUserKey, selectedBusinessUnit, actualProfileUserId]);
 
   useEffect(() => {
     if (currentUser.kind !== 'ready' || !hasSelectedBusinessUnit || isOsan) return;
@@ -2468,6 +2474,11 @@ function QmsAppShellContent({
               mutationAllowed={mutationEnabled}
               onPhotoChanged={() => setProfilePhotoNonce((value) => value + 1)}
               onLogout={onLogout}
+              osan={isOsan}
+              onOpenNotificationSettings={isOsan ? () => {
+                setMobileStatusOpen(false);
+                setOsanNotificationSettingsOpen(true);
+              } : undefined}
               mobile
             />
           ) : null}
@@ -2521,10 +2532,22 @@ function QmsAppShellContent({
                 mutationAllowed={mutationEnabled}
                 onPhotoChanged={() => setProfilePhotoNonce((value) => value + 1)}
                 onLogout={onLogout}
+                osan={isOsan}
+                onOpenNotificationSettings={isOsan ? () => setOsanNotificationSettingsOpen(true) : undefined}
               />
             ) : null}
           </div>
         </header>
+
+        {osanNotificationSettingsOpen && isOsan && user ? (
+          <OsanNotificationSettings
+            key={`${selectedBusinessUnit}:${user.actualUser.userId}:${developmentUserKey}`}
+            developmentUserKey={developmentUserKey}
+            contextKey={`${selectedBusinessUnit}:${user.actualUser.userId}:${developmentUserKey}`}
+            mutationAllowed={mutationEnabled}
+            onClose={() => setOsanNotificationSettingsOpen(false)}
+          />
+        ) : null}
 
         {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
           <div className="review-safe-banner" role="status">
@@ -3659,7 +3682,9 @@ function DesktopAccountMenu({
   profilePhotoUrl,
   mutationAllowed,
   onPhotoChanged,
-  onLogout
+  onLogout,
+  osan,
+  onOpenNotificationSettings
 }: {
   user: CurrentUser;
   developmentUserKey: string;
@@ -3667,6 +3692,8 @@ function DesktopAccountMenu({
   mutationAllowed: boolean;
   onPhotoChanged: () => void;
   onLogout?: () => void;
+  osan: boolean;
+  onOpenNotificationSettings?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -3719,6 +3746,11 @@ function DesktopAccountMenu({
             mutationAllowed={mutationAllowed}
             onPhotoChanged={onPhotoChanged}
             onLogout={onLogout}
+            osan={osan}
+            onOpenNotificationSettings={onOpenNotificationSettings ? () => {
+              close(false);
+              onOpenNotificationSettings();
+            } : undefined}
           />
         </div>
       ) : null}
@@ -3733,6 +3765,8 @@ function AccountProfilePanel({
   mutationAllowed,
   onPhotoChanged,
   onLogout,
+  osan,
+  onOpenNotificationSettings,
   mobile = false
 }: {
   user: CurrentUser;
@@ -3741,6 +3775,8 @@ function AccountProfilePanel({
   mutationAllowed: boolean;
   onPhotoChanged: () => void;
   onLogout?: () => void;
+  osan: boolean;
+  onOpenNotificationSettings?: () => void;
   mobile?: boolean;
 }) {
   const actions = useActionFeedback();
@@ -3829,6 +3865,9 @@ function AccountProfilePanel({
       {feedback ? <p className="account-action-feedback" data-tone={feedback.tone} aria-live="polite">{feedback.message}</p> : null}
       {pwaInstall.available ? (
         <button type="button" className="account-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
+      ) : null}
+      {osan && onOpenNotificationSettings ? (
+        <button type="button" className="account-notification-settings-button" onClick={onOpenNotificationSettings}>알림 설정 <span aria-hidden="true">›</span></button>
       ) : null}
       <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
       {photoConsentOpen ? (

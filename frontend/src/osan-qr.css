@@ -23,3 +23,8 @@
 .osan-qr-guidance summary { cursor: pointer; padding: 12px; font-size: 14px; }
 .osan-qr-comment { margin-top: 20px; }
 .osan-qr-comment p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.osan-qr-stages .osan-qr-stage-light{width:12px;height:12px;border-radius:50%!important;background:#b8b8b8!important;display:block}
+.osan-qr-stages .done .osan-qr-stage-light{background:#24945d!important}
+.osan-qr-stages .has-issue .osan-qr-stage-light{background:#da2127!important}
+.osan-qr-stages .is-next-work .osan-qr-stage-light{outline:2px solid #282828;outline-offset:3px}
+.osan-qr-legend .osan-qr-issue-legend{color:#da2127}

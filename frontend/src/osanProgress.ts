@@ -5,7 +5,12 @@ export interface OsanProgressPhoto {
   photoId: string; displayOrder: number; fileName: string; contentType: string; sizeBytes: number;
   sha256: string; uploadedAtUtc: string; uploadedByUserId: string; uploadedByDisplayName: string;
 }
+export interface OsanOpenIssue {
+  issueId: string; registeredAtUtc: string; registeredByUserId: string; registeredByDisplayName: string;
+  comment: string; photos: OsanProgressPhoto[]; lastRecordedAtUtc: string; lastRecordedByDisplayName: string;
+}
 export interface OsanProgressStep {
+  openIssue?: OsanOpenIssue | null; canRegisterIssue?: boolean; canResolveIssue?: boolean;
   stepId: string; sequenceNumber: number; stepCode: string; stepName: string; status: string;
   startedAtUtc: string | null; completedByUserId: string | null; canCompleteIndividual: boolean; canCompleteBatch: boolean;
   guidanceDescription: string | null; guidancePhotos: { photoId: string; altText: string }[];
@@ -73,7 +78,9 @@ export function completionUnavailable(targets: OsanProgressTarget[], stageSequen
   if (mode === 'individual' && targets.length !== 1) return '개별 완료는 대상 한 개를 선택해 주세요.';
   for (const target of targets) {
     if (target.steps.find(step => step.sequenceNumber === stageSequence)?.status === 'Completed') return `${target.displayName}: 이미 완료한 단계입니다.`;
-    if (target.steps.some(step => step.sequenceNumber < stageSequence && step.status !== 'Completed')) return `${target.displayName}: 이전 단계를 모두 완료한 후 입력할 수 있습니다.`;
+    if (target.steps.find(step => step.sequenceNumber === stageSequence)?.openIssue) return `${target.displayName}: 조치 완료로 해당 단계를 완료해 주세요.`;
+    if (stageSequence !== 5 && target.steps.some(step => step.sequenceNumber < stageSequence && step.status !== 'Completed' && (stageSequence === 7 || !step.openIssue))) return `${target.displayName}: 이전 단계를 모두 완료하거나 이상을 등록한 후 입력할 수 있습니다.`;
+    if (stageSequence === 7 && target.steps.some(step => step.openIssue)) return `${target.displayName}: 미조치 이상을 모두 해소한 후 포장할 수 있습니다.`;
     const step = target.steps.find(item => item.sequenceNumber === stageSequence);
     if (!step || !(mode === 'individual' ? step.canCompleteIndividual : step.canCompleteBatch)) return `${target.displayName}: 현재 이 단계를 완료할 수 없습니다. 새로고침하여 상태를 확인해 주세요.`;
   }
@@ -88,4 +95,13 @@ export function validateOsanRecord(photos: readonly File[], comment: string, can
   if (photos.reduce((sum, f) => sum + f.size, 0) + retained.reduce((sum, f) => sum + f.sizeBytes, 0) > 40 * 1024 * 1024) return '사진의 전체 용량은 40MiB 이하여야 합니다.';
   if (!photos.length && !retained.length && !(canManage && comment.trim())) return canManage ? '사진이 없으면 코멘트를 입력해 주세요.' : '사진을 1장 이상 첨부해 주세요.';
   return null;
+}
+
+export function mutateOsanIssue(projectId: string, action: 'register' | 'record' | 'resolve', request: OsanCompletionRequest, userKey?: string) {
+  const body = new FormData();
+  body.set('operationId', request.operationId); body.set('completionMode', 'individual'); body.set('stageSequence', String(request.stageSequence));
+  body.set('targets', JSON.stringify(request.targets)); body.set('comment', request.comment ?? '');
+  request.photos.forEach(file => body.append('photos', file, file.name));
+  const suffix = action === 'register' ? '' : action === 'record' ? '/records' : '/resolve';
+  return fetchJson<OsanProgressMutation>(`${projectPath(projectId)}/issues${suffix}`, userKey, { method: 'POST', body });
 }

@@ -1,3 +1,4 @@
+import { OsanStageIssueActions } from './OsanStageIssueActions';
 import { nextOsanWork } from './osanNextWork';
 import { OsanPhotoPreview } from './OsanPhotoPreview';
 import { dismissOnBackdrop } from './dialogBackdrop';
@@ -149,12 +150,21 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     finally { busyRef.current = false; if (alive.current) setBusy(false); }
   }
   function refresh() { if (busyRef.current) return; pendingCompletion.current = null; setError(''); setSuccess(''); setRefreshing(true); setReload(value => value + 1); }
+  function issueActions(target: OsanProgressTarget) {
+    return <OsanStageIssueActions key={`issue:${target.targetId}:${stage}:${target.version}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} canManage={!!project?.canManageStages} disabled={busy || refreshing} onBusy={value => { busyRef.current = value; setBusy(value); }} onSaved={refresh}/>;
+  }
   function targetHistory(target: OsanProgressTarget) {
     const step = target.steps.find(item => item.sequenceNumber === stage);
     const showPhotos = selected.length === 1 || photoTargetId === target.targetId;
     return <section className="osan-progress-history" key={target.targetId} aria-label={`${target.displayName} 완료 기록`}>
       {selected.length > 1 && <h3>{target.displayName}</h3>}
-      {step?.status === 'Completed' ? <>
+      {step?.openIssue ? <>
+        <p className="osan-progress-completed-title osan-issue-title">이상 발생 · 미조치</p>
+        {step.openIssue.photos.length ? <OsanPhotoGallery projectId={projectId} photos={step.openIssue.photos} userKey={developmentUserKey}/> : <div className="osan-progress-photo-region osan-progress-photo-region--empty"><p>등록된 이상 사진이 없습니다.</p></div>}
+        <div className="osan-record-comment"><span>이상 내용 · 최근 기록</span><p>{step.openIssue.comment}</p></div>
+        <div className="osan-progress-completed"><span>{step.openIssue.lastRecordedByDisplayName}</span><time>{new Date(step.openIssue.lastRecordedAtUtc).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</time></div>
+        <div className="osan-record-actions"><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{issueActions(target)}<OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/><p>다음 단계는 진행할 수 있습니다. 포장 전에는 이상 조치를 완료해야 합니다.</p></div>
+      </> : step?.status === 'Completed' ? <>
         <p className="osan-progress-completed-title">작업 완료</p>
         {step.photos.length ? <>
           {selected.length > 1 && <button type="button" className="osan-progress-show-photos" aria-expanded={showPhotos} onClick={() => setPhotoTargetId(showPhotos ? null : target.targetId)}>{target.displayName} 사진 {showPhotos ? '닫기' : '보기'} ({step.photos.length}장)</button>}
@@ -162,15 +172,15 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
         </> : <div className="osan-progress-photo-region osan-progress-photo-region--empty"><p>등록된 완료 사진이 없습니다.</p></div>}
         <div className="osan-record-comment"><span>코멘트</span><p>{step.comment || '등록된 코멘트가 없습니다.'}</p></div>
         <div className="osan-progress-completed"><span>{step.completedByDisplayName ?? '작업자 정보 없음'}</span><time dateTime={step.completedAtUtc ?? undefined}>{step.completedAtUtc ? new Date(step.completedAtUtc).toLocaleString('ko-KR') : '완료 일시 정보 없음'}</time></div>
-        <div className="osan-record-actions"><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/><OsanPhotoEditor key={`${target.targetId}:${stage}:${developmentUserKey}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/></div>
-      </> : step && <><p className="osan-progress-not-completed">{step.rejected ? '반려 · 수정 후 저장해 주세요.' : '미완료'}</p><div className="osan-record-actions"><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{step.editOpen && <OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/>}</div></>}
+        <div className="osan-record-actions"><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/><OsanPhotoEditor key={`${target.targetId}:${stage}:${developmentUserKey}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/>{issueActions(target)}</div>
+      </> : step && <><p className="osan-progress-not-completed">{step.rejected ? '반려 · 수정 후 저장해 주세요.' : '미완료'}</p><div className="osan-record-actions"><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{issueActions(target)}{step.editOpen && <OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/>}</div></>}
     </section>;
   }
   if (!project) return <section className="osan-progress-page">{loadError ? <><p role="alert">{loadStatus === 403 ? '이 프로젝트의 진행 정보를 조회할 권한이 없습니다.' : loadStatus === 404 ? '프로젝트를 찾을 수 없습니다.' : loadError}</p><button type="button" onClick={refresh}>다시 불러오기</button></> : <p role="status">진행 정보를 불러오는 중…</p>}</section>;
   const stageContent = <>
     {desktop ? <details className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details> : !selectedStageCompleted && <OsanStageGuidance stage={stage}/>}
     <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
-    {!selectedStageCompleted && !selected.some(t => t.steps.find(s => s.sequenceNumber === stage)?.editOpen) && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
+    {!selectedStageCompleted && !selected.some(t => { const s = t.steps.find(s => s.sequenceNumber === stage); return s?.editOpen || s?.openIssue; }) && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setModalOpen(true); setError(''); }}>완료</button>{unavailable && <p>{unavailable}</p>}</div>}
   </>;
   return <section className="osan-progress-page" aria-label="오산 진행 상세">
     <header className="osan-progress-header"><button type="button" onClick={onBack} disabled={busy} aria-label="진행 현황으로 돌아가기">‹</button><h1>진행 현황</h1></header>
@@ -199,13 +209,16 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       {desktop ? <nav className="osan-progress-stage-overview" aria-label="전체 진행 단계">
         {osanStageNames.map((name, index) => {
           const completed = selected.filter(target => target.steps.find(step => step.sequenceNumber === index + 1)?.status === 'Completed').length;
-          const done = selected.length > 0 && completed === selected.length;
+          const hasIssue = selected.some(target => target.steps.find(step => step.sequenceNumber === index + 1)?.openIssue);
+          const done = !hasIssue && selected.length > 0 && completed === selected.length;
+          const availableCount = selected.filter(target => target.steps.find(step => step.sequenceNumber === index + 1)?.canCompleteIndividual).length;
+          const nextLabel = index === 4 && !done ? '상시 가능' : availableCount ? selected.length === 1 ? '다음 작업' : `가능 ${availableCount}대` : index === 6 && !done ? '포장 대기' : '';
           return <button type="button" key={name} aria-haspopup="dialog" aria-pressed={stageOpen && stage === index + 1}
-            disabled={busy || refreshing} className={done ? 'is-complete' : ''}
+            disabled={busy || refreshing} className={`${hasIssue ? 'has-issue' : done ? 'is-complete' : ''}${availableCount && index !== 4 ? ' is-next-work' : ''}`}
             onClick={() => { setStage(index + 1); setError(''); setSuccess(''); setPhotoTargetId(null); pendingCompletion.current = null; setFiles([]); setComment(''); setFileError(''); setStageOpen(true); }}>
-            <span className="osan-stage-number">{index + 1}</span><strong>{name}</strong>
-            <span>{selected.length === 0 ? '대상을 선택하세요' : done ? '완료' : completed > 0 ? '일부 완료' : '미완료'}</span>
-            <small>{completed} / {selected.length} 대상 완료</small>
+            <span className="osan-stage-number osan-stage-light" aria-hidden="true" /><strong>{name}</strong>
+            <span>{selected.length === 0 ? '대상을 선택하세요' : hasIssue ? '미조치 이상' : done ? '완료' : completed > 0 ? '일부 완료' : '미완료'}</span>
+            <small>{completed} / {selected.length} 대상 완료{nextLabel && <> · {nextLabel}</>}</small>
           </button>;
         })}
       </nav> : <div className="osan-progress-stage-card">

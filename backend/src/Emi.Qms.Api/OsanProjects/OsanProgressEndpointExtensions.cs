@@ -36,7 +36,7 @@ public static class OsanProgressEndpointExtensions
             }
 
             var value = await store.GetAsync(projectId, cancellationToken);
-            return value is null ? Results.NotFound() : Results.Ok(value with { CanManageStages = user.IsInRole(QmsRoles.SystemAdministrator) });
+            return value is null ? Results.NotFound() : Results.Ok(WithPermissions(value, user));
         })
         .RequireAuthorization()
         .WithName("GetOsanProgress");
@@ -106,7 +106,7 @@ public static class OsanProgressEndpointExtensions
             var result = await store.CompleteAsync(projectId, parsed.Input, actorId.Value,
                 cancellationToken, user.IsInRole(QmsRoles.SystemAdministrator));
             if(result.Value is not null) result=result with { Value=result.Value with {
-                Project=result.Value.Project with {CanManageStages=user.IsInRole(QmsRoles.SystemAdministrator)} } };
+                Project=WithPermissions(result.Value.Project, user) } };
             return ToResult(result);
         })
         .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
@@ -114,6 +114,33 @@ public static class OsanProgressEndpointExtensions
         .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
         .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
         .WithName("CompleteOsanProgress");
+
+        foreach (var route in new[] { "/issues", "/issues/records", "/issues/resolve" })
+        {
+            var resolve = route.EndsWith("/resolve", StringComparison.Ordinal);
+            var requireOpen = route.EndsWith("/records", StringComparison.Ordinal);
+            progress.MapPost(route, async (Guid projectId, HttpRequest request, OsanProgressStore store,
+                OsanProjectStore projectStore, DatabaseConnectionStringProvider connectionStringProvider,
+                ClaimsPrincipal user, CancellationToken cancellationToken) =>
+            {
+                var denied = await AuthorizeProjectAsync(projectId, QmsPermissions.ManufacturingUpdate,
+                    projectStore, connectionStringProvider, user, cancellationToken);
+                if (denied is not null) return denied;
+                var actor = ProjectEndpointExtensions.GetCurrentUserId(user);
+                if (actor is null) return Results.Unauthorized();
+                var parsed = await ReadCompletionAsync(request, cancellationToken);
+                if (parsed.Input is null) return Results.ValidationProblem(parsed.Errors);
+                var result = await store.RecordIssueAsync(projectId, parsed.Input, actor.Value, resolve,
+                    cancellationToken, user.IsInRole(QmsRoles.SystemAdministrator), requireOpen);
+                if (result.Value is not null) result = result with { Value = result.Value with { Project = WithPermissions(result.Value.Project, user) } };
+                return ToResult(result);
+            })
+            .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
+            .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+            .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
+            .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
+            .WithName(resolve ? "ResolveOsanStageIssue" : requireOpen ? "AppendOsanStageIssueRecord" : "RegisterOsanStageIssue");
+        }
 
         progress.MapPost("/photo-preview", async (Guid projectId, HttpRequest request,
             OsanProjectStore projectStore, DatabaseConnectionStringProvider connectionStringProvider,
@@ -182,6 +209,23 @@ public static class OsanProgressEndpointExtensions
         .WithName("DownloadOsanProgressPhoto");
 
         return app;
+    }
+
+    private static OsanProgressResponse WithPermissions(OsanProgressResponse progress, ClaimsPrincipal user)
+    {
+        var canUpdate = ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ManufacturingUpdate);
+        return progress with
+        {
+            CanManageStages = user.IsInRole(QmsRoles.SystemAdministrator),
+            Targets = progress.Targets.Select(target => target with
+            {
+                Steps = target.Steps.Select(step => step with
+                {
+                    CanRegisterIssue = step.CanRegisterIssue && canUpdate,
+                    CanResolveIssue = step.CanResolveIssue && canUpdate
+                }).ToArray()
+            }).ToArray()
+        };
     }
 
     internal static async Task<IResult?> AuthorizeProjectAsync(

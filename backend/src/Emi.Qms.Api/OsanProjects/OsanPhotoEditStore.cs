@@ -15,6 +15,20 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
     private NpgsqlDataSource Source() => NpgsqlDataSource.Create(db.GetConnectionString()
         ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 
+    private static OsanManagementResult OpenIssueConflict() => new(409, Message: "미해결 이상이 있습니다. 이상 해결로 처리해 주세요.");
+
+    private static async Task<bool> RequestHasOpenIssueAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        Guid project, Guid requestId, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand(); command.Transaction = transaction;
+        command.CommandText = """
+            select 1 from osan_photo_edit_requests r join osan_stage_issues i on i.step_id=r.step_id
+            where r.project_id=@project and r.id=@request and i.status='Open';
+            """;
+        command.Parameters.AddWithValue("project", project); command.Parameters.AddWithValue("request", requestId);
+        return await command.ExecuteScalarAsync(ct) is not null;
+    }
+
     public async Task<IReadOnlyList<OsanPhotoEditItem>> ListAsync(Guid project, CancellationToken ct)
     {
         await using var source = Source();
@@ -55,17 +69,24 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         cmd.Parameters.AddWithValue("project",project); cmd.Parameters.AddWithValue("target",request.TargetId);
         cmd.Parameters.AddWithValue("stage",request.StageSequence);cmd.Parameters.AddWithValue("actor",actor);
         cmd.Parameters.AddWithValue("id",request.RequestId);
+        cmd.CommandText = """
+            select 1 from osan_stage_issues i join osan_project_target_steps s on s.id=i.step_id
+            where i.project_id=@project and i.target_id=@target and s.sequence_number=@stage and i.status='Open';
+            """;
+        if (await cmd.ExecuteScalarAsync(ct) is not null) return OpenIssueConflict();
         cmd.CommandText="""
             insert into osan_photo_edit_requests(id,project_id,target_id,step_id,requested_by)
             select @id,@project,@target,id,@actor from osan_active_project_target_steps
             where project_id=@project and target_id=@target and sequence_number=@stage and status='Completed'
+              and not exists(select 1 from osan_stage_issues i where i.step_id=osan_active_project_target_steps.id and i.status='Open')
             on conflict do nothing;
             """;
         await cmd.ExecuteNonQueryAsync(ct);
         cmd.CommandText="""
             select r.id from osan_photo_edit_requests r join osan_active_project_target_steps s on s.id=r.step_id
             where r.project_id=@project and r.target_id=@target and s.sequence_number=@stage
-              and r.requested_by=@actor and r.used_at is null and r.invalidated_at is null;
+              and r.requested_by=@actor and r.used_at is null and r.invalidated_at is null
+              and not exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open');
             """;
         var id=await cmd.ExecuteScalarAsync(ct);
         if(id is null) return new(409,Message:"완료된 단계만 요청할 수 있습니다. 다른 사용자의 요청이 있다면 관리자에게 확인해 주세요.");
@@ -86,9 +107,11 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         await using var cmd=c.CreateCommand();cmd.Transaction=tx;
         cmd.CommandText="""
             update osan_photo_edit_requests set approved_by=coalesce(approved_by,@actor),approved_at=coalesce(approved_at,now())
-            where project_id=@project and id=@id and used_at is null and invalidated_at is null returning step_id;
+            where project_id=@project and id=@id and used_at is null and invalidated_at is null
+              and not exists(select 1 from osan_stage_issues i where i.step_id=osan_photo_edit_requests.step_id and i.status='Open') returning step_id;
             """;
         cmd.Parameters.AddWithValue("project",project);cmd.Parameters.AddWithValue("id",requestId);cmd.Parameters.AddWithValue("actor",actor);
+        if (await RequestHasOpenIssueAsync(c, tx, project, requestId, ct)) return OpenIssueConflict();
         var step=await cmd.ExecuteScalarAsync(ct);
         if(step is null)return new(409,Message:"이미 사용했거나 찾을 수 없는 요청입니다.");
         cmd.CommandText="select 1 from osan_stage_records where operation_id=@id and event_type='Approve'";
@@ -112,11 +135,13 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         cmd.Parameters.AddWithValue("project",project);cmd.Parameters.AddWithValue("id",requestId);
         cmd.Parameters.AddWithValue("actor",actor);cmd.Parameters.AddWithValue("target",input.Targets[0]!.TargetId);
         cmd.Parameters.AddWithValue("stage",input.StageSequence);
+        if (await RequestHasOpenIssueAsync(c, tx, project, requestId, ct)) return OpenIssueConflict();
         cmd.CommandText="""
             select r.approved_at,r.used_at,r.fingerprint,s.id,r.invalidated_at from osan_photo_edit_requests r
             join osan_active_project_target_steps s on s.id=r.step_id
             where r.project_id=@project and r.id=@id and r.target_id=@target and s.sequence_number=@stage
-              and (s.status='Completed' or s.rejected) for update of r;
+              and (s.status='Completed' or s.rejected)
+              and not exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open') for update of r;
             """;
         Guid step;
         await using(var reader=await cmd.ExecuteReaderAsync(ct))

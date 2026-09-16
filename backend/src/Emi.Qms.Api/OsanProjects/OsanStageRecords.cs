@@ -33,7 +33,7 @@ internal static class OsanStageRecords
         cmd.Parameters.AddWithValue("reason",NpgsqlTypes.NpgsqlDbType.Text,(object?)reason??DBNull.Value);
         cmd.Parameters.AddWithValue("photos",photos);cmd.Parameters.AddWithValue("fingerprint",fingerprint);
         await cmd.ExecuteScalarAsync(ct);
-        if(kind is "Complete" or "Edit")
+        if(kind is "Complete" or "Edit" or "IssueResolved")
         {
             cmd.CommandText="""
                 update osan_project_target_steps set current_record_id=@id,comment=@comment,rejected=false,
@@ -50,7 +50,7 @@ internal static class OsanStageRecords
         await using var cmd=c.CreateCommand();cmd.Transaction=tx;
         cmd.CommandText="""
             update osan_project_targets t set version=version+1,updated_at_utc=now(),
-              status=case when x.n=7 then 'Completed' when x.n=0 then 'NotStarted' else 'InProgress' end
+              status=case when x.n=7 then 'Completed' when x.n=0 and not exists(select 1 from osan_stage_issues i where i.target_id=@target and i.status='Open') then 'NotStarted' else 'InProgress' end
             from (select count(*) filter(where status='Completed') n from osan_project_target_steps where target_id=@target) x
             where t.id=@target and t.project_id=@project;
             update projects set status=case when not exists(select 1 from osan_active_project_target_steps where project_id=@project and status<>'Completed')
@@ -71,7 +71,7 @@ internal static class OsanStageRecords
         if(kind==OsanNotificationKind.StepRejected)
         {
             recipients=overallAdministrators?.ToList()??[];
-            cmd.CommandText="select distinct actor_user_id from osan_stage_records where project_id=@project and step_id=@step and event_type in ('Complete','Edit')";
+            cmd.CommandText="select distinct actor_user_id from osan_stage_records where project_id=@project and step_id=@step and event_type in ('Complete','Edit','IssueRegistered','IssueRecorded','IssueResolved')";
             await using var reader=await cmd.ExecuteReaderAsync(ct);while(await reader.ReadAsync(ct))recipients.Add(reader.GetGuid(0));
         }
         await OsanNotificationWriter.WriteAsync(c,tx,project,operation,kind,actor,DateTimeOffset.UtcNow,ct,name,[target],comment,photoCount,recipients);

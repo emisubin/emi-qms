@@ -250,6 +250,46 @@ public sealed class NotificationDeliveryStore(
         return claimed.SingleOrDefault();
     }
 
+    public async Task<bool> IsOsanPreferenceEnabledAsync(
+        NotificationDeliveryRecord delivery,
+        CancellationToken cancellationToken,
+        BusinessUnitDatabaseTarget? target = null)
+    {
+        var businessUnit = target ?? connectionStringProvider.GetCurrentBusinessUnit();
+        if (!string.Equals(businessUnit?.Code, BusinessUnitCodes.Osan, StringComparison.Ordinal)
+            || !string.Equals(delivery.NotificationSourceKind, NotificationSourceKinds.OsanWorkflow, StringComparison.Ordinal)
+            || delivery.NotificationId is not { } notificationId
+            || delivery.RecipientUserId is not { } recipientUserId)
+        {
+            return true;
+        }
+
+        var channel = string.Equals(delivery.Channel, NotificationDeliveryChannels.WebPush, StringComparison.Ordinal)
+            ? NotificationDeliveryChannels.WebPush
+            : NotificationDeliveryChannels.Mail;
+        await using var dataSource = CreateDataSource(target);
+        await using var command = dataSource.CreateCommand("""
+            select not exists (
+                select 1
+                from osan_notification_events event
+                join osan_notification_preferences preference
+                  on preference.user_id=@user_id
+                 and preference.event_kind=event.event_kind
+                 and preference.channel=@channel
+                 and preference.is_enabled=false
+                 and (
+                    preference.stage_sequence=0
+                    or (event.event_kind='StepCompleted' and preference.stage_sequence=event.stage_sequence)
+                 )
+                where event.notification_id=@notification_id
+            );
+            """);
+        command.Parameters.AddWithValue("user_id", recipientUserId);
+        command.Parameters.AddWithValue("channel", channel);
+        command.Parameters.AddWithValue("notification_id", notificationId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
+    }
+
     private async Task<IReadOnlyList<ClaimedNotificationDelivery>> ClaimDeliveriesAsync(
         Guid? deliveryId,
         int limit,
@@ -2095,7 +2135,18 @@ public sealed class NotificationDeliveryStore(
                     users.display_name,
                     users.email,
                     subscription.id as subscription_id,
-                    subscription.generation as subscription_generation
+                    subscription.generation as subscription_generation,
+                    osan_event.event_kind,
+                    osan_event.stage_sequence,
+                    case when @osan_only then exists (
+                        select 1 from osan_notification_preferences preference
+                        where preference.user_id=users.id
+                          and preference.event_kind=osan_event.event_kind
+                          and preference.channel='WebPush'
+                          and preference.is_enabled=false
+                          and (preference.stage_sequence=0
+                            or (osan_event.event_kind='StepCompleted' and preference.stage_sequence=osan_event.stage_sequence))
+                    ) else false end as preference_disabled
                 from notifications n
                 join qms_users users
                   on users.is_active = true
@@ -2131,8 +2182,10 @@ public sealed class NotificationDeliveryStore(
                  and subscription.is_active = true
                  and subscription.activated_at_utc <= n.created_at_utc
                 left join projects on projects.id = n.project_id
+                left join osan_notification_events osan_event on osan_event.notification_id=n.id
                 where n.visibility_scope in ('RecipientOnly', 'Authenticated')
                   and (not @osan_only or projects.project_profile = 'Osan')
+                  and (not @osan_only or osan_event.notification_id is not null)
             )
             insert into notification_deliveries (
                 notification_id, notification_recipient_id, recipient_user_id,
@@ -2154,11 +2207,11 @@ public sealed class NotificationDeliveryStore(
                 eligible.subscription_generation,
                 'WebPush',
                 'WebPushNotification',
-                case when @channel_enabled then 'Pending' else 'Disabled' end,
-                case when @channel_enabled then @now else null end,
-                case when @channel_enabled then null else @now end,
-                case when @channel_enabled then null else 'WebPushDisabled' end,
-                case when @channel_enabled then null else 'PWA 푸시 발송이 비활성화되어 있습니다.' end,
+                case when eligible.preference_disabled then 'Suppressed' when @channel_enabled then 'Pending' else 'Disabled' end,
+                case when eligible.preference_disabled or not @channel_enabled then null else @now end,
+                case when eligible.preference_disabled or not @channel_enabled then @now else null end,
+                case when eligible.preference_disabled then 'SuppressedByUserPreference' when not @channel_enabled then 'WebPushDisabled' else null end,
+                case when eligible.preference_disabled then '사용자 알림 설정에 따라 푸시를 보내지 않았습니다.' when not @channel_enabled then 'PWA 푸시 발송이 비활성화되어 있습니다.' else null end,
                 concat('notification:', eligible.notification_id::text, ':web-push:', eligible.subscription_id::text),
                 concat('web-push:', eligible.notification_id::text, ':', floor(extract(epoch from eligible.created_at_utc) / @batch_window_seconds)::bigint),
                 eligible.title,

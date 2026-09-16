@@ -46,7 +46,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 StringComparison.Ordinal) == true)
             .ToArray();
 
-        Assert.Equal(22, endpoints.Length);
+        Assert.Equal(25, endpoints.Length);
         Assert.All(endpoints, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var projectCreate = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/osan/projects/"
@@ -62,6 +62,13 @@ public sealed partial class OsanProjectRegistrationApiTests
                 HttpMethods.Post,
                 StringComparer.OrdinalIgnoreCase) == true).ToArray();
         Assert.Single(progressMutations);
+        foreach (var issueRoute in new[] { "issues", "issues/records", "issues/resolve" })
+        {
+            var endpoint = Assert.Single(endpoints, e => e.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/" + issueRoute);
+            Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(), a => a.Policy == QmsPolicies.ManufacturingUpdate);
+            Assert.Equal(OsanProgressPhotoValidator.MaximumMultipartBytes, endpoint.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
+        }
+
         Assert.All(progressMutations, endpoint => Assert.Contains(
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => string.Equals(
@@ -1437,7 +1444,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         {
             Assert.True(target.Steps[0].CanCompleteIndividual);
             Assert.True(target.Steps[0].CanCompleteBatch);
-            Assert.All(target.Steps.Skip(1), step =>
+            Assert.All(target.Steps.Skip(1).Where(step => step.SequenceNumber != 5), step =>
             {
                 Assert.False(step.CanCompleteIndividual);
                 Assert.False(step.CanCompleteBatch);
@@ -1474,7 +1481,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             Assert.False(target.Steps[0].CanCompleteIndividual);
             Assert.True(target.Steps[1].CanCompleteIndividual);
             Assert.True(target.Steps[1].CanCompleteBatch);
-            Assert.All(target.Steps.Skip(2), step =>
+            Assert.All(target.Steps.Skip(2).Where(step => step.SequenceNumber != 5), step =>
             {
                 Assert.False(step.CanCompleteIndividual);
                 Assert.False(step.CanCompleteBatch);
@@ -1765,7 +1772,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.False(legacyTarget.Steps[1].CanCompleteIndividual);
         Assert.Equal("Completed", legacyTarget.Steps[3].Status);
         Assert.False(legacyTarget.Steps[3].CanCompleteIndividual);
-        Assert.False(legacyTarget.Steps[4].CanCompleteIndividual);
+        Assert.True(legacyTarget.Steps[4].CanCompleteIndividual);
         Assert.Equal(legacyHistoryBefore, await database.ReadScalarAsync<string>(
             """
             select string_agg(

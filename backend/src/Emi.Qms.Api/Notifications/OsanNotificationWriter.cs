@@ -4,12 +4,22 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Notifications;
 
-public enum OsanNotificationKind { ProjectCreated, StepCompleted, StepRejected, StepEdited, ProjectCompleted }
+public enum OsanNotificationKind
+{
+    ProjectCreated = 0,
+    StepCompleted = 1,
+    StepRejected = 2,
+    StepEdited = 3,
+    ProjectCompleted = 4,
+    StepIssueRegistered = 5,
+    StepIssueResolved = 6
+}
 
 public sealed record OsanNotificationSnapshot(
     OsanNotificationKind Kind, string ProjectName, string ProjectCode, string PartCategory,
     string CustomerName, int Quantity, DateOnly? DueDate, string ActorName,
-    DateTimeOffset OccurredAt, string? StepName, string[] Targets, string? Comment, int PhotoCount);
+    DateTimeOffset OccurredAt, string? StepName, string[] Targets, string? Comment, int PhotoCount,
+    int? StageSequence = null);
 
 /// <summary>Writes immutable in-app and mail snapshots in the caller's Osan business transaction.</summary>
 public static class OsanNotificationWriter
@@ -23,7 +33,7 @@ public static class OsanNotificationWriter
         NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid operationId,
         OsanNotificationKind kind, Guid actorId, DateTimeOffset occurredAt, CancellationToken cancellationToken,
         string? stepName = null, IReadOnlyList<Guid>? targetIds = null, string? comment = null,
-        int photoCount = 0, IReadOnlyList<Guid>? recipientIds = null)
+        int photoCount = 0, IReadOnlyList<Guid>? recipientIds = null, int? stageSequence = null)
     {
         if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         if (kind == OsanNotificationKind.StepRejected && recipientIds is null)
@@ -45,7 +55,8 @@ public static class OsanNotificationWriter
                 throw new InvalidOperationException("Osan notification project/actor boundary mismatch.");
             snapshot = new(kind, reader.GetString(0), reader.GetString(1), reader.GetString(2),
                 reader.GetString(3), reader.GetInt32(4), reader.IsDBNull(5) ? null : reader.GetFieldValue<DateOnly>(5),
-                reader.GetString(6), occurredAt, stepName, [], comment, photoCount);
+                reader.GetString(6), occurredAt, stepName, [], comment, photoCount,
+                stageSequence ?? StageSequence(stepName));
         }
         var targets = new List<string>();
         if (targetIds is { Count: > 0 })
@@ -61,6 +72,8 @@ public static class OsanNotificationWriter
                 throw new InvalidOperationException("Osan notification target boundary mismatch.");
         }
         snapshot = snapshot with { Targets = targets.ToArray() };
+        if (kind == OsanNotificationKind.StepCompleted && snapshot.StageSequence is null)
+            throw new InvalidOperationException("Osan completed-stage notification sequence is required.");
         if (kind == OsanNotificationKind.ProjectCompleted)
         {
             await using var marker = connection.CreateCommand();
@@ -97,6 +110,19 @@ public static class OsanNotificationWriter
             if (await insert.ExecuteScalarAsync(cancellationToken) is not Guid id) return;
             notificationId = id;
         }
+        await using (var eventInsert = connection.CreateCommand())
+        {
+            eventInsert.Transaction = transaction;
+            eventInsert.CommandText = """
+                insert into osan_notification_events(notification_id,event_kind,stage_sequence)
+                values(@notification,@kind,@stage_sequence)
+                on conflict(notification_id) do nothing;
+                """;
+            eventInsert.Parameters.AddWithValue("notification", notificationId);
+            eventInsert.Parameters.AddWithValue("kind", kind.ToString());
+            eventInsert.Parameters.AddWithValue("stage_sequence", (short)(kind == OsanNotificationKind.StepCompleted ? snapshot.StageSequence ?? 0 : 0));
+            await eventInsert.ExecuteNonQueryAsync(cancellationToken);
+        }
         await using var write = connection.CreateCommand();
         write.Transaction = transaction;
         write.CommandText = """
@@ -106,12 +132,30 @@ public static class OsanNotificationWriter
                 and (auth_provider <> 'EntraId' or exists(select 1 from user_roles ur where ur.user_id=qms_users.id))
             on conflict(notification_id,user_id) do nothing;
             insert into notification_deliveries(notification_id,notification_recipient_id,recipient_user_id,project_id,
-                channel,delivery_type,dedupe_key,group_key,next_attempt_at_utc,display_title,display_message,
+                channel,delivery_type,status,suppressed_at_utc,error_code,error_message,
+                dedupe_key,group_key,next_attempt_at_utc,display_title,display_message,
                 display_project_name,display_recipient_name,display_recipient_email,display_recipient_kind,manual_payload_json)
             select @notification,r.id,r.user_id,@project,'Mail','OsanWorkflow',
-                'osan-mail:'||@notification::text||':'||r.user_id::text,@notification::text,@time,
+                case when disabled.preference_disabled then 'Suppressed' else 'Pending' end,
+                case when disabled.preference_disabled then @time else null end,
+                case when disabled.preference_disabled then 'SuppressedByUserPreference' else null end,
+                case when disabled.preference_disabled then '사용자 알림 설정에 따라 메일을 보내지 않았습니다.' else null end,
+                'osan-mail:'||@notification::text||':'||r.user_id::text,@notification::text,
+                case when disabled.preference_disabled then null else @time end,
                 @subject,@message,@project_name,u.display_name,u.email,'User',@payload
             from notification_recipients r join qms_users u on u.id=r.user_id
+            cross join lateral (select
+              exists (
+                  select 1 from osan_notification_preferences preference
+                  where preference.user_id=r.user_id and preference.event_kind=@kind
+                    and preference.channel='Mail' and preference.stage_sequence=0
+                    and preference.is_enabled=false
+              ) or (@kind='StepCompleted' and exists (
+                  select 1 from osan_notification_preferences preference
+                  where preference.user_id=r.user_id and preference.event_kind='StepCompleted'
+                    and preference.channel='Mail' and preference.stage_sequence=@stage_sequence
+                    and preference.is_enabled=false
+              )) as preference_disabled) disabled
             where r.notification_id=@notification
             on conflict do nothing;
             """;
@@ -123,7 +167,21 @@ public static class OsanNotificationWriter
         write.Parameters.AddWithValue("subject", content.Subject);
         write.Parameters.AddWithValue("message", content.Message);
         write.Parameters.AddWithValue("project_name", snapshot.ProjectName);
+        write.Parameters.AddWithValue("kind", kind.ToString());
+        write.Parameters.AddWithValue("stage_sequence", (short)(kind == OsanNotificationKind.StepCompleted ? snapshot.StageSequence ?? 0 : 0));
         write.Parameters.AddWithValue("payload", NpgsqlDbType.Jsonb, JsonSerializer.Serialize(snapshot));
         await write.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    private static int? StageSequence(string? stepName) => stepName?.Trim() switch
+    {
+        "입고검사" => 1,
+        "배치검사" => 2,
+        "배선검사" => 3,
+        "8계통" => 4,
+        "동작검사" => 5,
+        "출하검사" => 6,
+        "포장" => 7,
+        _ => null
+    };
 }

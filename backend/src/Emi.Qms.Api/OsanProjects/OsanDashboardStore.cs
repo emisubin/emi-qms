@@ -75,7 +75,8 @@ public sealed class OsanDashboardStore(
             project.CompletedStepCount,
             project.TotalStepCount,
             ProgressPercent(project.Status, project.CompletedStepCount, project.TotalStepCount),
-            stages.GetValueOrDefault(project.ProjectId, []), project.DeliveryHold))
+            stages.GetValueOrDefault(project.ProjectId, []), project.DeliveryHold,
+            stages.GetValueOrDefault(project.ProjectId, []).Sum(s => s.OpenIssueTargetCount)))
             .ToArray();
         return new OsanDashboardResponse(summary, items, totalCount, query.Page, query.PageSize, customers);
     }
@@ -185,7 +186,16 @@ public sealed class OsanDashboardStore(
         command.CommandText = """
             select step.project_id, step.sequence_number, step.step_code, step.step_name,
                    count(*) filter (where step.status = 'Completed')::integer,
-                   count(*)::integer
+                   count(*)::integer,
+                   count(*) filter(where exists(select 1 from osan_stage_issues i where i.step_id=step.id and i.status='Open'))::integer,
+                   count(*) filter(where step.status<>'Completed' and not step.rejected
+                     and not exists(select 1 from osan_stage_issues i where i.step_id=step.id and i.status='Open')
+                     and (step.sequence_number=5 or
+                       (step.sequence_number=7 and not exists(select 1 from osan_stage_issues i where i.target_id=step.target_id and i.status='Open')
+                         and not exists(select 1 from osan_active_project_target_steps p where p.target_id=step.target_id and p.sequence_number<7 and p.status<>'Completed')) or
+                       (step.sequence_number<7 and not exists(select 1 from osan_active_project_target_steps p
+                         where p.target_id=step.target_id and p.sequence_number<step.sequence_number and p.status<>'Completed'
+                         and not exists(select 1 from osan_stage_issues i where i.step_id=p.id and i.status='Open')))))::integer
             from osan_active_project_target_steps step
             where step.project_id = any(@project_ids)
             group by step.project_id, step.sequence_number, step.step_code, step.step_name
@@ -213,7 +223,7 @@ public sealed class OsanDashboardStore(
                 reader.GetString(2),
                 reader.GetString(3),
                 reader.GetInt32(4),
-                reader.GetInt32(5)));
+                reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7)));
         }
         if (currentProjectId is not null)
         {
@@ -243,7 +253,7 @@ public sealed class OsanDashboardStore(
                        projects.delivery_date, projects.osan_delivery_hold,
                        case
                            when projects.status = 'Completed' then '{OsanDashboardStatuses.Completed}'
-                           when progress.completed_step_count > 0 then '{OsanDashboardStatuses.InProgress}'
+                           when progress.completed_step_count > 0 or exists(select 1 from osan_stage_issues i join osan_active_project_targets t on t.id=i.target_id where i.project_id=projects.id and i.status='Open') then '{OsanDashboardStatuses.InProgress}'
                            else '{OsanDashboardStatuses.NotStarted}'
                        end as progress_status,
                        progress.completed_step_count,

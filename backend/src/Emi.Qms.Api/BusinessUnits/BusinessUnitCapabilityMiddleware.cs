@@ -74,6 +74,8 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         }
         if (path.Equals("/api/my/notification-preferences", StringComparison.OrdinalIgnoreCase) && (HttpMethods.IsGet(request.Method) || HttpMethods.IsPut(request.Method))) return true;
         if (path.Equals("/api/my/notification-preferences/reset", StringComparison.OrdinalIgnoreCase) && HttpMethods.IsPost(request.Method)) return true;
+        if (path.Equals("/api/osan/my/notification-preferences", StringComparison.OrdinalIgnoreCase)
+            && (HttpMethods.IsGet(request.Method) || HttpMethods.IsPut(request.Method))) return true;
 
         // Keep the capability grant limited to the authenticated user's device lifecycle.
         if (HttpMethods.IsGet(request.Method)
@@ -173,6 +175,14 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
                     && Guid.TryParse(segments[3], out _));
         }
 
+        if (HttpMethods.IsPost(method) && segments.Length >= 3
+            && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "issues", StringComparison.OrdinalIgnoreCase))
+        {
+            return segments.Length == 3 || (segments.Length == 4
+                && (string.Equals(segments[3], "records", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(segments[3], "resolve", StringComparison.OrdinalIgnoreCase)));
+        }
         if (segments.Length == 1 && (HttpMethods.IsPut(method) || HttpMethods.IsDelete(method))) return true;
         if (HttpMethods.IsPost(method) && segments.Length >= 3
             && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)

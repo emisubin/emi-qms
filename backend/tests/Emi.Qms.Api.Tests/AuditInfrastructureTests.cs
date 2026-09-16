@@ -11,6 +11,7 @@ public sealed class AuditInfrastructureTests
     private static readonly IReadOnlySet<string> PostGlobalAuditMigrationTrackedRelations =
         ParseRelationNames("""
             g2_defect_inventory_counts osan_project_target_steps osan_project_targets osan_photo_edit_requests
+            osan_stage_issues osan_notification_preference_profiles osan_notification_preferences
             """);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ExplicitRelationExclusions =
@@ -37,7 +38,7 @@ public sealed class AuditInfrastructureTests
                 iqc_report_pdf_artifacts notification_deliveries notification_delivery_attempts
                 notification_delivery_reprocess_events notification_recipients notifications
                 panel_quality_report_pdf_artifacts web_push_subscription_events web_push_subscriptions
-                work_item_escalations
+                work_item_escalations osan_notification_events
                 """),
             ["OperationImportOrIdempotency"] = ParseRelationNames("""
                 logistics_operations panel_information_excel_import_batches panel_kitting_batches
@@ -183,8 +184,8 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(98, trackedRelations.Count);
-        Assert.Equal(63, excludedRelations.Length);
+        Assert.Equal(101, trackedRelations.Count);
+        Assert.Equal(64, excludedRelations.Length);
     }
 
     [Fact]

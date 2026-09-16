@@ -3468,7 +3468,9 @@ public sealed partial class BusinessUnitIsolationTests
                 var steps = target.GetProperty("steps").EnumerateArray().ToArray();
                 Assert.True(steps[0].GetProperty("canCompleteIndividual").GetBoolean());
                 Assert.True(steps[0].GetProperty("canCompleteBatch").GetBoolean());
-                Assert.All(steps.Skip(1), step =>
+                Assert.True(steps[4].GetProperty("canCompleteIndividual").GetBoolean());
+                Assert.True(steps[4].GetProperty("canCompleteBatch").GetBoolean());
+                Assert.All(steps.Skip(1).Where(step => step.GetProperty("sequenceNumber").GetInt32() != 5), step =>
                 {
                     Assert.False(step.GetProperty("canCompleteIndividual").GetBoolean());
                     Assert.False(step.GetProperty("canCompleteBatch").GetBoolean());

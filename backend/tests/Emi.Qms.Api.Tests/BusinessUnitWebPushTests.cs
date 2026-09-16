@@ -128,6 +128,7 @@ public sealed partial class BusinessUnitIsolationTests
                 insert into notifications(id,project_id,notification_type,severity,title,message,idempotency_key,visibility_scope,source_kind)
                 values('{sharedNotificationId}',{project},'Info','Info','{campus} PUSH','PRIVATE CONTENT','{sharedNotificationId}','RecipientOnly','{source}');
                 insert into notification_recipients(notification_id,user_id) values('{sharedNotificationId}','{recipient}');
+                {(campus == BusinessUnitCodes.Osan ? $"insert into osan_notification_events(notification_id,event_kind,stage_sequence) values('{sharedNotificationId}','ProjectCreated',0);" : string.Empty)}
                 """, ct);
         }
         // None of these records may broaden Osan push recipients or invoke Cheongju planners.
@@ -141,6 +142,8 @@ public sealed partial class BusinessUnitIsolationTests
             insert into notification_recipients(notification_id,user_id)
             select id,case when idempotency_key='push-hidden' then '{AdminUserId}'::uuid else '{SalesUserId}'::uuid end
             from notifications where idempotency_key in ('push-hidden','push-before-activation');
+            insert into osan_notification_events(notification_id,event_kind,stage_sequence)
+            select id,'ProjectCreated',0 from notifications where idempotency_key like 'push-%';
             """, ct);
         var dispatcher = factory.Services.GetRequiredService<NotificationDispatcher>();
         // Outside HTTP context: this catches worker fallback/missing-target reads and writes.
@@ -205,6 +208,7 @@ public sealed partial class BusinessUnitIsolationTests
             insert into notifications(id,project_id,notification_type,severity,title,message,idempotency_key,visibility_scope,source_kind)
             values('{expiredNotificationId}','{projectId}','Info','Info','expired endpoint','private','{expiredNotificationId}','RecipientOnly','OsanWorkflow');
             insert into notification_recipients(notification_id,user_id) values('{expiredNotificationId}','{SalesUserId}');
+            insert into osan_notification_events(notification_id,event_kind,stage_sequence) values('{expiredNotificationId}','ProjectCreated',0);
             """, ct);
         await dispatcher.DispatchAsync(ct);
         Assert.False(await Active(BusinessUnitCodes.Osan));

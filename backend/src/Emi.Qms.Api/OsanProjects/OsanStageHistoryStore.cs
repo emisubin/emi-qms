@@ -50,7 +50,8 @@ public sealed partial class OsanProgressStore
         if(old is not null)return old.ToString()==fingerprint?new(200,new{replayed=true}):new(409,Message:"같은 요청 식별자가 다른 처리에 사용되었습니다.");
         cmd.CommandText="""
             select s.target_id,s.status,t.version,
-              exists(select 1 from osan_photo_edit_requests r where r.step_id=s.id and r.used_at is null and r.invalidated_at is null and r.approved_at is not null)
+              exists(select 1 from osan_photo_edit_requests r where r.step_id=s.id and r.used_at is null and r.invalidated_at is null and r.approved_at is not null),
+              exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open')
             from osan_active_project_target_steps s join osan_active_project_targets t on t.id=s.target_id
             where s.project_id=@project and s.id=@step;
             """;
@@ -60,7 +61,7 @@ public sealed partial class OsanProgressStore
             if(!await reader.ReadAsync(ct))return new(404);
             target=reader.GetGuid(0);
             if(reader.GetInt32(2)!=input.ExpectedVersion)return new(409,Message:"진행 상태가 변경되었습니다. 다시 조회해 주세요.");
-            if(action=="Reject" && (reader.GetString(1)!="Completed" || reader.GetBoolean(3)))return new(409,Message:"수정 승인 중이거나 미완료 단계는 반려할 수 없습니다.");
+            if(action=="Reject" && (reader.GetString(1)!="Completed" || reader.GetBoolean(3) || reader.GetBoolean(4)))return new(409,Message:"수정 승인 중이거나 미완료 단계는 반려할 수 없습니다.");
         }
         cmd.CommandText="update osan_photo_edit_requests set invalidated_at=now() where step_id=@step and used_at is null and invalidated_at is null";
         await cmd.ExecuteNonQueryAsync(ct);
@@ -79,7 +80,16 @@ public sealed partial class OsanProgressStore
                 """;
             await cmd.ExecuteNonQueryAsync(ct);
         }
-        await OsanStageRecords.AddAsync(c,tx,project,step,input.OperationId,action,actor,"",input.Reason,[],ct,fingerprint);
+        var record = await OsanStageRecords.AddAsync(c,tx,project,step,input.OperationId,action,actor,"",input.Reason,[],ct,fingerprint);
+        if (action == "Reset")
+        {
+            cmd.Parameters.AddWithValue("record", record);
+            cmd.CommandText = """
+                update osan_stage_issues set status='Reset',closed_at_utc=now(),closed_by_user_id=@actor,
+                  closed_record_id=@record where step_id=@step and status='Open';
+                """;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
         await OsanStageRecords.RecalculateAsync(c,tx,project,target,ct);
         if(action=="Reject")await OsanStageRecords.NotifyAsync(c,tx,project,step,input.OperationId,actor,
             Emi.Qms.Api.Notifications.OsanNotificationKind.StepRejected,input.Reason,0,ct,

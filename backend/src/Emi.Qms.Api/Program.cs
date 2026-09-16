@@ -200,6 +200,7 @@ builder.Services.AddOptions<NotificationOptions>().ValidateOnStart();
 builder.Services.AddSingleton<NotificationWorkerIdentity>();
 builder.Services.AddSingleton<NotificationDeliveryStore>();
 builder.Services.AddSingleton<NotificationPreferenceStore>();
+builder.Services.AddScoped<OsanNotificationPreferenceStore>();
 builder.Services.AddSingleton<NotificationPreferenceAuditStore>();
 builder.Services.AddSingleton<WebPushSubscriptionStore>();
 builder.Services.AddSingleton<IWebPushSubscriptionDeliveryStore>(services =>
@@ -509,6 +510,7 @@ app.MapDataExportEndpoints();
 app.MapNotificationDeliveryEndpoints();
 app.MapNotificationEscalationEndpoints();
 app.MapNotificationPreferenceEndpoints();
+app.MapOsanNotificationPreferenceEndpoints();
 app.MapNotificationPreferenceAuditEndpoints();
 app.MapWebPushEndpoints();
 

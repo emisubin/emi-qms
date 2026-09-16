@@ -62,7 +62,7 @@ describe('오산 진행 상세', () => {
     renderPage(); await screen.findByRole('button', { name: '완료' });
     fireEvent.click(screen.getByRole('button', { name: '다음 단계' }));
     expect(screen.getByRole('button', { name: '완료' })).toBeDisabled();
-    expect(screen.getByText(/이전 단계를 모두 완료한 후/)).toBeInTheDocument();
+    expect(screen.getByText(/이전 단계를 모두 완료하거나 이상을 등록한 후/)).toBeInTheDocument();
     expect(api.completeOsanProgress).not.toHaveBeenCalled();
   });
   it('대상 링크로 진입한 두 번째 대상만 선택하고 저장한다', async () => {

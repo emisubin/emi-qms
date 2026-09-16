@@ -23,6 +23,120 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task Migration0103_BackfillsEveryLegacyOsanNotificationKindWithoutChangingQueuedDeliveries()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var directory = Path.Combine(database.RepositoryRoot, "database", "migrations");
+        foreach (var file in Directory.GetFiles(directory, "*.sql").Order(StringComparer.Ordinal)
+                     .TakeWhile(file => !Path.GetFileName(file).StartsWith("0103_", StringComparison.Ordinal)))
+            await ApplyMigrationFileAsync(provider, file, ct);
+
+        await ExecuteSqlAsync(provider, """
+            insert into qms_users(id,development_user_key,display_name,email,is_active)
+            values('8a000000-0000-0000-0000-000000000001','migration-0103-user','Synthetic','synthetic@example.invalid',true);
+            insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
+                project_title_normalized,delivery_date,project_profile,osan_product_name,osan_quantity,created_by_user_id)
+            values('8a000000-0000-0000-0000-000000000002','migration-0103','MIG0103','Synthetic','Customer','',
+                'MIG0103','Synthetic','SYNTHETIC','2026-12-31','Osan','Product',1,
+                '8a000000-0000-0000-0000-000000000001');
+            with legacy(kind,step_name,notification_id) as (values
+                (0,null::text,'8a000000-0000-0000-0000-000000000010'::uuid),
+                (1,'배선검사','8a000000-0000-0000-0000-000000000011'::uuid),
+                (2,'입고검사','8a000000-0000-0000-0000-000000000012'::uuid),
+                (3,'포장','8a000000-0000-0000-0000-000000000013'::uuid),
+                (4,null::text,'8a000000-0000-0000-0000-000000000014'::uuid))
+            insert into notifications(id,project_id,notification_type,severity,title,message,idempotency_key,visibility_scope,source_kind)
+            select notification_id,'8a000000-0000-0000-0000-000000000002','Info','Info','legacy','legacy',
+                'legacy-0103-'||kind,'RecipientOnly','OsanWorkflow' from legacy;
+            insert into notification_recipients(notification_id,user_id)
+            select id,'8a000000-0000-0000-0000-000000000001' from notifications where idempotency_key like 'legacy-0103-%';
+            with legacy(kind,step_name,notification_id) as (values
+                (0,null::text,'8a000000-0000-0000-0000-000000000010'::uuid),
+                (1,'배선검사','8a000000-0000-0000-0000-000000000011'::uuid),
+                (2,'입고검사','8a000000-0000-0000-0000-000000000012'::uuid),
+                (3,'포장','8a000000-0000-0000-0000-000000000013'::uuid),
+                (4,null::text,'8a000000-0000-0000-0000-000000000014'::uuid))
+            insert into notification_deliveries(notification_id,notification_recipient_id,recipient_user_id,project_id,
+                channel,delivery_type,dedupe_key,status,next_attempt_at_utc,manual_payload_json)
+            select legacy.notification_id,recipient.id,recipient.user_id,'8a000000-0000-0000-0000-000000000002',
+                'Mail','OsanWorkflow','legacy-0103-delivery-'||legacy.kind,'Pending',now(),
+                jsonb_build_object('Kind',legacy.kind,'StepName',legacy.step_name)
+            from legacy join notification_recipients recipient on recipient.notification_id=legacy.notification_id;
+            """, ct);
+        var before = await ReadScalarAsync<long>(provider,
+            "select count(*) from notification_deliveries where dedupe_key like 'legacy-0103-delivery-%' and status='Pending';", ct);
+
+        await ApplyMigrationFileAsync(provider, Path.Combine(directory, "0103_osan_notification_preferences.sql"), ct);
+
+        Assert.Equal(5L, before);
+        Assert.Equal(before, await ReadScalarAsync<long>(provider,
+            "select count(*) from notification_deliveries where dedupe_key like 'legacy-0103-delivery-%' and status='Pending';", ct));
+        Assert.Equal("ProjectCompleted:0,ProjectCreated:0,StepCompleted:3,StepEdited:0,StepRejected:0",
+            await ReadScalarAsync<string>(provider, """
+                select string_agg(event_kind||':'||stage_sequence,',' order by event_kind)
+                from osan_notification_events event
+                join notifications notification on notification.id=event.notification_id
+                where notification.idempotency_key like 'legacy-0103-%';
+                """, ct));
+    }
+
+    [Fact]
+    public async Task Migration0102_PreservesCompletedStageHistoryAndPhotos()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var directory = Path.Combine(database.RepositoryRoot, "database", "migrations");
+        foreach (var file in Directory.GetFiles(directory, "*.sql").Order(StringComparer.Ordinal)
+                     .TakeWhile(file => !Path.GetFileName(file).StartsWith("0102_", StringComparison.Ordinal)))
+            await ApplyMigrationFileAsync(provider, file, ct);
+        await ExecuteSqlAsync(provider, """
+            insert into qms_users(id,development_user_key,display_name,is_active)
+              values('89000000-0000-0000-0000-000000000089','migration-0102-user','Synthetic',true);
+            insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
+              delivery_date,project_profile,osan_product_name,osan_quantity,created_by_user_id)
+              values('89000000-0000-0000-0000-000000000090','migration-0102','MIG0102','Synthetic','Customer','',
+              'MIG0102','Synthetic','2026-12-31','Osan','Product',1,'89000000-0000-0000-0000-000000000089');
+            insert into osan_project_targets(id,project_id,sequence_number,display_name)
+              values('89000000-0000-0000-0000-000000000091','89000000-0000-0000-0000-000000000090',1,'Synthetic 1');
+            insert into osan_project_target_steps(id,project_id,target_id,sequence_number,step_code,step_name,status,
+              completed_at_utc,completed_by_user_id,comment)
+              values('89000000-0000-0000-0000-000000000092','89000000-0000-0000-0000-000000000090',
+              '89000000-0000-0000-0000-000000000091',1,'INCOMING_INSPECTION','입고검사','Completed',now(),
+              '89000000-0000-0000-0000-000000000089','Original');
+            insert into osan_progress_operations(operation_id,project_id,action,completion_mode,stage_sequence,target_ids,
+              request_fingerprint,requested_by_user_id)
+              values('89000000-0000-0000-0000-000000000093','89000000-0000-0000-0000-000000000090','Complete',
+              'individual',1,array['89000000-0000-0000-0000-000000000091'::uuid],repeat('a',64),'89000000-0000-0000-0000-000000000089');
+            insert into osan_progress_photos(id,project_id,operation_id,original_file_name,display_order,normalized_mime,byte_size,sha256,content,uploaded_by_user_id)
+              values('89000000-0000-0000-0000-000000000094','89000000-0000-0000-0000-000000000090','89000000-0000-0000-0000-000000000093',
+              'original.png',1,'image/png',3,repeat('a',64),decode('010203','hex'),'89000000-0000-0000-0000-000000000089');
+            insert into osan_stage_records(id,operation_id,project_id,target_id,step_id,event_type,actor_user_id,comment,photo_ids)
+              values('89000000-0000-0000-0000-000000000095','89000000-0000-0000-0000-000000000093','89000000-0000-0000-0000-000000000090',
+              '89000000-0000-0000-0000-000000000091','89000000-0000-0000-0000-000000000092','Complete',
+              '89000000-0000-0000-0000-000000000089','Original',array['89000000-0000-0000-0000-000000000094'::uuid]);
+            update osan_project_target_steps set current_record_id='89000000-0000-0000-0000-000000000095'
+              where id='89000000-0000-0000-0000-000000000092';
+            """, ct);
+        const string snapshotSql = """
+            select jsonb_build_object('steps',(select jsonb_agg(to_jsonb(s)) from osan_project_target_steps s),
+              'records',(select jsonb_agg(to_jsonb(r)) from osan_stage_records r),
+              'photos',(select jsonb_agg(to_jsonb(p)) from osan_progress_photos p),
+              'operations',(select jsonb_agg(to_jsonb(o)) from osan_progress_operations o))::text;
+            """;
+        var before = await ReadScalarAsync<string>(provider, snapshotSql, ct);
+        await ApplyMigrationFileAsync(provider, Path.Combine(directory, "0102_osan_stage_issues.sql"), ct);
+        Assert.Equal(before, await ReadScalarAsync<string>(provider, snapshotSql, ct));
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider, "select count(*) from osan_stage_issues", ct));
+        Assert.Equal(1L, await ReadScalarAsync<long>(provider, "select count(*) from pg_indexes where indexname='ux_osan_stage_issue_open' and indexdef like '%UNIQUE%'", ct));
+        var immutable = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(provider,
+            "update osan_stage_records set comment='tamper'", ct));
+        Assert.Equal(PostgresErrorCodes.ObjectNotInPrerequisiteState, immutable.SqlState);
+    }
+
+    [Fact]
     public async Task Migration0087_PreservesExistingRowsAndSeparatesCheongjuTitleFromOsanCodeUniqueness()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -952,11 +1066,11 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+        Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal(98L, await ReadScalarAsync<long>(
+        Assert.Equal(101L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_qms_global_audit_%';",
             TestContext.Current.CancellationToken));
@@ -1179,7 +1293,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2018,7 +2132,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2086,7 +2200,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2216,7 +2330,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2904,7 +3018,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3170,7 +3284,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3274,7 +3388,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3340,7 +3454,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+        Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3404,7 +3518,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3527,7 +3641,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3693,7 +3807,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4220,7 +4334,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4263,7 +4377,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4444,7 +4558,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4521,7 +4635,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4586,7 +4700,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+            Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4636,7 +4750,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0101_osan_heic_original_photos", await ReadScalarAsync<string>(
+        Assert.Equal("0103_osan_notification_preferences", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

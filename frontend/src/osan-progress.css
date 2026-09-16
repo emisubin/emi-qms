@@ -176,7 +176,7 @@
 .app-shell .osan-progress-stage-overview button { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; padding: 22px 8px; border: 1px solid #dedede; border-radius: 10px; background: #fff; color: #282828; }
 .osan-progress-stage-overview strong { font-size: 16px; white-space: nowrap; }
 .osan-progress-stage-overview span { font-size: 13px; }
-.osan-progress-stage-overview small { font-size: 11px; }
+.osan-progress-stage-overview small { font-size: 11px; word-break: keep-all; }
 .osan-stage-number { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #f1f1f1; }
 .app-shell .osan-progress-stage-overview button.is-complete { border-color: #86b39a; background: #f3faf6; }
 .app-shell .osan-progress-stage-overview button[aria-pressed='true'] { outline: 2px solid #da2127; outline-offset: 2px; }
@@ -301,3 +301,11 @@
 }
 .app-shell .osan-notifications .selected-export-tray--compact .excel-export-action{min-width:0!important;width:auto!important}
 .app-shell .osan-notifications .selected-export-tray--compact .excel-export-button{width:auto!important;min-width:0!important}
+
+.osan-issue-title { color:#da2127; }
+.osan-issue-title::before { content:''; display:inline-block; width:9px; height:9px; border-radius:50%; background:#da2127; margin-right:6px; }
+.osan-issue-modal .osan-progress-submit { margin-top:16px; }
+.osan-stage-light { width:12px!important; height:12px!important; min-height:12px!important; padding:0!important; border:0!important; border-radius:50%!important; background:#b8b8b8!important; }
+.osan-progress-stage-overview .is-complete .osan-stage-light { background:#24945d!important; }
+.osan-progress-stage-overview .has-issue .osan-stage-light { background:#da2127!important; }
+.osan-progress-stage-overview .is-next-work .osan-stage-light { outline:2px solid #282828; outline-offset:3px; }

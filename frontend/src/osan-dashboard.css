@@ -188,3 +188,27 @@
   .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-stepper { left: 10px; right: 40px; bottom: 12px; height: 12px; }
   .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-percent { bottom: 14px; right: 10px; font-size: 11px; line-height: 11px; }
 }
+
+/* Approved anomaly stepper: plain status lights and a neutral connector. */
+.osan-status-track { position:relative; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); margin:27px 30px 0 0; height:44px; gap:0; }
+.osan-status-track::before { content:''; position:absolute; left:calc(100% / 14); right:calc(100% / 14); top:6px; height:2px; background:#c3c3c3; }
+.osan-status-step { position:relative; display:flex; align-items:center; flex-direction:column; gap:5px; font-size:11px; line-height:12px; white-space:nowrap; }
+.app-shell .osan-status-light { display:block; width:12px; height:12px; flex-shrink:0; border-radius:50%!important; background:#b8b8b8!important; box-shadow:0 0 0 3px white!important; z-index:1; }
+.app-shell .osan-status-light.is-done { background:#24945d!important; }
+.app-shell .osan-status-light.is-issue { background:#da2127!important; }
+.osan-status-step small { font-size:10px; color:#666; line-height:10px; }
+.osan-status-step.is-next .osan-status-light { outline:2px solid #282828; outline-offset:3px; }
+.osan-status-step.is-next > span { font-weight:700; }
+.osan-status-hint { position:absolute; bottom:calc(100% + 7px); font-size:9px; line-height:12px; color:#282828; font-weight:700; white-space:nowrap; }
+.osan-status-hint.is-muted { font-weight:400; color:#737373; }
+.app-shell .osan-home-dashboard .osan-dashboard-project { height:126px; }
+.app-shell .osan-home-dashboard .osan-status-track { position:absolute; left:14px; right:43px; bottom:12px; margin:0; height:40px; }
+.app-shell .osan-home-dashboard .osan-status-step { font-size:9px; gap:4px; }
+.app-shell .osan-home-dashboard .osan-status-step small { font-size:9px; }
+.app-shell .osan-home-dashboard .osan-status-hint { font-size:8px; line-height:10px; }
+.app-shell .osan-dashboard .osan-dashboard-percent { bottom:12px; }
+.app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-project { padding-bottom:12px!important; }
+.app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-project-title { margin-bottom:0; }
+@media(max-width:860px) { .osan-status-step { font-size:9px; } .osan-status-step small { font-size:9px; } .osan-status-track { height:40px; } }
+
+.app-shell .app-brand-lockup .osan-sidebar-logo { width: 80px; height: 29px; object-fit: contain; }

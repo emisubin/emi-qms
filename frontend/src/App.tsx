@@ -1,3 +1,7 @@
+import { busbarApi } from "./interiorBusbar";
+import { InteriorBusbarPage } from './InteriorBusbarPage';
+import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
+import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
 import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
@@ -353,6 +357,7 @@ type View =
   | { kind: 'sales-settlement'; projectId: string }
   | { kind: 'sales-kpi'; year?: number; currency?: string }
   | { kind: 'sales-billing' }
+  | { kind: 'interior-busbar'; section?: BusbarSection; projectId?: string }
   | { kind: 'g2-home' }
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
@@ -399,6 +404,7 @@ type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
 
 function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
   switch (view.kind) {
+    case 'interior-busbar': return 'InteriorBusbar';
     case 'home': return 'Home';
     case 'privacy-notice': return 'PrivacyNotice';
     case 'notice-board': return 'NoticeBoard';
@@ -920,6 +926,14 @@ function initialViewFromLocation(): View {
     return { kind: 'operational-hub', area: 'materials' };
   }
 
+  if (window.location.pathname === '/interior-busbar') return { kind: 'interior-busbar', section: 'overview' };
+  const busbarProjectMatch = window.location.pathname.match(/^\/interior-busbar\/projects\/([^/]+)$/);
+  if (busbarProjectMatch?.[1]) {
+    return { kind: 'interior-busbar', section: 'projects', projectId: busbarProjectMatch[1] };
+  }
+  const busbarSection = busbarSections.find((item) => window.location.pathname === `/interior-busbar/${item.key}`);
+  if (busbarSection) return { kind: 'interior-busbar', section: busbarSection.key };
+
   if (window.location.pathname === '/manufacturing') {
     return { kind: 'manufacturing-work' };
   }
@@ -1335,6 +1349,10 @@ function pathForView(view: View) {
     }
     case 'sales-billing':
       return '/sales/billing-requests';
+    case 'interior-busbar':
+      return view.projectId
+        ? `/interior-busbar/projects/${view.projectId}`
+        : `/interior-busbar/${view.section ?? 'overview'}`;
     case 'g2-home':
       return '/g2';
     case 'g2-operations':
@@ -1904,6 +1922,19 @@ function QmsAppShellContent({
     || !hasSelectedBusinessUnit
     || isOsan;
   const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
+  const [busbarMasterScope, setBusbarMasterScope] = useState<{key:string;allowed:boolean} | null>(null);
+  const busbarScopeKey = `${developmentUserKey}:${siteAccessActorKey}:${selectedBusinessUnit}`;
+  useEffect(() => {
+    if (formTemplateScopeBlocked) return;
+    let active = true;
+    const refresh = () => { void busbarApi.access(developmentUserKey).then(scope => {
+      if(active) setBusbarMasterScope({key:busbarScopeKey,allowed:scope.mastersRead === true});
+    }, () => { if(active)setBusbarMasterScope({key:busbarScopeKey,allowed:false}); }); };
+    refresh(); window.addEventListener('focus',refresh);
+    return () => {active=false;window.removeEventListener('focus',refresh);};
+  },[busbarScopeKey,developmentUserKey,formTemplateScopeBlocked,view.kind]);
+  const canSeeBusbarMasters = !formTemplateScopeBlocked && busbarMasterScope?.key === busbarScopeKey && busbarMasterScope.allowed;
+
 
   useEffect(() => {
     setOsanNotificationSettingsOpen(false);
@@ -2360,6 +2391,7 @@ function QmsAppShellContent({
     { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' }
   ];
   const departmentNavigationItems: NavigationItem[] = [
+    { label: '인테리어 부스바', view: { kind: 'interior-busbar', section: 'overview' }, active: view.kind === 'interior-busbar', children: busbarSections.filter(item => item.key !== 'masters' || canSeeBusbarMasters).map((item) => ({ key: `busbar-${item.key}`, label: item.label, view: { kind: 'interior-busbar', section: item.key }, active: view.kind === 'interior-busbar' && (view.section ?? 'overview') === item.key })) },
     { label: '생산관리', view: productionChildren[0].view, active: isProductionPlanningWorkspace(view) || (view.kind === 'operational-hub' && view.area === 'production'), children: productionChildren },
     { label: '구매', view: { kind: 'procurement-dashboard' }, active: isProcurementWorkspace(view) },
     { label: '자재', view: materialsChildren[0].view, active: (view.kind === 'operational-hub' && view.area === 'materials') || view.kind === 'materials-receipts' || view.kind === 'materials-kitting', children: materialsChildren },
@@ -2416,7 +2448,7 @@ function QmsAppShellContent({
       className="app-shell"
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
-      data-osan-project-theme={isOsan && (view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
+      data-osan-project-theme={(isOsan && (view.kind === 'list' || view.kind === 'detail')) || view.kind === 'interior-busbar' ? 'true' : undefined}
       data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
@@ -3013,6 +3045,25 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' && view.projectId ? (
+        <InteriorBusbarProjectDetailPage
+          key={`${developmentUserKey}:${view.projectId}`}
+          developmentUserKey={developmentUserKey}
+          projectId={view.projectId}
+          onBack={() => setView({ kind: 'interior-busbar', section: 'projects' })}
+        />
+      ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && !isOsan && view.kind === 'interior-busbar' && !view.projectId ? (
+        <InteriorBusbarPage
+          key={developmentUserKey}
+          developmentUserKey={developmentUserKey}
+          section={view.section ?? 'overview'}
+          onNavigate={(section) => setView({ kind: 'interior-busbar', section })}
+          onOpenProject={(projectId) => setView({ kind: 'interior-busbar', section: 'projects', projectId })}
+        />
+      ) : null}
+
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'manufacturing-work' ? (
         <ManufacturingPage
           developmentUserKey={developmentUserKey}
@@ -3320,7 +3371,7 @@ function AppNavigation({
 }) {
   // Departments start collapsed; the whole parent row is the disclosure and
   // at most one department is open. Child navigation keeps its parent open.
-  const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
+  const [expandedLabel, setExpandedLabel] = useState<string | null>(() => items.find((item) => item.active && item.label === '인테리어 부스바')?.label ?? null);
 
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">

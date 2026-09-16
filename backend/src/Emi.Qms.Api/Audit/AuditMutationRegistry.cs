@@ -22,6 +22,31 @@ public static partial class AuditMutationRegistry
     // This closed set is populated from the runtime endpoint catalog and locked by a contract test.
     // Any new mutation endpoint must be deliberately classified before application startup succeeds.
     internal static readonly IReadOnlySet<string> KnownMutationRouteKeys = ParseRouteKeys("""
+        PATCH /api/interior-busbar/products/{id:guid}
+        PUT /api/interior-busbar/master-access
+        PUT /api/interior-busbar/settings
+        PUT /api/interior-busbar/products/{id:guid}/photos/{side}
+        POST /api/interior-busbar/product-families
+        POST /api/interior-busbar/materials
+        POST /api/interior-busbar/workers
+        POST /api/interior-busbar/boms
+        POST /api/interior-busbar/projects
+        POST /api/interior-busbar/ecount-jobs/{id:guid}/reconcile
+        POST /api/interior-busbar/ecount/resume
+        POST /api/interior-busbar/ecount-jobs/{id:guid}/retry
+        POST /api/interior-busbar/plans
+        POST /api/interior-busbar/purchases
+        POST /api/interior-busbar/receipts
+        POST /api/interior-busbar/adjustments
+        POST /api/interior-busbar/shipments
+        POST /api/interior-busbar/ledger/{id:guid}/reverse
+        POST /api/interior-busbar/products
+        POST /api/interior-busbar/products/{id:guid}/cancel
+        POST /api/interior-busbar/products/{id:guid}/publication/retry
+        POST /api/interior-busbar/projects/import/preview
+        POST /api/interior-busbar/purchases/import/preview
+        POST /api/interior-busbar/projects/import/apply
+        POST /api/interior-busbar/purchases/import/apply
         DELETE /api/admin/calendar/holidays/{holidayId:guid}
         DELETE /api/admin/calendar/holidays/{holidayId:guid}/purge
         DELETE /api/admin/departments/{departmentId:guid}/purge
@@ -234,6 +259,8 @@ public static partial class AuditMutationRegistry
         """);
 
     private static readonly IReadOnlySet<string> ExcludedMutationRouteKeys = ParseRouteKeys("""
+        POST /api/interior-busbar/projects/import/preview
+        POST /api/interior-busbar/purchases/import/preview
         POST /api/admin/calendar/holidays/preview
         POST /api/admin/notification-deliveries/acknowledge
         POST /api/admin/notification-deliveries/dismiss
@@ -367,6 +394,7 @@ public static partial class AuditMutationRegistry
 
     private static string ResolveDomain(string pattern)
     {
+        if (pattern.StartsWith("/api/interior-busbar/", StringComparison.Ordinal)) return "InteriorBusbar";
         if (pattern.Contains("/g2/", StringComparison.Ordinal)) return "G2";
         if (pattern.Contains("/production-planning", StringComparison.Ordinal)) return "ProductionPlanning";
         if (pattern.Contains("/procurement", StringComparison.Ordinal)) return "Procurement";
@@ -390,7 +418,7 @@ public static partial class AuditMutationRegistry
                 "projectId", "panelId", "pendingId", "noticeId", "userId", "departmentId",
                 "holidayId", "reportId", "attemptId", "receiptId", "workItemId", "specId",
                 "versionId", "batchId", "unitId", "targetId", "itemId", "photoId",
-                "attachmentId", "executionId", "ledgerId", "caseId", "bindingId", "code", "date"
+                "id", "attachmentId", "executionId", "ledgerId", "caseId", "bindingId", "code", "date"
             }
             .Select(key => context.Request.RouteValues.TryGetValue(key, out var value)
                 ? value?.ToString()

@@ -14,6 +14,7 @@ public sealed class AuditInfrastructureTests
             osan_stage_issues osan_notification_preference_profiles osan_notification_preferences
             osan_notification_global_preference_profiles osan_notification_global_preferences
             osan_stage_work_requests osan_stage_work_request_recipients
+            busbar_settings busbar_product_families busbar_materials busbar_workers busbar_boms busbar_bom_lines busbar_projects busbar_plans busbar_purchases busbar_products busbar_photos busbar_stock busbar_ecount_employees busbar_master_access busbar_shipment_products
             """);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ExplicitRelationExclusions =
@@ -35,12 +36,14 @@ public sealed class AuditInfrastructureTests
                 sales_monthly_target_audit_events ul891_recovery_case_events
                 user_notification_preference_audit_events user_profile_photo_audit_events
                 osan_project_events osan_project_management_history
+                busbar_audit busbar_operations busbar_ledger busbar_shipments busbar_receipts busbar_photo_history
                 """),
             ["ProviderWorkerOrGeneratedArtifact"] = ParseRelationNames("""
                 iqc_report_pdf_artifacts notification_deliveries notification_delivery_attempts
                 notification_delivery_reprocess_events notification_recipients notifications
                 panel_quality_report_pdf_artifacts web_push_subscription_events web_push_subscriptions
                 work_item_escalations osan_notification_events
+                busbar_ecount_jobs busbar_ecount_attempts busbar_ecount_runtime busbar_product_qr
                 """),
             ["OperationImportOrIdempotency"] = ParseRelationNames("""
                 logistics_operations panel_information_excel_import_batches panel_kitting_batches
@@ -186,8 +189,8 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(105, trackedRelations.Count);
-        Assert.Equal(64, excludedRelations.Length);
+        Assert.Equal(120, trackedRelations.Count);
+        Assert.Equal(74, excludedRelations.Length);
     }
 
     [Fact]
@@ -200,7 +203,7 @@ public sealed class AuditInfrastructureTests
             "migrations",
             "0085_site_access_sessions.sql"));
 
-        Assert.Equal(19, SiteAccessMenuCodes.Labels.Count);
+        Assert.Equal(20, SiteAccessMenuCodes.Labels.Count);
         Assert.Contains("observed_at_utc := clock_timestamp()", migration, StringComparison.Ordinal);
         Assert.DoesNotContain("p_observed_at_utc", migration, StringComparison.Ordinal);
         Assert.Contains("access.last_activity_at_utc > observed_at_utc - interval '30 minutes'", migration, StringComparison.Ordinal);

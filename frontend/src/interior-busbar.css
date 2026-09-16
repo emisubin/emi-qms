@@ -1,0 +1,561 @@
+.busbar-page {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.busbar-page .ds-tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+.busbar-page .ds-tabs button {
+  white-space: nowrap;
+}
+.busbar-page .ds-surface {
+  min-width: 0;
+  padding: 20px;
+}
+.busbar-page .ds-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.busbar-page .busbar-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.busbar-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.busbar-page th,
+.busbar-page td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  text-align: left;
+  white-space: nowrap;
+}
+.busbar-page th {
+  color: #475569;
+  background: #f8fafc;
+  font-weight: 600;
+}
+.busbar-page td button {
+  margin: 2px 4px 2px 0;
+}
+.busbar-page h3 {
+  margin: 0 0 14px;
+}
+.busbar-page .busbar-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.busbar-page label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+}
+.busbar-page input,
+.busbar-page select,
+.busbar-page textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+.busbar-page input[type="checkbox"] {
+  width: auto;
+}
+.busbar-page .busbar-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.busbar-page .busbar-editor {
+  border-left: 4px solid #2563eb;
+}
+.busbar-page .busbar-note {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+.busbar-page .busbar-negative {
+  color: #b91c1c;
+  font-weight: 700;
+}
+.busbar-page .busbar-photogrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.busbar-page .busbar-photobox {
+  border: 1px dashed #94a3b8;
+  border-radius: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+.busbar-page .busbar-photobox img {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+}
+.busbar-page .busbar-photobox input {
+  font-size: 12px;
+}
+.busbar-page .busbar-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.busbar-page .busbar-inline > label {
+  flex: 1;
+  min-width: 140px;
+}
+.busbar-page fieldset {
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.busbar-page fieldset:disabled {
+  opacity: 0.65;
+}
+.busbar-page .busbar-empty {
+  padding: 28px;
+  text-align: center;
+  color: #64748b;
+}
+@media (max-width: 600px) {
+  .busbar-page .ds-surface {
+    padding: 14px;
+  }
+  .busbar-page .busbar-form,
+  .busbar-page .busbar-photogrid {
+    grid-template-columns: 1fr;
+  }
+  .busbar-page .ds-kpi-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .busbar-page .ds-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+.app-shell .busbar-page .ds-tabs button {
+  flex: 0 0 auto;
+  min-width: max-content;
+  padding-inline: 18px;
+}
+@media (min-width: 900px) {
+  .app-shell .busbar-page .ds-tabs button {
+    flex: 1 0 auto;
+  }
+}
+.busbar-completion {
+  border: 2px solid currentColor;
+  padding: 20px;
+  margin-block: 16px;
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+.busbar-completion strong {
+  font-size: clamp(24px, 5vw, 42px);
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.busbar-completion p {
+  margin: 0;
+  line-height: 1.6;
+}
+.busbar-page h3[tabindex="-1"],
+.busbar-completion {
+  scroll-margin-top: 88px;
+}
+.busbar-page .busbar-clickable-row { cursor: pointer; }
+.busbar-page .busbar-clickable-row:hover, .busbar-page .busbar-clickable-row[aria-expanded="true"] { background: #eff6ff; }
+.busbar-page .busbar-clickable-row:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+.busbar-project-summary { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); gap: 24px; margin-block: 16px; }
+.busbar-shipping-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; }
+.busbar-shipping-summary > div { padding: 12px; background: #f8fafc; border-radius: 8px; }
+.busbar-shipping-summary dt { color: #475569; font-size: 13px; }
+.busbar-shipping-summary dd { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
+/* Fractional implicit rows share the tallest content height across the month. */
+.busbar-month-calendar { max-width: 100%; overflow-x: auto; }
+.busbar-calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-width: 840px; text-align: center; font-weight: 600; padding-block: 12px; }
+.busbar-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 4px; min-width: 840px; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; min-height: 124px; margin: 0; padding: 10px; text-align: left; align-items: stretch; white-space: normal; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+.busbar-page .busbar-calendar-day[aria-pressed="true"] { border: 2px solid #2563eb; background: #eff6ff; }
+.busbar-calendar-date { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 700; }
+.busbar-calendar-date small { font-size: 11px; color: #2563eb; }
+.busbar-calendar-plan { display: grid; gap: 5px; padding-top: 6px; border-top: 1px solid #e2e8f0; line-height: 1.35; overflow-wrap: anywhere; }
+.busbar-calendar-plan strong { font-size: 12px; }
+.busbar-calendar-plan > span { font-size: 11px; }
+.busbar-calendar-empty, .busbar-calendar-outside { color: #94a3b8; font-size: 12px; }
+.busbar-calendar-outside { min-height: 124px; padding: 10px; background: #f8fafc; box-sizing: border-box; }
+.busbar-plan-dialog .dialog { width: min(1000px, calc(100vw - 32px)); max-width: 1000px; max-height: calc(100dvh - 40px); overflow-y: auto; padding: 20px; }
+.busbar-plan-dialog .dialog > .ds-toolbar { position: sticky; top: -20px; background: white; z-index: 1; padding-block: 12px; }
+@media(max-width: 800px) { .busbar-project-summary { grid-template-columns: 1fr; } }
+.busbar-project-anchor { scroll-margin-top: 100px; }
+/* Filter controls share sizing without affecting dialog forms or action toolbars. */
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(180px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  padding: 16px;
+}
+.app-shell .busbar-page .busbar-filterbar > label,
+.app-shell .busbar-page .busbar-filter-date-range > label {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  width: 100%;
+  font-size: 13px;
+  line-height: 20px;
+}
+.app-shell .busbar-page .busbar-filterbar input,
+.app-shell .busbar-page .busbar-filterbar select,
+.app-shell .busbar-page .busbar-filterbar button {
+  box-sizing: border-box;
+  min-height: 44px;
+  height: 44px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.app-shell .busbar-page .busbar-filterbar input,
+.app-shell .busbar-page .busbar-filterbar select { width: 100%; max-width: none; min-width: 0; padding: 10px 12px; }
+.busbar-filter-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 12px; min-width: 0; }
+.busbar-filter-actions button { white-space: nowrap; }
+.busbar-table-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar--single { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); }
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(320px, 2fr) minmax(140px, 0.9fr); }
+.busbar-filter-date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.busbar-filterbar--production > .busbar-filter-actions { grid-column: 1 / -1; }
+@media (max-width: 1280px) {
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .busbar-filterbar--production > .busbar-filter-date-range { grid-column: 1 / -1; }
+  .busbar-filterbar--production > .busbar-filter-actions { grid-column: auto; }
+}
+@media (max-width: 700px) {
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar,
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar--single,
+  .app-shell .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .busbar-filter-actions { justify-content: flex-start; }
+  .busbar-filter-actions button { flex: 1 1 auto; }
+}
+
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] {
+  background: #fee2e2 !important; color: #7f1d1d !important;
+}
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] > :not(.busbar-calendar-date) { color: inherit !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] { outline: 2px solid #2563eb; outline-offset: -2px; }
+.busbar-page .busbar-check-label { display: flex; align-items: center; gap: 8px; }
+.busbar-qr-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-block: 16px; }
+.busbar-qr-label { display: grid; justify-items: center; gap: 8px; padding: 12px; text-align: center; break-inside: avoid; }
+.busbar-qr-label img { width: 180px; height: 180px; object-fit: contain; }
+.busbar-print-buffer { display: none !important; }
+.busbar-print-sheet { display: none; }
+@media print {
+  .busbar-print-dialog { display: none !important; }
+  body:has(.busbar-print-sheet) > *:not(.busbar-print-sheet) { display: none !important; }
+  .busbar-print-sheet, .busbar-print-sheet * { visibility: visible !important; }
+  .busbar-print-sheet { display: block; background: white; color: black; }
+  .busbar-print-sheet .busbar-qr-label { display: inline-block; width: 58mm; padding: 4mm; vertical-align: top; break-inside: avoid; }
+  .busbar-print-sheet .busbar-qr-label img { display: block; width: 44mm; height: 44mm; margin: auto; }
+}
+
+/* Selection stays soft; today retains its red identity. */
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) { background: #f1f5f9 !important; color: #334155 !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) > :not(.busbar-calendar-date) { color: inherit !important; }
+.app-shell .busbar-page table tbody tr.busbar-due-soon > td { background: #fef9c3 !important; color: #713f12 !important; }
+
+.busbar-project-summary > * { min-width: 0; }
+.busbar-ecount-status { min-width: 0; margin-block: 20px; }
+.busbar-ecount-status form { display: grid; gap: 8px; margin-block: 12px; }
+.busbar-ecount-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Reuse the Osan heading while allowing longer busbar labels on phones. */
+.app-shell .busbar-page-heading.osan-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.app-shell .busbar-page-heading.osan-dashboard h1 {
+  height: auto;
+  line-height: 1.4;
+}
+.app-shell .busbar-page-heading .osan-list-actions {
+  position: static;
+}
+.app-shell .busbar-page-heading .osan-dashboard-description {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  min-height: 0;
+}
+
+/* Weekend date colors also apply to today and selected dates. */
+.app-shell .busbar-page .busbar-month-calendar .busbar-saturday { color: #2563eb !important; }
+.app-shell .busbar-page .busbar-month-calendar .busbar-sunday { color: #dc2626 !important; }
+
+.app-shell .busbar-page table tbody tr.busbar-overdue > td { background: #fee2e2 !important; color: #991b1b !important; }
+
+.busbar-project-fields,
+.busbar-shipment-snapshot {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0 0 18px;
+}
+.busbar-shipment-snapshot > div {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.busbar-project-fields dt,
+.busbar-shipment-snapshot dt,
+.busbar-panel-card dt {
+  color: #64748b;
+  font-size: 13px;
+}
+.busbar-project-fields dd,
+.busbar-shipment-snapshot dd,
+.busbar-panel-card dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+.busbar-shipment-history,
+.busbar-shipped-panels {
+  display: grid;
+  gap: 16px;
+}
+.busbar-shipment-card,
+.busbar-panel-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+.busbar-shipment-card h4,
+.busbar-panel-card h5,
+.busbar-panel-card h6 {
+  margin: 0;
+}
+.busbar-shipped-panels {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.busbar-panel-card > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.busbar-panel-card > dl > div {
+  min-width: 0;
+}
+.busbar-legacy-shipment {
+  padding: 14px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+}
+.busbar-shipment-dialog .dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 20px;
+}
+.busbar-scan-dialog {
+  display: grid;
+  gap: 16px;
+}
+.busbar-scanner {
+  display: grid;
+  gap: 10px;
+}
+.busbar-scanner video {
+  display: none;
+  width: 100%;
+  max-height: 320px;
+  border-radius: 12px;
+  background: #0f172a;
+  object-fit: contain;
+}
+.busbar-scanner video.is-active {
+  display: block;
+}
+.busbar-scan-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.busbar-scan-input button {
+  min-height: 44px;
+}
+.busbar-selected-panels {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.busbar-selected-panels ol {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.busbar-selected-panels li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+.busbar-selected-panels li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .busbar-project-fields,
+  .busbar-shipment-snapshot,
+  .busbar-panel-card > dl,
+  .busbar-scan-input {
+    grid-template-columns: 1fr;
+  }
+  .busbar-shipped-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .busbar-shipment-card,
+  .busbar-panel-card,
+  .busbar-shipment-dialog .dialog {
+    padding: 14px;
+  }
+  .busbar-selected-panels li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* Keep confirmation within reach during continuous scanning. */
+.busbar-shipment-dialog .busbar-shipping-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.busbar-shipment-dialog .busbar-shipping-summary > div { padding: 10px; }
+.busbar-shipment-dialog .busbar-shipping-summary dd { font-size: 22px; }
+.busbar-quick-confirm .busbar-photogrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.busbar-quick-confirm .busbar-photobox { padding: 8px; gap: 4px; min-width: 0; }
+.busbar-quick-confirm .busbar-photobox h4 { margin: 0; }
+.busbar-quick-confirm .busbar-photobox img { width: 100%; height: min(22dvh, 180px); object-fit: contain; }
+.busbar-quick-confirm .busbar-form-actions { display: flex; gap: 8px; margin-top: 12px; position: sticky; bottom: 0; background: white; padding: 8px 0; }
+.busbar-quick-confirm .busbar-form-actions .primary { flex: 1; min-height: 52px; background: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 18px; font-weight: 700; }
+
+@media screen {
+  .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(120px, .8fr) minmax(145px, .8fr) minmax(200px, 1.3fr) auto; align-items: end; }
+  .busbar-plan-filter > .busbar-filter-actions { grid-column: auto; flex-wrap: nowrap; gap: 6px; }
+  .busbar-month-totals { display: grid; gap: 4px; max-height: 104px; overflow-y: auto; min-width: 0; }
+  .busbar-month-totals > div { display: grid; grid-template-columns: minmax(60px, 1fr) auto auto; gap: 6px; align-items: center; padding: 5px 8px; background: white; border: 1px solid #d9e5ec; border-radius: 8px; font-size: 13px; }
+  .busbar-month-totals > .busbar-note { margin: 0; font-size: 12px; }
+  .busbar-month-totals strong { overflow-wrap: anywhere; }
+  .busbar-month-totals b { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .busbar-import-menu { display: grid; gap: 8px; }
+  .busbar-import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  @media (max-width: 1050px) {
+    .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .busbar-plan-filter .busbar-month-totals { grid-column: 1 / -1; }
+  }
+  @media (max-width: 700px) {
+    .app-shell .busbar-page.page-surface .busbar-plan-filter { grid-template-columns: minmax(0, 1fr); }
+    .busbar-import-menu { width: 100%; }
+    .busbar-month-totals > div { grid-template-columns: 1fr 1fr; }
+    .busbar-month-totals strong { grid-column: 1 / -1; }
+  }
+}
+@media screen {
+.app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed='true'] :not(.busbar-saturday):not(.busbar-sunday) { color: inherit !important; }
+}
+
+.busbar-project-basic { padding: 0 20px 20px; min-width: 0; }
+.busbar-project-fields > div { min-width: 0; padding: 4px 0; }
+.busbar-project-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 520px; }
+
+.busbar-basic-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+
+.busbar-access-granted { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; margin: 12px 0 0; list-style: none; max-height: 160px; overflow-y: auto; }
+.busbar-access-granted li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
+.busbar-access-granted span { color: var(--text-muted, #64748b); font-size: 13px; }
+.busbar-access-dialog .dialog { width: min(800px, calc(100vw - 32px)); max-width: 800px; }
+.busbar-access-list { max-height: 50vh; overflow: auto; margin-top: 8px; }
+.busbar-access-list input[type="checkbox"] { width: 22px; height: 22px; cursor: pointer; }
+.busbar-access-list input:disabled { cursor: default; }
+
+.busbar-access-toggle { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
+
+.busbar-access-list table { width: 100%; min-width: 0; table-layout: fixed; }
+.busbar-access-list :is(th, td) { white-space: normal; overflow-wrap: anywhere; padding: 8px 4px; }
+.busbar-access-list :is(th, td):nth-child(3), .busbar-access-list :is(th, td):nth-child(4) { width: 56px; text-align: center; }
+.busbar-access-list :is(th, td):nth-child(2) { width: 25%; }
+
+/* Keep one boundary per work area; inner tools use spacing, not another box. */
+.app-shell .busbar-page .ds-toolbar,
+.app-shell .busbar-plan-dialog .ds-toolbar {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-inline: 0;
+}
+.app-shell .busbar-page .ds-toolbar.busbar-filterbar {
+  padding-inline: 0;
+  padding-top: 0;
+}
+.app-shell .busbar-page .busbar-month-totals > div {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 0;
+}
+.app-shell .busbar-page .busbar-shipment-card {
+  border: 0;
+  border-radius: 0 !important;
+  padding: 0;
+}
+.app-shell .busbar-page .busbar-shipment-card + .busbar-shipment-card {
+  border-top: 1px solid var(--wire-line, #e2e8f0);
+  padding-top: 20px;
+}
+.app-shell .busbar-page .ds-surface details {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0;
+}
+/* Dialog itself supplies the boundary around its editor. */
+.app-shell .busbar-plan-dialog .busbar-editor {
+  border: 0;
+  box-shadow: none;
+  padding-inline: 0;
+}
+
+.app-shell .busbar-page .ds-surface .ds-state-panel[data-kind="empty"] {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}

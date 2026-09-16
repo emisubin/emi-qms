@@ -147,6 +147,7 @@ builder.Services.AddSingleton<OsanProjectStore>();
 OsanProgressPhotoValidator.ConfigureDecoderResourceLimits();
 builder.Services.AddSingleton<OsanProgressStore>();
 builder.Services.AddSingleton<OsanPhotoEditStore>();
+builder.Services.AddSingleton<OsanWorkRequestStore>();
 builder.Services.AddSingleton<ExcelWorkbookBuilder>();
 builder.Services.AddSingleton<ExcelExportConcurrencyGate>();
 builder.Services.AddSingleton<DataExportAuditStore>();

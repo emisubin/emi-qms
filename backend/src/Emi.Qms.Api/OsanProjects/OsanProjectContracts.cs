@@ -101,7 +101,6 @@ public sealed record OsanProjectExcelPreviewResponse(
     string FileSha256,
     bool SupportsRowEditing,
     int TotalRowCount,
-    int TotalQuantity,
     int ErrorCount,
     IReadOnlyList<OsanProjectExcelPreviewRowResponse> Rows,
     IReadOnlyList<string> Errors);
@@ -115,7 +114,6 @@ public sealed record OsanProjectExcelPreviewRowResponse(
     string? WorkOrderNumber,
     string? DeliveryDate,
     string? ProductName,
-    decimal? Quantity,
     IReadOnlyList<string> Errors,
     string? DuplicateKind = null,
     IReadOnlyDictionary<string, string[]>? FieldErrors = null);

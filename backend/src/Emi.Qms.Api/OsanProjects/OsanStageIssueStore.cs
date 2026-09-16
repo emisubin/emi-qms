@@ -58,7 +58,7 @@ public sealed partial class OsanProgressStore
                     steps.Select(s => s.StepId == step.StepId ? s with { HasOpenIssue = false } : s).ToArray()))
                 return OsanProgressMutationResult.Conflict(
                     input.StageSequence == 7 ? "osan_progress_packing_prerequisite_incomplete" : "osan_progress_prerequisite_incomplete",
-                    input.StageSequence == 7 ? "포장 전 6단계 완료와 모든 이상 해결이 필요합니다." : "선행 단계의 완료 또는 이상 등록이 필요합니다.");
+                    input.StageSequence == 7 ? "포장 전 6단계 완료와 모든 이상 해결이 필요합니다." : "선행 Gate 완료 또는 공정 이상 발생 등록이 필요합니다.");
             await InsertOperationAsync(c, tx, input.OperationId, projectId, action, input.CompletionMode,
                 input.StageSequence, [target.TargetId], fingerprint, actor, ct);
             var photos = new List<Guid>();

@@ -166,7 +166,8 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
                     && string.Equals(segments[3], "qr", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 3 && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
                     && (string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(segments[2], "related-panels", StringComparison.OrdinalIgnoreCase)))
+                        || string.Equals(segments[2], "related-panels", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(segments[2], "work-request-recipients", StringComparison.OrdinalIgnoreCase)))
                 || (segments.Length == 2
                     && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 4
@@ -182,6 +183,12 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             return segments.Length == 3 || (segments.Length == 4
                 && (string.Equals(segments[3], "records", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(segments[3], "resolve", StringComparison.OrdinalIgnoreCase)));
+        }
+        if (HttpMethods.IsPost(method) && segments.Length == 3
+            && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "work-requests", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
         }
         if (segments.Length == 1 && (HttpMethods.IsPut(method) || HttpMethods.IsDelete(method))) return true;
         if (HttpMethods.IsPost(method) && segments.Length >= 3

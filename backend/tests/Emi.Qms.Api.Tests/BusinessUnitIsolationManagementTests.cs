@@ -43,7 +43,7 @@ public sealed partial class BusinessUnitIsolationTests
                 workOrderNumber = "WO/001",
                 deliveryDate = new DateOnly(2026, 12, 31),
                 productName = "Routed product",
-                quantity = 2,
+                quantity = 1,
                 operationId = Guid.NewGuid()
             }
         };

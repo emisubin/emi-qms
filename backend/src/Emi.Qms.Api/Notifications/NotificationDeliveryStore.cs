@@ -272,8 +272,8 @@ public sealed class NotificationDeliveryStore(
             select not exists (
                 select 1
                 from osan_notification_events event
-                join osan_notification_preferences preference
-                  on preference.user_id=@user_id
+                join osan_notification_global_preferences preference
+                  on preference.scope_id=1
                  and preference.event_kind=event.event_kind
                  and preference.channel=@channel
                  and preference.is_enabled=false
@@ -2139,8 +2139,8 @@ public sealed class NotificationDeliveryStore(
                     osan_event.event_kind,
                     osan_event.stage_sequence,
                     case when @osan_only then exists (
-                        select 1 from osan_notification_preferences preference
-                        where preference.user_id=users.id
+                        select 1 from osan_notification_global_preferences preference
+                        where preference.scope_id=1
                           and preference.event_kind=osan_event.event_kind
                           and preference.channel='WebPush'
                           and preference.is_enabled=false

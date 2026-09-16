@@ -2545,7 +2545,7 @@ function QmsAppShellContent({
           </div>
         </header>
 
-        {osanNotificationSettingsOpen && isOsan && user ? (
+        {osanNotificationSettingsOpen && isOsan && isSystemAdministrator && user ? (
           <OsanNotificationSettings
             key={`${selectedBusinessUnit}:${user.actualUser.userId}:${developmentUserKey}`}
             developmentUserKey={developmentUserKey}
@@ -3875,7 +3875,7 @@ function AccountProfilePanel({
         <button type="button" className="account-install-button" onClick={pwaInstall.openGuide}>{pwaInstall.entryLabel}</button>
       ) : null}
       {osan && onOpenNotificationSettings ? (
-        <button type="button" className="account-notification-settings-button" onClick={onOpenNotificationSettings}>알림 설정</button>
+        <div><button type="button" className="account-notification-settings-button" disabled={!user.roles.includes('system-administrator')} onClick={onOpenNotificationSettings}>알림 설정</button>{!user.roles.includes('system-administrator') && <small className="osan-settings-admin-note">관리자만 설정 가능</small>}</div>
       ) : null}
       <button type="button" className="account-logout-button" onClick={onLogout} disabled={!onLogout}>로그아웃</button>
       {photoConsentOpen ? (
@@ -4564,7 +4564,7 @@ function OsanProjectListPage({
               { value: project.workOrderNumber || '—', align: 'left' },
               { value: project.projectCode, align: 'center', className: 'project-code-value' },
               { value: `${project.quantity.toLocaleString()}개`, align: 'center' },
-              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span>, align: 'center' },
+              { value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span>, align: 'center' },
               { value: formatOsanProjectStatus(project.status), align: 'center' },
               { value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%`, align: 'center' }
             ],
@@ -4574,7 +4574,7 @@ function OsanProjectListPage({
               { label: 'W/O', value: project.workOrderNumber || '—' },
               { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
               { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">({project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)})</span></span> },
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> },
               { label: '상태', value: formatOsanProjectStatus(project.status) },
               { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
             ]
@@ -4600,7 +4600,6 @@ type OsanProjectDraft = {
   workOrderNumber: string;
   deliveryDate: string;
   productName: string;
-  quantity: string;
 };
 
 const emptyOsanProjectDraft: OsanProjectDraft = {
@@ -4610,8 +4609,7 @@ const emptyOsanProjectDraft: OsanProjectDraft = {
   poNumber: '',
   workOrderNumber: '',
   deliveryDate: '',
-  productName: '',
-  quantity: ''
+  productName: ''
 };
 
 const osanProjectVisibleFields = new Set<keyof OsanProjectDraft>([
@@ -4621,8 +4619,7 @@ const osanProjectVisibleFields = new Set<keyof OsanProjectDraft>([
   'poNumber',
   'workOrderNumber',
   'deliveryDate',
-  'productName',
-  'quantity'
+  'productName'
 ]);
 
 const osanProjectFieldLimits: Partial<Record<keyof OsanProjectDraft, number>> = {
@@ -4691,10 +4688,6 @@ function OsanProjectCreatePage({
         nextErrors[field] = `${maxLength}자 이하로 입력해 주세요.`;
       }
     }
-    const quantity = Number(draft.quantity);
-    if (!draft.quantity.trim() || !Number.isInteger(quantity) || quantity < 1 || quantity > 500) {
-      nextErrors.quantity = '수량은 1 이상 500 이하의 정수로 입력해 주세요.';
-    }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       setMessage('입력값을 확인해 주세요.');
@@ -4713,7 +4706,6 @@ function OsanProjectCreatePage({
         workOrderNumber: draft.workOrderNumber.trim() || null,
         deliveryDate: draft.deliveryDate,
         productName: draft.productName.trim(),
-        quantity,
         operationId: operationIdRef.current
       });
       onCreated(response.project.projectId);
@@ -4745,7 +4737,7 @@ function OsanProjectCreatePage({
         title="프로젝트 등록"
         description="프로젝트 기본 정보와 진행 대상을 한 번에 준비합니다."
       />
-      <DsInputFlow title="오산 프로젝트 정보" description="아래 8개 항목을 순서대로 입력해 주세요.">
+      <DsInputFlow title="오산 프로젝트 정보" description="아래 7개 항목을 순서대로 입력해 주세요. 진행 대상은 1개로 자동 생성됩니다.">
         <form className="osan-project-form" onSubmit={submit} noValidate>
           <OsanProjectField number={1} label="장비명" required error={fieldError('title')}>
             <input aria-label="장비명" value={draft.title} maxLength={200} onChange={(event) => setField('title', event.target.value)} aria-invalid={Boolean(fieldError('title'))} />
@@ -4756,19 +4748,16 @@ function OsanProjectCreatePage({
           <OsanProjectField number={3} label="part 분류" required error={fieldError('productName')}>
             <input aria-label="part 분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
           </OsanProjectField>
-          <OsanProjectField number={4} label="수량" required error={fieldError('quantity')}>
-            <input aria-label="수량" type="number" inputMode="numeric" min={1} max={500} step={1} value={draft.quantity} onChange={(event) => setField('quantity', event.target.value)} aria-invalid={Boolean(fieldError('quantity'))} />
-          </OsanProjectField>
-          <OsanProjectField number={5} label="고객사" required error={fieldError('customerName')}>
+          <OsanProjectField number={4} label="고객사" required error={fieldError('customerName')}>
             <input aria-label="고객사" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
           </OsanProjectField>
-          <OsanProjectField number={6} label="PO No" error={fieldError('poNumber')}>
+          <OsanProjectField number={5} label="PO No" error={fieldError('poNumber')}>
             <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={7} label="W/O No" error={fieldError('workOrderNumber')}>
+          <OsanProjectField number={6} label="W/O No" error={fieldError('workOrderNumber')}>
             <input aria-label="W/O No" value={draft.workOrderNumber} maxLength={100} onChange={(event) => setField('workOrderNumber', event.target.value)} aria-invalid={Boolean(fieldError('workOrderNumber'))} />
           </OsanProjectField>
-          <OsanProjectField number={8} label="납기일" required error={fieldError('deliveryDate')}>
+          <OsanProjectField number={7} label="납기일" required error={fieldError('deliveryDate')}>
             <input aria-label="납기일" type="date" value={draft.deliveryDate} onChange={(event) => setField('deliveryDate', event.target.value)} aria-invalid={Boolean(fieldError('deliveryDate'))} />
           </OsanProjectField>
 
@@ -10122,10 +10111,13 @@ function NotificationsPage({
 }
 
 function osanNotificationLabel(item: NotificationItem) {
+  if (item.title.includes('공정 진행 요청')) return '공정 진행 요청';
+  if (item.title.includes('공정 이상 발생') || item.title.includes('이상 등록')) return '공정 이상 발생';
+  if (item.title.includes('조치 완료')) return '조치 완료';
   if (item.title.includes('반려')) return '단계 반려';
   if (item.title.includes('수정')) return '수정 완료';
   if (item.title.includes('프로젝트')) return item.title.includes('등록') ? '프로젝트 생성' : '프로젝트 완료';
-  return '단계 완료';
+  return 'Gate 완료';
 }
 function osanNotificationActor(item: NotificationItem) {
   return item.message.match(/(?:^|\n)(.+?)님이 /)?.[1] ?? '';

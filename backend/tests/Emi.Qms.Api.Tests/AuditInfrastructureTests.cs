@@ -12,6 +12,8 @@ public sealed class AuditInfrastructureTests
         ParseRelationNames("""
             g2_defect_inventory_counts osan_project_target_steps osan_project_targets osan_photo_edit_requests
             osan_stage_issues osan_notification_preference_profiles osan_notification_preferences
+            osan_notification_global_preference_profiles osan_notification_global_preferences
+            osan_stage_work_requests osan_stage_work_request_recipients
             """);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ExplicitRelationExclusions =
@@ -184,7 +186,7 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(101, trackedRelations.Count);
+        Assert.Equal(105, trackedRelations.Count);
         Assert.Equal(64, excludedRelations.Length);
     }
 

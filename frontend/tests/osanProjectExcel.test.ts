@@ -9,7 +9,7 @@ describe('오산 엑셀 API 전송', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
     const file = new File([new Uint8Array([80, 75, 3, 4])], '오산 프로젝트.xlsx');
     await previewOsanProjectExcel('dev-user', file);
-    const rows = [{ rowNumber: 4, title: 'edited', projectCode: '0001', customerName: 'Customer', poNumber: null, workOrderNumber: null, deliveryDate: '2026-12-31', productName: 'Product', quantity: 2, errors: [] }];
+    const rows = [{ rowNumber: 4, title: 'edited', projectCode: '0001', customerName: 'Customer', poNumber: null, workOrderNumber: null, deliveryDate: '2026-12-31', productName: 'Product', errors: [] }];
     await applyOsanProjectExcel('dev-user', file, 'verified-hash', 'same-operation', undefined, rows, [4]);
     for (const [, options] of fetchMock.mock.calls) {
       const headers = new Headers(options?.headers);

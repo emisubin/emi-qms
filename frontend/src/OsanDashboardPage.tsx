@@ -69,7 +69,7 @@ function Workspace({ developmentUserKey, onOpen, view = 'progress' }: { view?: '
       </div>}
       {data && <ul className="osan-dashboard-list" aria-label="프로젝트 진행 목록">{data.items.map(project => <li key={project.projectId}>
         <button type="button" className="osan-dashboard-project" onClick={() => onOpen(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
-          <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className={`osan-dashboard-dday${project.deliveryHold ? ' is-hold' : ''}`}>{project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today)}</span></span>
+          <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className={`osan-dashboard-dday${project.deliveryHold ? ' is-hold' : ''}`}>{project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today, project.status)}</span></span>
           {isHome && <span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
           <OsanStepper stages={project.stages}/>
           <span className="osan-dashboard-percent" role="progressbar" aria-label={`${project.title} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={project.progressPercent}>{project.progressPercent}%</span>

@@ -785,11 +785,13 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
         string projectCode;
         string title;
         string storedStatus;
+        string? productName;
+        string? workOrderNumber;
         await using (var projectCommand = connection.CreateCommand())
         {
             projectCommand.Transaction = transaction;
             projectCommand.CommandText = """
-                select id, project_code, project_title, status
+                select id, project_code, project_title, status, osan_product_name, osan_work_order_number
                 from projects
                 where id = @project_id
                   and project_profile = 'Osan'
@@ -805,6 +807,8 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             projectCode = reader.GetString(1);
             title = reader.GetString(2);
             storedStatus = reader.GetString(3);
+            productName = reader.IsDBNull(4) ? null : reader.GetString(4);
+            workOrderNumber = reader.IsDBNull(5) ? null : reader.GetString(5);
         }
 
         var targets = new List<TargetBuilder>();
@@ -941,7 +945,7 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             progressStatus,
             completedStepCount,
             totalStepCount,
-            targetResponses, OpenIssueCount: targetResponses.Sum(t => t.OpenIssueCount));
+            targetResponses, OpenIssueCount: targetResponses.Sum(t => t.OpenIssueCount), ProductName: productName, WorkOrderNumber: workOrderNumber);
     }
 
     private static string Fingerprint<T>(T payload)

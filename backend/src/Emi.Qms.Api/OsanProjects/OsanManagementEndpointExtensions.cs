@@ -28,10 +28,13 @@ public static class OsanManagementEndpointExtensions
             var denied = await Guard(projectId, store, db, user, true, ct);
             if (denied is not null) return denied;
             if (request.Fields is null) return Results.BadRequest();
-            var (input, errors) = OsanProjectInputNormalizer.Normalize(request.Fields);
+            var quantityWasSpecified = request.Fields.Quantity is not null;
+            var (input, errors) = OsanProjectInputNormalizer.Normalize(
+                request.Fields with { Quantity = request.Fields.Quantity ?? 1 });
             if (input is null) return Results.ValidationProblem(errors);
             return Result(await store.ManageAsync(projectId, request.ExpectedToken, input, null,
-                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, request.DeliveryHold, request.HoldReason));
+                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, request.DeliveryHold, request.HoldReason,
+                quantityWasSpecified));
         }).RequireAuthorization(QmsPolicies.ProjectUpdate)
           .WithName("UpdateOsanProject");
         api.MapDelete("", async (Guid projectId, [FromBody] DeleteOsanProjectRequest request,
@@ -91,6 +94,21 @@ public static class OsanManagementEndpointExtensions
             var items=await store.HistoryAsync(projectId,stepId,ct);
             return items is null?Results.NotFound():Results.Ok(items);
         });
+        api.MapGet("/progress/work-request-recipients", async (Guid projectId, OsanProjectStore projects,
+            OsanWorkRequestStore store, DatabaseConnectionStringProvider db, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            var denied = await Guard(projectId, projects, db, user, true, ct);
+            return denied ?? Results.Ok(await store.ListRecipientsAsync(projectId, ct));
+        }).WithName("ListOsanWorkRequestRecipients");
+        api.MapPost("/progress/work-requests", async (Guid projectId, CreateOsanWorkRequest request,
+            OsanProjectStore projects, OsanWorkRequestStore store, DatabaseConnectionStringProvider db,
+            ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            var denied = await Guard(projectId, projects, db, user, true, ct);
+            if (denied is not null) return denied;
+            return WorkRequestResult(await store.CreateAsync(projectId, request,
+                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct));
+        }).WithName("CreateOsanWorkRequest");
         foreach(var action in new[]{"reject","reset"})
         {
             var kind=action=="reject"?"Reject":"Reset";
@@ -113,4 +131,18 @@ public static class OsanManagementEndpointExtensions
     }
     private static IResult Result(OsanManagementResult r) => r.Status == 200 ? Results.Ok(r.Value)
         : Results.Json(new OsanProjectErrorResponse("osan_management_rejected", r.Message ?? "요청 대상이나 권한을 확인해 주세요."), statusCode: r.Status);
+
+    private static IResult WorkRequestResult(OsanWorkRequestResult result) => result.Status switch
+    {
+        OsanWorkRequestStatus.Success when result.Value is not null => Results.Ok(result.Value),
+        OsanWorkRequestStatus.Validation => Results.ValidationProblem(
+            result.Errors ?? new Dictionary<string, string[]>()),
+        OsanWorkRequestStatus.NotFound => Results.Json(new OsanProjectErrorResponse(
+            result.ErrorCode ?? "osan_work_request_not_found",
+            result.Message ?? "요청 대상을 찾을 수 없습니다."), statusCode: StatusCodes.Status404NotFound),
+        OsanWorkRequestStatus.Conflict => Results.Json(new OsanProjectErrorResponse(
+            result.ErrorCode ?? "osan_work_request_conflict",
+            result.Message ?? "공정 진행 요청이 충돌했습니다."), statusCode: StatusCodes.Status409Conflict),
+        _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
+    };
 }

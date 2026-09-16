@@ -21,7 +21,7 @@ export interface OsanProgressTarget {
   startedAtUtc: string | null; startedByUserId: string | null; startedByDisplayName: string | null;
 }
 export interface OsanProgressDetail {
-  projectId: string; title: string; projectCode: string; status: string;
+  projectId: string; title: string; projectCode: string; status: string; productName?: string; workOrderNumber?: string;
   canManageStages?: boolean; completedStepCount: number; totalStepCount: number; targets: OsanProgressTarget[];
 }
 export interface OsanRelatedPanel {

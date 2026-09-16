@@ -14,12 +14,13 @@ public sealed class OsanNotificationPreferenceStore(
     private static readonly Definition[] Definitions =
     [
         new("ProjectCreated", "프로젝트 생성"),
-        new("StepCompleted", "진행단계 완료"),
+        new("StepCompleted", "Gate 완료"),
         new("StepRejected", "진행단계 반려"),
         new("StepEdited", "진행단계 수정 완료"),
-        new("StepIssueRegistered", "이상 등록"),
+        new("StepIssueRegistered", "공정 이상 발생"),
         new("StepIssueResolved", "이상 조치 완료"),
-        new("ProjectCompleted", "프로젝트 완료")
+        new("ProjectCompleted", "프로젝트 완료"),
+        new("StepWorkRequested", "공정 진행 요청")
     ];
 
     private static readonly StageDefinition[] Stages =
@@ -64,8 +65,8 @@ public sealed class OsanNotificationPreferenceStore(
         await using (var ensure = connection.CreateCommand())
         {
             ensure.Transaction = transaction;
-            ensure.CommandText = "insert into osan_notification_preference_profiles(user_id) values(@user_id) on conflict do nothing;";
-            ensure.Parameters.AddWithValue("user_id", userId);
+            ensure.CommandText = "insert into osan_notification_global_preference_profiles(scope_id) values(@scope_id) on conflict do nothing;";
+            ensure.Parameters.AddWithValue("scope_id", (short)1);
             await ensure.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -73,8 +74,8 @@ public sealed class OsanNotificationPreferenceStore(
         await using (var readVersion = connection.CreateCommand())
         {
             readVersion.Transaction = transaction;
-            readVersion.CommandText = "select version from osan_notification_preference_profiles where user_id=@user_id for update;";
-            readVersion.Parameters.AddWithValue("user_id", userId);
+            readVersion.CommandText = "select version from osan_notification_global_preference_profiles where scope_id=@scope_id for update;";
+            readVersion.Parameters.AddWithValue("scope_id", (short)1);
             version = (long)(await readVersion.ExecuteScalarAsync(cancellationToken)
                 ?? throw new InvalidOperationException("Osan notification preference profile was not created."));
         }
@@ -91,8 +92,8 @@ public sealed class OsanNotificationPreferenceStore(
         await using (var delete = connection.CreateCommand())
         {
             delete.Transaction = transaction;
-            delete.CommandText = "delete from osan_notification_preferences where user_id=@user_id;";
-            delete.Parameters.AddWithValue("user_id", userId);
+            delete.CommandText = "delete from osan_notification_global_preferences where scope_id=@scope_id;";
+            delete.Parameters.AddWithValue("scope_id", (short)1);
             await delete.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -101,11 +102,11 @@ public sealed class OsanNotificationPreferenceStore(
             await using var insert = connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText = """
-                insert into osan_notification_preferences(
-                    user_id,event_kind,channel,stage_sequence,is_enabled,updated_at_utc)
-                values(@user_id,@kind,@channel,@stage,false,@now);
+                insert into osan_notification_global_preferences(
+                    scope_id,event_kind,channel,stage_sequence,is_enabled,updated_at_utc)
+                values(@scope_id,@kind,@channel,@stage,false,@now);
                 """;
-            insert.Parameters.AddWithValue("user_id", userId);
+            insert.Parameters.AddWithValue("scope_id", (short)1);
             insert.Parameters.AddWithValue("kind", key.Kind);
             insert.Parameters.AddWithValue("channel", key.Channel);
             insert.Parameters.AddWithValue("stage", (short)key.StageSequence);
@@ -116,8 +117,8 @@ public sealed class OsanNotificationPreferenceStore(
         await using (var update = connection.CreateCommand())
         {
             update.Transaction = transaction;
-            update.CommandText = "update osan_notification_preference_profiles set version=version+1,updated_at_utc=@now where user_id=@user_id;";
-            update.Parameters.AddWithValue("user_id", userId);
+            update.CommandText = "update osan_notification_global_preference_profiles set version=version+1,updated_at_utc=@now where scope_id=@scope_id;";
+            update.Parameters.AddWithValue("scope_id", (short)1);
             update.Parameters.AddWithValue("now", now);
             await update.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -173,8 +174,8 @@ public sealed class OsanNotificationPreferenceStore(
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "select coalesce((select version from osan_notification_preference_profiles where user_id=@user_id),0);";
-            command.Parameters.AddWithValue("user_id", userId);
+            command.CommandText = "select coalesce((select version from osan_notification_global_preference_profiles where scope_id=@scope_id),0);";
+            command.Parameters.AddWithValue("scope_id", (short)1);
             version = (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
         }
 
@@ -182,8 +183,8 @@ public sealed class OsanNotificationPreferenceStore(
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "select event_kind,channel,stage_sequence from osan_notification_preferences where user_id=@user_id and is_enabled=false;";
-            command.Parameters.AddWithValue("user_id", userId);
+            command.CommandText = "select event_kind,channel,stage_sequence from osan_notification_global_preferences where scope_id=@scope_id and is_enabled=false;";
+            command.Parameters.AddWithValue("scope_id", (short)1);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
                 disabled.Add(new(reader.GetString(0), reader.GetString(1), reader.GetInt16(2)));

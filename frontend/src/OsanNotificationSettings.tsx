@@ -137,7 +137,7 @@ export function OsanNotificationSettings({ developmentUserKey, contextKey, mutat
             </div>
           ))}
           <p className="osan-notification-note">
-            {detail ? '상위 ‘진행단계 완료’가 켜져 있어야 선택한 단계의 알림을 받습니다.' : <>메일·푸시를 꺼도 PMS 알림 메뉴의 기록은 남습니다.<br />청주 알림 설정에는 영향을 주지 않습니다.</>}
+            {detail ? '상위 ‘Gate 완료’가 켜져 있어야 선택한 단계의 알림을 받습니다.' : <>메일·푸시를 꺼도 PMS 알림 메뉴의 기록은 남습니다.<br />청주 알림 설정에는 영향을 주지 않습니다.</>}
           </p>
           {!detail ? <p className="osan-notification-note osan-notification-push-note">푸시는 PMS 앱·브라우저의 알림 권한이 허용된 기기에서 받을 수 있습니다.</p> : null}
           {state.error ? <div className="osan-notification-save-error"><p role="alert">{state.error}</p><button type="button" className="osan-notification-button" onClick={() => setReloadNonce((value) => value + 1)}>다시 불러오기</button></div> : null}
@@ -151,14 +151,14 @@ export function OsanNotificationSettings({ developmentUserKey, contextKey, mutat
         <header>
           {detail ? <button type="button" className="osan-notification-back" onClick={() => { setDetail(false); setTimeout(() => detailRef.current?.focus(), 0); }}>‹ 알림 종류로 돌아가기</button> : null}
           <div className="osan-notification-heading">
-            <h2 id="osan-notification-settings-title">{detail ? '진행단계 완료 알림' : '오산 알림 설정'}</h2>
+            <h2 id="osan-notification-settings-title">{detail ? 'Gate 완료 알림' : '오산 알림 설정'}</h2>
             <button ref={closeRef} type="button" className="osan-notification-close" aria-label="알림 설정 닫기" onClick={cancel} disabled={ready?.saving}>×</button>
           </div>
-          <p>{detail ? '완료 알림을 받을 공정을 선택하세요.' : '알림 종류별로 메일과 푸시를 설정하세요.'}</p>
+          <p>{detail ? '완료 알림을 받을 공정을 선택하세요.' : '오산 전체 사용자에게 적용되는 설정입니다.'}</p>
         </header>
         <div className="osan-notification-content">{body}</div>
         <footer>
-          <span>{dirty ? '저장하면 적용됩니다' : '본인 계정에만 적용'}</span>
+          <span>{dirty ? '저장하면 적용됩니다' : '오산 전체 사용자에게 적용'}</span>
           <div>
             <button type="button" className="osan-notification-button" onClick={cancel} disabled={ready?.saving}>취소</button>
             <button type="button" className="osan-notification-button osan-notification-button--primary" onClick={() => void save()} disabled={!ready || ready.saving || !mutationAllowed || !dirty}>{ready?.saving ? '저장 중…' : '저장'}</button>

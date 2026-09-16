@@ -11,10 +11,10 @@ namespace Emi.Qms.Api.OsanProjects;
 
 public sealed class OsanProjectExcelParser
 {
+    public const string LegacyQuantityError = "기존 수량 열에는 1만 입력할 수 있습니다. 오산 프로젝트별 진행 대상은 1개로 고정됩니다.";
     public const long MaximumFileBytes = 5 * 1024 * 1024;
     public const long MaximumMultipartBytes = 6 * 1024 * 1024;
     public const int MaximumRows = 100;
-    public const int MaximumTotalQuantity = 1000;
 
     private const int MaximumZipEntries = 2000;
     private const long MaximumUncompressedBytes = 50 * 1024 * 1024;
@@ -61,12 +61,12 @@ public sealed class OsanProjectExcelParser
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("Osan Projects");
         worksheet.Cell(1, 1).Value = "오산 프로젝트 일괄 등록";
-        worksheet.Range(1, 1, 1, 8).Merge().Style.Font.SetBold();
+        worksheet.Range(1, 1, 1, 7).Merge().Style.Font.SetBold();
         worksheet.Row(1).Height = 24;
         worksheet.Cell(2, 1).Value =
-            "* 필수. 한 행에 프로젝트 한 건, 최대 100행/전체 수량 1,000개. 수량은 프로젝트별 1~500, 납기는 YYYY-MM-DD. 코드·PO·W/O 열은 텍스트로 입력하면 앞자리 0이 보존됩니다.";
-        worksheet.Range(2, 1, 2, 8).Merge().Style.Font.SetItalic();
-        worksheet.Range(2, 1, 2, 8).Style.Alignment.WrapText = true;
+            "* 필수. 한 행에 프로젝트 한 건, 최대 100행. 프로젝트별 진행 대상은 1개로 자동 생성됩니다. 납기는 YYYY-MM-DD. 코드·PO·W/O 열은 텍스트로 입력하면 앞자리 0이 보존됩니다.";
+        worksheet.Range(2, 1, 2, 7).Merge().Style.Font.SetItalic();
+        worksheet.Range(2, 1, 2, 7).Style.Alignment.WrapText = true;
         worksheet.Row(2).Height = 42;
 
         var headers = new (string Text, bool Required)[]
@@ -74,7 +74,6 @@ public sealed class OsanProjectExcelParser
             ("장비명", true),
             ("프로젝트 코드", true),
             ("part 분류", true),
-            ("수량", true),
             ("고객사", true),
             ("PO No", false),
             ("W/O No", false),
@@ -94,19 +93,17 @@ public sealed class OsanProjectExcelParser
         worksheet.SheetView.FreezeRows(3);
         worksheet.Range(3, 1, 3, headers.Length).SetAutoFilter();
         worksheet.Columns(1, headers.Length).Style.Alignment.WrapText = true;
-        foreach (var column in new[] { 1, 2, 3, 5, 6, 7 })
+        foreach (var column in new[] { 1, 2, 3, 4, 5, 6 })
         {
             worksheet.Range(4, column, MaximumRows + 3, column).Style.NumberFormat.Format = "@";
         }
-        worksheet.Range(4, 8, MaximumRows + 3, 8).Style.DateFormat.Format = "yyyy-mm-dd";
-        worksheet.Range(4, 4, MaximumRows + 3, 4).Style.NumberFormat.Format = "0";
+        worksheet.Range(4, 7, MaximumRows + 3, 7).Style.DateFormat.Format = "yyyy-mm-dd";
         worksheet.Column(1).Width = 28;
         worksheet.Column(2).Width = 20;
         worksheet.Column(3).Width = 22;
-        worksheet.Column(4).Width = 10;
-        worksheet.Column(5).Width = 22;
-        worksheet.Columns(6, 7).Width = 18;
-        worksheet.Column(8).Width = 14;
+        worksheet.Column(4).Width = 22;
+        worksheet.Columns(5, 6).Width = 18;
+        worksheet.Column(7).Width = 14;
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -244,7 +241,7 @@ public sealed class OsanProjectExcelParser
                 var workOrderNumber = ReadText(worksheet, rowNumber, header.Columns, "work_order_number");
                 var deliveryDate = ReadDate(worksheet, rowNumber, header.Columns, errors);
                 var productName = ReadText(worksheet, rowNumber, header.Columns, "product_name");
-                var quantity = ReadQuantity(worksheet, rowNumber, header.Columns, errors);
+                var quantity = ReadLegacyQuantity(worksheet, rowNumber, header.Columns, errors);
                 rows.Add(new ParsedOsanProjectExcelRow(
                     rowNumber,
                     title,
@@ -557,7 +554,7 @@ public sealed class OsanProjectExcelParser
             {
                 return null;
             }
-            var required = new[] { "title", "project_code", "customer_name", "delivery_date", "product_name", "quantity" };
+            var required = new[] { "title", "project_code", "customer_name", "delivery_date", "product_name" };
             if (required.All(columns.ContainsKey))
             {
                 return new Header(row, columns);
@@ -614,37 +611,39 @@ public sealed class OsanProjectExcelParser
         return null;
     }
 
-    private static int? ReadQuantity(
+    private static int? ReadLegacyQuantity(
         IXLWorksheet worksheet,
         int rowNumber,
         IReadOnlyDictionary<string, int> columns,
         ICollection<string> errors)
     {
-        var cell = worksheet.Cell(rowNumber, columns["quantity"]);
+        if (!columns.TryGetValue("quantity", out var quantityColumn))
+        {
+            return 1;
+        }
+
+        var cell = worksheet.Cell(rowNumber, quantityColumn);
+        if (cell.IsEmpty())
+        {
+            return 1;
+        }
         if (cell.DataType == XLDataType.Number)
         {
             var numeric = cell.GetDouble();
-            if (double.IsFinite(numeric)
-                && numeric == Math.Truncate(numeric)
-                && numeric >= int.MinValue
-                && numeric <= int.MaxValue)
+            if (numeric == 1)
             {
-                return (int)numeric;
+                return 1;
             }
-            errors.Add("수량은 정수여야 합니다.");
+            errors.Add(LegacyQuantityError);
             return null;
         }
 
         var text = cell.GetFormattedString(CultureInfo.InvariantCulture).Trim();
-        if (text.Length == 0)
+        if (text.Length == 0 || string.Equals(text, "1", StringComparison.Ordinal))
         {
-            return null;
+            return 1;
         }
-        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var quantity))
-        {
-            return quantity;
-        }
-        errors.Add("수량은 정수여야 합니다.");
+        errors.Add(LegacyQuantityError);
         return null;
     }
 

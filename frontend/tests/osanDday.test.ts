@@ -43,3 +43,10 @@ describe('오산 한국 날짜 D-day', () => {
     expect(result.current).toBe('2026-09-12');
   });
 });
+
+it('지난 납기이면서 완료된 프로젝트만 납품완료로 표시한다', () => {
+ expect(formatOsanDday('2026-09-15','2026-09-16','Completed')).toBe('(납품완료)');
+ expect(formatOsanDday('2026-09-16','2026-09-16','Completed')).toBe('D-Day');
+ expect(formatOsanDday('2026-09-17','2026-09-16','Completed')).toBe('D-1');
+ expect(formatOsanDday('2026-09-15','2026-09-16','InProgress')).toBe('D+1');
+});

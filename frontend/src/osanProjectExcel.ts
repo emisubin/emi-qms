@@ -9,7 +9,6 @@ export interface OsanProjectExcelRow {
   workOrderNumber: string | null;
   deliveryDate: string | null;
   productName: string;
-  quantity: number | null;
   errors: string[];
   duplicateKind?: 'identical' | 'code' | null;
 }
@@ -17,7 +16,6 @@ export interface OsanProjectExcelPreview {
   supportsRowEditing?: boolean;
   fileSha256: string;
   totalRowCount: number;
-  totalQuantity: number;
   errorCount: number;
   rows: OsanProjectExcelRow[];
   errors: string[];

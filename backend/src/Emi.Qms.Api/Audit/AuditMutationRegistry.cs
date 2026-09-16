@@ -122,6 +122,7 @@ public static partial class AuditMutationRegistry
         POST /api/osan/projects/import/apply
         POST /api/osan/projects/import/preview
         POST /api/osan/projects/{projectId:guid}/progress/photo-preview
+        POST /api/osan/projects/{projectId:guid}/progress/work-requests
         POST /api/osan/projects/
         POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/reject
         POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/reset

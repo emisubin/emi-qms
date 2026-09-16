@@ -11,7 +11,7 @@ export function getKoreaDate(now = new Date()): string {
   return `${value('year')}-${value('month')}-${value('day')}`;
 }
 
-export function formatOsanDday(deliveryDate: string, today: string): string {
+export function formatOsanDday(deliveryDate: string, today: string, status?: string): string {
   const parseDate = (value: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
     const timestamp = Date.parse(`${value}T00:00:00Z`);
@@ -19,6 +19,7 @@ export function formatOsanDday(deliveryDate: string, today: string): string {
   };
   const days = (parseDate(deliveryDate) - parseDate(today)) / dayMilliseconds;
   if (!Number.isFinite(days)) return '—';
+  if (days < 0 && status === 'Completed') return '(납품완료)';
   return days === 0 ? 'D-Day' : days > 0 ? `D-${days}` : `D+${Math.abs(days)}`;
 }
 

@@ -12,10 +12,10 @@ const response = {
   version: 3,
   items: [
     { kind: 'ProjectCreated', label: '프로젝트 생성', mailEnabled: true, pushEnabled: true },
-    { kind: 'StepCompleted', label: '진행단계 완료', mailEnabled: true, pushEnabled: true },
+    { kind: 'StepCompleted', label: 'Gate 완료', mailEnabled: true, pushEnabled: true },
     { kind: 'StepRejected', label: '진행단계 반려', mailEnabled: true, pushEnabled: true },
     { kind: 'StepEdited', label: '진행단계 수정 완료', mailEnabled: true, pushEnabled: true },
-    { kind: 'StepIssueRegistered', label: '이상 등록', mailEnabled: true, pushEnabled: true },
+    { kind: 'StepIssueRegistered', label: '공정 이상 발생', mailEnabled: true, pushEnabled: true },
     { kind: 'StepIssueResolved', label: '이상 조치 완료', mailEnabled: true, pushEnabled: true },
     { kind: 'ProjectCompleted', label: '프로젝트 완료', mailEnabled: true, pushEnabled: true }
   ],
@@ -33,7 +33,7 @@ describe('OsanNotificationSettings', () => {
     render(<OsanNotificationSettings contextKey="OSAN:user" mutationAllowed developmentUserKey="dev-sales" onClose={close} />);
 
     const dialog = await screen.findByRole('dialog', { name: '오산 알림 설정' });
-    fireEvent.click(within(dialog).getByRole('switch', { name: '진행단계 완료 메일' }));
+    fireEvent.click(within(dialog).getByRole('switch', { name: 'Gate 완료 메일' }));
     fireEvent.click(within(dialog).getByRole('button', { name: /단계별 상세 설정/ }));
     expect(await within(dialog).findByText(/메일 전체 수신 꺼짐/)).toBeInTheDocument();
     expect(within(dialog).getByRole('switch', { name: '입고검사 메일' })).toBeDisabled();

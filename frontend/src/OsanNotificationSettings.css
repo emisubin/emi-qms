@@ -46,3 +46,5 @@
   .osan-notification-button { padding: 10px 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .osan-notification-rail i { transition: none; } }
+
+.account-notification-settings-button:disabled{opacity:.45;cursor:not-allowed}.osan-settings-admin-note{display:block;text-align:center;color:#737373;font-size:11px;margin-top:5px}

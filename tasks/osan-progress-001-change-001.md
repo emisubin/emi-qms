@@ -62,3 +62,7 @@
 사용자가 공개배포까지 승인한 작은 UI 보정: 프로필 메뉴의 오산 `알림 설정` 버튼을 가운데 정렬하고 우측 장식 화살표를 제거했다. PC 및 390px 모바일 실제 화면에서 확인했고 타입 검사 통과. 알림 설정 동작·API·DB 변경 없음. 필수 CI 후 프런트엔드만 공개배포한다.
 
 같은 배포 전 사용자 추가 요청으로 오산 알림 목록의 중복 `알림 설정` 버튼을 제거했다. 오산에서 기존 `/notification-settings`로 접근하면 알림 목록으로 replace 이동하며 기존 설정 페이지는 렌더링하지 않는다. 청주 기존 설정 페이지와 오산 프로필 팝업은 유지한다. PC·390px 알림 목록 및 구 주소 이동 직접 확인, 관련 navigation/청주 설정/오산 팝업 검증과 타입·lint 확인.
+
+### 알림 설정 진입점 정리 공개배포 완료 · 2026-09-16
+
+PR #145 최종 후보 `aa04850`의 required CI `35056864730`(Backend·Frontend·Full-Stack E2E·CI Gate) 통과 후 main `7cbfbc8ae1380d81b63249a9b96118f365495fb4`로 병합했다. Azure release `35059281384` 성공. Frontend `frontend--0000048` latest=ready, Succeeded, 트래픽 100%; Backend `backend--0000054` 유지. Migration/Backend는 SKIPPED, Frontend/PublicSecurity PASS. 공개 health 200·익명 API 401 확인. 가운데 정렬·화살표 제거와 오산 중복 설정 버튼/기존 페이지 진입 제거를 함께 배포했으며 청주 설정과 오산 프로필 팝업은 유지했다. 이 완료 기록은 문서 전용 로컬 커밋으로 보존한다.

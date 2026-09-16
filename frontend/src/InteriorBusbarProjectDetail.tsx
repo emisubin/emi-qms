@@ -1,3 +1,4 @@
+import { projectEditorSpec } from "./interiorBusbarProjectEditor";
 import {
   useCallback,
   useEffect,
@@ -27,6 +28,7 @@ import {
 import {
   BusbarDialog,
   CommercialPreview,
+  Editor,
   EcountStatus,
   PhotoPreview,
   Table,
@@ -52,6 +54,10 @@ export function InteriorBusbarProjectDetailPage({
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const editLock = useRef(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [reverseShipment, setReverseShipment] = useState<BusbarProjectShipment>();
   const [viewPanel, setViewPanel] = useState<BusbarProduct>();
@@ -127,6 +133,7 @@ export function InteriorBusbarProjectDetailPage({
         actions={
           <>
             <button type="button" onClick={onBack}>프로젝트 목록</button>
+            {canShip && <button type="button" onClick={() => { setEditError(""); setEditOpen(true); }}>프로젝트 수정</button>}
             <button type="button" onClick={() => void load()}>새로고침</button>
           </>
         }
@@ -136,8 +143,22 @@ export function InteriorBusbarProjectDetailPage({
       )}
       {feedback && <DsActionFeedback message={feedback} tone="success" focusOnAttention />}
 
-      <DsSurface label="프로젝트 기본 정보">
-        <DsToolbar>
+      {editOpen && canShip && <>
+        {editError && <DsActionFeedback message={editError} tone="error" />}
+        <Editor key={project.id} spec={projectEditorSpec(workspace, project.id)} busy={saving}
+          onClose={() => setEditOpen(false)} onSave={async values => {
+            if (editLock.current) return;
+            editLock.current = true; setSaving(true); setEditError("");
+            try {
+              const spec = projectEditorSpec(workspace, project.id);
+              await busbarApi.write(user, spec.path, spec.makeBody(values));
+              setEditOpen(false); await load(); setFeedback("프로젝트를 수정했습니다.");
+            } catch (saveError) { setEditError(failure(saveError)); }
+            finally { editLock.current = false; setSaving(false); }
+          }} />
+      </>}
+      <section className="busbar-project-basic" aria-label="프로젝트 기본 정보">
+        <div className="busbar-basic-toolbar">
           <h3>프로젝트 정보</h3>
           <div className="busbar-inline">
             <button type="button" className="button primary" disabled={!!shipmentUnavailable} aria-describedby={shipmentUnavailable ? "busbar-shipment-unavailable" : undefined} onClick={() => setScanOpen(true)}>
@@ -145,7 +166,7 @@ export function InteriorBusbarProjectDetailPage({
             </button>
             {shipmentUnavailable && <span id="busbar-shipment-unavailable" className="busbar-note">{shipmentUnavailable}</span>}
           </div>
-        </DsToolbar>
+        </div>
         <dl className="busbar-project-fields">
           <div><dt>프로젝트명</dt><dd>{project.name}</dd></div>
           <div><dt>LSE Task No</dt><dd>{project.customerJobNumber || "미입력"}</dd></div>
@@ -153,6 +174,12 @@ export function InteriorBusbarProjectDetailPage({
           <div><dt>납품예정일</dt><dd>{project.dueDate.slice(0, 10)}</dd></div>
           <div><dt>제품군</dt><dd>{family?.name ?? "삭제된 제품군"}</dd></div>
         </dl>
+          <CommercialPreview
+            key={`${user}:${project.id}:${revision}`}
+            userId={user}
+            projectId={project.id}
+            revision={revision}
+          />
         <dl className="busbar-shipping-summary" aria-label="납품 수량 현황">
           <div><dt>요청 수량</dt><dd>{n(project.requestedQuantity)}개</dd></div>
           <div><dt>누적 출하</dt><dd>{n(project.shippedQuantity)}개</dd></div>
@@ -160,10 +187,10 @@ export function InteriorBusbarProjectDetailPage({
           <div><dt>제품군 공용 재고</dt><dd>{n(stock)}개</dd></div>
         </dl>
         <p className="busbar-note">공용 재고는 이 프로젝트에 예약된 수량이 아닙니다. 생산 예정 수량은 현재고에 포함하지 않습니다.</p>
-      </DsSurface>
+      </section>
 
-      <DsSurface label="생산계획과 주문 금액">
-        <div className="busbar-project-summary">
+      <DsSurface label="해당 제품군 생산계획">
+        <div>
           <div>
             <h3>해당 제품군 생산계획</h3>
             <Table
@@ -180,22 +207,8 @@ export function InteriorBusbarProjectDetailPage({
                 ])}
             />
           </div>
-          <CommercialPreview
-            key={`${user}:${project.id}:${revision}`}
-            userId={user}
-            projectId={project.id}
-            revision={revision}
-          />
-        </div>
-      </DsSurface>
 
-      <DsSurface label="이카운트 전송 상태">
-        <EcountStatus
-          key={`${user}:${project.id}:${project.shippedQuantity}`}
-          userId={user}
-          projectId={project.id}
-          canWrite={canAdminister}
-        />
+        </div>
       </DsSurface>
 
       <DsSurface label="출하 이력">
@@ -215,7 +228,7 @@ export function InteriorBusbarProjectDetailPage({
                     </div>
                     <DsBadge tone={shipment.reversed ? "danger" : "success"}>{shipment.reversed ? "출하 취소" : "출하 반영"}</DsBadge>
                     {!shipment.reversed && canAdminister && (
-                      <button type="button" onClick={() => setReverseShipment(shipment)}>출하 취소</button>
+                      <button type="button" onClick={() => setReverseShipment(shipment)}>출하 정정</button>
                     )}
                   </DsToolbar>
                   <dl className="busbar-shipment-snapshot">
@@ -241,6 +254,15 @@ export function InteriorBusbarProjectDetailPage({
             })}
           </div>
         )}
+      </DsSurface>
+
+      <DsSurface label="이카운트 전송 상태">
+        <EcountStatus
+          key={`${user}:${project.id}:${project.shippedQuantity}`}
+          userId={user}
+          projectId={project.id}
+          canWrite={canAdminister}
+        />
       </DsSurface>
 
       {scanOpen && (
@@ -504,7 +526,7 @@ function ReverseShipmentDialog({
   const reasonPayload = useRef<string | undefined>(undefined);
   const headingRef = useRef<HTMLHeadingElement>(null);
   return (
-    <BusbarDialog label="출하 취소" busy={busy} onClose={onClose} heading={headingRef} closeLabel="출하 취소 팝업 닫기">
+    <BusbarDialog label="출하 정정" busy={busy} onClose={onClose} heading={headingRef} closeLabel="출하 정정 팝업 닫기">
       <form className="busbar-form" onSubmit={async (event) => {
         event.preventDefault();
         if (locked.current || !reason.trim()) return;
@@ -523,11 +545,12 @@ function ReverseShipmentDialog({
           setBusy(false);
         }
       }}>
-        <p className="busbar-note">출하 기록은 보존하고 연결된 패널을 재고로 복원합니다.</p>
-        <label>취소 사유<input required maxLength={200} value={reason} disabled={busy || reasonFrozen} onChange={(event) => setReason(event.target.value)} /></label>
+        <p>{busbarDateTime(shipment.createdAtUtc)} · {n(shipment.quantity)}개</p>
+        <p className="busbar-note">해당 출하를 취소하여 정정합니다. 원래 기록은 보존하고 연결된 패널을 재고로 복원합니다.</p>
+        <label>정정 사유<input required maxLength={200} value={reason} disabled={busy || reasonFrozen} onChange={(event) => setReason(event.target.value)} /></label>
         {error && <DsActionFeedback message={error} tone="error" />}
         <div className="busbar-form-actions">
-          <button className="button primary" disabled={busy || !reason.trim()}>{busy ? "취소 처리 중…" : "출하 취소"}</button>
+          <button className="button primary" disabled={busy || !reason.trim()}>{busy ? "정정 처리 중…" : "출하 정정"}</button>
           <button type="button" disabled={busy} onClick={onClose}>닫기</button>
         </div>
       </form>

@@ -321,7 +321,6 @@
   gap: 12px;
   margin: 0 0 18px;
 }
-.busbar-project-fields > div,
 .busbar-shipment-snapshot > div {
   min-width: 0;
   padding: 12px;
@@ -493,3 +492,9 @@
 @media screen {
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed='true'] :not(.busbar-saturday):not(.busbar-sunday) { color: inherit !important; }
 }
+
+.busbar-project-basic { padding: 0 20px 20px; min-width: 0; }
+.busbar-project-fields > div { min-width: 0; padding: 4px 0; }
+.busbar-project-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 520px; }
+
+.busbar-basic-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }

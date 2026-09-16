@@ -728,7 +728,8 @@ test("project row opens independent detail with family shipment context", async 
   await mock(page, fixture());
   await page.goto("/interior-busbar");
   await selectSection(page, "납품 프로젝트");
-  await page.getByRole("button", { name: "합성 납품 현장 상세 보기", exact: true }).click();
+  await expect(page.getByRole("columnheader", { name: "작업", exact: true })).toHaveCount(0);
+  await page.getByRole("cell", { name: "합성 납품 현장", exact: true }).click();
   await expect(page).toHaveURL(`/interior-busbar/projects/${projectId}`);
   await expect(page.locator(".busbar-shippable")).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "현재고", exact: true })).toBeVisible();
@@ -755,7 +756,7 @@ test("project refresh retries a failed commercial preview", async ({ page }) => 
   const requestsBeforeRefresh = previewRequests;
   previewAvailable = true;
   await page.getByRole("button", { name: "새로고침", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "주문·판매 금액 확인", exact: true })).toBeVisible();
+  await expect(page.getByText("공급가액", { exact: true })).toBeVisible();
   expect(previewRequests).toBeGreaterThan(requestsBeforeRefresh);
 });
 
@@ -952,14 +953,14 @@ test("shipment reversal retry keeps its request ID and first reason", async ({ p
     });
   });
   await page.goto(`/interior-busbar/projects/${projectId}`);
-  await page.getByRole("button", { name: "출하 취소", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "출하 취소" });
-  const reason = dialog.getByLabel("취소 사유", { exact: true });
+  await page.getByRole("button", { name: "출하 정정", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "출하 정정" });
+  const reason = dialog.getByLabel("정정 사유", { exact: true });
   await reason.fill("합성 출하 대상 확인");
-  await dialog.getByRole("button", { name: "출하 취소", exact: true }).click();
+  await dialog.getByRole("button", { name: "출하 정정", exact: true }).click();
   await expect(dialog.getByText("합성 동시 처리 충돌", { exact: true })).toBeVisible();
   await expect(reason).toBeDisabled();
-  await dialog.getByRole("button", { name: "출하 취소", exact: true }).click();
+  await dialog.getByRole("button", { name: "출하 정정", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(attempts).toHaveLength(2);
   expect(attempts[1]).toEqual(attempts[0]);
@@ -1389,10 +1390,10 @@ test("commercial price is family only and preview stays read only", async ({page
   expect(writes.find(w=>w.path.endsWith("/projects"))?.body).toMatchObject({customerJobNumber:"SYN-WO"});
   expect(writes.find(w=>w.path.endsWith("/projects"))?.body).not.toHaveProperty("unitPrice");
   await page.getByText("합성 납품 현장",{exact:true}).click();
-  await expect(page.getByText("825,000원",{exact:true})).toBeVisible();
+  await expect(page.getByText("750,000원",{exact:true})).toBeVisible();
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
-    await page.getByRole("heading",{name:"주문·판매 금액 확인"}).scrollIntoViewIfNeeded();
+    await page.getByText("공급가액",{exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:`/private/tmp/emi-busbar-commercial-preview-${width}.png`});
   }
   expect(writes.filter(w=>w.path.endsWith("/projects")).length).toBe(1);
@@ -1641,4 +1642,23 @@ test("project Excel menu and monthly family totals", async ({ page }) => {
   await page.getByLabel("계획 월",{exact:true}).fill("2026-10");
   await expect(totals).toContainText("계획 0대");
   await expect(totals).toContainText("생산 완료 0대");
+});
+
+test("project detail edits its own project and places Ecount below shipments", async ({page}) => {
+  const writes = await mock(page, fixture());
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  const basic = page.getByRole("region",{name:"프로젝트 기본 정보",exact:true});
+  await expect(basic.getByText("공급가액",{exact:true})).toBeVisible();
+  await expect(basic.getByText("합계",{exact:true})).toHaveCount(0);
+  const shipping = page.getByRole("region",{name:"출하 이력",exact:true});
+  const ecount = page.getByRole("region",{name:"이카운트 전송 상태",exact:true});
+  expect((await shipping.boundingBox())!.y).toBeLessThan((await ecount.boundingBox())!.y);
+  await page.getByRole("button",{name:"프로젝트 수정",exact:true}).click();
+  const editor = page.getByRole("region",{name:"프로젝트 수정",exact:true});
+  await expect(editor.getByLabel("프로젝트명",{exact:true})).toHaveValue("합성 납품 현장");
+  await editor.getByLabel("도착지 / 업체명",{exact:true}).fill("수정된 합성 도착지");
+  await editor.getByLabel("정정 사유",{exact:true}).fill("도착지 확인");
+  await editor.getByRole("button",{name:"저장",exact:true}).click();
+  await expect(editor).toHaveCount(0);
+  expect(writes.find(w=>w.path.endsWith("/projects"))?.body).toMatchObject({id:projectId,destination:"수정된 합성 도착지",reason:"도착지 확인"});
 });

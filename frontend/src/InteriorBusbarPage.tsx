@@ -1,3 +1,4 @@
+import { projectEditorSpec, type Values, type Field, type EditorSpec } from "./interiorBusbarProjectEditor";
 import {
   useCallback,
   useEffect,
@@ -38,28 +39,6 @@ import { busbarOverview } from "./interiorBusbarOverview";
 import { busbarSections, type BusbarSection } from "./interiorBusbarNavigation";
 
 type QrLabel = { productId: string; number: string; revision: number; url: string };
-type Values = Record<string, string>;
-type Field = {
-  key: string;
-  label: string;
-  type?: "text" | "number" | "date" | "select";
-  options?: { value: string; label: string }[];
-  value?: string;
-  disabled?: boolean;
-  min?: number;
-  max?: number;
-  step?: string;
-  optional?: boolean;
-};
-type EditorSpec = {
-  title: string;
-  fields: Field[];
-  path: string;
-  method?: string;
-  makeBody: (values: Values) => unknown;
-  after?: (result: { id: string }) => void;
-  note?: string;
-};
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(
     new Date(),
@@ -308,47 +287,7 @@ export function InteriorBusbarPage({
     });
   }
   function projectEditor(id?: string) {
-    const row = data?.projects.find((x) => x.id === id);
-    open({
-      title: row ? "납품 프로젝트 정정" : "납품 프로젝트 등록",
-      path: "/projects",
-      note: `공통 프로젝트 코드: ${data?.settings.commonProjectCode || "기준정보에서 먼저 설정하세요."} · 원화, 부가세 별도 10%. 단가는 제품군 기준정보에서 관리합니다.`,
-      fields: [
-        { key: "name", label: "프로젝트명", value: row?.name },
-        {
-          key: "customerJobNumber",
-          label: "LSE Task No",
-          value: row?.customerJobNumber,
-          optional: true,
-        },
-        familyField(row?.productFamilyId),
-        {
-          key: "requestedQuantity",
-          label: "요청 수량",
-          type: "number",
-          min: 1,
-          step: "1",
-          value: String(row?.requestedQuantity ?? ""),
-        },
-        {
-          key: "destination",
-          label: "도착지 / 업체명",
-          value: row?.destination,
-        },
-        {
-          key: "dueDate",
-          label: "납품예정일",
-          type: "date",
-          value: row?.dueDate?.slice(0, 10) ?? today(),
-        },
-        ...(row ? [reasonField] : []),
-      ],
-      makeBody: (v) => ({
-        ...v,
-        id: row?.id ?? null,
-        requestedQuantity: Number(v.requestedQuantity),
-      }),
-    });
+    if (data) open(projectEditorSpec(data, id));
   }
   function openPlanProducts(productFamilyId: string, planDate: string) {
     setPlanDialogOpen(false);
@@ -658,7 +597,6 @@ export function InteriorBusbarPage({
                 "누적 출하",
                 "잔여",
                 "상태",
-                "작업",
               ]}
               rowActions={visibleProjects.map((p) => ({ toggle: () => onOpenProject(p.id) }))}
               rows={visibleProjects.map((p) => [
@@ -681,10 +619,6 @@ export function InteriorBusbarPage({
                       ? "완료"
                       : "진행 중"}
                   </DsBadge>,
-                  <div className="busbar-table-actions">
-                    <button type="button" aria-label={`${p.name} 상세 보기`} onClick={() => onOpenProject(p.id)}>상세 보기</button>
-                    {writeButton("정정", () => projectEditor(p.id))}
-                  </div>,
                 ])}
             />
           </DsSurface>
@@ -1222,12 +1156,10 @@ export function CommercialPreview({ userId, projectId, revision }: { userId: str
   }, [userId, projectId, revision]);
   if (!state.data) return <p role="status">{state.error || "금액 확인 중…"}</p>;
   const p = state.data;
-  return <div><h4>주문·판매 금액 확인</h4>
-    <p>담당자: {p.registeredByName || "최초 등록자 확인 필요"}</p>
-    <Table headings={["제품군 단가", "공급가액", "부가세 (10%)", "합계"]}
-      rows={[[p.unitPrice, p.supplyAmount, p.vatAmount, p.totalAmount].map((v) => v == null ? "미설정" : `${n(v)}원`)]} />
-    <p className="busbar-note">원화·부가세 별도{!p.transmissionEnabled && " · 실제 전송 연결 전입니다."}{p.missingFields.length > 0 ? ` 설정 필요: ${p.missingFields.join(", ")}` : " 전송에 필요한 코드와 단가가 입력되어 있습니다."}</p>
-  </div>;
+  return <dl className="busbar-project-fields busbar-project-prices" aria-label="프로젝트 금액">
+    <div><dt>제품군 단가</dt><dd>{p.unitPrice == null ? "미설정" : `${n(p.unitPrice)}원`}</dd></div>
+    <div><dt>공급가액</dt><dd>{p.supplyAmount == null ? "미설정" : `${n(p.supplyAmount)}원`}</dd></div>
+  </dl>;
 }
 
 function Search({
@@ -1273,7 +1205,7 @@ export function BusbarDialog({ label, busy, onClose, children, heading, closeLab
     </div>
   </DsDialog>;
 }
-function Editor({
+export function Editor({
   spec,
   busy,
   onClose,

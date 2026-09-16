@@ -222,13 +222,13 @@ public sealed class PublicDeploymentSecurityTests
                 @"^actions/[^@\s]+@[0-9a-f]{40}$",
                 reference));
 
-        var postgresReference = workflowLines
+        var postgresReferences = workflowLines
             .Select(line => line.Trim())
-            .Single(line => line.StartsWith("image: postgres:", StringComparison.Ordinal))
-            ["image: ".Length..];
-        Assert.Matches(
-            @"^postgres:[^@\s]+@sha256:[0-9a-f]{64}$",
-            postgresReference);
+            .Where(line => line.StartsWith("image: postgres:", StringComparison.Ordinal))
+            .Select(line => line["image: ".Length..]).ToArray();
+        Assert.NotEmpty(postgresReferences);
+        Assert.All(postgresReferences, reference => Assert.Matches(
+            @"^postgres:[^@\s]+@sha256:[0-9a-f]{64}$", reference));
         Assert.Contains("permissions:", workflowLines);
         Assert.Equal(
             actionReferences.Count(reference =>

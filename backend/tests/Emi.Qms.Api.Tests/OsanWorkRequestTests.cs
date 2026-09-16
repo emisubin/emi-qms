@@ -53,6 +53,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var replay = await store.CreateAsync(projectId, request, UserId, ct);
         Assert.Equal(OsanWorkRequestStatus.Success, replay.Status);
         Assert.True(replay.Value!.Replayed);
+        Assert.Equal(0, created.Value.RequestedAtUtc.Ticks % 10);
         Assert.Equal(created.Value.RequestedAtUtc, replay.Value.RequestedAtUtc);
         Assert.Equal(OsanWorkRequestStatus.Conflict,
             (await store.CreateAsync(projectId, request with { StageSequence = 4 }, UserId, ct)).Status);

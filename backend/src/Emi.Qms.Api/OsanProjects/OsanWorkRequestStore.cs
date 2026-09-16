@@ -167,9 +167,14 @@ public sealed class OsanWorkRequestStore(DatabaseConnectionStringProvider connec
                 operation_id,project_id,target_id,step_id,stage_sequence,
                 requested_by_user_id,requested_at_utc,payload_fingerprint,history_record_id)
             values(@operation,@project,@target,@step,@stage,
-                @requester,@requested_at,@fingerprint,@history);
+                @requester,@requested_at,@fingerprint,@history)
+            returning requested_at_utc;
             """;
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await using (var saved = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            await saved.ReadAsync(cancellationToken);
+            requestedAt = saved.GetFieldValue<DateTimeOffset>(0);
+        }
 
         foreach (var recipient in recipients)
         {

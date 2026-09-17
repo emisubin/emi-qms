@@ -208,6 +208,7 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             using var response = await PostAsync($"https://{host}/OAPI/V2/{path}?SESSION_ID={Uri.EscapeDataString(session!)}", body, cancellationToken);
             LogSaveShape(response.RootElement);
             var result = ParseSave(response.RootElement);
+            if (result.State == "Failed") LogValidationColumns(response.RootElement);
             if (result.State == "Succeeded") lastSuccess = timeProvider.GetUtcNow();
             return result;
         }
@@ -250,6 +251,23 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
         logger?.LogInformation("Ecount save schema Status={Status} Data={Data} Success={Success} Failure={Failure} Details={Details} IsSuccess={IsSuccess} Errors={Errors} Slips={Slips}",
             Shape(Field(root,"Status")), Shape(data), Shape(Field(data,"SuccessCnt")), Shape(Field(data,"FailCnt")),
             Shape(details), Shape(Field(detail,"IsSuccess")), Shape(Field(detail,"Errors")), Shape(Field(data,"SlipNos")));
+    }
+
+    private void LogValidationColumns(JsonElement root)
+    {
+        // Called only after a definite no-slip failure. Never log values or provider messages.
+        var errors = root.GetProperty("Data").GetProperty("ResultDetails")[0].GetProperty("Errors");
+        var columns = errors.EnumerateArray().Take(20).Select(error =>
+            error.GetProperty("ColCd").GetString() switch
+            {
+                "EMP_CD" => "EMP_CD", "UPLOAD_SER_NO" => "UPLOAD_SER_NO", "IO_DATE" => "IO_DATE",
+                "CUST" => "CUST", "WH_CD" => "WH_CD", "PJT_CD" => "PJT_CD", "PROD_CD" => "PROD_CD",
+                "QTY" => "QTY", "PRICE" => "PRICE", "SUPPLY_AMT" => "SUPPLY_AMT", "VAT_AMT" => "VAT_AMT",
+                "IO_TYPE" => "IO_TYPE", "U_MEMO2" => "U_MEMO2", "TIME_DATE" => "TIME_DATE",
+                "REL_DATE" => "REL_DATE", "REL_NO" => "REL_NO", "REMARKS" => "REMARKS",
+                _ => "Unrecognized"
+            }).Distinct();
+        logger?.LogWarning("Ecount validation rejected fields: {Fields}", string.Join(",", columns));
     }
 
     private static JsonElement Envelope(JsonElement root)

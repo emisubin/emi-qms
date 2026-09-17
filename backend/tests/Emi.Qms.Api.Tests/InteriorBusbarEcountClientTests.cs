@@ -319,6 +319,38 @@ public sealed class InteriorBusbarEcountClientTests
         Assert.DoesNotContain(logger.Messages,x=>x.Contains(Session,StringComparison.Ordinal)||x.Contains("synthetic-private-value",StringComparison.Ordinal)||x.Contains("999",StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("PROD_CD", "PROD_CD")]
+    [InlineData("EMP_CD", "EMP_CD")]
+    [InlineData("private-value", "Unrecognized")]
+    [InlineData("EMP_CD\nprivate-value", "Unrecognized")]
+    public async Task RejectedFieldsUseOnlyKnownNamesWithoutLeakingValues(string column, string expected)
+    {
+        var response = Failure.Replace("\"PROD_CD\"", JsonSerializer.Serialize(column));
+        using var handler = new Handler(Zone, Login, response);
+        using var http = new HttpClient(handler);
+        var logger = new DiagnosticLogger();
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http, logger);
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("Failed", (await client.SendAsync(Attempt(), TestContext.Current.CancellationToken)).State);
+        Assert.Contains("Ecount validation rejected fields: " + expected, logger.Messages);
+        Assert.DoesNotContain(logger.Messages, x => x.Contains("private", StringComparison.Ordinal)
+            || x.Contains(Session, StringComparison.Ordinal) || x.Contains('\n'));
+        Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task AmbiguousFailureDoesNotLogDefiniteRejection()
+    {
+        using var handler = new Handler(Zone, Login, Failure.Replace("\"SlipNos\":[]", "\"SlipNos\":[\"SYN-SLIP\"]"));
+        using var http = new HttpClient(handler);
+        var logger = new DiagnosticLogger();
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), http, logger);
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("Unknown", (await client.SendAsync(Attempt(), TestContext.Current.CancellationToken)).State);
+        Assert.DoesNotContain(logger.Messages, x => x.StartsWith("Ecount validation rejected fields:", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ExplicitIoTypeIsSentAndSessionExpiresSinceLastSuccessfulOperation()
     {

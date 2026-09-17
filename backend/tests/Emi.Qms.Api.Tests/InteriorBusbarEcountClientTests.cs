@@ -71,17 +71,36 @@ public sealed class InteriorBusbarEcountClientTests
     [Theory]
     [InlineData("Order")]
     [InlineData("Sale")]
-    public async Task CreatorNameIsSentVerbatimAsEmployee(string kind)
+    public async Task CreatorNameWhitespaceIsRemovedOnlyOnTransmission(string kind)
     {
         var handler = new Handler(Zone, Login, Success);
         var client = new InteriorBusbarEcountClient(Options(), new Clock(), new HttpClient(handler));
         Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
         var attempt = Attempt(kind);
         var payload = System.Text.Json.Nodes.JsonNode.Parse(attempt.Payload)!;
-        payload["employeeCode"] = "합성 등록자";
+        payload["employeeSource"] = "ProjectRegistrantName";
+        payload["employeeCode"] = " 합성\u00a0 등록자\u3000";
+        var original = payload.ToJsonString();
         Assert.Equal("Succeeded", (await client.SendAsync(attempt with { Payload = payload.ToJsonString() }, TestContext.Current.CancellationToken)).State);
         using var sent = JsonDocument.Parse(handler.Requests[2].Body);
-        Assert.Equal("합성 등록자", sent.RootElement.GetProperty(kind == "Order" ? "SaleOrderList" : "SaleList")[0].GetProperty("BulkDatas").GetProperty("EMP_CD").GetString());
+        Assert.Equal(original, payload.ToJsonString());
+        Assert.Equal("합성등록자", sent.RootElement.GetProperty(kind == "Order" ? "SaleOrderList" : "SaleList")[0].GetProperty("BulkDatas").GetProperty("EMP_CD").GetString());
+    }
+
+    [Theory]
+    [InlineData("Order")]
+    [InlineData("Sale")]
+    public async Task HistoricalEmployeeCodeIsNotNormalized(string kind)
+    {
+        var handler = new Handler(Zone, Login, Success);
+        var client = new InteriorBusbarEcountClient(Options(), new Clock(), new HttpClient(handler));
+        Assert.True(await client.AuthenticateAsync(TestContext.Current.CancellationToken));
+        var attempt = Attempt(kind);
+        var payload = System.Text.Json.Nodes.JsonNode.Parse(attempt.Payload)!;
+        payload["employeeCode"] = " CODE 01 ";
+        Assert.Equal("Succeeded", (await client.SendAsync(attempt with { Payload = payload.ToJsonString() }, TestContext.Current.CancellationToken)).State);
+        using var sent = JsonDocument.Parse(handler.Requests[2].Body);
+        Assert.Equal(" CODE 01 ", sent.RootElement.GetProperty(kind == "Order" ? "SaleOrderList" : "SaleList")[0].GetProperty("BulkDatas").GetProperty("EMP_CD").GetString());
     }
 
     [Theory]

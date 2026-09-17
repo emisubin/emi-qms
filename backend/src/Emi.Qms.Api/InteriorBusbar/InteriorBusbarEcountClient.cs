@@ -161,6 +161,17 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
         }
     }
 
+    private static string? EmployeeForTransmission(JsonElement payload)
+    {
+        var employee = payload.GetProperty("employeeCode").GetString();
+        // Normalize only captured PMS names; historical ERP codes stay verbatim.
+        return employee is not null
+            && payload.TryGetProperty("employeeSource", out var source)
+            && source.GetString() == "ProjectRegistrantName"
+                ? string.Concat(employee.Where(c => !char.IsWhiteSpace(c)))
+                : employee;
+    }
+
     public async Task<BusbarEcountResult> SendAsync(BusbarEcountAttempt attempt, CancellationToken cancellationToken)
     {
         if (!HasSession) return new("Unknown");
@@ -178,7 +189,7 @@ internal sealed class InteriorBusbarEcountClient(InteriorBusbarEcountOptions opt
             if (ioType is not null && (ioType.Length != 2 || ioType.Any(char.IsControl))) return new("Unknown");
             var row = new Dictionary<string, object?>
             {
-                ["EMP_CD"] = p.GetProperty("employeeCode").GetString(),
+                ["EMP_CD"] = EmployeeForTransmission(p),
                 ["UPLOAD_SER_NO"] = "1",
                 ["IO_DATE"] = ioDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
                 ["CUST"] = p.GetProperty("customerCode").GetString(), ["WH_CD"] = p.GetProperty("warehouseCode").GetString(),

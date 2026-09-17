@@ -85,6 +85,9 @@ export function InteriorBusbarPage({
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
   const [page, setPage] = useState(1);
+  const ledgerHeadingRef = useRef<HTMLHeadingElement>(null);
+  const deletedFilterRef = useRef<HTMLInputElement>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -118,6 +121,7 @@ export function InteriorBusbarPage({
     setQrDialogOpen(false);
     setFeedback("");
     setQuery("");
+    setShowDeleted(false);
     setPage(1);
   }
   const [qrLabels, setQrLabels] = useState<QrLabel[]>([]);
@@ -211,7 +215,7 @@ export function InteriorBusbarPage({
     data?.materials.find((x) => x.id === id)?.name ?? "삭제된 자재";
   const options = (rows: BusbarMaster[], include?: string) =>
     rows
-      .filter((x) => x.isActive || x.id === include)
+      .filter((x) => !x.isDeleted && (x.isActive || x.id === include))
       .map((x) => ({
         value: x.id,
         label: `${x.name}${x.code ? ` (${x.code})` : ""}${x.isActive ? "" : " · 비활성"}`,
@@ -398,13 +402,15 @@ export function InteriorBusbarPage({
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
   const overviewDate = data.overview?.asOfDate ?? today();
   const home = busbarOverview(data, overviewDate);
-  const visibleProjects = data.projects.filter((p) => matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)) &&
+  const visibleProjects = data.projects.filter((p) => Boolean(p.isDeleted) === showDeleted && matches(p.name, p.customerJobNumber, p.destination, familyName(p.productFamilyId)) &&
     (!projectStatus || (projectStatus === "Complete" ? p.requestedQuantity === p.shippedQuantity : p.requestedQuantity > p.shippedQuantity)));
   const monthFirst = `${month}-01`;
   const monthLast = datePlus(`${monthPlus(month, 1)}-01`, -1);
   const calendarStart = datePlus(monthFirst, -new Date(`${monthFirst}T12:00:00Z`).getUTCDay());
   const calendarDays = Math.ceil((new Date(`${monthFirst}T12:00:00Z`).getUTCDay() + Number(monthLast.slice(8))) / 7) * 7;
-  const visiblePlanFamilies = data.productFamilies.filter((f) => !planFamily || f.id === planFamily);
+  const visiblePlanFamilies = data.productFamilies.filter((f) => !f.isDeleted && (!planFamily || f.id === planFamily));
+  const deletionFilter = <label className="busbar-check-label busbar-deleted-filter"><input ref={deletedFilterRef} type="checkbox" checked={showDeleted} onChange={event => setShowDeleted(event.target.checked)} />삭제된 항목 보기</label>;
+  const recordAction = (entity: string, row: { id: string; isDeleted?: boolean }, label: string) => canWrite && <BusbarRecordAction key={`${entity}:${row.id}:${row.isDeleted}`} user={user} path={`/${entity}/${row.id}/${row.isDeleted ? "restore" : "delete"}`} label={label} action={row.isDeleted ? "복원" : "삭제"} disabled={busy} note={entity === "plans" && !row.isDeleted ? "이 계획의 작업자·사진이 없는 미착수 패널도 모두 취소됩니다. 계획을 복원해도 취소된 패널은 자동 복구되지 않습니다. 복원 후 계획을 다시 저장해야 대기 패널이 준비됩니다." : undefined} onChanged={async () => { await load(); setFeedback(`${label} ${row.isDeleted ? "복원" : "삭제"}했습니다.`); setFeedbackError(false); requestAnimationFrame(() => (planDialogOpen ? planHeadingRef.current : deletedFilterRef.current)?.focus()); }} />;
   function changeMonth(next: string) {
     setMonth(next); setSelectedPlanDate(`${next}-01`); setEditor(null);
   }
@@ -412,6 +418,7 @@ export function InteriorBusbarPage({
     setFilters((current) => ({ ...current, [key]: value }));
     setPage(1); setActiveProduct("");
   }
+  const selectedBomFamily = data.productFamilies.find(f => f.id === bomFamily && !f.isDeleted);
   const stock = (item?: BusbarMaster) => item?.balance ?? 0;
   const access = data.permissions;
   const canAdminister = access?.administration ?? false;
@@ -558,6 +565,7 @@ export function InteriorBusbarPage({
           <DsSurface>
             <DsToolbar label="납품 프로젝트 도구" className="busbar-filterbar">
               <Search value={query} onChange={setQuery} />
+              {deletionFilter}
               <label>프로젝트 상태<select aria-label="프로젝트 상태" value={projectStatus} onChange={(event) => setProjectStatus(event.target.value)}><option value="">전체</option><option value="InProgress">진행 중</option><option value="Complete">완료</option></select></label>
               <div className="busbar-filter-actions">{writeButton("프로젝트 등록", () => projectEditor())}
                 {canWrite && <ImportBox data={data} user={user} kind="projects" busy={busy} run={run} />}
@@ -574,6 +582,7 @@ export function InteriorBusbarPage({
                 "누적 출하",
                 "잔여",
                 "상태",
+                "관리",
               ]}
               rowActions={visibleProjects.map((p) => ({ toggle: () => onOpenProject(p.id) }))}
               rows={visibleProjects.map((p) => [
@@ -592,10 +601,11 @@ export function InteriorBusbarPage({
                         : "neutral"
                     }
                   >
-                    {p.requestedQuantity === p.shippedQuantity
+                    {p.isDeleted ? "삭제됨" : p.requestedQuantity === p.shippedQuantity
                       ? "완료"
                       : "진행 중"}
                   </DsBadge>,
+                  <span onClick={event => event.stopPropagation()}>{recordAction("projects", p, p.name)}</span>,
                 ])}
             />
           </DsSurface>
@@ -606,18 +616,19 @@ export function InteriorBusbarPage({
         <>
           <DsSurface label="제품군별 월간 생산계획">
             <DsToolbar className="busbar-filterbar busbar-plan-filter" label="생산계획 필터">
+              {deletionFilter}
               <label>
                 계획 제품군
                 <select aria-label="계획 제품군" value={planFamily} onChange={(e) => setPlanFamily(e.target.value)}>
                   <option value="">전체 제품군</option>
-                  {data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  {data.productFamilies.filter(f => !f.isDeleted).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </label>
               <label>계획 월<input type="month" value={month} onChange={(e) => { if (e.target.value) changeMonth(e.target.value); }} /></label>
               <div className="busbar-month-totals" aria-label="선택 월 제품군별 생산 현황">
                 <span className="busbar-note">선택 월 계획 기준 · 계획 / 생산 완료</span>
                 {visiblePlanFamilies.map((family) => {
-                  const plans = data.plans.filter((plan) => plan.productFamilyId === family.id && plan.planDate.slice(0, 7) === month);
+                  const plans = data.plans.filter((plan) => !plan.isDeleted && plan.productFamilyId === family.id && plan.planDate.slice(0, 7) === month);
                   return <div key={family.id}><strong>{family.name}</strong><span>계획 <b>{n(plans.reduce((sum, plan) => sum + plan.quantity, 0))}</b>대</span><span>생산 완료 <b>{n(plans.reduce((sum, plan) => sum + (plan.actualQuantity ?? 0), 0))}</b>대</span></div>;
                 })}
               </div>
@@ -629,13 +640,14 @@ export function InteriorBusbarPage({
             </DsToolbar>
             <h3 ref={calendarHeadingRef} tabIndex={-1}>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월 생산계획</h3>
             <p className="busbar-note">날짜를 선택하면 팝업에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
+            {showDeleted && <Table headings={["제품군", "생산일", "계획 수량", "관리"]} rows={data.plans.filter(p => p.isDeleted && p.planDate.startsWith(month) && (!planFamily || p.productFamilyId === planFamily)).map(p => [familyName(p.productFamilyId), p.planDate.slice(0,10), n(p.quantity), recordAction("plans", p, `${familyName(p.productFamilyId)} ${p.planDate.slice(0,10)} 계획`)])} />}
             <div className="busbar-month-calendar" role="region" aria-label="월간 생산계획 달력" tabIndex={0}>
               <div className="busbar-calendar-weekdays" aria-hidden="true">{["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day} className={day === "일" ? "busbar-sunday" : day === "토" ? "busbar-saturday" : ""}>{day}</span>)}</div>
               <div className="busbar-calendar-grid">
                 {Array.from({ length: calendarDays }, (_, index) => {
                   const date = datePlus(calendarStart, index);
                   if (!date.startsWith(month)) return <div key={date} className="busbar-calendar-outside" aria-hidden="true">{Number(date.slice(8))}</div>;
-                  const plans = data.plans.filter((p) => p.planDate.slice(0, 10) === date && (!planFamily || p.productFamilyId === planFamily));
+                  const plans = data.plans.filter((p) => !p.isDeleted && p.planDate.slice(0, 10) === date && (!planFamily || p.productFamilyId === planFamily));
                   return <button key={date} type="button" className="busbar-calendar-day" aria-label={`${date} 생산계획 선택`}
                     aria-pressed={selectedPlanDate === date} aria-current={date === today() ? "date" : undefined}
                     onClick={() => { setSelectedPlanDate(date); setEditor(null); setFeedback(""); setPlanDialogOpen(true); }}>
@@ -662,11 +674,12 @@ export function InteriorBusbarPage({
             <p className="busbar-note">제품군의 계획을 저장한 뒤 다른 제품군도 이어서 입력할 수 있습니다. 제품 보기에서 작업자와 사진을 등록하세요.</p>
             <Table headings={["제품군", "계획 수량", "완료 수량", "미완료", "작업"]}
               rows={visiblePlanFamilies.map((family) => {
-                const plan = data.plans.find((p) => p.productFamilyId === family.id && p.planDate.slice(0, 10) === selectedPlanDate);
+                const plan = data.plans.find((p) => !p.isDeleted && p.productFamilyId === family.id && p.planDate.slice(0, 10) === selectedPlanDate);
                 return [family.name, plan ? `${n(plan.quantity)}개` : "미등록", plan ? `${n(plan.actualQuantity)}개` : "—",
                   plan ? `${n(Math.max(0, plan.quantity - (plan.actualQuantity ?? 0)))}개` : "—",
                   <>
                     {canWrite && (family.isActive || plan) && <button disabled={busy} aria-label={`${family.name} ${selectedPlanDate} 계획 ${plan ? "수정" : "등록"}`} onClick={() => planEditor(family.id, selectedPlanDate, plan?.id)}>{plan ? "계획 수정" : "계획 등록"}</button>}
+                    {plan && recordAction("plans", plan, `${family.name} ${selectedPlanDate} 계획`)}
                     {plan && <button disabled={busy} aria-label={`${family.name} ${selectedPlanDate} 제품 보기`} onClick={() => openPlanProducts(family.id, selectedPlanDate)}>제품 보기</button>}
                     {plan?.productsInitialized === false && <small className="busbar-note">계획을 저장해 대기 제품을 준비하세요.</small>}
                   </>];
@@ -680,7 +693,7 @@ export function InteriorBusbarPage({
             <h3 ref={productionHeadingRef} tabIndex={-1}>생산 제품 목록</h3>
             <DsToolbar className="busbar-filterbar busbar-filterbar--production" label="생산 사진 필터">
               <Search value={query} onChange={setQuery} />
-              <label>제품군 필터<select aria-label="제품군 필터" value={filters.productFamilyId ?? ""} onChange={(e) => changeFilter("productFamilyId", e.target.value)}><option value="">전체 제품군</option>{data.productFamilies.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
+              <label>제품군 필터<select aria-label="제품군 필터" value={filters.productFamilyId ?? ""} onChange={(e) => changeFilter("productFamilyId", e.target.value)}><option value="">전체 제품군</option>{data.productFamilies.filter(f => !f.isDeleted).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
               <div className="busbar-filter-date-range">
                 <label>계획 시작일<input type="date" value={filters.planDateFrom ?? ""} max={filters.planDateTo || undefined} onChange={(e) => changeFilter("planDateFrom", e.target.value)} /></label>
                 <label>계획 종료일<input type="date" value={filters.planDateTo ?? ""} min={filters.planDateFrom || undefined} onChange={(e) => changeFilter("planDateTo", e.target.value)} /></label>
@@ -754,6 +767,7 @@ export function InteriorBusbarPage({
                 fields: [{ key: "workerId", label: "실제 제조 작업자", type: "select", options: options(data.workers, selectedProduct.workerId ?? undefined), value: selectedProduct.workerId ?? undefined }, reasonField],
                 makeBody: (values) => values,
               }))}
+              {canAdminister && selectedProduct.status !== "Cancelled" && <BusbarRecordAction user={user} path={`/products/${selectedProduct.id}/cancel`} label={productLabel(selectedProduct)} action="생산 취소" disabled={busy} reversal onChanged={async () => { await load(); setFeedback("생산을 취소했습니다. 사진과 처리 이력은 보존했습니다."); setFeedbackError(false); requestAnimationFrame(() => photoHeadingRef.current?.focus()); }} />}
               <PhotoWorkspace
                 key={selectedProduct.id}
                 user={user}
@@ -796,6 +810,7 @@ export function InteriorBusbarPage({
             <h3>발주·입고 현황</h3>
             <DsToolbar className="busbar-filterbar busbar-filterbar--single" label="발주 검색">
               <Search value={query} onChange={setQuery} />
+              {deletionFilter}
               <div className="busbar-filter-actions">{writeButton("발주 등록", () => purchaseEditor())}
                 {canWrite && <ImportBox data={data} user={user} kind="purchases" busy={busy} run={run} />}
               </div>
@@ -812,7 +827,7 @@ export function InteriorBusbarPage({
               ]}
               rows={data.purchases
                 .filter((p) =>
-                  matches(p.orderNumber, materialName(p.materialId)),
+                  Boolean(p.isDeleted) === showDeleted && matches(p.orderNumber, materialName(p.materialId)),
                 )
                 .map((p) => [
                   p.orderNumber,
@@ -822,7 +837,7 @@ export function InteriorBusbarPage({
                   n(p.receivedQuantity),
                   n(Math.max(0, p.quantity - p.receivedQuantity)),
                   <>
-                    {writeButton("분할 입고", () => {
+                    {!p.isDeleted && writeButton("분할 입고", () => {
                       const requestId = crypto.randomUUID();
                       open({
                         title: `${p.orderNumber} 분할 입고`,
@@ -835,7 +850,8 @@ export function InteriorBusbarPage({
                         }),
                       });
                     })}
-                    {writeButton("발주 정정", () => purchaseEditor(p.id))}
+                    {!p.isDeleted && writeButton("발주 정정", () => purchaseEditor(p.id))}
+                    {recordAction("purchases", p, p.orderNumber)}
                   </>,
                 ])}
             />
@@ -843,6 +859,12 @@ export function InteriorBusbarPage({
               발주 수신은 재고를 증가시키지 않습니다. 실제 도착한 수량만 입고
               처리하세요.
             </p>
+          </DsSurface>
+          <DsSurface label="입고·재고 처리 이력">
+            <h3 ref={ledgerHeadingRef} tabIndex={-1}>입고·재고 처리 이력</h3>
+            {data.pagination && <DsToolbar label="재고 이력 페이지"><button disabled={busy || page <= 1} onClick={() => setPage(value => value - 1)}>이전 이력</button><span>{page}페이지</span><button disabled={busy || page * data.pagination.pageSize >= data.pagination.ledgerCount} onClick={() => setPage(value => value + 1)}>다음 이력</button></DsToolbar>}
+            <p className="busbar-note">취소하면 재고에 반대 수량을 반영합니다. 처리 기록은 남으며 취소 자체는 복원되지 않습니다.</p>
+            <Table headings={["처리일", "구분", "사유", "상태", "관리"]} rows={data.ledger.filter(entry => ["Receipt", "Adjustment", "Opening"].includes(entry.kind)).map(entry => [busbarDateTime(entry.createdAtUtc), entry.kind === "Receipt" ? "입고" : "재고 보정", entry.reason, entry.reversed ? "취소됨" : "반영", canAdminister && !entry.reversed && <BusbarRecordAction key={entry.id} user={user} path={`/ledger/${entry.id}/reverse`} label={`${busbarDateTime(entry.createdAtUtc)} ${entry.kind === "Receipt" ? "입고" : "재고 보정"}`} action="처리 취소" reversal disabled={busy} onChanged={async () => { await load(); setFeedback("재고 처리를 취소했습니다. 기존 기록은 보존했습니다."); setFeedbackError(false); requestAnimationFrame(() => ledgerHeadingRef.current?.focus()); }} />])} />
           </DsSurface>
           <DsSurface label="자재 재고">
             <DsToolbar>
@@ -852,7 +874,7 @@ export function InteriorBusbarPage({
             </DsToolbar>
             <Table
               headings={["품목 코드", "자재", "공급 구분", "단위", "현재고"]}
-              rows={data.materials.map((x) => [
+              rows={data.materials.filter(x => !x.isDeleted).map((x) => [
                 x.code,
                 x.name,
                 x.supplyType,
@@ -874,7 +896,7 @@ export function InteriorBusbarPage({
             </DsToolbar>
             <Table
               headings={["제품군", "현재고"]}
-              rows={data.productFamilies.map((x) => [x.name, n(stock(x))])}
+              rows={data.productFamilies.filter(x => !x.isDeleted).map((x) => [x.name, n(stock(x))])}
             />
           </DsSurface>
 
@@ -883,6 +905,7 @@ export function InteriorBusbarPage({
       {tab === "masters" && access?.mastersRead && (
         <>
           {access.manageMasterPermissions && <BusbarMasterAccess key={user} user={user} />}
+          <DsToolbar>{deletionFilter}</DsToolbar>
           <DsSurface>
             <DsToolbar>
               <h3>공통 프로젝트·이카운트 설정</h3>
@@ -934,17 +957,15 @@ export function InteriorBusbarPage({
                   "상태",
                   "작업",
                 ]}
-                rows={data[section.key].map((x) => [
+                rows={data[section.key].filter(x => Boolean(x.isDeleted) === showDeleted).map((x) => [
                   x.code,
                   x.name,
                   ...(section.key === "productFamilies" ? [x.ecountProductCode || "미설정", x.standardUnitPrice == null ? "미설정" : n(x.standardUnitPrice)] : []),
                   ...(section.key === "materials"
                     ? [x.unit, x.supplyType]
                     : []),
-                  x.isActive ? "사용" : "사용 중지",
-                  writeButton("수정", () =>
-                    editMaster(section.path, `${section.title} 수정`, x),
-                  ),
+                  x.isDeleted ? "삭제됨" : x.isActive ? "사용" : "사용 중지",
+                  <>{!x.isDeleted && writeButton("수정", () => editMaster(section.path, `${section.title} 수정`, x))}{recordAction(section.path.slice(1), x, x.name)}</>,
                 ])}
               />
             </DsSurface>
@@ -959,11 +980,11 @@ export function InteriorBusbarPage({
               <label>
                 소요량을 관리할 제품군
                 <select
-                  value={bomFamily}
+                  value={selectedBomFamily?.id ?? ""}
                   onChange={(e) => setBomFamily(e.target.value)}
                 >
                   <option value="">제품군 선택</option>
-                  {data.productFamilies.map((x) => (
+                  {data.productFamilies.filter(x => !x.isDeleted).map((x) => (
                     <option key={x.id} value={x.id}>
                       {x.name}
                     </option>
@@ -971,11 +992,12 @@ export function InteriorBusbarPage({
                 </select>
               </label>
             </DsToolbar>
-            {bomFamily && (
+            {selectedBomFamily && <Table headings={["버전", "등록일", "관리"]} rows={data.boms.filter(b => b.productFamilyId === bomFamily && Boolean(b.isDeleted) === showDeleted).map(b => [`버전 ${b.version}`, busbarDateTime(b.createdAtUtc), recordAction("boms", b, `${familyName(bomFamily)} 소요량 버전 ${b.version}`)])} />}
+            {selectedBomFamily && !showDeleted && (
               <BomEditor
                 key={`${bomFamily}:${data.boms
                   .filter((b) => b.productFamilyId === bomFamily)
-                  .map((b) => b.version)
+                  .map((b) => `${b.version}:${b.isDeleted}`)
                   .join(",")}`}
                 data={data}
                 familyId={bomFamily}
@@ -1133,6 +1155,7 @@ export function BusbarDialog({ label, busy, onClose, children, heading, closeLab
   }, [heading, fallbackFocus]);
   return <DsDialog label={label} onClose={onClose} closeDisabled={busy} className={`busbar-plan-dialog ${className}`}>
     <div className="dialog" ref={panel} onKeyDown={(event) => {
+      if ((event.target as HTMLElement).closest(".dialog") !== panel.current) return;
       if (event.key === "Escape") { event.preventDefault(); if (!busy) onClose(); }
       if (event.key === "Tab") {
         const controls = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]') ?? []).filter((element) => element.getClientRects().length > 0);
@@ -1266,7 +1289,7 @@ function PhotoWorkspace({
             <option value="">작업자를 먼저 선택하세요</option>
             {workers
               .filter(
-                (worker) => worker.isActive || worker.id === product.workerId,
+                (worker) => !worker.isDeleted && (worker.isActive || worker.id === product.workerId),
               )
               .map((worker) => (
                 <option key={worker.id} value={worker.id}>
@@ -1417,7 +1440,7 @@ function BomEditor({
   const history = data.boms
     .filter((x) => x.productFamilyId === familyId)
     .sort((a, b) => b.version - a.version);
-  const latest = history[0];
+  const latest = history[0]?.isDeleted ? undefined : history[0];
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       data.materials.map((m) => [
@@ -1448,7 +1471,7 @@ function BomEditor({
         <fieldset disabled={busy || !canWrite}>
           <div className="busbar-form">
             {data.materials
-              .filter((m) => m.isActive || Number(values[m.id]) > 0)
+              .filter((m) => !m.isDeleted && (m.isActive || Number(values[m.id]) > 0))
               .map((m) => (
                 <label key={m.id}>
                   {m.name} ({m.unit})
@@ -1641,4 +1664,39 @@ function ImportBox({
     <div hidden>{fileSelector}</div>
     {preview && <BusbarDialog label={`${importLabel} 미리보기`} busy={busy} heading={heading} closeLabel={`${importLabel} 미리보기 닫기`} onClose={() => setPreview(null)}>{previewContent}</BusbarDialog>}
   </div>;
+}
+
+
+export function BusbarRecordAction({ user, path, label, action, disabled, reversal = false, note, onChanged }: {
+  user: string; path: string; label: string; action: string; disabled?: boolean; reversal?: boolean; note?: string; onChanged: () => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const locked = useRef(false);
+  const requestId = useRef("");
+  const submittedReason = useRef<string | undefined>(undefined);
+  const [reasonLocked, setReasonLocked] = useState(false);
+  return <>
+    <button type="button" disabled={disabled || busy} aria-label={`${label} ${action}`} onClick={() => { setReason(""); setError(""); setDone(false); setReasonLocked(false); submittedReason.current = undefined; requestId.current = crypto.randomUUID(); setOpen(true); }}>{action}</button>
+    {open && <BusbarDialog className="busbar-record-dialog" label={`${action} 확인`} busy={busy} heading={heading} closeLabel="확인창 닫기" onClose={() => setOpen(false)}>
+      <div className="busbar-record-description"><strong>{label}</strong></div>
+      <div className="busbar-record-description">{reversal ? "재고에 반대 수량을 반영하고 처리 기록과 사진은 보존합니다. 취소 자체는 복원할 수 없습니다." : action === "복원" ? "일반 목록에서 다시 사용할 수 있도록 복원합니다. 취소된 생산 제품은 다시 만들지 않으며 이카운트 전송은 자동 재개하지 않습니다." : "일반 목록과 집계에서 제외합니다. 거래·사진·처리 이력은 보존하며 이카운트 전표는 자동 취소하지 않습니다. 삭제된 항목 보기에서 복원할 수 있습니다."}</div>
+      {note && <div className="busbar-record-description" role="note">{note}</div>}
+      {error && <DsActionFeedback message={error} tone="error" focusOnAttention />}
+      {done ? <DsActionFeedback message={`${action}했습니다.`} tone="success" focusOnAttention /> : <form onSubmit={async event => {
+        event.preventDefault(); if (locked.current || !reason.trim()) return;
+        locked.current = true; setBusy(true); setError("");
+        try { if (reversal) { submittedReason.current ??= reason.trim(); setReasonLocked(true); } await busbarApi.write(user, path, { reason: submittedReason.current ?? reason.trim(), ...(reversal ? { requestId: requestId.current } : {}) }); setDone(true); await onChanged(); }
+        catch (cause) { setError(failure(cause)); }
+        finally { locked.current = false; setBusy(false); }
+      }}>
+        <label>{action} 사유<input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} required disabled={busy || reasonLocked} /></label>
+        <div className="busbar-form-actions"><button type="button" disabled={busy} onClick={() => setOpen(false)}>돌아가기</button><button type="submit" disabled={busy || !reason.trim()}>{busy ? "처리 중…" : `${action} 확인`}</button></div>
+      </form>}
+    </BusbarDialog>}
+  </>;
 }

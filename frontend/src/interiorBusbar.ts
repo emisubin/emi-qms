@@ -1,6 +1,7 @@
 import { fetchBlob, fetchJson } from "./api";
 
 export type BusbarMaster = {
+  isDeleted?: boolean;
   id: string;
   code: string;
   name: string;
@@ -14,6 +15,7 @@ export type BusbarMaster = {
   standardUnitPrice?: number | null;
 };
 export type BusbarProject = {
+  isDeleted?: boolean;
   id: string;
   name: string;
   customerJobNumber: string;
@@ -26,6 +28,7 @@ export type BusbarProject = {
   dueDate: string;
 };
 export type BusbarPlan = {
+  isDeleted?: boolean;
   id: string;
   productFamilyId: string;
   planDate: string;
@@ -34,6 +37,7 @@ export type BusbarPlan = {
   productsInitialized?: boolean;
 };
 export type BusbarPurchase = {
+  isDeleted?: boolean;
   id: string;
   orderNumber: string;
   materialId: string;
@@ -106,6 +110,7 @@ export type BusbarWorkspace = {
   materials: BusbarMaster[];
   workers: BusbarMaster[];
   boms: Array<{
+    isDeleted?: boolean;
     id: string;
     productFamilyId: string;
     version: number;

@@ -27,6 +27,7 @@ import {
 } from "./interiorBusbar";
 import {
   BusbarDialog,
+  BusbarRecordAction,
   CommercialPreview,
   Editor,
   EcountStatus,
@@ -64,6 +65,7 @@ export function InteriorBusbarProjectDetailPage({
   const [feedback, setFeedback] = useState("");
   const [loadRevision, setLoadRevision] = useState(0);
   const generation = useRef(0);
+  const listButtonRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     const current = ++generation.current;
@@ -104,7 +106,7 @@ export function InteriorBusbarProjectDetailPage({
       <div className="busbar-page page-surface">
         <DsPageHeader
           title="납품 프로젝트 상세"
-          actions={<button type="button" onClick={onBack}>프로젝트 목록</button>}
+          actions={<button ref={listButtonRef} type="button" onClick={onBack}>프로젝트 목록</button>}
         />
         <DsStatePanel
           kind={error ? (denied ? "forbidden" : notFound ? "not-found" : "error") : "loading"}
@@ -121,7 +123,7 @@ export function InteriorBusbarProjectDetailPage({
   const stock = family?.balance ?? 0;
   const remaining = Math.max(0, project.requestedQuantity - project.shippedQuantity);
   const canShip = workspace.permissions?.projects ?? false;
-  const shipmentUnavailable = !canShip ? "출하 권한 없음" : remaining <= 0 ? "출하 완료" : stock <= 0 ? "완제품 재고 없음" : "";
+  const shipmentUnavailable = project.isDeleted ? "삭제된 프로젝트" : !canShip ? "출하 권한 없음" : remaining <= 0 ? "출하 완료" : stock <= 0 ? "완제품 재고 없음" : "";
   const canAdminister = workspace.permissions?.administration ?? false;
   const revision = `${loadRevision}:${family?.standardUnitPrice}:${project.requestedQuantity}:${workspace.settings.ecountCustomerCode}:${workspace.settings.ecountWarehouseCode}:${family?.ecountProductCode}`;
 
@@ -132,18 +134,20 @@ export function InteriorBusbarProjectDetailPage({
         description="납품 프로젝트 상세"
         actions={
           <>
-            <button type="button" onClick={onBack}>프로젝트 목록</button>
-            {canShip && <button type="button" onClick={() => { setEditError(""); setEditOpen(true); }}>프로젝트 수정</button>}
+            <button ref={listButtonRef} type="button" onClick={onBack}>프로젝트 목록</button>
+            {canShip && !project.isDeleted && <button type="button" onClick={() => { setEditError(""); setEditOpen(true); }}>프로젝트 수정</button>}
+            {canShip && <BusbarRecordAction key={`${project.id}:${project.isDeleted}`} user={user} path={`/projects/${project.id}/${project.isDeleted ? "restore" : "delete"}`} label={project.name} action={project.isDeleted ? "복원" : "삭제"} onChanged={async () => { await load(); setFeedback(`프로젝트를 ${project.isDeleted ? "복원" : "삭제"}했습니다.`); requestAnimationFrame(() => listButtonRef.current?.focus()); }} disabled={saving} />}
             <button type="button" onClick={() => void load()}>새로고침</button>
           </>
         }
       />
+      {project.isDeleted && <DsActionFeedback message="삭제된 프로젝트입니다. 거래와 출하 이력은 보존되어 있습니다." tone="info" />}
       {!canShip && (
         <DsReadOnlyBanner description="이 프로젝트는 조회만 가능합니다. 출하는 담당 팀 또는 관리자에게 요청하세요." />
       )}
       {feedback && <DsActionFeedback message={feedback} tone="success" focusOnAttention />}
 
-      {editOpen && canShip && <>
+      {editOpen && canShip && !project.isDeleted && <>
         {editError && <DsActionFeedback message={editError} tone="error" />}
         <Editor key={project.id} spec={projectEditorSpec(workspace, project.id)} busy={saving}
           onClose={() => setEditOpen(false)} onSave={async values => {
@@ -196,7 +200,7 @@ export function InteriorBusbarProjectDetailPage({
             <Table
               headings={["생산일", "계획", "완료", "미완료", "현재고"]}
               rows={workspace.plans
-                .filter((plan) => plan.productFamilyId === project.productFamilyId)
+                .filter((plan) => !plan.isDeleted && plan.productFamilyId === project.productFamilyId)
                 .sort((left, right) => left.planDate.localeCompare(right.planDate))
                 .map((plan) => [
                   plan.planDate.slice(0, 10),
@@ -261,7 +265,7 @@ export function InteriorBusbarProjectDetailPage({
           key={`${user}:${project.id}:${project.shippedQuantity}`}
           userId={user}
           projectId={project.id}
-          canWrite={canAdminister}
+          canWrite={canAdminister && !project.isDeleted}
         />
       </DsSurface>
 

@@ -178,6 +178,8 @@ public sealed partial class InteriorBusbarStore
     {
         Text(reason, "재시도 사유");
         var before = await One(c, "busbar_ecount_jobs", job);
+        var project = await One(c, "busbar_projects", Id(before, "projectId"));
+        Require(!(bool)project["isDeleted"]!, "삭제된 프로젝트의 전송은 재시도할 수 없습니다. 먼저 복원하세요.");
         Require((string)before["state"]! is "Held" or "Failed" && !(bool)before["needsReview"]!,
             "이미 전송했거나 결과 확인이 필요한 건은 다시 전송할 수 없습니다.");
         if ((string)before["kind"]! == "Sale")
@@ -196,6 +198,11 @@ public sealed partial class InteriorBusbarStore
         var row = await One(c, "busbar_ecount_jobs", job);
         if ((string)row["state"]! != "Pending" || (bool)row["needsReview"]!) return null;
         var project = await One(c, "busbar_projects", Id(row, "projectId"));
+        if ((bool)project["isDeleted"]!)
+        {
+            await Exec(c, "update busbar_ecount_jobs set state='Held',message='프로젝트 삭제 · 자동 전송 중지',updated_at_utc=now() where id=@id and state='Pending'", ("id", job));
+            return null;
+        }
         var family = await One(c, "busbar_product_families", Id(project, "productFamilyId"));
         var settings = (await Rows(c, "select * from busbar_settings"))[0];
         var kind = (string)row["kind"]!;

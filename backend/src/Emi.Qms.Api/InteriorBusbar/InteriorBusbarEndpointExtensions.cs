@@ -37,7 +37,11 @@ public static class InteriorBusbarEndpointExtensions
             var access = BusbarAccess.For(profile, string.Equals(http.User.FindFirstValue(QmsClaimTypes.IsOverallAdministrator), bool.TrueString, StringComparison.OrdinalIgnoreCase));
             var routePath = (http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText;
             if (routePath is "/api/interior-busbar/access" or "/api/interior-busbar/workspace" or "/api/interior-busbar/masters" or
-                "/api/interior-busbar/product-families" or "/api/interior-busbar/materials" or "/api/interior-busbar/workers" or "/api/interior-busbar/boms" or "/api/interior-busbar/settings")
+                "/api/interior-busbar/product-families" or "/api/interior-busbar/materials" or "/api/interior-busbar/workers" or "/api/interior-busbar/boms" or "/api/interior-busbar/settings" ||
+                routePath?.StartsWith("/api/interior-busbar/product-families/", StringComparison.Ordinal) == true ||
+                routePath?.StartsWith("/api/interior-busbar/materials/", StringComparison.Ordinal) == true ||
+                routePath?.StartsWith("/api/interior-busbar/workers/", StringComparison.Ordinal) == true ||
+                routePath?.StartsWith("/api/interior-busbar/boms/", StringComparison.Ordinal) == true)
                 access = await http.RequestServices.GetRequiredService<InteriorBusbarStore>().MasterAccess(actor, access);
             if (routePath == "/api/interior-busbar/masters" && !access.MastersRead || routePath == "/api/interior-busbar/master-access" && !access.ManageMasterPermissions) return Results.Forbid();
             http.Items["busbarAccess"] = access;
@@ -98,6 +102,18 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.Bom(r, Actor(u))
         }));
+        foreach (var kind in new[] { "projects", "plans", "purchases", "product-families", "materials", "workers", "boms" })
+        {
+            var captured = kind;
+            api.MapPost("/" + captured + "/{id:guid}/delete", async (Guid id, BusbarDeleteRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
+            {
+                id = await s.SetDeleted(captured, id, r.Reason, Actor(u), true)
+            }));
+            api.MapPost("/" + captured + "/{id:guid}/restore", async (Guid id, BusbarDeleteRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
+            {
+                id = await s.SetDeleted(captured, id, r.Reason, Actor(u), false)
+            }));
+        }
         api.MapGet("/projects/{id:guid}/ecount-status", (Guid id, InteriorBusbarStore s) => s.EcountStatus(id));
         api.MapPost("/ecount-jobs/{id:guid}/reconcile", async (Guid id, BusbarEcountReconcileRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { id = await s.ReconcileEcount(id, r, Actor(u)) }));
         api.MapPost("/ecount/resume", async (BusbarEcountRetryRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { resumed = await s.ResumeEcount(r.Reason, Actor(u)) }));

@@ -84,7 +84,13 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     private static async Task Active(NpgsqlConnection c, string table, Guid id)
     {
         var row = await One(c, table, id);
-        Require((bool)row["isActive"]!, "사용 중인 기준정보를 선택하세요.");
+        Require(!(bool)row["isDeleted"]! && (bool)row["isActive"]!, "삭제되지 않은 사용 중 기준정보를 선택하세요.");
+    }
+
+    private static async Task NotDeleted(NpgsqlConnection c, string table, Guid id, string label)
+    {
+        var row = await One(c, table, id);
+        Require(!(bool)row["isDeleted"]!, $"삭제된 {label}은(는) 사용할 수 없습니다. 먼저 복원하세요.");
     }
 
     private static async Task Audit(NpgsqlConnection c, string kind, Guid id, Guid actor, string reason, object before, object after) => await Exec(c, "insert into busbar_audit values(@id,@kind,@entity,@reason,@actor,now(),@before::jsonb,@after::jsonb)", ("id", Guid.NewGuid()), ("kind", kind), ("entity", id), ("reason", reason), ("actor", actor), ("before", JsonSerializer.Serialize(before)), ("after", JsonSerializer.Serialize(after)));
@@ -124,7 +130,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         }
 ;
         foreach (var (key, sql) in new (string, string)[]{
-            ("productFamilies","select f.*,coalesce(s.balance,0) balance,(select count(*) from busbar_products p where p.product_family_id=f.id and p.status='Complete') produced_quantity,coalesce((select sum(quantity) from busbar_plans p where p.product_family_id=f.id),0) planned_quantity from busbar_product_families f left join busbar_stock s on s.stock_kind='Finished' and s.item_id=f.id order by f.code"),
+            ("productFamilies","select f.*,coalesce(s.balance,0) balance,(select count(*) from busbar_products p where p.product_family_id=f.id and p.status='Complete') produced_quantity,coalesce((select sum(quantity) from busbar_plans p where p.product_family_id=f.id and not p.is_deleted),0) planned_quantity from busbar_product_families f left join busbar_stock s on s.stock_kind='Finished' and s.item_id=f.id order by f.code"),
             ("materials","select m.*,coalesce(s.balance,0) balance from busbar_materials m left join busbar_stock s on s.stock_kind='Material' and s.item_id=m.id order by m.code"),
             ("workers","select * from busbar_workers order by code"),("boms","select * from busbar_boms order by version desc"),("bomLines","select * from busbar_bom_lines"),
             ("projects",ProjectQuery),("plans","select p.*,(select count(*) from busbar_products x where x.plan_id=p.id and x.status='Complete') actual_quantity from busbar_plans p order by plan_date desc"),
@@ -169,6 +175,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         {
         }
  : await One(c, table, id);
+        if (request.Id is not null) Require(!(bool)((Dictionary<string, object?>)before)["isDeleted"]!, "삭제된 기준정보는 먼저 복원하세요.");
         if (kind == "materials")
         {
             var unit = Text(request.Unit, "단위");
@@ -270,6 +277,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         if (r.Id is not null)
         {
             before = await One(c, "busbar_projects", id);
+            Require(!(bool)((Dictionary<string, object?>)before)["isDeleted"]!, "삭제된 프로젝트는 먼저 복원하세요.");
             var shipped = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_shipments s where project_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", id));
             Require(r.RequestedQuantity >= Num(shipped[0], "quantity"), "출하 수량보다 작게 변경할 수 없습니다.");
             Require(Id((Dictionary<string, object?>)before, "productFamilyId") == r.ProductFamilyId, "기존 등록 건의 제품군은 변경할 수 없습니다.");
@@ -297,6 +305,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         if (existing.Count > 0)
         {
             var previous = existing[0];
+            Require(!(bool)previous["isDeleted"]!, "삭제된 생산계획은 먼저 복원하세요.");
             Require(Id(previous, "productFamilyId") == r.ProductFamilyId &&
                 (previous["planDate"] is DateOnly date ? date : DateOnly.FromDateTime((DateTime)previous["planDate"]!)) == r.PlanDate,
                 "제품이 연결된 계획의 제품군과 날짜는 변경할 수 없습니다. 별도 계획을 등록하세요.");
@@ -360,6 +369,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         if (r.Id is not null)
         {
             before = await One(c, "busbar_purchases", id);
+            Require(!(bool)((Dictionary<string, object?>)before)["isDeleted"]!, "삭제된 발주는 먼저 복원하세요.");
             Require(Id((Dictionary<string, object?>)before, "materialId") == r.MaterialId, "발주 자재는 변경할 수 없습니다.");
             Text(r.Reason, "정정 사유");
             var receipt = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_receipts s where purchase_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", id));
@@ -395,7 +405,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     {
         Require(kind is "Material" or "Finished", "재고 구분이 올바르지 않습니다.");
         Require(decimal.Round(quantity, 4) == quantity && (kind != "Finished" || decimal.Truncate(quantity) == quantity), "수량 단위를 확인하세요.");
-        await One(c, kind == "Material" ? "busbar_materials" : "busbar_product_families", item);
+        await NotDeleted(c, kind == "Material" ? "busbar_materials" : "busbar_product_families", item, kind == "Material" ? "자재" : "제품군");
         await Exec(c, "insert into busbar_stock values(@kind,@item,0) on conflict do nothing", ("kind", kind), ("item", item));
         var rows = await Rows(c, "select balance from busbar_stock where stock_kind=@kind and item_id=@item", ("kind", kind), ("item", item));
         Require(kind != "Finished" || Num(rows[0], "balance") + quantity >= 0, "완제품 재고가 부족합니다.");
@@ -422,6 +432,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         if (old is not null) return old.Value;
         Require(r.Quantity > 0, "입고 수량은 양수여야 합니다.");
         var purchase = await One(c, "busbar_purchases", r.PurchaseId);
+        Require(!(bool)purchase["isDeleted"]!, "삭제된 발주에는 입고를 등록할 수 없습니다. 먼저 복원하세요.");
         var received = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_receipts s where purchase_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", r.PurchaseId));
         Require(Num(received[0], "quantity") + r.Quantity <= Num(purchase, "quantity"), "발주 잔여 수량을 초과했습니다.");
         var id = await Operation(c, r.RequestId, "Receipt", r.PurchaseId, actor, "입고 등록", payload: r);
@@ -438,6 +449,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         Require(r.ProductIds is { Count: > 0 } && r.ProductIds.Count == r.Quantity && r.ProductIds.Distinct().Count() == r.Quantity,
             "실제 출하 패널을 중복 없이 스캔하세요. 출하 수량은 선택한 패널 수와 같아야 합니다.");
         var project = await One(c, "busbar_projects", r.ProjectId);
+        Require(!(bool)project["isDeleted"]!, "삭제된 프로젝트에는 출하를 등록할 수 없습니다. 먼저 복원하세요.");
         var shipped = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_shipments s where project_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", r.ProjectId));
         Require(Num(shipped[0], "quantity") + r.Quantity <= Num(project, "requestedQuantity"), "요청 잔여 수량을 초과했습니다.");
         foreach (var productId in r.ProductIds!) await RequireShippable(c, productId, Id(project, "productFamilyId"));
@@ -516,8 +528,9 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         var photos = await Rows(c, "select side from busbar_photos where product_id=@id", ("id", product));
         if ((string)p["status"]! == "Draft" && photos.Count == 2)
         {
-            var boms = await Rows(c, "select id from busbar_boms where product_family_id=@family order by version desc limit 1", ("family", p["productFamilyId"]));
+            var boms = await Rows(c, "select id,is_deleted from busbar_boms where product_family_id=@family order by version desc limit 1", ("family", p["productFamilyId"]));
             Require(boms.Count > 0, "표준 소요량을 설정한 뒤 두 번째 사진을 다시 등록하세요.");
+            Require(!(bool)boms[0]["isDeleted"]!, "최신 표준 소요량이 삭제되었습니다. 새 BOM 버전을 등록하세요.");
             var bom = Id(boms[0]);
             var operation = await Operation(c, product, "Production", product, actor, "사진 두 장 등록 생산 완료");
             await Delta(c, operation, "Finished", Id(p, "productFamilyId"), 1);
@@ -659,6 +672,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             {
                 Text(p.Reason, "정정 사유");
                 var existing = await One(c, "busbar_projects", p.Id.Value);
+                Require(!(bool)existing["isDeleted"]!, "삭제된 프로젝트는 먼저 복원하세요.");
                 Require(Id(existing, "productFamilyId") == p.ProductFamilyId, "기존 등록 건의 제품군은 변경할 수 없습니다.");
                 var shipped = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_shipments s where project_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", p.Id.Value));
                 Require(p.RequestedQuantity >= Num(shipped[0], "quantity"), "출하량보다 작은 요청 수량입니다.");
@@ -673,6 +687,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             {
                 Text(purchase.Reason, "정정 사유");
                 var existing = await One(c, "busbar_purchases", purchase.Id.Value);
+                Require(!(bool)existing["isDeleted"]!, "삭제된 발주는 먼저 복원하세요.");
                 Require(Id(existing, "materialId") == purchase.MaterialId, "발주 자재는 변경할 수 없습니다.");
                 var received = await Rows(c, "select coalesce(sum(quantity),0) quantity from busbar_receipts s where purchase_id=@id and not exists(select 1 from busbar_operations o where o.reverses_id=s.id)", ("id", purchase.Id.Value));
                 Require(purchase.Quantity >= Num(received[0], "quantity"), "입고량보다 작은 발주 수량입니다.");
@@ -684,7 +699,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     public Task<Guid> ResolveCode(string kind, string code) => ReadSnapshot(async c =>
     {
         var table = kind == "Material" ? "busbar_materials" : "busbar_product_families";
-        var rows = await Rows(c, $"select id from {table} where code=@code and is_active", ("code", code.Trim()));
+        var rows = await Rows(c, $"select id from {table} where code=@code and is_active and not is_deleted", ("code", code.Trim()));
         if (rows.Count == 0) throw new BusbarException("unknown_code", "등록된 기준정보 코드를 확인하세요.");
         return Id(rows[0]);
     });

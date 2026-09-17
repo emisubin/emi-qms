@@ -12,6 +12,7 @@ public sealed record BusbarAdjustmentRequest(Guid RequestId, string StockKind, G
 public sealed record BusbarShipmentRequest(Guid RequestId, Guid ProjectId, int Quantity, IReadOnlyList<Guid>? ProductIds = null);
 public sealed record BusbarReverseRequest(Guid RequestId, string Reason);
 public sealed record BusbarDeleteRequest(string Reason);
+public sealed record BusbarPhotoFile(string ContentType, byte[] Content);
 public sealed record BusbarProductRequest(Guid RequestId, Guid ProductFamilyId, Guid WorkerId);
 public sealed record BusbarProductCorrectionRequest(Guid WorkerId, string Reason);
 public sealed record BusbarImportApplyRequest(IReadOnlyList<BusbarProjectRequest> Rows);

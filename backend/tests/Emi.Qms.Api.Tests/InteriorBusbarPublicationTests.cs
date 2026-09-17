@@ -153,6 +153,35 @@ public sealed class InteriorBusbarPublicationTests
         Assert.Equal(0m, await f.Balance("Material", material));
     }
 
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task HeicOriginalPublishesDerivedJpegWithoutChangingStoredEvidence()
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        var family = await f.Store.Master("product-families", new(null, "F", "Family"), f.Actor);
+        var material = await f.Store.Master("materials", new(null, "M", "Material", "개", "도급"), f.Actor);
+        var workerId = await f.Store.Master("workers", new(null, "W", "Worker"), f.Actor);
+        await f.Store.Bom(new(family, [new(material, 1)]), f.Actor);
+        var productId = await f.Store.Product(new(Guid.NewGuid(), family, workerId), f.Actor);
+        var validation = await OsanProjects.OsanProgressPhotoValidator.ValidateAsync(
+            "original.heic", "image/heic", OsanHeicPhotoTests.CreateHeic(), TestContext.Current.CancellationToken);
+        Assert.NotNull(validation.Photo);
+        var validated = validation.Photo!;
+        await f.Store.Photo(productId, "front", validated.Content, "image/heic", null, f.Actor);
+        await f.Store.Photo(productId, "back", Pixel, "image/png", null, f.Actor);
+
+        var sink = new RecordingSink { Fail = false };
+        using var publication = new InteriorBusbarPublicationWorker(
+            new(Config(new() { ["ConnectionStrings:QmsDatabase"] = f.Connection })), Options(), sink,
+            NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        Assert.True(await publication.PublishNextAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("data:image/jpeg;base64,", sink.Html);
+        Assert.Contains("data:image/png;base64,", sink.Html);
+        var stored = await f.Store.GetPhotoFile(productId, "front");
+        Assert.Equal("image/heic", stored.ContentType);
+        Assert.Equal(validated.Content, stored.Content);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

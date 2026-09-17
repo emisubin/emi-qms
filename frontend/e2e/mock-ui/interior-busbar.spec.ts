@@ -1189,12 +1189,13 @@ test("photo popup contains registration only and table follows production order"
     await page.screenshot({ path: test.info().outputPath(`emi-busbar-photo-popup-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
-  await expect(dialog.getByRole("button", { name: "생산 취소" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
   await expect(table.getByRole("cell", { name: "1차 사진 등록 완료", exact: true })).toBeVisible();
   await dialog.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
   await expect(dialog.locator(".busbar-completion strong")).toHaveText("IB-00000001");
-  await expect(dialog.getByRole("button", { name: /QR|생산 취소/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /QR/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByRole("button", { name: "사진 팝업 닫기" }).click();
   await expect(table.getByRole("button", { name: "사진보기" })).toBeFocused();
 });
@@ -1369,7 +1370,8 @@ test("worker correction is in photo dialog and publication retry stays in extern
   expect(writes[0].path).toBe(`/api/interior-busbar/products/${productId}/publication/retry`);
   await row.getByRole("button", { name: "사진보기" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("button", { name: /생산 취소|게시 재시도/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "게시 재시도" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByRole("button", { name: "작업자 정정", exact: true }).click();
   await expect(dialog.getByLabel("정정 사유", { exact: true })).toHaveAttribute("required", "");
   await dialog.getByLabel("정정 사유", { exact: true }).fill("합성 작업자 확인");
@@ -1925,4 +1927,20 @@ test("stock cancellation retry preserves request and reason", async ({page}) => 
   await dialog.getByRole('button',{name:'처리 취소 확인',exact:true}).click();
   await expect(dialog.getByText('처리 취소했습니다.',{exact:true})).toBeVisible();
   expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]);
+});
+
+test("photo upload supports HEIC previews and rejects unsupported input without submitting", async ({ page }) => {
+  const data = fixture(); const writes = await mock(page, data);
+  await page.goto("/interior-busbar"); await selectSection(page, "생산·사진·QR");
+  await page.getByRole("button", { name: "사진등록", exact: true }).click();
+  const input = page.getByLabel("앨범에서 앞면 선택");
+  await expect(input).toHaveAttribute("accept", /image\/heic/);
+  await input.setInputFiles({ name: "document.pdf", mimeType: "application/pdf", buffer: Buffer.from("unsupported") });
+  await expect(page.getByText("JPEG·PNG·HEIC·WebP 사진을 선택해 주세요.", { exact: true })).toBeVisible();
+  expect(writes.filter(w => w.path.includes("/photos/"))).toHaveLength(0);
+  const preview = page.waitForRequest(r => r.method() === "GET" && r.url().includes("/photos/front?preview=true"));
+  await input.setInputFiles({ name: "camera.HEIC", mimeType: "image/heic", buffer: png });
+  await preview;
+  await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
+  expect(writes.filter(w => w.path.includes("/photos/"))).toHaveLength(1);
 });

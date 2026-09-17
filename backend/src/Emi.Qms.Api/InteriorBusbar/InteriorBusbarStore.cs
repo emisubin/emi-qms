@@ -500,11 +500,21 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         return id;
     });
 
-    public Task<Guid> Photo(Guid product, string side, byte[] content, string? reason, Guid actor, Guid? workerId = null) => Transaction(async c =>
+    public Task<Guid> Photo(Guid product, string side, byte[] content, string? reason, Guid actor, Guid? workerId = null) =>
+        Photo(product, side, content, "image/jpeg", reason, actor, workerId);
+
+    public Task<Guid> Photo(Guid product, string side, byte[] content, string contentType, string? reason, Guid actor, Guid? workerId = null) => Transaction(async c =>
     {
         Require(side is "front" or "back", "사진 위치를 확인하세요.");
+        Require(contentType is "image/jpeg" or "image/png" or "image/heic", "사진 형식을 확인하세요.");
+        Require(content.Length is > 0 and <= InteriorBusbarPhotoValidator.MaximumTotalBytes, "사진은 40MiB 이하여야 합니다.");
         var p = await One(c, "busbar_products", product);
         Require((string)p["status"]! == "Draft", "생산 완료 사진은 증거 자료로 보존되어 교체하거나 삭제할 수 없습니다.");
+        var otherSize = (await Rows(c,
+            "select coalesce(sum(octet_length(content)),0)::bigint total from busbar_photos where product_id=@id and side<>@side",
+            ("id", product), ("side", side)))[0]["total"];
+        Require(Convert.ToInt64(otherSize) + content.LongLength <= InteriorBusbarPhotoValidator.MaximumTotalBytes,
+            "앞면과 뒷면 사진 전체 크기는 40MiB 이하여야 합니다.");
         if ((string)p["status"]! == "Draft")
         {
             var selectedWorkerId = workerId ?? (p["workerId"] as Guid?);
@@ -521,10 +531,10 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             }
         }
         var now = timeProvider.GetUtcNow();
-        await Exec(c, "insert into busbar_photos(product_id,side,content,content_type,registered_at_utc,registered_by) values(@id,@side,@content,'image/jpeg',@now,@actor) on conflict(product_id,side) do update set content=excluded.content,registered_at_utc=excluded.registered_at_utc,registered_by=excluded.registered_by", ("id", product), ("side", side), ("content", content), ("now", now), ("actor", actor));
-        await Exec(c, "insert into busbar_photo_history values(@history,@id,@side,@content,@now,@actor,@reason)",
+        await Exec(c, "insert into busbar_photos(product_id,side,content,content_type,registered_at_utc,registered_by) values(@id,@side,@content,@type,@now,@actor) on conflict(product_id,side) do update set content=excluded.content,content_type=excluded.content_type,registered_at_utc=excluded.registered_at_utc,registered_by=excluded.registered_by", ("id", product), ("side", side), ("content", content), ("type", contentType), ("now", now), ("actor", actor));
+        await Exec(c, "insert into busbar_photo_history(id,product_id,side,content,registered_at_utc,registered_by,reason,content_type) values(@history,@id,@side,@content,@now,@actor,@reason,@type)",
             ("history", Guid.NewGuid()), ("id", product), ("side", side), ("content", content), ("now", now),
-            ("actor", actor), ("reason", reason ?? "사진 등록"));
+            ("actor", actor), ("reason", reason ?? "사진 등록"), ("type", contentType));
         var photos = await Rows(c, "select side from busbar_photos where product_id=@id", ("id", product));
         if ((string)p["status"]! == "Draft" && photos.Count == 2)
         {
@@ -644,11 +654,14 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         return png ?? throw new BusbarException("qr_configuration_pending", "외부 게시 주소가 설정되지 않았습니다.", 409);
     }
 
-    public Task<byte[]> GetPhoto(Guid id, string side) => ReadSnapshot(async c =>
+    public async Task<byte[]> GetPhoto(Guid id, string side) => (await GetPhotoFile(id, side)).Content;
+
+    public Task<BusbarPhotoFile> GetPhotoFile(Guid id, string side) => ReadSnapshot<BusbarPhotoFile>(async c =>
     {
-        var rows = await Rows(c, "select content from busbar_photos where product_id=@id and side=@side", ("id", id), ("side", side));
+        Require(side is "front" or "back", "사진 위치를 확인하세요.");
+        var rows = await Rows(c, "select content_type,content from busbar_photos where product_id=@id and side=@side", ("id", id), ("side", side));
         if (rows.Count == 0) throw new BusbarException("not_found", "사진이 없습니다.", 404);
-        return (byte[])rows[0]["content"]!;
+        return new((string)rows[0]["contentType"]!, (byte[])rows[0]["content"]!);
     });
 
     public Task<Guid> RetryPublication(Guid id) => Transaction(async c =>

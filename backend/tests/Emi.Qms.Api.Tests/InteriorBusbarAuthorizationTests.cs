@@ -406,7 +406,7 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, await Mutate($"/projects/{project}/restore", "권한 없음"));
     }
 
-    private sealed class MutableIdentity(Guid id) : IIdentityStore
+    internal sealed class MutableIdentity(Guid id) : IIdentityStore
     {
         public bool Manager { get; set; } = true;
         public bool BusbarOnly { get; set; }

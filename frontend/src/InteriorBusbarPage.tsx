@@ -24,6 +24,7 @@ import {
 } from "./design-system";
 import {
   busbarApi,
+  busbarPhotoAccept,
   busbarDateTime,
   busbarNumber as n,
   type BusbarImport,
@@ -1306,6 +1307,7 @@ function PhotoWorkspace({
           있습니다.
         </p>
       )}
+      {canWrite && product.status === "Draft" && <p className="busbar-note">JPEG·PNG·HEIC·WebP · 앞면·뒷면 합계 40MiB까지 등록할 수 있습니다. 위치·촬영기기 정보는 자동으로 제거됩니다.</p>}
       <div className="busbar-photogrid">
         {(["front", "back"] as const).map((side) => (
           <div className="busbar-photobox" key={side}>
@@ -1323,7 +1325,7 @@ function PhotoWorkspace({
                   카메라로 {side === "front" ? "앞면" : "뒷면"} 촬영
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept={busbarPhotoAccept}
                     capture="environment"
                     disabled={cannotUpload}
                     onChange={(e) => {
@@ -1331,14 +1333,7 @@ function PhotoWorkspace({
                       if (file)
                         void run(
                           () =>
-                            busbarApi.upload(
-                              user,
-                              `/products/${product.id}/photos/${side}`,
-                              file,
-                              "",
-                              "PUT",
-                              product.status === "Draft" ? workerId : undefined,
-                            ),
+                            busbarApi.uploadPhoto(user, product.id, side, file, workerId),
                           "사진을 등록했습니다. 두 장이 모두 등록되면 자동으로 생산 완료됩니다.",
                         );
                       e.target.value = "";
@@ -1349,21 +1344,14 @@ function PhotoWorkspace({
                   앨범에서 {side === "front" ? "앞면" : "뒷면"} 선택
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept={busbarPhotoAccept}
                     disabled={cannotUpload}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file)
                         void run(
                           () =>
-                            busbarApi.upload(
-                              user,
-                              `/products/${product.id}/photos/${side}`,
-                              file,
-                              "",
-                              "PUT",
-                              product.status === "Draft" ? workerId : undefined,
-                            ),
+                            busbarApi.uploadPhoto(user, product.id, side, file, workerId),
                           "사진을 등록했습니다.",
                         );
                       e.target.value = "";

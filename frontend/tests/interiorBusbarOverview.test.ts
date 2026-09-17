@@ -34,3 +34,18 @@ describe("home operational metrics",()=>{
     expect(busbarOverview(d,"2026-09-15").missingBoms).toEqual([]);
   });
 });
+
+it("excludes deleted projects and plans from home demand", () => {
+  const d = data(); d.projects[0].isDeleted = true; d.plans[0].isDeleted = true; d.plans[1].isDeleted = true;
+  const h = busbarOverview(d, "2026-09-15");
+  expect(h.projects.map(p => p.id)).toEqual(["1"]);
+  expect(h.families.find(f => f.id === "A")).toMatchObject({planned:0,overdue:0,deliveries:8,needed:3});
+  expect(h.materials.find(m => m.id === "M")).toBeUndefined();
+});
+
+it("does not fall back to an older BOM when the latest is deleted", () => {
+  const d = data(); d.boms[1].isDeleted = true;
+  const h = busbarOverview(d,"2026-09-15");
+  expect(h.missingBoms).toEqual(["A","B"]);
+  expect(h.materials.find(m => m.id === "M")).toBeUndefined();
+});

@@ -213,6 +213,21 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false, commercia
           ? req.postDataJSON()
           : null,
       });
+      const lifecycle = path.match(/\/api\/interior-busbar\/(projects|plans|purchases|product-families|materials|workers|boms)\/([^/]+)\/(delete|restore)$/);
+      if (lifecycle) {
+        const key = lifecycle[1] === "product-families" ? "productFamilies" : lifecycle[1];
+        const records = data[key as "projects"];
+        const row = records.find(item => item.id === lifecycle[2]);
+        if (row) row.isDeleted = lifecycle[3] === "delete";
+      }
+      if (path.endsWith("/reverse")) {
+        const record = data.ledger.find(item => item.id === path.split("/").at(-2));
+        if (record) record.reversed = true;
+      }
+      if (path.endsWith("/cancel")) {
+        const product = data.products.find(item => item.id === path.split("/").at(-2));
+        if (product) product.status = "Cancelled";
+      }
       if (
         path === `/api/interior-busbar/products/${productId}` &&
         req.method() === "PATCH"
@@ -1174,12 +1189,13 @@ test("photo popup contains registration only and table follows production order"
     await page.screenshot({ path: test.info().outputPath(`emi-busbar-photo-popup-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
-  await expect(dialog.getByRole("button", { name: "생산 취소" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
   await expect(table.getByRole("cell", { name: "1차 사진 등록 완료", exact: true })).toBeVisible();
   await dialog.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
   await expect(dialog.locator(".busbar-completion strong")).toHaveText("IB-00000001");
-  await expect(dialog.getByRole("button", { name: /QR|생산 취소/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /QR/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByRole("button", { name: "사진 팝업 닫기" }).click();
   await expect(table.getByRole("button", { name: "사진보기" })).toBeFocused();
 });
@@ -1354,7 +1370,8 @@ test("worker correction is in photo dialog and publication retry stays in extern
   expect(writes[0].path).toBe(`/api/interior-busbar/products/${productId}/publication/retry`);
   await row.getByRole("button", { name: "사진보기" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("button", { name: /생산 취소|게시 재시도/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "게시 재시도" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByRole("button", { name: "작업자 정정", exact: true }).click();
   await expect(dialog.getByLabel("정정 사유", { exact: true })).toHaveAttribute("required", "");
   await dialog.getByLabel("정정 사유", { exact: true }).fill("합성 작업자 확인");
@@ -1775,4 +1792,155 @@ test("purchase workspace shows remaining receipts and opens Excel beside registr
   await expect(dialog.getByRole("button",{name:"검토한 내용 적용"})).toBeEnabled();
   await page.getByRole("button",{name:"발주 엑셀 미리보기 닫기"}).click();
   await expect(dialog).toHaveCount(0);
+});
+
+
+for (const width of [1440, 390]) {
+  test(`deletion and restore preserve project detail at ${width}`, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    const data = fixture(); data.projects.push({...data.projects[0],id:"second-project",name:"보존할 다른 프로젝트"}); const writes = await mock(page, data);
+    await page.goto(`/interior-busbar/projects/${projectId}`);
+    await page.getByRole("button", {name: `${data.projects[0].name} 삭제`, exact:true}).click();
+    const dialog = page.getByRole("dialog", {name:"삭제 확인"});
+    await expect(dialog.getByRole("button", {name:"삭제 확인",exact:true})).toBeDisabled();
+    await dialog.getByLabel("삭제 사유").fill("합성 삭제 시험");
+    await expect(dialog.getByText(/이카운트 전표는 자동 취소하지 않습니다/)).toBeVisible();
+    await page.screenshot({path:testInfo.outputPath(`delete-confirm-${width}.png`),fullPage:true});
+    await dialog.getByRole("button", {name:"삭제 확인",exact:true}).click();
+    await expect(page.getByText("삭제된 프로젝트입니다.", {exact:false})).toBeVisible();
+    await expect(page.getByRole("button", {name:"프로젝트 수정",exact:true})).toHaveCount(0);
+    await expect(page.getByRole("button", {name:"패널 QR로 분할 출하"})).toBeDisabled();
+    await page.getByRole("button", {name:"프로젝트 목록",exact:true}).click();
+    await expect(page.getByRole("button", {name:`${data.projects[0].name} 복원`,exact:true})).toHaveCount(0);
+    await expect(page.getByRole("button",{name:"보존할 다른 프로젝트 삭제",exact:true})).toBeVisible();
+    await page.getByLabel("삭제된 항목 보기").check();
+    await page.getByRole("button", {name:`${data.projects[0].name} 복원`,exact:true}).click();
+    const restore = page.getByRole("dialog", {name:"복원 확인"});
+    await restore.getByLabel("복원 사유").fill("합성 복원 시험");
+    await restore.getByRole("button", {name:"복원 확인",exact:true}).click();
+    await expect(page.getByLabel("삭제된 항목 보기")).toBeFocused();
+    await expect(page.getByText(`${data.projects[0].name} 복원했습니다.`,{exact:true})).toBeVisible();
+    await page.getByLabel("삭제된 항목 보기").uncheck();
+    await expect(page.getByRole("button", {name:`${data.projects[0].name} 삭제`,exact:true})).toBeVisible();
+    expect(writes.map(w => w.path)).toEqual([`/api/interior-busbar/projects/${projectId}/delete`,`/api/interior-busbar/projects/${projectId}/restore`]);
+    await page.screenshot({path:testInfo.outputPath(`restored-project-${width}.png`),fullPage:true});
+  });
+}
+
+
+test("deletion controls cover plans purchases and master records", async ({page}) => {
+  const data = fixture();
+  data.purchases = [{id:"po",orderNumber:"합성 발주",materialId,quantity:2,receivedQuantity:0,orderDate:"2026-09-17"}];
+  const writes = await mock(page,data);
+  async function confirm(label: string) {
+    await page.getByRole("button",{name:`${label} 삭제`,exact:true}).click();
+    const dialog = page.getByRole("dialog",{name:"삭제 확인",exact:true});
+    if (label.includes("계획")) await expect(dialog.getByText(/미착수 패널도 모두 취소됩니다/)).toBeVisible();
+    await dialog.getByLabel("삭제 사유").fill("잘못 등록한 합성 자료");
+    await dialog.getByRole("button",{name:"삭제 확인",exact:true}).click();
+    await expect(page.getByRole("button",{name:`${label} 삭제`,exact:true})).toHaveCount(0);
+  }
+  await page.goto("/interior-busbar/plans");
+  await page.getByLabel("계획 월",{exact:true}).fill("2026-09");
+  await page.getByRole("button",{name:"2026-09-09 생산계획 선택",exact:true}).click();
+  await page.getByRole("button",{name:"합성 제품군 A 2026-09-09 계획 삭제",exact:true}).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog",{name:"삭제 확인",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("dialog",{name:"2026-09-09 제품군별 생산계획",exact:true})).toBeVisible();
+  await confirm("합성 제품군 A 2026-09-09 계획");
+  await page.getByRole("button",{name:"생산계획 팝업 닫기",exact:true}).click();
+  await page.getByLabel("삭제된 항목 보기").check();
+  await expect(page.getByRole("button",{name:"합성 제품군 A 2026-09-09 계획 복원",exact:true})).toBeVisible();
+  await page.goto("/interior-busbar/purchases"); await confirm("합성 발주");
+  await page.goto("/interior-busbar/masters");
+  await confirm("합성 외주 작업자"); await confirm("합성 동대");
+  await page.getByLabel("소요량을 관리할 제품군").selectOption(familyId);
+  await confirm("합성 제품군 A 소요량 버전 1");
+  await confirm("합성 제품군 A");
+  await expect(page.getByRole("button",{name:"새 버전 저장",exact:true})).toHaveCount(0);
+  expect(writes.filter(w => w.path.endsWith("/delete"))).toHaveLength(6);
+});
+
+test("deletion failure stays visible and preserves the record", async ({page}) => {
+  const data = fixture(); await mock(page,data);
+  await page.route(`**/api/interior-busbar/projects/${projectId}/delete`, route => route.fulfill({status:400,contentType:"application/json",body:JSON.stringify({message:"이카운트 전송 중입니다. 결과 확인 후 다시 시도하세요."})}));
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  await page.getByRole("button",{name:`${data.projects[0].name} 삭제`,exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"삭제 확인",exact:true});
+  await dialog.getByLabel("삭제 사유").fill("합성 오류 시험");
+  await dialog.getByRole("button",{name:"삭제 확인",exact:true}).click();
+  await expect(dialog.getByText("이카운트 전송 중입니다. 결과 확인 후 다시 시도하세요.")).toBeVisible();
+  expect(data.projects[0].isDeleted).not.toBe(true);
+  await expect(dialog.getByRole("button",{name:"삭제 확인",exact:true})).toBeEnabled();
+});
+
+test("deletion controls are hidden without existing write permissions", async ({page}) => {
+  const data = fixture(false); await mock(page,data);
+  await page.goto(`/interior-busbar/projects/${projectId}`);
+  await expect(page.getByRole("button",{name:`${data.projects[0].name} 삭제`,exact:true})).toHaveCount(0);
+  await page.goto('/interior-busbar/masters');
+  await expect(page.getByRole('button',{name:'합성 제품군 A 삭제',exact:true})).toHaveCount(0);
+  await page.goto('/interior-busbar/production');
+  await page.getByRole('button',{name:'사진보기',exact:true}).click();
+  await expect(page.getByRole('button',{name:/생산 취소$/})).toHaveCount(0);
+});
+
+test("administrators can cancel stock records with a reason", async ({page}) => {
+  const data=fixture();
+  data.ledger=[{id:'receipt',kind:'Receipt',reason:'합성 입고',createdAtUtc:'2026-09-17T01:00:00Z'}];
+  const writes=await mock(page,data);
+  await page.goto('/interior-busbar/purchases');
+  await page.getByRole('button',{name:/입고 처리 취소$/}).click();
+  const dialog=page.getByRole('dialog',{name:'처리 취소 확인',exact:true});
+  await expect(dialog.getByText(/재고에 반대 수량/)).toBeVisible();
+  await dialog.getByLabel('처리 취소 사유').fill('합성 입고 취소');
+  await dialog.getByRole('button',{name:'처리 취소 확인',exact:true}).click();
+  await expect(page.getByText("재고 처리를 취소했습니다. 기존 기록은 보존했습니다.",{exact:true})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"입고·재고 처리 이력",exact:true})).toBeFocused();
+  expect(writes[0]).toMatchObject({path:'/api/interior-busbar/ledger/receipt/reverse',body:{reason:'합성 입고 취소'}});
+  expect((writes[0].body as {requestId:string}).requestId).toMatch(/^[a-f0-9-]{36}$/);
+  await page.goto('/interior-busbar/production');
+  await page.getByRole('button',{name:'사진등록',exact:true}).click();
+  await page.getByRole('button',{name:/생산 취소$/}).click();
+  const cancel=page.getByRole('dialog',{name:'생산 취소 확인',exact:true});
+  await cancel.getByLabel('생산 취소 사유').fill('합성 생산 취소');
+  await cancel.getByRole('button',{name:'생산 취소 확인',exact:true}).click();
+  await expect(page.getByText("생산을 취소했습니다. 사진과 처리 이력은 보존했습니다.",{exact:true})).toBeVisible();
+  expect(writes[1]).toMatchObject({path:`/api/interior-busbar/products/${productId}/cancel`,body:{reason:'합성 생산 취소'}});
+});
+
+test("stock cancellation retry preserves request and reason", async ({page}) => {
+  const data=fixture(); data.ledger=[{id:'retry-receipt',kind:'Receipt',reason:'합성 입고',createdAtUtc:'2026-09-17T01:00:00Z'}];
+  await mock(page,data);
+  const requests:unknown[]=[];
+  await page.route('**/api/interior-busbar/ledger/retry-receipt/reverse', route => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({status:requests.length===1 ? 503 : 200,contentType:'application/json',body:JSON.stringify(requests.length===1 ? {message:'합성 응답 지연'} : {id:'reversal'})});
+  });
+  await page.goto('/interior-busbar/purchases');
+  await page.getByRole('button',{name:/입고 처리 취소$/}).click();
+  const dialog=page.getByRole('dialog',{name:'처리 취소 확인',exact:true});
+  await dialog.getByLabel('처리 취소 사유').fill('합성 재시도');
+  await dialog.getByRole('button',{name:'처리 취소 확인',exact:true}).click();
+  await expect(dialog.getByText('합성 응답 지연',{exact:true})).toBeVisible();
+  await expect(dialog.getByLabel('처리 취소 사유')).toBeDisabled();
+  await dialog.getByRole('button',{name:'처리 취소 확인',exact:true}).click();
+  await expect(dialog.getByText('처리 취소했습니다.',{exact:true})).toBeVisible();
+  expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]);
+});
+
+test("photo upload supports HEIC previews and rejects unsupported input without submitting", async ({ page }) => {
+  const data = fixture(); const writes = await mock(page, data);
+  await page.goto("/interior-busbar"); await selectSection(page, "생산·사진·QR");
+  await page.getByRole("button", { name: "사진등록", exact: true }).click();
+  const input = page.getByLabel("앨범에서 앞면 선택");
+  await expect(input).toHaveAttribute("accept", /image\/heic/);
+  await input.setInputFiles({ name: "document.pdf", mimeType: "application/pdf", buffer: Buffer.from("unsupported") });
+  await expect(page.getByText("JPEG·PNG·HEIC·WebP 사진을 선택해 주세요.", { exact: true })).toBeVisible();
+  expect(writes.filter(w => w.path.includes("/photos/"))).toHaveLength(0);
+  const preview = page.waitForRequest(r => r.method() === "GET" && r.url().includes("/photos/front?preview=true"));
+  await input.setInputFiles({ name: "camera.HEIC", mimeType: "image/heic", buffer: png });
+  await preview;
+  await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
+  expect(writes.filter(w => w.path.includes("/photos/"))).toHaveLength(1);
 });

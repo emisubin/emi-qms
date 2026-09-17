@@ -38,7 +38,7 @@ export function projectEditorSpec(data: BusbarWorkspace, id?: string): EditorSpe
           optional: true,
         },
         { key: "productFamilyId", label: "제품군", type: "select", value: row?.productFamilyId,
-          options: data.productFamilies.filter(f => f.isActive || f.id === row?.productFamilyId).map(f => ({ value: f.id, label: `${f.name}${f.code ? ` (${f.code})` : ""}${f.isActive ? "" : " · 비활성"}` })) },
+          options: data.productFamilies.filter(f => !f.isDeleted && (f.isActive || f.id === row?.productFamilyId)).map(f => ({ value: f.id, label: `${f.name}${f.code ? ` (${f.code})` : ""}${f.isActive ? "" : " · 비활성"}` })) },
         {
           key: "requestedQuantity",
           label: "요청 수량",

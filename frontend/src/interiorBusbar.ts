@@ -1,6 +1,7 @@
 import { fetchBlob, fetchJson } from "./api";
 
 export type BusbarMaster = {
+  isDeleted?: boolean;
   id: string;
   code: string;
   name: string;
@@ -14,6 +15,7 @@ export type BusbarMaster = {
   standardUnitPrice?: number | null;
 };
 export type BusbarProject = {
+  isDeleted?: boolean;
   id: string;
   name: string;
   customerJobNumber: string;
@@ -26,6 +28,7 @@ export type BusbarProject = {
   dueDate: string;
 };
 export type BusbarPlan = {
+  isDeleted?: boolean;
   id: string;
   productFamilyId: string;
   planDate: string;
@@ -34,6 +37,7 @@ export type BusbarPlan = {
   productsInitialized?: boolean;
 };
 export type BusbarPurchase = {
+  isDeleted?: boolean;
   id: string;
   orderNumber: string;
   materialId: string;
@@ -106,6 +110,7 @@ export type BusbarWorkspace = {
   materials: BusbarMaster[];
   workers: BusbarMaster[];
   boms: Array<{
+    isDeleted?: boolean;
     id: string;
     productFamilyId: string;
     version: number;
@@ -146,6 +151,16 @@ export type BusbarCommercialPreview = {
   transmissionEnabled: boolean;
 };
 export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
+export const busbarPhotoAccept = "image/jpeg,image/png,image/heic,image/heif,image/webp,.jpg,.jpeg,.png,.heic,.heif,.webp";
+export function validateBusbarPhoto(file: File): string | null {
+  if (!file.size) return "빈 파일은 첨부할 수 없습니다.";
+  if (file.size > 40 * 1024 * 1024) return "앞면·뒷면 사진의 전체 용량은 40MiB 이하여야 합니다.";
+  const mime = file.type.toLowerCase();
+  if (!["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"].includes(mime)
+    && !(["", "application/octet-stream"].includes(mime) && /\.(jpe?g|png|hei[cf]|webp)$/i.test(file.name)))
+    return "JPEG·PNG·HEIC·WebP 사진을 선택해 주세요.";
+  return null;
+}
 const root = "/api/interior-busbar";
 export const busbarApi = {
   access: (user: string) => fetchJson<NonNullable<BusbarWorkspace["permissions"]>>(`${root}/access`, user),
@@ -187,10 +202,15 @@ export const busbarApi = {
     if (workerId) body.append("workerId", workerId);
     return fetchJson<T>(`${root}${path}`, user, { method, body });
   },
+  uploadPhoto: (user: string, productId: string, side: string, file: File, workerId: string) => {
+    const error = validateBusbarPhoto(file);
+    if (error) return Promise.reject(new Error(error));
+    return busbarApi.upload(user, `/products/${productId}/photos/${side}`, file, "", "PUT", workerId);
+  },
   template: (user: string, kind: string) =>
     fetchBlob(`${root}/${kind}/import/template`, user),
   photo: (user: string, id: string, side: string) =>
-    fetchBlob(`${root}/products/${id}/photos/${side}`, user),
+    fetchBlob(`${root}/products/${id}/photos/${side}?preview=true`, user),
   qr: (user: string, id: string) =>
     fetchBlob(`${root}/products/${id}/qr`, user),
 };

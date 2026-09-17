@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.ReviewSafe;
 using Npgsql;
 
@@ -219,6 +220,23 @@ public sealed class InteriorBusbarPublicationWorker(
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            if (!snapshot.Cancelled && snapshot.Photos.Any(photo => photo.ContentType == "image/heic"))
+            {
+                var renderPhotos = new List<InteriorBusbarPublicPhoto>(snapshot.Photos.Count);
+                foreach (var photo in snapshot.Photos)
+                {
+                    renderPhotos.Add(photo.ContentType == "image/heic"
+                        ? photo with
+                        {
+                            ContentType = "image/jpeg",
+                            Content = await Task.Run(
+                                () => OsanHeicImageCodec.PreviewAsync(photo.Content, timeout.Token),
+                                timeout.Token).WaitAsync(timeout.Token)
+                        }
+                        : photo);
+                }
+                snapshot = snapshot with { Photos = renderPhotos };
+            }
             await sink.PublishAsync(snapshot.Token, InteriorBusbarPublicPage.Render(snapshot), timeout.Token);
             published = true;
         }

@@ -2,8 +2,9 @@ using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.ReviewSafe;
-using ImageMagick;
+using Emi.Qms.Api.Security;
 using ClosedXML.Excel;
 namespace Emi.Qms.Api.InteriorBusbar;
 
@@ -37,7 +38,11 @@ public static class InteriorBusbarEndpointExtensions
             var access = BusbarAccess.For(profile, string.Equals(http.User.FindFirstValue(QmsClaimTypes.IsOverallAdministrator), bool.TrueString, StringComparison.OrdinalIgnoreCase));
             var routePath = (http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText;
             if (routePath is "/api/interior-busbar/access" or "/api/interior-busbar/workspace" or "/api/interior-busbar/masters" or
-                "/api/interior-busbar/product-families" or "/api/interior-busbar/materials" or "/api/interior-busbar/workers" or "/api/interior-busbar/boms" or "/api/interior-busbar/settings")
+                "/api/interior-busbar/product-families" or "/api/interior-busbar/materials" or "/api/interior-busbar/workers" or "/api/interior-busbar/boms" or "/api/interior-busbar/settings" ||
+                routePath?.StartsWith("/api/interior-busbar/product-families/", StringComparison.Ordinal) == true ||
+                routePath?.StartsWith("/api/interior-busbar/materials/", StringComparison.Ordinal) == true ||
+                routePath?.StartsWith("/api/interior-busbar/workers/", StringComparison.Ordinal) == true ||
+                routePath?.StartsWith("/api/interior-busbar/boms/", StringComparison.Ordinal) == true)
                 access = await http.RequestServices.GetRequiredService<InteriorBusbarStore>().MasterAccess(actor, access);
             if (routePath == "/api/interior-busbar/masters" && !access.MastersRead || routePath == "/api/interior-busbar/master-access" && !access.ManageMasterPermissions) return Results.Forbid();
             http.Items["busbarAccess"] = access;
@@ -98,6 +103,18 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.Bom(r, Actor(u))
         }));
+        foreach (var kind in new[] { "projects", "plans", "purchases", "product-families", "materials", "workers", "boms" })
+        {
+            var captured = kind;
+            api.MapPost("/" + captured + "/{id:guid}/delete", async (Guid id, BusbarDeleteRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
+            {
+                id = await s.SetDeleted(captured, id, r.Reason, Actor(u), true)
+            }));
+            api.MapPost("/" + captured + "/{id:guid}/restore", async (Guid id, BusbarDeleteRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
+            {
+                id = await s.SetDeleted(captured, id, r.Reason, Actor(u), false)
+            }));
+        }
         api.MapGet("/projects/{id:guid}/ecount-status", (Guid id, InteriorBusbarStore s) => s.EcountStatus(id));
         api.MapPost("/ecount-jobs/{id:guid}/reconcile", async (Guid id, BusbarEcountReconcileRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { id = await s.ReconcileEcount(id, r, Actor(u)) }));
         api.MapPost("/ecount/resume", async (BusbarEcountRetryRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { resumed = await s.ResumeEcount(r.Reason, Actor(u)) }));
@@ -150,57 +167,27 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.RetryPublication(id)
         }));
-        api.MapPut("/products/{id:guid}/photos/{side}", async (Guid id, string side, HttpRequest request, ClaimsPrincipal user, InteriorBusbarStore s) =>
+        api.MapPut("/products/{id:guid}/photos/{side}", async (Guid id, string side, HttpRequest request, ClaimsPrincipal user, InteriorBusbarStore s, CancellationToken cancellationToken) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest(new
             {
                 message = "사진 파일이 필요합니다."
             });
-            var form = await request.ReadFormAsync();
+            IFormCollection form;
+            try { form = await request.ReadFormAsync(cancellationToken); }
+            catch (Exception exception) when (exception is InvalidDataException or IOException or BadHttpRequestException)
+            { return Results.BadRequest(new { message = "사진 업로드 요청을 읽지 못했습니다. 다시 선택해 주세요." }); }
             var file = form.Files.GetFile("file");
-            if (file is null || file.Length is <= 0 or > 10_000_000) return Results.BadRequest(new
+            if (file is null || file.Length is <= 0 or > InteriorBusbarPhotoValidator.MaximumTotalBytes) return Results.BadRequest(new
             {
-                message = "10MB 이하 사진을 선택하세요."
+                message = "40MiB 이하 사진 한 장을 선택하세요."
             });
             await using var stream = file.OpenReadStream();
-            using var bytes = new MemoryStream();
-            await stream.CopyToAsync(bytes);
-            var uploaded = bytes.ToArray();
-            var supportedSignature = uploaded.Length >= 12 &&
-                ((uploaded[0] == 0xff && uploaded[1] == 0xd8 && uploaded[2] == 0xff) ||
-                 uploaded.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) ||
-                 (uploaded.AsSpan(0, 4).SequenceEqual("RIFF"u8) && uploaded.AsSpan(8, 4).SequenceEqual("WEBP"u8)));
-            if (!supportedSignature) return Results.BadRequest(new { message = "JPEG, PNG, WebP 사진을 선택하세요." });
-            byte[] normalized;
-            try
-            {
-                using var info = new MagickImage();
-                info.Ping(uploaded);
-                if (info.Width > 12000 || info.Height > 12000 || ((long)info.Width * info.Height) > 40_000_000) return Results.BadRequest(new
-                {
-                    message = "사진 해상도가 너무 큽니다."
-                });
-                using var image = new MagickImage(uploaded);
-                if (image.Format is not (MagickFormat.Jpeg or MagickFormat.Png or MagickFormat.WebP)) return Results.BadRequest(new
-                {
-                    message = "JPEG, PNG, WebP 사진을 선택하세요."
-                });
-                image.AutoOrient();
-                image.Strip();
-                image.Resize(new MagickGeometry(2400, 2400)
-                {
-                    Greater = true
-                });
-                image.Quality = 85;
-                normalized = image.ToByteArray(MagickFormat.Jpeg);
-            }
-            catch (MagickException)
-            {
-                return Results.BadRequest(new
-                {
-                    message = "올바른 사진 파일이 아닙니다."
-                });
-            }
+            using var bytes = new MemoryStream((int)file.Length);
+            await stream.CopyToAsync(bytes, cancellationToken);
+            var (photo, error) = await InteriorBusbarPhotoValidator.ValidateAsync(
+                file.FileName, file.ContentType, bytes.ToArray(), cancellationToken);
+            if (photo is null) return Results.BadRequest(new { message = error });
             var workerValue = form["workerId"].FirstOrDefault();
             Guid? selectedWorker = null;
             if (!string.IsNullOrWhiteSpace(workerValue))
@@ -210,11 +197,23 @@ public static class InteriorBusbarEndpointExtensions
             }
             return Results.Ok(new
             {
-                id = await s.Photo(id, side, normalized, form["reason"].FirstOrDefault(), Actor(user), selectedWorker)
+                id = await s.Photo(id, side, photo.Content, photo.ContentType, form["reason"].FirstOrDefault(), Actor(user), selectedWorker)
             });
         }
-).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(11_000_000));
-        api.MapGet("/products/{id:guid}/photos/{side}", async (Guid id, string side, InteriorBusbarStore s) => Results.File(await s.GetPhoto(id, side), "image/jpeg"));
+).WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+ .WithMetadata(new UploadTotalSizeLimitAttribute(InteriorBusbarPhotoValidator.MaximumTotalBytes))
+ .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(InteriorBusbarPhotoValidator.MaximumMultipartBytes));
+        api.MapGet("/products/{id:guid}/photos/{side}", async (Guid id, string side, bool? preview, HttpContext http, InteriorBusbarStore s, CancellationToken cancellationToken) =>
+        {
+            var photo = await s.GetPhotoFile(id, side);
+            http.Response.Headers.XContentTypeOptions = "nosniff";
+            if (preview == true && photo.ContentType == "image/heic")
+            {
+                try { return Results.File(await OsanHeicImageCodec.PreviewAsync(photo.Content, cancellationToken), "image/jpeg"); }
+                catch (InvalidDataException) { return Results.BadRequest(new { message = "사진 미리보기를 만들 수 없습니다." }); }
+            }
+            return Results.File(photo.Content, photo.ContentType);
+        });
         api.MapGet("/products/{id:guid}/qr", async (Guid id, InteriorBusbarStore s, IConfiguration configuration) =>
             Results.File(await s.GetPrintableQr(id, allowPersist: !ReviewSafeMode.IsEnabled(configuration)), "image/png"));
         api.MapPost("/projects/import/preview", (HttpRequest r, InteriorBusbarStore s) => Preview(r, false, s));

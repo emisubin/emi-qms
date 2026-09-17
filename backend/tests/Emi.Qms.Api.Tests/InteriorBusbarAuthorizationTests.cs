@@ -369,7 +369,44 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.Equal(4,await f.Scalar("select count(*) from busbar_audit where entity_kind='MasterAccess'"));
     }
 
-    private sealed class MutableIdentity(Guid id) : IIdentityStore
+    [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
+    public async Task DeleteRestoreRoutesEnforceOwningPermissionAndHonorDynamicMasterGrant()
+    {
+        await using var f = await InteriorBusbarStoreTests.Fixture.Create();
+        await f.Store.Settings(new("SYN"), f.Actor);
+        var family = await f.Store.Master("product-families", new(null, "F", "Family"), f.Actor);
+        var material = await f.Store.Master("materials", new(null, "M", "Material", "개", "도급"), f.Actor);
+        var worker = await f.Store.Master("workers", new(null, "W", "Worker"), f.Actor);
+        var project = await f.Store.Project(new(null, "Project", "WO", family, 1, "Destination", new(2026, 10, 1)), f.Actor);
+        var plan = await f.Store.Plan(new(Guid.NewGuid(), family, new(2026, 10, 1), 0), f.Actor);
+        var purchase = await f.Store.Purchase(new(null, "PO", material, 1, new(2026, 10, 1)), f.Actor);
+        var identity = new MutableIdentity(f.Actor) { Manager = false, DepartmentCode = "quality" };
+        await f.Store.SetMasterAccess(new(f.Actor, "Edit", "Synthetic grant"), f.Actor);
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?> {
+            ["DevAuthentication:Enabled"]="true", ["Database:ApplyMigrationsOnStartup"]="false",
+            ["ConnectionStrings:QmsDatabase"]=f.Connection, ["InteriorBusbar:Publication:Enabled"]="false"
+        }, identityStore: identity);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "busbar-fixture");
+        async Task<HttpStatusCode> Mutate(string path, string reason)
+        {
+            using var response = await client.PostAsJsonAsync("/api/interior-busbar" + path, new BusbarDeleteRequest(reason), TestContext.Current.CancellationToken);
+            return response.StatusCode;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, await Mutate($"/workers/{worker}/delete", "미사용 삭제"));
+        Assert.Equal(HttpStatusCode.OK, await Mutate($"/workers/{worker}/restore", "복원"));
+        Assert.Equal(HttpStatusCode.Forbidden, await Mutate($"/projects/{project}/delete", "권한 없음"));
+        identity.DepartmentCode = "sales";
+        Assert.Equal(HttpStatusCode.OK, await Mutate($"/projects/{project}/delete", "영업 삭제"));
+        Assert.Equal(HttpStatusCode.Forbidden, await Mutate($"/plans/{plan}/delete", "권한 없음"));
+        identity.DepartmentCode = "production-planning";
+        Assert.Equal(HttpStatusCode.OK, await Mutate($"/plans/{plan}/delete", "계획 삭제"));
+        Assert.Equal(HttpStatusCode.OK, await Mutate($"/purchases/{purchase}/delete", "발주 삭제"));
+        Assert.Equal(HttpStatusCode.Forbidden, await Mutate($"/projects/{project}/restore", "권한 없음"));
+    }
+
+    internal sealed class MutableIdentity(Guid id) : IIdentityStore
     {
         public bool Manager { get; set; } = true;
         public bool BusbarOnly { get; set; }

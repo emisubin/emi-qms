@@ -27,15 +27,29 @@ public static partial class AuditMutationRegistry
         PUT /api/interior-busbar/settings
         PUT /api/interior-busbar/products/{id:guid}/photos/{side}
         POST /api/interior-busbar/product-families
+        POST /api/interior-busbar/product-families/{id:guid}/delete
+        POST /api/interior-busbar/product-families/{id:guid}/restore
         POST /api/interior-busbar/materials
+        POST /api/interior-busbar/materials/{id:guid}/delete
+        POST /api/interior-busbar/materials/{id:guid}/restore
         POST /api/interior-busbar/workers
+        POST /api/interior-busbar/workers/{id:guid}/delete
+        POST /api/interior-busbar/workers/{id:guid}/restore
         POST /api/interior-busbar/boms
+        POST /api/interior-busbar/boms/{id:guid}/delete
+        POST /api/interior-busbar/boms/{id:guid}/restore
         POST /api/interior-busbar/projects
+        POST /api/interior-busbar/projects/{id:guid}/delete
+        POST /api/interior-busbar/projects/{id:guid}/restore
         POST /api/interior-busbar/ecount-jobs/{id:guid}/reconcile
         POST /api/interior-busbar/ecount/resume
         POST /api/interior-busbar/ecount-jobs/{id:guid}/retry
         POST /api/interior-busbar/plans
+        POST /api/interior-busbar/plans/{id:guid}/delete
+        POST /api/interior-busbar/plans/{id:guid}/restore
         POST /api/interior-busbar/purchases
+        POST /api/interior-busbar/purchases/{id:guid}/delete
+        POST /api/interior-busbar/purchases/{id:guid}/restore
         POST /api/interior-busbar/receipts
         POST /api/interior-busbar/adjustments
         POST /api/interior-busbar/shipments

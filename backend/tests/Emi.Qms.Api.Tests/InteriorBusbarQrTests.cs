@@ -35,7 +35,10 @@ public sealed class InteriorBusbarQrTests
         using var image = Image.Load<Rgba32>(bytes);
         var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
         {
-            Options = { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true }
+            // This is the exact stored, unrotated PNG, not a camera frame. Detecting finder
+            // patterns heuristically can miss valid randomly generated masks; decode the
+            // full symbol directly while still checking its payload and error correction.
+            Options = { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true, PureBarcode = true }
         };
         Assert.Equal(Options.GetPublicUrl((string)completed["publicToken"]!), reader.Decode(image)?.Text);
         Assert.Equal("publication_not_ready", (await Assert.ThrowsAsync<BusbarException>(() => fixture.Store.GetPrintableQr(product))).Code);

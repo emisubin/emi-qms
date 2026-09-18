@@ -35,6 +35,7 @@ import {
   Table,
 } from "./InteriorBusbarPage";
 import "./interior-busbar.css";
+import "./interior-busbar-desktop.css";
 
 const failure = (error: unknown) =>
   error instanceof Error

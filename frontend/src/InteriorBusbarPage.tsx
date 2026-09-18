@@ -37,6 +37,7 @@ import {
   type BusbarEcountStatus,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
+import "./interior-busbar-desktop.css";
 import { busbarOverview } from "./interiorBusbarOverview";
 import { busbarSections, type BusbarSection } from "./interiorBusbarNavigation";
 import { populateQrPrintDocument, qrLabelCss } from "./osanQrPrint";
@@ -466,6 +467,7 @@ export function InteriorBusbarPage({
       <button
         type="button"
         className="button secondary"
+        data-busbar-primary={label.endsWith("등록") || undefined}
         disabled={busy}
         onClick={action}
       >
@@ -473,7 +475,7 @@ export function InteriorBusbarPage({
       </button>
     ) : null;
   return (
-    <div className="busbar-page page-surface" aria-busy={busy}>
+    <div className="busbar-page page-surface" data-busbar-section={tab} aria-busy={busy}>
       <header className="busbar-page-heading osan-dashboard osan-list-frame">
       <OsanPageHeading
         title={busbarSections.find((item) => item.key === tab)!.label}

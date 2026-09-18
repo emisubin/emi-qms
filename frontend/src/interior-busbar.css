@@ -198,6 +198,7 @@
 .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; min-height: 124px; margin: 0; padding: 10px; text-align: left; align-items: stretch; white-space: normal; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
 .busbar-page .busbar-calendar-day[aria-pressed="true"] { border: 2px solid #2563eb; background: #eff6ff; }
 .busbar-calendar-date { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 700; }
+.busbar-calendar-date b { font: inherit; }
 .busbar-calendar-date small { font-size: 11px; color: #2563eb; }
 .busbar-calendar-plan { display: grid; gap: 5px; padding-top: 6px; border-top: 1px solid #e2e8f0; line-height: 1.35; overflow-wrap: anywhere; }
 .busbar-calendar-plan strong { font-size: 12px; }
@@ -569,3 +570,92 @@
 .app-shell .busbar-page label.busbar-deleted-filter input[type="checkbox"] { width: 18px; height: 18px; min-width: 18px; min-height: 18px; margin: 0; flex: 0 0 18px; }
 
 .app-shell .busbar-page .busbar-plan-filter > .busbar-deleted-filter { grid-column: 1 / -1; }
+
+.busbar-mobile-calendar-toolbar,
+.busbar-calendar-mobile-indicator,
+.busbar-production-mobile-list,
+.busbar-mobile-photo-workspace { display: none; }
+
+.busbar-qr-size { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.app-shell .busbar-plan-dialog .busbar-qr-size label { display: flex; flex-direction: row; align-items: center; gap: 6px; min-height: 44px; padding: 8px 12px; border: 1px solid #d6d6d6; border-radius: 6px; }
+.app-shell .busbar-plan-dialog .busbar-qr-size input { width: 18px; min-height: 18px; margin: 0; }
+.busbar-qr-preview .osan-qr-label { max-width: 100%; }
+
+@media screen and (max-width: 700px) {
+  .app-shell .busbar-page { overflow-x: clip; }
+  .app-shell .busbar-page .ds-surface { padding: 18px; }
+  .app-shell .busbar-page .busbar-plan-filter { gap: 12px; margin-bottom: 10px; }
+  .app-shell .busbar-page .busbar-plan-filter .busbar-plan-month-field,
+  .app-shell .busbar-page .busbar-plan-filter .busbar-month-totals,
+  .app-shell .busbar-page .busbar-plan-filter .busbar-plan-desktop-actions { display: none; }
+  .busbar-mobile-calendar-toolbar { display: grid; gap: 8px; margin: 4px 0 10px; }
+  .busbar-mobile-month-nav { display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; text-align: center; }
+  .app-shell .busbar-page .busbar-mobile-month-nav button { width: 48px; min-width: 48px; min-height: 48px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #444; font-size: 28px; font-weight: 400; }
+  .busbar-mobile-month-nav strong { font-size: 17px; }
+  .busbar-mobile-calendar-subhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; color: #666; font-size: 12px; border-bottom: 1px solid #ddd; }
+  .app-shell .busbar-page .busbar-mobile-calendar-subhead button { min-height: 44px; padding: 7px 4px; border: 0; border-radius: 0; background: transparent; color: #333; font-weight: 600; white-space: nowrap; }
+  .app-shell .busbar-page .busbar-month-calendar { width: 100%; max-width: 100%; overflow: visible; }
+  .app-shell .busbar-page .busbar-calendar-weekdays,
+  .app-shell .busbar-page .busbar-calendar-grid { width: 100%; min-width: 0; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; }
+  .app-shell .busbar-page .busbar-calendar-weekdays { padding: 5px 0 8px; color: #666; font-size: 12px; }
+  .app-shell .busbar-page .busbar-calendar-grid { grid-auto-rows: 54px; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day,
+  .app-shell .busbar-page .busbar-calendar-outside { min-width: 0; min-height: 54px; height: 54px; padding: 5px 2px; border: 0; border-radius: 0; background: transparent; text-align: center; align-items: center; justify-content: flex-start; gap: 2px; }
+  .app-shell .busbar-page .busbar-calendar-outside { color: transparent; }
+  .app-shell .busbar-page .busbar-calendar-date { display: grid; justify-items: center; justify-content: center; gap: 0; width: 100%; font-size: 14px; line-height: 20px; }
+  .app-shell .busbar-page .busbar-calendar-date b { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50% !important; line-height: 32px; font-weight: 400; }
+  .app-shell .busbar-page .busbar-calendar-date small { font-size: 9px; line-height: 11px; }
+  .app-shell .busbar-page .busbar-calendar-plan,
+  .app-shell .busbar-page .busbar-calendar-empty { display: none; }
+  .app-shell .busbar-page .busbar-calendar-mobile-indicator { display: grid; place-items: center; height: 6px; }
+  .app-shell .busbar-page .busbar-calendar-mobile-indicator i { display: block; width: 5px; height: 5px; border-radius: 50% !important; background: #555 !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-date.busbar-sunday b { color: #c82a32 !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-date.busbar-saturday b { color: #2864bd !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] { background: transparent !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current="date"] .busbar-calendar-date { color: #222; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"],
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"]:not([aria-current="date"]) { outline: 0; background: transparent !important; color: inherit !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] .busbar-calendar-date b { background: #282828 !important; color: #fff !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] .busbar-calendar-date:not(.busbar-saturday):not(.busbar-sunday) b { color: #fff !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] .busbar-calendar-date.busbar-sunday b { background: #c82a32 !important; color: #fff !important; }
+  .app-shell .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed="true"] .busbar-calendar-date.busbar-saturday b { background: #2864bd !important; color: #fff !important; }
+
+  .busbar-production-desktop { display: none; }
+  .busbar-production-mobile-list { display: grid; }
+  .busbar-production-mobile-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 22px; gap: 10px; align-items: center; min-width: 0; padding: 16px 0; border-bottom: 1px solid #e7e7e7; }
+  .app-shell .busbar-page .busbar-production-mobile-row > input[type="checkbox"] { width: 20px; height: 20px; min-height: 20px; margin: 0; accent-color: #282828; }
+  .app-shell .busbar-page .busbar-production-mobile-open { display: grid; justify-items: start; gap: 6px; min-width: 0; min-height: 48px; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; white-space: normal; }
+  .busbar-production-mobile-open strong { max-width: 100%; overflow-wrap: anywhere; font-size: 15px; }
+  .busbar-production-mobile-open > span { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: #555; font-size: 12px; }
+  .busbar-production-mobile-open small { max-width: 100%; color: #777; font-size: 12px; overflow-wrap: anywhere; }
+  .busbar-production-mobile-chevron { color: #888; font-size: 24px; }
+  .app-shell .busbar-page .busbar-production-mobile-retry { grid-column: 2 / 4; justify-self: start; min-height: 44px; }
+
+  .busbar-photo-desktop-workspace { display: none; }
+  .busbar-mobile-photo-workspace { display: grid; gap: 12px; min-width: 0; }
+  .app-shell .busbar-plan-dialog.busbar-photo-dialog .dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 18px; border-radius: 12px; }
+  .busbar-mobile-worker { color: #666; font-size: 12px; }
+  .busbar-mobile-photo-tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #ddd; }
+  .app-shell .busbar-plan-dialog .busbar-mobile-photo-tabs button { min-height: 48px; border: 0; border-radius: 0; background: transparent; color: #777; }
+  .app-shell .busbar-plan-dialog .busbar-mobile-photo-tabs button.active { color: #222; border-bottom: 2px solid #222; font-weight: 700; }
+  .busbar-mobile-photo-tabs small { margin-left: 5px; font-size: 10px; }
+  .app-shell .busbar-plan-dialog .busbar-mobile-photo-preview { display: grid; place-items: center; width: 100%; height: min(52dvh, 360px); min-height: 220px; padding: 0; overflow: hidden; border: 1px solid #e6e6e6; border-radius: 6px; background: #f7f7f7; }
+  .app-shell .busbar-plan-dialog .busbar-mobile-photo-preview:disabled { opacity: 1; }
+  .busbar-mobile-photo-preview img { width: 100%; height: 100%; object-fit: contain; }
+  .busbar-mobile-photo-preview > span { display: grid; place-items: center; gap: 10px; color: #888; font-size: 13px; }
+  .busbar-mobile-photo-preview svg { width: 44px; height: 44px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+  .busbar-mobile-photo-hint { margin: -6px 0 0; color: #777; text-align: right; font-size: 11px; }
+  .busbar-mobile-photo-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .app-shell .busbar-plan-dialog .busbar-mobile-photo-actions button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 48px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+  .busbar-mobile-photo-actions svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .busbar-hidden-file { position: absolute !important; width: 1px !important; height: 1px !important; min-height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0 !important; }
+  .app-shell .busbar-plan-dialog .busbar-mobile-photo-save { width: 100%; min-height: 48px; border: 1px solid #282828; border-radius: 6px; background: #282828; color: #fff; font-weight: 700; }
+  .busbar-mobile-photo-zoom { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 12px; background: #0009; }
+  .busbar-mobile-photo-zoom > div { width: min(700px, 100%); max-height: calc(100dvh - 24px); padding: 16px; overflow: auto; border-radius: 10px; background: #fff; }
+  .busbar-mobile-photo-zoom header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .busbar-mobile-photo-zoom img { display: block; width: 100%; max-height: calc(100dvh - 110px); object-fit: contain; }
+}
+
+@media screen and (min-width: 701px) {
+  .busbar-photo-desktop-workspace { display: block; }
+}

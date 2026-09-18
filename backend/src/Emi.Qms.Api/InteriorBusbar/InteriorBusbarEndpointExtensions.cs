@@ -167,6 +167,31 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.RetryPublication(id)
         }));
+        api.MapPost("/products/{id:guid}/photo-preview", async (Guid id, HttpRequest request, InteriorBusbarStore s, CancellationToken cancellationToken) =>
+        {
+            await s.GetProduct(id);
+            if (!request.HasFormContentType) return Results.BadRequest(new { message = "사진을 선택해 주세요." });
+            IFormCollection form;
+            try { form = await request.ReadFormAsync(cancellationToken); }
+            catch (Exception exception) when (exception is InvalidDataException or IOException or BadHttpRequestException)
+            { return Results.BadRequest(new { message = "사진 업로드 요청을 읽지 못했습니다. 다시 선택해 주세요." }); }
+            if (form.Files.Count != 1 || form.Files[0].Length is < 1 or > InteriorBusbarPhotoValidator.MaximumTotalBytes)
+                return Results.BadRequest(new { message = "40MiB 이하 사진 한 장을 선택해 주세요." });
+            var file = form.Files[0];
+            using var buffer = new MemoryStream((int)file.Length);
+            await file.CopyToAsync(buffer, cancellationToken);
+            var (photo, error) = await InteriorBusbarPhotoValidator.ValidateAsync(file.FileName, file.ContentType, buffer.ToArray(), cancellationToken);
+            if (photo is null) return Results.BadRequest(new { message = error });
+            try
+            {
+                var bytes = photo.ContentType == "image/heic"
+                    ? await OsanHeicImageCodec.PreviewAsync(photo.Content, cancellationToken) : photo.Content;
+                return Results.Ok(new { contentType = photo.ContentType == "image/heic" ? "image/jpeg" : photo.ContentType, base64 = Convert.ToBase64String(bytes) });
+            }
+            catch (InvalidDataException) { return Results.BadRequest(new { message = "사진 미리보기를 만들 수 없습니다. 사진을 다시 선택해 주세요." }); }
+        }).WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+          .WithMetadata(new UploadTotalSizeLimitAttribute(InteriorBusbarPhotoValidator.MaximumTotalBytes))
+          .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(InteriorBusbarPhotoValidator.MaximumMultipartBytes));
         api.MapPut("/products/{id:guid}/photos/{side}", async (Guid id, string side, HttpRequest request, ClaimsPrincipal user, InteriorBusbarStore s, CancellationToken cancellationToken) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest(new

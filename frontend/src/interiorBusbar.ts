@@ -161,6 +161,8 @@ export function validateBusbarPhoto(file: File): string | null {
     return "JPEG·PNG·HEIC·WebP 사진을 선택해 주세요.";
   return null;
 }
+export const isBusbarHeicPhoto = (file: File) =>
+  ["image/heic", "image/heif"].includes(file.type.toLowerCase()) || /\.hei[cf]$/i.test(file.name);
 const root = "/api/interior-busbar";
 export const busbarApi = {
   access: (user: string) => fetchJson<NonNullable<BusbarWorkspace["permissions"]>>(`${root}/access`, user),
@@ -206,6 +208,15 @@ export const busbarApi = {
     const error = validateBusbarPhoto(file);
     if (error) return Promise.reject(new Error(error));
     return busbarApi.upload(user, `/products/${productId}/photos/${side}`, file, "", "PUT", workerId);
+  },
+  previewPhoto: async (user: string, productId: string, file: File, signal?: AbortSignal) => {
+    const error = validateBusbarPhoto(file);
+    if (error) throw new Error(error);
+    const body = new FormData();
+    body.append("file", file, file.name);
+    const result = await fetchJson<{ contentType: string; base64: string }>(`${root}/products/${productId}/photo-preview`, user, { method: "POST", body, signal });
+    const bytes = Uint8Array.from(atob(result.base64), (character) => character.charCodeAt(0));
+    return new Blob([bytes], { type: result.contentType });
   },
   template: (user: string, kind: string) =>
     fetchBlob(`${root}/${kind}/import/template`, user),

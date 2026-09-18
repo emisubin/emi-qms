@@ -756,6 +756,89 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task Migration0119_AllowsInteriorBusbarSiteAccessAndStillRejectsInvalidCodes()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(cancellationToken);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        var migrationsPath = Path.Combine(database.RepositoryRoot, "database", "migrations");
+        var previousCatalog = Directory.CreateTempSubdirectory("emi-qms-site-access-0118-");
+        try
+        {
+            foreach (var file in Directory.GetFiles(migrationsPath, "*.sql")
+                         .Where(file => string.CompareOrdinal(Path.GetFileName(file)[..4], "0119") < 0))
+            {
+                File.Copy(file, Path.Combine(previousCatalog.FullName, Path.GetFileName(file)));
+            }
+
+            await new DatabaseMigrationRunner(
+                    provider,
+                    DatabaseMigrationCatalog.FromPath(previousCatalog.FullName),
+                    new DatabaseRuntimePrivilegeManager(),
+                    new ConfigurationBuilder().Build(),
+                    NullLogger<DatabaseMigrationRunner>.Instance)
+                .ApplyAsync(cancellationToken);
+        }
+        finally
+        {
+            previousCatalog.Delete(recursive: true);
+        }
+
+        var actorId = Guid.Parse("84000000-0000-0000-0000-000000000119");
+        await ExecuteSqlAsync(
+            provider,
+            $"""
+            insert into qms_users (id, development_user_key, display_name, department_id, is_active)
+            values (
+                '{actorId:D}', 'site-access-0119-user', 'Site Access 0119 User',
+                (select id from departments order by code limit 1), true);
+            """,
+            cancellationToken);
+
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAndVerifyAsync(cancellationToken);
+
+        var store = new AuditStore(provider, TimeProvider.System, NullLogger<AuditStore>.Instance);
+        var recorded = await store.RecordSiteAccessAsync(
+            actorId,
+            Guid.Parse("84000000-0000-4000-8000-000000000119"),
+            "InteriorBusbar",
+            "Allowed",
+            IPAddress.Parse("192.0.2.119"),
+            "Chrome",
+            "Windows",
+            cancellationToken);
+
+        Assert.True(recorded.Created);
+        Assert.True(await ReadScalarAsync<bool>(
+            provider,
+            "select qms_site_access_menu_codes_valid(array['InteriorBusbar']);",
+            cancellationToken));
+        Assert.False(await ReadScalarAsync<bool>(
+            provider,
+            "select qms_site_access_menu_codes_valid(array['InteriorBusbar','InteriorBusbar']);",
+            cancellationToken));
+        Assert.False(await ReadScalarAsync<bool>(
+            provider,
+            "select qms_site_access_menu_codes_valid(array['UnknownMenu']);",
+            cancellationToken));
+
+        var invalid = await Assert.ThrowsAsync<PostgresException>(() => store.RecordSiteAccessAsync(
+            actorId,
+            Guid.Parse("84000000-0000-4000-8000-000000000120"),
+            "UnknownMenu",
+            "Allowed",
+            IPAddress.Parse("192.0.2.120"),
+            "Chrome",
+            "Windows",
+            cancellationToken));
+        Assert.Equal(PostgresErrorCodes.RaiseException, invalid.SqlState);
+        Assert.Equal(1L, await ReadScalarAsync<long>(
+            provider,
+            $"select count(*) from site_access_sessions where actor_user_id='{actorId:D}';",
+            cancellationToken));
+    }
+
+    [Fact]
     public async Task GlobalAuditStore_DeduplicatesLoginValidatesSessionRecordsFailureAndUnifiesAuthorizationDenial()
     {
         await using var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -1115,7 +1198,7 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+        Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1342,7 +1425,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2181,7 +2264,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2249,7 +2332,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2379,7 +2462,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3067,7 +3150,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3333,7 +3416,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3437,7 +3520,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3503,7 +3586,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+        Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3567,7 +3650,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3690,7 +3773,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3856,7 +3939,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4383,7 +4466,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4426,7 +4509,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4607,7 +4690,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4684,7 +4767,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4749,7 +4832,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+            Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4799,7 +4882,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0118_interior_busbar_photo_originals", await ReadScalarAsync<string>(
+        Assert.Equal("0120_interior_busbar_qr_lifecycle", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

@@ -5,12 +5,13 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type FormEvent,
   type RefObject,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
 import { ApiError } from "./api";
+import { BusbarMobilePhotoWorkspace } from "./BusbarMobilePhotoWorkspace";
 import { OsanPageHeading } from "./OsanListFrame";
 import {
   DsActionFeedback,
@@ -36,10 +37,12 @@ import {
   type BusbarEcountStatus,
 } from "./interiorBusbar";
 import "./interior-busbar.css";
+import "./interior-busbar-desktop.css";
 import { busbarOverview } from "./interiorBusbarOverview";
 import { busbarSections, type BusbarSection } from "./interiorBusbarNavigation";
+import { populateQrPrintDocument, qrLabelCss } from "./osanQrPrint";
 
-type QrLabel = { productId: string; number: string; revision: number; url: string };
+type QrLabel = { productId: string; label: string; sourceNumber?: string; revision: number; url: string };
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(
     new Date(),
@@ -68,19 +71,21 @@ const statusLabel = (status?: string) =>
 const productionStatusLabel = (product: BusbarProduct) => product.status === "Draft"
   ? product.hasFront || product.hasBack ? "1차 사진 등록 완료" : "사진 등록 전"
   : product.status === "Complete" ? "생산 완료" : "취소";
-const canPrintQr = (product: BusbarProduct) => product.status === "Complete" && product.publicationState === "Published" &&
-  product.revision === product.publishedRevision && Boolean(product.number);
+const canPrintBusbarQr = (product: BusbarProduct) => product.status !== "Cancelled" &&
+  product.publicationState === "Published" && product.revision === product.publishedRevision;
 
 export function InteriorBusbarPage({
   developmentUserKey: user,
   section: tab,
   onNavigate: setTab,
   onOpenProject,
+  initialProductId,
 }: {
   developmentUserKey: string;
   section: BusbarSection;
   onNavigate: (section: BusbarSection) => void;
   onOpenProject: (projectId: string) => void;
+  initialProductId?: string;
 }) {
   const [data, setData] = useState<BusbarWorkspace | null>(null);
   const [error, setError] = useState("");
@@ -106,12 +111,9 @@ export function InteriorBusbarPage({
   const [bomFamily, setBomFamily] = useState("");
   const [selectedQrIds, setSelectedQrIds] = useState<string[]>([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
-  const [printArmed, setPrintArmed] = useState(false);
-  useEffect(() => {
-    const finishPrint = () => setPrintArmed(false);
-    window.addEventListener("afterprint", finishPrint);
-    return () => window.removeEventListener("afterprint", finishPrint);
-  }, []);
+  const [qrSize, setQrSize] = useState<30 | 50>(30);
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  useEffect(() => () => printFrameRef.current?.remove(), []);
   const [previousSection, setPreviousSection] = useState(tab);
   if (previousSection !== tab) {
     setPreviousSection(tab);
@@ -135,6 +137,13 @@ export function InteriorBusbarPage({
   const completionRef = useRef<HTMLDivElement>(null);
   const productionHeadingRef = useRef<HTMLHeadingElement>(null);
   const photoHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!initialProductId) return;
+    setActiveProduct(initialProductId);
+    setProductDetail(null);
+    setEditor(null);
+    setFeedback("");
+  }, [initialProductId, user]);
   useEffect(() => {
     let current = true;
     if (!activeProduct) { setProductDetail(null); return; }
@@ -397,7 +406,7 @@ export function InteriorBusbarPage({
   const productLabel = (product: BusbarProduct) =>
     product.number ??
     (product.planId
-      ? `${data.plans.find((plan) => plan.id === product.planId)?.planDate.slice(0, 10) ?? "계획"} · 대기 ${product.planSequence ?? ""}번`
+      ? `${data.plans.find((plan) => plan.id === product.planId)?.planDate.slice(0, 10) ?? "계획"} · ${product.planSequence == null ? "대기 패널" : `대기 ${product.planSequence}번`}`
       : "기존 사진 등록 대기");
   const matches = (...values: unknown[]) =>
     values.join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase());
@@ -426,12 +435,12 @@ export function InteriorBusbarPage({
   const canWrite = access ? ({ overview: false, projects: access.projects, plans: access.planning,
     production: access.production, purchases: access.purchases, masters: access.mastersWrite === true }[tab]) : false;
   const visibleProducts = data.products.filter((product) => matches(productLabel(product), familyName(product.productFamilyId), product.workerName));
-  const eligibleProducts = visibleProducts.filter(canPrintQr);
+  const eligibleProducts = visibleProducts.filter(canPrintBusbarQr);
   const selectedIds = selectedQrIds.filter((id) => eligibleProducts.some((product) => product.id === id));
-  async function validateLabels(labels: Array<{ productId: string; revision: number; number: string }>) {
+  async function validateLabels(labels: Array<{ productId: string; revision: number; sourceNumber?: string }>) {
     const fresh = await Promise.all(labels.map((label) => busbarApi.product(user, label.productId)));
     fresh.forEach((product, index) => {
-      if (!canPrintQr(product) || product.revision !== labels[index].revision || product.number !== labels[index].number)
+      if (!canPrintBusbarQr(product) || product.revision !== labels[index].revision || product.number !== labels[index].sourceNumber)
         throw new Error("선택 제품의 정보 또는 게시 상태가 변경됐습니다. 목록을 새로고침한 뒤 다시 선택하세요.");
     });
   }
@@ -440,7 +449,7 @@ export function InteriorBusbarPage({
     if (!products.length || busy) return;
     setQrLabels([]); setQrDialogOpen(true);
     void run(async () => {
-      const expected = products.map((product) => ({ productId: product.id, revision: product.revision, number: product.number! }));
+      const expected = products.map((product) => ({ productId: product.id, revision: product.revision, sourceNumber: product.number, label: productLabel(product) }));
       await validateLabels(expected);
       const blobs = await Promise.all(products.map((product) => busbarApi.qr(user, product.id)));
       const labels = expected.map((product, index) => ({ ...product, url: URL.createObjectURL(blobs[index]) }));
@@ -458,6 +467,7 @@ export function InteriorBusbarPage({
       <button
         type="button"
         className="button secondary"
+        data-busbar-primary={label.endsWith("등록") || undefined}
         disabled={busy}
         onClick={action}
       >
@@ -465,7 +475,7 @@ export function InteriorBusbarPage({
       </button>
     ) : null;
   return (
-    <div className="busbar-page page-surface" aria-busy={busy}>
+    <div className="busbar-page page-surface" data-busbar-section={tab} aria-busy={busy}>
       <header className="busbar-page-heading osan-dashboard osan-list-frame">
       <OsanPageHeading
         title={busbarSections.find((item) => item.key === tab)!.label}
@@ -583,7 +593,7 @@ export function InteriorBusbarPage({
                 "누적 출하",
                 "잔여",
                 "상태",
-                "관리",
+                ...(showDeleted ? [""] : []),
               ]}
               rowActions={visibleProjects.map((p) => ({ toggle: () => onOpenProject(p.id) }))}
               rows={visibleProjects.map((p) => [
@@ -606,7 +616,7 @@ export function InteriorBusbarPage({
                       ? "완료"
                       : "진행 중"}
                   </DsBadge>,
-                  <span onClick={event => event.stopPropagation()}>{recordAction("projects", p, p.name)}</span>,
+                  ...(showDeleted ? [<span onClick={event => event.stopPropagation()}>{recordAction("projects", p, p.name)}</span>] : []),
                 ])}
             />
           </DsSurface>
@@ -625,7 +635,7 @@ export function InteriorBusbarPage({
                   {data.productFamilies.filter(f => !f.isDeleted).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </label>
-              <label>계획 월<input type="month" value={month} onChange={(e) => { if (e.target.value) changeMonth(e.target.value); }} /></label>
+              <label className="busbar-plan-month-field">계획 월<input type="month" value={month} onChange={(e) => { if (e.target.value) changeMonth(e.target.value); }} /></label>
               <div className="busbar-month-totals" aria-label="선택 월 제품군별 생산 현황">
                 <span className="busbar-note">선택 월 계획 기준 · 계획 / 생산 완료</span>
                 {visiblePlanFamilies.map((family) => {
@@ -633,7 +643,7 @@ export function InteriorBusbarPage({
                   return <div key={family.id}><strong>{family.name}</strong><span>계획 <b>{n(plans.reduce((sum, plan) => sum + plan.quantity, 0))}</b>대</span><span>생산 완료 <b>{n(plans.reduce((sum, plan) => sum + (plan.actualQuantity ?? 0), 0))}</b>대</span></div>;
                 })}
               </div>
-              <div className="busbar-filter-actions">
+              <div className="busbar-filter-actions busbar-plan-desktop-actions">
                 <button onClick={() => changeMonth(monthPlus(month, -1))}>이전 달</button>
                 <button onClick={() => { changeMonth(today().slice(0, 7)); setSelectedPlanDate(today()); }}>이번 달</button>
                 <button onClick={() => changeMonth(monthPlus(month, 1))}>다음 달</button>
@@ -641,6 +651,14 @@ export function InteriorBusbarPage({
             </DsToolbar>
             <h3 ref={calendarHeadingRef} tabIndex={-1}>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월 생산계획</h3>
             <p className="busbar-note">날짜를 선택하면 팝업에서 제품군별 계획을 입력·수정할 수 있습니다. 날짜 칸에는 제품군별 계획과 완료 수량을 표시합니다.</p>
+            <div className="busbar-mobile-calendar-toolbar">
+              <div className="busbar-mobile-month-nav">
+                <button type="button" aria-label="이전 달" onClick={() => changeMonth(monthPlus(month, -1))}>‹</button>
+                <strong>{Number(month.slice(0, 4))}년 {Number(month.slice(5))}월</strong>
+                <button type="button" aria-label="다음 달" onClick={() => changeMonth(monthPlus(month, 1))}>›</button>
+              </div>
+              <div className="busbar-mobile-calendar-subhead"><span>날짜를 선택해 계획을 확인하세요.</span><button type="button" onClick={() => { changeMonth(today().slice(0, 7)); setSelectedPlanDate(today()); }}>오늘로 이동</button></div>
+            </div>
             {showDeleted && <Table headings={["제품군", "생산일", "계획 수량", "관리"]} rows={data.plans.filter(p => p.isDeleted && p.planDate.startsWith(month) && (!planFamily || p.productFamilyId === planFamily)).map(p => [familyName(p.productFamilyId), p.planDate.slice(0,10), n(p.quantity), recordAction("plans", p, `${familyName(p.productFamilyId)} ${p.planDate.slice(0,10)} 계획`)])} />}
             <div className="busbar-month-calendar" role="region" aria-label="월간 생산계획 달력" tabIndex={0}>
               <div className="busbar-calendar-weekdays" aria-hidden="true">{["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day} className={day === "일" ? "busbar-sunday" : day === "토" ? "busbar-saturday" : ""}>{day}</span>)}</div>
@@ -652,11 +670,12 @@ export function InteriorBusbarPage({
                   return <button key={date} type="button" className="busbar-calendar-day" aria-label={`${date} 생산계획 선택`}
                     aria-pressed={selectedPlanDate === date} aria-current={date === today() ? "date" : undefined}
                     onClick={() => { setSelectedPlanDate(date); setEditor(null); setFeedback(""); setPlanDialogOpen(true); }}>
-                    <span className={`busbar-calendar-date ${index % 7 === 0 ? "busbar-sunday" : index % 7 === 6 ? "busbar-saturday" : ""}`}>{Number(date.slice(8))}{date === today() && <small>오늘</small>}</span>
+                    <span className={`busbar-calendar-date ${index % 7 === 0 ? "busbar-sunday" : index % 7 === 6 ? "busbar-saturday" : ""}`}><b>{Number(date.slice(8))}</b>{date === today() && <small>오늘</small>}</span>
                     {plans.length ? plans.map((plan) => <span className="busbar-calendar-plan" key={plan.id}>
                       <strong>{familyName(plan.productFamilyId)}</strong>
                       <span>계획 {n(plan.quantity)}개 · 완료 {n(plan.actualQuantity)}개</span>
                     </span>) : <span className="busbar-calendar-empty">계획 없음</span>}
+                    <span className="busbar-calendar-mobile-indicator" aria-hidden="true">{plans.length ? <i /> : null}</span>
                   </button>;
                 })}
               </div>
@@ -723,17 +742,37 @@ export function InteriorBusbarPage({
               <span>{selectedIds.length}개 선택</span>
               <button disabled={busy || selectedIds.length === 0} onClick={prepareQrLabels}>선택 QR 인쇄</button>
             </DsToolbar>
-            <Table headings={["선택", "사진등록", "제품군", "작업자", "생산일시", "생산 상태", "제품번호", "외부게시"]}
-              rows={visibleProducts.map((product) => [
-                <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintQr(product)}
-                  onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />,
-                <button disabled={busy} onClick={() => { setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{product.status === "Draft" && canWrite ? "사진등록" : "사진보기"}</button>,
-                familyName(product.productFamilyId), product.workerName ?? "작업자 선택 전", busbarDateTime(product.manufacturedAtUtc), productionStatusLabel(product),
-                productLabel(product),
-                <><DsBadge tone={product.publicationState === "Failed" ? "danger" : product.publicationState === "Published" ? "success" : "neutral"}>{statusLabel(product.publicationState)}</DsBadge>
-                  {product.qrState === "ConfigurationPending" && <small className="busbar-note"> · QR 공개 주소 설정 대기</small>}
-                  {canWrite && product.status === "Complete" && product.publicationState !== "Published" && <button disabled={busy} onClick={() => void run(() => busbarApi.write(user, `/products/${product.id}/publication/retry`, {}), "외부 페이지 게시를 다시 요청했습니다.")}>게시 재시도</button>}</>,
-              ])} />
+            <p className="busbar-note">외부 게시가 완료된 생산 대기 패널도 QR을 미리 출력할 수 있습니다.</p>
+            <div className="busbar-production-desktop">
+              <Table headings={["선택", "사진등록", "제품군", "작업자", "생산일시", "생산 상태", "제품번호", "외부게시"]}
+                rows={visibleProducts.map((product) => [
+                  <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintBusbarQr(product)}
+                    onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />,
+                  <button disabled={busy} onClick={() => { setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>{product.status === "Draft" && canWrite ? "사진등록" : "사진보기"}</button>,
+                  familyName(product.productFamilyId), product.workerName ?? "작업자 선택 전", busbarDateTime(product.manufacturedAtUtc), productionStatusLabel(product),
+                  productLabel(product),
+                  <><DsBadge tone={product.publicationState === "Failed" ? "danger" : product.publicationState === "Published" ? "success" : "neutral"}>{statusLabel(product.publicationState)}</DsBadge>
+                    {product.qrState === "ConfigurationPending" && <small className="busbar-note"> · QR 공개 주소 설정 대기</small>}
+                    {canWrite && product.status !== "Cancelled" && product.publicationState !== "Published" && <button disabled={busy} onClick={() => void run(() => busbarApi.write(user, `/products/${product.id}/publication/retry`, {}), "외부 페이지 게시를 다시 요청했습니다.")}>게시 재시도</button>}</>,
+                ])} />
+            </div>
+            <div className="busbar-production-mobile-list" aria-label="생산 패널 목록">
+              {visibleProducts.map((product) => <article className="busbar-production-mobile-row" key={product.id}>
+                <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintBusbarQr(product)}
+                  onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />
+                <button type="button" className="busbar-production-mobile-open" disabled={busy}
+                  aria-label={`${productLabel(product)} ${product.status === "Draft" && canWrite ? "사진 등록" : "사진 보기"}`}
+                  onClick={() => { setActiveProduct(product.id); setEditor(null); setFeedback(""); }}>
+                  <strong>{productLabel(product)}</strong>
+                  <span>{familyName(product.productFamilyId)} <DsBadge tone={product.status === "Complete" ? "success" : "neutral"}>{productionStatusLabel(product)}</DsBadge></span>
+                  <small>{product.workerName ?? "작업자 선택 전"} · {busbarDateTime(product.manufacturedAtUtc)}</small>
+                  <small>외부 게시 {statusLabel(product.publicationState)}</small>
+                </button>
+                <span className="busbar-production-mobile-chevron" aria-hidden="true">›</span>
+                {canWrite && product.status !== "Cancelled" && product.publicationState !== "Published" && <button className="busbar-production-mobile-retry" disabled={busy} onClick={() => void run(() => busbarApi.write(user, `/products/${product.id}/publication/retry`, {}), "외부 페이지 게시를 다시 요청했습니다.")}>게시 재시도</button>}
+              </article>)}
+              {visibleProducts.length === 0 && <DsStatePanel kind="empty" title="조회된 패널이 없습니다." description="필터나 검색어를 확인해 주세요." />}
+            </div>
           </DsSurface>
           {selectedProduct && (
             <BusbarDialog label={`${productLabel(selectedProduct)} · ${familyName(selectedProduct.productFamilyId)}`} busy={busy} heading={photoHeadingRef}
@@ -769,7 +808,18 @@ export function InteriorBusbarPage({
                 makeBody: (values) => values,
               }))}
               {canAdminister && selectedProduct.status !== "Cancelled" && <BusbarRecordAction user={user} path={`/products/${selectedProduct.id}/cancel`} label={productLabel(selectedProduct)} action="생산 취소" disabled={busy} reversal onChanged={async () => { await load(); setFeedback("생산을 취소했습니다. 사진과 처리 이력은 보존했습니다."); setFeedbackError(false); requestAnimationFrame(() => photoHeadingRef.current?.focus()); }} />}
-              <PhotoWorkspace
+              <div className="busbar-photo-desktop-workspace">
+                <PhotoWorkspace
+                  key={selectedProduct.id}
+                  user={user}
+                  product={selectedProduct}
+                  workers={data.workers}
+                  canWrite={canWrite && selectedProduct.status === "Draft"}
+                  busy={busy}
+                  run={run}
+                />
+              </div>
+              <BusbarMobilePhotoWorkspace
                 key={selectedProduct.id}
                 user={user}
                 product={selectedProduct}
@@ -782,21 +832,36 @@ export function InteriorBusbarPage({
             </BusbarDialog>
           )}
           {qrDialogOpen && <BusbarDialog label="선택 제품 QR 인쇄" busy={busy} heading={qrHeadingRef} closeLabel="QR 인쇄 팝업 닫기" className="busbar-print-dialog" fallbackFocus={productionHeadingRef}
-            onClose={() => { if (!busy) { setQrDialogOpen(false); setPrintArmed(false); setQrLabels([]); setFeedback(""); } }}>
+            onClose={() => { if (!busy) { setQrDialogOpen(false); setQrLabels([]); setFeedback(""); } }}>
             {feedback && <DsActionFeedback message={feedback} tone={feedbackError ? "error" : "success"} focusOnAttention />}
             {busy && qrLabels.length === 0 && <p>선택 제품의 게시 상태와 QR 이미지를 확인하는 중입니다.</p>}
             {qrLabels.length > 0 && <>
               <p>{qrLabels.length}개 제품 · 제품번호와 실물을 맞춰 부착하세요.</p>
-              <div className="busbar-qr-preview">{qrLabels.map((label) => <div key={label.productId} className="busbar-qr-label"><img src={label.url} alt={`${label.number} QR`} /><strong>{label.number}</strong></div>)}</div>
+              <style>{qrLabelCss}</style>
+              <div className="busbar-qr-size" role="radiogroup" aria-label="QR 라벨 크기">{([30, 50] as const).map((size) => <label key={size}><input type="radio" name="busbar-qr-size" checked={qrSize === size} disabled={busy} onChange={() => setQrSize(size)} />{size} × {size}mm</label>)}</div>
+              <div className="busbar-qr-preview" ref={printRootRef}>{qrLabels.map((label) => <BusbarQrLabel key={label.productId} label={label} size={qrSize} />)}</div>
               <button disabled={busy} onClick={() => void run(async () => {
                 try {
                   await Promise.all(Array.from(printRootRef.current?.querySelectorAll("img") ?? []).map((img) => img.decode()));
                   await validateLabels(qrLabels);
+                  printFrameRef.current?.remove();
+                  const frame = document.createElement("iframe");
+                  frame.title = "부스바 QR 인쇄";
+                  frame.style.cssText = "position:fixed;width:1px;height:1px;left:-10000px;border:0";
+                  document.body.append(frame);
+                  printFrameRef.current = frame;
+                  const documentToPrint = frame.contentDocument;
+                  if (!documentToPrint) throw new Error("인쇄 화면을 준비하지 못했습니다.");
+                  documentToPrint.title = "인테리어 부스바 QR";
+                  populateQrPrintDocument(documentToPrint, Array.from(printRootRef.current?.querySelectorAll(".osan-qr-label") ?? []), qrSize);
+                  await Promise.all(Array.from(documentToPrint.images).map((image) => new Promise<void>((resolve, reject) => {
+                    if (image.complete) { if (image.naturalWidth) resolve(); else reject(new Error("QR 이미지를 불러오지 못했습니다.")); return; }
+                    image.onload = () => resolve(); image.onerror = () => reject(new Error("QR 이미지를 불러오지 못했습니다."));
+                  })));
+                  frame.contentWindow?.focus();
+                  frame.contentWindow?.print();
                 } catch (error) { setQrLabels([]); throw error; }
-                flushSync(() => setPrintArmed(true));
-                try { window.print(); } catch (error) { setPrintArmed(false); throw error; }
-              }, "QR 인쇄를 요청했습니다.")}>인쇄</button>
-              {createPortal(<div ref={printRootRef} className={printArmed ? "busbar-print-sheet" : "busbar-print-buffer"}>{qrLabels.map((label) => <div key={label.productId} className="busbar-qr-label"><img src={label.url} alt={`${label.number} 인쇄 QR`} /><p>{label.number}</p></div>)}</div>, document.body)}
+              }, "QR 인쇄를 요청했습니다.")} aria-label="인쇄">{qrLabels.length}장 QR 인쇄</button>
             </>}
           </BusbarDialog>}
         </>
@@ -1074,6 +1139,19 @@ export function Table({
     />
   );
 }
+
+function BusbarQrLabel({ label, size }: { label: QrLabel; size: 30 | 50 }) {
+  return <div className="osan-qr-label" style={{
+    "--label-size": `${size}mm`,
+    "--qr-size": size === 30 ? "21mm" : "36mm",
+    "--caption-line": size === 30 ? "2.1mm" : "3.1mm",
+    "--caption-size": size === 30 ? "1.8mm" : "2.8mm",
+  } as CSSProperties}>
+    <img src={label.url} alt={`${label.label} QR 코드`} />
+    <div className="osan-qr-label-caption"><p>{label.label}</p><p>인테리어 부스바</p><p>EMI PMS</p></div>
+  </div>;
+}
+
 export function EcountStatus({userId, projectId, canWrite}: {userId: string; projectId: string; canWrite: boolean}) {
   const [data, setData] = useState<BusbarEcountStatus>();
   const [error, setError] = useState("");
@@ -1152,7 +1230,10 @@ export function BusbarDialog({ label, busy, onClose, children, heading, closeLab
     const original = document.activeElement as HTMLElement | null;
     const fallback = fallbackFocus?.current;
     heading.current?.focus();
-    return () => { if (original?.isConnected) original.focus({ preventScroll: true }); else fallback?.focus({ preventScroll: true }); };
+    return () => {
+      if (original?.isConnected && original.getClientRects().length > 0) original.focus({ preventScroll: true });
+      else fallback?.focus({ preventScroll: true });
+    };
   }, [heading, fallbackFocus]);
   return <DsDialog label={label} onClose={onClose} closeDisabled={busy} className={`busbar-plan-dialog ${className}`}>
     <div className="dialog" ref={panel} onKeyDown={(event) => {

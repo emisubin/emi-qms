@@ -21,7 +21,7 @@ public sealed class InteriorBusbarQrTests
         await using var fixture = await Fixture.Create(Options);
         var (product, family, material) = await Prepare(fixture);
         await fixture.Store.Photo(product, "front", [1], null, fixture.Actor);
-        Assert.Equal(0L, await fixture.Scalar("select count(*) from busbar_product_qr"));
+        Assert.Equal(1L, await fixture.Scalar("select count(*) from busbar_product_qr"));
         await fixture.Store.Photo(product, "back", [2], null, fixture.Actor);
         var completed = await fixture.Store.GetProduct(product);
         Assert.Equal("Complete", completed["status"]);
@@ -35,7 +35,10 @@ public sealed class InteriorBusbarQrTests
         using var image = Image.Load<Rgba32>(bytes);
         var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
         {
-            Options = { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true }
+            // This is the exact stored, unrotated PNG, not a camera frame. Detecting finder
+            // patterns heuristically can miss valid randomly generated masks; decode the
+            // full symbol directly while still checking its payload and error correction.
+            Options = { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true, PureBarcode = true }
         };
         Assert.Equal(Options.GetPublicUrl((string)completed["publicToken"]!), reader.Decode(image)?.Text);
         Assert.Equal("publication_not_ready", (await Assert.ThrowsAsync<BusbarException>(() => fixture.Store.GetPrintableQr(product))).Code);

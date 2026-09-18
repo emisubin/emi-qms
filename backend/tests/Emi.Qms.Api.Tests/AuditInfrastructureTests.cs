@@ -44,6 +44,7 @@ public sealed class AuditInfrastructureTests
                 panel_quality_report_pdf_artifacts web_push_subscription_events web_push_subscriptions
                 work_item_escalations osan_notification_events
                 busbar_ecount_jobs busbar_ecount_attempts busbar_ecount_runtime busbar_product_qr
+                busbar_detached_pages busbar_publication_recovery
                 """),
             ["OperationImportOrIdempotency"] = ParseRelationNames("""
                 logistics_operations panel_information_excel_import_batches panel_kitting_batches
@@ -190,7 +191,7 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(120, trackedRelations.Count);
-        Assert.Equal(74, excludedRelations.Length);
+        Assert.Equal(76, excludedRelations.Length);
     }
 
     [Fact]
@@ -211,6 +212,27 @@ public sealed class AuditInfrastructureTests
         Assert.Contains("Only explicit logout can end a site access record.", migration, StringComparison.Ordinal);
         Assert.Contains("pg_advisory_xact_lock", migration, StringComparison.Ordinal);
         Assert.DoesNotContain("http", migration, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SiteAccessMenuExpansion_ReplacesOnlyTheValidatorWithInteriorBusbar()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var migration = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "database",
+            "migrations",
+            "0119_site_access_interior_busbar.sql"));
+
+        Assert.Equal(20, SiteAccessMenuCodes.Labels.Count);
+        Assert.Equal("인테리어 부스바", SiteAccessMenuCodes.Labels["InteriorBusbar"]);
+        Assert.Contains(
+            "create or replace function qms_site_access_menu_codes_valid",
+            migration,
+            StringComparison.Ordinal);
+        Assert.Contains("'InteriorBusbar'", migration, StringComparison.Ordinal);
+        Assert.DoesNotContain("alter table", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("drop ", migration, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IReadOnlySet<string> ParseRelationNames(string names) => names

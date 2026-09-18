@@ -160,6 +160,7 @@ public static partial class AuditMutationRegistry
         POST /api/notifications/{notificationId:guid}/read
         POST /api/osan/projects/import/apply
         POST /api/osan/projects/import/preview
+        POST /api/interior-busbar/products/{id:guid}/photo-preview
         POST /api/osan/projects/{projectId:guid}/progress/photo-preview
         POST /api/osan/projects/{projectId:guid}/progress/work-requests
         POST /api/osan/projects/
@@ -297,6 +298,7 @@ public static partial class AuditMutationRegistry
         POST /api/notifications/read-all
         POST /api/notifications/{notificationId:guid}/read
         POST /api/osan/projects/import/preview
+        POST /api/interior-busbar/products/{id:guid}/photo-preview
         POST /api/osan/projects/{projectId:guid}/progress/photo-preview
         POST /api/procurement/import/preview
         POST /api/production-planning/import/preview

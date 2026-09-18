@@ -12,6 +12,7 @@ public sealed class InteriorBusbarManagedIdentityTests
     private static Dictionary<string,string?> Values() => new()
     {
         ["InteriorBusbar:Publication:Enabled"]="true",
+        ["Frontend:Origin"]="https://pms.example.test",
         ["InteriorBusbar:Publication:AuthenticationMode"]="ManagedIdentity",
         ["InteriorBusbar:Publication:ManagedIdentityClientId"]=ClientId,
         ["InteriorBusbar:Publication:PublicBaseUrl"]="https://products.z1.web.core.windows.net/",

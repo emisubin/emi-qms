@@ -1,0 +1,211 @@
+/* PC workspace: Carbon table hierarchy + GitHub Issues list/toolbar rhythm.
+   Deliberately isolated from approved mobile layouts and printable QR labels. */
+@media screen and (min-width: 861px) {
+  .app-shell[data-osan-project-theme='true'] .busbar-page,
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) {
+    --busbar-ink: #252930;
+    --busbar-muted: #626973;
+    --busbar-line: #e3e6ea;
+    --busbar-subtle: #f6f7f9;
+    --busbar-brand: #c91e28;
+    --wire-ink: var(--busbar-ink);
+    --wire-muted: var(--busbar-muted);
+    --wire-line: var(--busbar-line);
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page.page-surface {
+    gap: 22px;
+    padding: 28px 32px 40px;
+    background: #f7f8fa !important;
+    border: 0;
+    border-radius: 0 !important;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page :is(.busbar-page-heading, .ds-page-header) {
+    margin: 0;
+    padding: 0 0 22px;
+    border-bottom: 1px solid var(--busbar-line);
+    border-radius: 0 !important;
+    background: transparent !important;
+    align-items: center;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-page-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 20px;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page :is(.busbar-page-heading, .ds-page-header)::before {
+    content: '인테리어 부스바';
+    display: block;
+    grid-column: 1 / -1;
+    color: var(--busbar-muted);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: .03em;
+    margin-bottom: 7px;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page > .ds-page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 20px;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page :is(h1, .ds-page-header__title, .ds-page-header__copy > h2) {
+    margin: 0;
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: -.04em;
+    overflow-wrap: anywhere;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .osan-list-actions { position: static; grid-column: 2; grid-row: 2 / 4; align-self: center; margin: 0; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .osan-dashboard-description { grid-column: 1; margin: 2px 0 0; font-size: 13px; line-height: 1.6; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .ds-page-header__actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 440px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .ds-surface,
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-project-basic {
+    padding: 24px;
+    border: 1px solid var(--busbar-line) !important;
+    border-radius: 10px !important;
+    background: #fff !important;
+    box-shadow: 0 2px 4px #20293803 !important;
+    min-width: 0;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page :is(h3, .ds-toolbar h3) {
+    margin: 0 0 14px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .ds-toolbar h3 { margin: 0; margin-right: auto; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-note { font-size: 12px; line-height: 1.7; margin: 10px 0; color: var(--busbar-muted) !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page > .busbar-note { margin: -8px 0 -10px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .ds-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 0;
+    margin: 0 0 18px;
+    background: transparent !important;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-filterbar {
+    display: grid;
+    align-items: end;
+    gap: 14px;
+    padding-bottom: 20px;
+    margin-bottom: 0;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-filter-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page label,
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog label { font-size: 12px; font-weight: 500; line-height: 1.5; gap: 7px; }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) :is(input, select, textarea) {
+    border: 1px solid #d4d8df !important;
+    border-radius: 6px !important;
+    background: #fff !important;
+    font-size: 13px;
+    font-weight: 400;
+    padding: 9px 12px;
+    min-height: 38px;
+    box-sizing: border-box;
+  }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) input:is([type='checkbox'], [type='radio']) {
+    width: 17px; height: 17px; min-height: 17px; padding: 0; margin: 0;
+    accent-color: var(--busbar-brand);
+  }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) button:not(.busbar-calendar-day) {
+    min-height: 36px;
+    padding: 8px 13px;
+    border: 1px solid #d4d8df !important;
+    border-radius: 6px !important;
+    background: #fff !important;
+    color: var(--busbar-ink) !important;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    transition: background-color .15s ease, border-color .15s ease;
+  }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) button:not(.busbar-calendar-day):hover:not(:disabled) {
+    background: #f1f3f5 !important;
+    border-color: #acb3bc !important;
+  }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog) button:is(.primary, [data-busbar-primary="true"]) {
+    background: #292d33 !important;
+    border-color: #292d33 !important;
+    color: white !important;
+  }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog) button:is(.primary, [data-busbar-primary="true"]):hover:not(:disabled) { background: #424852 !important; }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) button:disabled { opacity: .45; cursor: not-allowed; }
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) :is(button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid #516f98 !important;
+    outline-offset: 3px;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-table-wrap {
+    border: 1px solid var(--busbar-line);
+    border-radius: 7px !important;
+    background: #fff !important;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page table { border: 0; font-size: 13px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page.page-surface .busbar-table-wrap[role="region"] table thead tr th {
+    padding: 12px 14px;
+    height: 42px;
+    box-sizing: border-box;
+    background: var(--busbar-subtle) !important;
+    color: #626973 !important;
+    font-size: 12px !important;
+    font-weight: 600;
+    letter-spacing: .01em;
+    border-bottom: 1px solid var(--busbar-line) !important;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page.page-surface table td { padding: 12px 14px; height: 52px; box-sizing: border-box; line-height: 1.6; font-variant-numeric: tabular-nums; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page tbody tr:last-child td { border-bottom: 0; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page tbody tr:hover > td { background: #f8f9fb !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page td button { min-height: 30px !important; padding: 5px 9px !important; font-size: 12px !important; margin: 2px 5px 2px 0; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page td:first-child { font-weight: 600; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .ds-badge { border-radius: 4px !important; font-size: 11px; padding: 3px 7px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-negative { color: #b6212b !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-editor { border-left: 3px solid var(--busbar-brand) !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-form { gap: 18px 24px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-form-actions { padding-top: 18px; margin-top: 4px; border-top: 1px solid var(--busbar-line); justify-content: flex-end; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-project-fields { gap: 24px; padding-block: 8px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-project-fields dt { font-size: 12px; color: var(--busbar-muted) !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-project-fields dd { margin-top: 7px; font-size: 16px; font-weight: 600; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipping-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-block: 1px solid var(--busbar-line); padding-block: 20px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipping-summary > div { padding: 8px 22px; background: transparent !important; border-right: 1px solid var(--busbar-line); }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipping-summary > div:last-child { border: 0; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipping-summary dd { font-size: 30px; letter-spacing: -.04em; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipment-card { padding: 4px 0 18px; }
+  /* Calendar contents keep the previously approved cell/plan/date design. */
+  .app-shell[data-osan-project-theme='true'] :is(.busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) .dialog {
+    padding: 28px;
+    border: 1px solid #dfe3e9 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 24px 80px #17203426 !important;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .dialog > .ds-toolbar { top: -28px; margin: -4px 0 22px; padding: 16px 0; border-bottom: 1px solid var(--busbar-line) !important; border-radius: 0 !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .dialog > .ds-toolbar h3 { margin: 0; font-size: 18px; font-weight: 700; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-photobox { padding: 20px; gap: 12px; border: 1px solid var(--busbar-line) !important; border-radius: 8px !important; background: #f8f9fb !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-photobox img { max-height: 380px; border-radius: 5px !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-photobox h4 { margin: 0; font-size: 14px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog input[type='file'] { padding: 6px; background: white !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog input[type='file']::file-selector-button { padding: 7px 10px; margin-right: 10px; border: 0; border-radius: 4px; background: #edf0f4; color: #343b46; font: inherit; cursor: pointer; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-completion { padding: 18px; border: 1px solid #ceded4 !important; border-radius: 8px !important; background: #f3f8f5 !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-completion strong { font-size: 25px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-access-granted { gap: 8px 24px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-access-granted li { padding: 8px 0; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filterbar {
+    grid-template-columns: minmax(200px, 1fr) minmax(150px, 210px) auto;
+  }
+  .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filterbar > label:not(.busbar-deleted-filter):nth-of-type(3) { grid-column: 2; grid-row: 1; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filter-actions { grid-column: 3; grid-row: 1; align-self: end; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-deleted-filter { grid-column: 1 / -1; grid-row: 2; }
+  @media (max-width: 1200px) {
+    .app-shell[data-osan-project-theme='true'] .busbar-page.page-surface { padding: 24px 20px; }
+    .app-shell[data-osan-project-theme='true'] .busbar-page .ds-surface { padding: 20px; }
+    .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-filter-actions { justify-content: flex-start; }
+  }
+  @media (max-width: 1100px) {
+    .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filterbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filter-actions { grid-column: 1 / -1; grid-row: 2; }
+    .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-deleted-filter { grid-row: 3; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) button { transition: none; }
+  }
+}

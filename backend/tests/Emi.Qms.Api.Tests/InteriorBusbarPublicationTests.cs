@@ -136,7 +136,8 @@ public sealed class InteriorBusbarPublicationTests
         await f.Store.RetryPublication(productId);
         sink.Fail = false;
         Assert.True(await worker.PublishNextAsync(TestContext.Current.CancellationToken));
-        Assert.Contains("Correct worker", sink.Html);
+        Assert.Contains("/interior-busbar/production?productId=" + productId, sink.Html);
+        Assert.DoesNotContain("data:image", sink.Html);
         Assert.DoesNotContain("Original worker", sink.Html);
         var published = await f.Store.GetProduct(productId);
         Assert.Equal("Published", published["publicationState"]);
@@ -169,6 +170,11 @@ public sealed class InteriorBusbarPublicationTests
         await f.Store.Photo(productId, "front", validated.Content, "image/heic", null, f.Actor);
         await f.Store.Photo(productId, "back", Pixel, "image/png", null, f.Actor);
 
+        await f.Store.Settings(new("SYN"), f.Actor);
+        var project = await f.Store.Project(new(null, "Shipment", "TEST", family, 1, "Destination", new DateOnly(2026,9,30)), f.Actor);
+        await f.Store.Shipment(new(Guid.NewGuid(), project, 1, [productId]), f.Actor);
+        // Queue a republish of the frozen shipment snapshot.
+        await f.Store.CorrectProduct(productId, new(workerId, "독립 출하 사진 보존 확인"), f.Actor);
         var sink = new RecordingSink { Fail = false };
         using var publication = new InteriorBusbarPublicationWorker(
             new(Config(new() { ["ConnectionStrings:QmsDatabase"] = f.Connection })), Options(), sink,
@@ -270,14 +276,15 @@ public sealed class InteriorBusbarPublicationTests
             ["InteriorBusbar:Publication:Enabled"] = "true",
             ["InteriorBusbar:Publication:PublicBaseUrl"] = "https://products.z1.web.core.windows.net",
             ["InteriorBusbar:Publication:BlobEndpoint"] = "https://products.blob.core.windows.net",
-            ["InteriorBusbar:Publication:SasToken"] = "synthetic" };
+            ["InteriorBusbar:Publication:SasToken"] = "synthetic",
+            ["Frontend:Origin"] = "https://pms.example.test" };
         Assert.True(InteriorBusbarPublicationOptions.Load(Config(values)).Enabled);
         values["InteriorBusbar:Publication:PublicBaseUrl"] = "https://wrong.z1.web.core.windows.net";
         Assert.Throws<InvalidOperationException>(() => InteriorBusbarPublicationOptions.Load(Config(values)));
     }
 
     private static InteriorBusbarPublicationOptions Options() => new(true,
-        new("https://products.z1.web.core.windows.net/"), new("https://products.blob.core.windows.net/"), "synthetic");
+        new("https://products.z1.web.core.windows.net/"), new("https://products.blob.core.windows.net/"), "synthetic", PmsBaseUrl: new("https://pms.example.test/"));
 
     private sealed class RecordingSink : IInteriorBusbarPublicationSink
     {

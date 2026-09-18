@@ -160,7 +160,7 @@ public sealed class InteriorBusbarAuthorizationTests
         var prepared = await f.Store.GetProduct(product);
         Assert.Null(prepared["workerId"]);
         Assert.Null(prepared["workerName"]);
-        Assert.Null(prepared["number"]);
+        Assert.StartsWith("IB-", (string)prepared["number"]!);
         Assert.Equal(3L, await f.Scalar("select count(*) from busbar_products where status='Draft'"));
         using var image = new MagickImage(MagickColors.SteelBlue, 32, 32);
         var bytes = image.ToByteArray(MagickFormat.Png);
@@ -185,6 +185,7 @@ public sealed class InteriorBusbarAuthorizationTests
         using var second = await Photo("back", bytes);
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
         var completed = await f.Store.GetProduct(product);
+        Assert.Equal(prepared["number"], completed["number"]);
         Assert.Equal("Complete", completed["status"]);
         using var detail = await client.GetAsync($"/api/interior-busbar/products/{product}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
@@ -282,7 +283,8 @@ public sealed class InteriorBusbarAuthorizationTests
         using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string,string?> {
             ["DevAuthentication:Enabled"]="true", ["Database:ApplyMigrationsOnStartup"]="false",
             ["ConnectionStrings:QmsDatabase"]=f.Connection, ["InteriorBusbar:Publication:Enabled"]="false"
-        }, identityStore: identity);
+        }, identityStore: identity, configureTestServices: services =>
+            services.AddSingleton<IInteriorBusbarPublicationSink>(new InteriorBusbarStoreTests.TestPublicationSink()));
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "busbar-fixture");
         var family = await f.Store.Master("product-families", new(null,"F","Family"), f.Actor);
@@ -310,6 +312,10 @@ public sealed class InteriorBusbarAuthorizationTests
         using var invalidPhotoForm = new MultipartFormDataContent();
         invalidPhotoForm.Add(new ByteArrayContent([1,2,3]), "file", "invalid.png");
         using var photo = await client.PutAsync($"/api/interior-busbar/products/{Guid.NewGuid()}/photos/front", invalidPhotoForm, TestContext.Current.CancellationToken);
+        using var previewForm = new MultipartFormDataContent();
+        previewForm.Add(new ByteArrayContent([1,2,3]), "file", "invalid.png");
+        using var preview = await client.PostAsync($"/api/interior-busbar/products/{Guid.NewGuid()}/photo-preview", previewForm, TestContext.Current.CancellationToken);
+        Assert.Equal(department=="manufacturing" ? HttpStatusCode.NotFound : HttpStatusCode.Forbidden, preview.StatusCode);
         // A manufacturer reaches image validation; all other teams are rejected before it.
         Assert.Equal(department=="manufacturing" ? HttpStatusCode.BadRequest : HttpStatusCode.Forbidden, photo.StatusCode);
         using var workspace = await client.GetAsync("/api/interior-busbar/workspace", TestContext.Current.CancellationToken);
@@ -385,7 +391,8 @@ public sealed class InteriorBusbarAuthorizationTests
         using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?> {
             ["DevAuthentication:Enabled"]="true", ["Database:ApplyMigrationsOnStartup"]="false",
             ["ConnectionStrings:QmsDatabase"]=f.Connection, ["InteriorBusbar:Publication:Enabled"]="false"
-        }, identityStore: identity);
+        }, identityStore: identity, configureTestServices: services =>
+            services.AddSingleton<IInteriorBusbarPublicationSink>(new InteriorBusbarStoreTests.TestPublicationSink()));
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "busbar-fixture");
         async Task<HttpStatusCode> Mutate(string path, string reason)

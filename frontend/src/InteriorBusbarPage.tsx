@@ -593,7 +593,7 @@ export function InteriorBusbarPage({
                 "누적 출하",
                 "잔여",
                 "상태",
-                "",
+                ...(showDeleted ? [""] : []),
               ]}
               rowActions={visibleProjects.map((p) => ({ toggle: () => onOpenProject(p.id) }))}
               rows={visibleProjects.map((p) => [
@@ -616,7 +616,7 @@ export function InteriorBusbarPage({
                       ? "완료"
                       : "진행 중"}
                   </DsBadge>,
-                  <span onClick={event => event.stopPropagation()}>{recordAction("projects", p, p.name)}</span>,
+                  ...(showDeleted ? [<span onClick={event => event.stopPropagation()}>{recordAction("projects", p, p.name)}</span>] : []),
                 ])}
             />
           </DsSurface>

@@ -171,24 +171,7 @@
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipping-summary > div:last-child { border: 0; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipping-summary dd { font-size: 30px; letter-spacing: -.04em; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-shipment-card { padding: 4px 0 18px; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-weekdays,
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-grid { min-width: 0; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-weekdays { background: #f6f7f9; border: 1px solid var(--busbar-line); border-bottom: 0; border-radius: 7px 7px 0 0 !important; font-size: 12px; padding-block: 12px; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-grid { gap: 1px; padding: 1px; background: var(--busbar-line); border-radius: 0 0 7px 7px !important; overflow: hidden; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-month-calendar .busbar-calendar-day { min-height: 114px; border: 0 !important; border-radius: 0 !important; gap: 9px; padding: 12px; background: #fff !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-outside { min-height: 114px; padding: 12px; background: #f8f9fb !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-date { font-size: 13px; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-date b { display: grid; place-items: center; min-width: 27px; height: 27px; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-plan { padding: 6px 7px; background: #f4f5f7 !important; border: 0; border-left: 2px solid #777f8a !important; border-radius: 3px !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-calendar-empty { color: #7c838d !important; font-size: 11px; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-month-calendar .busbar-calendar-day:hover { background: #f6f7f9 !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-pressed='true'] { background: #edf0f4 !important; outline: 2px solid #7a8799; outline-offset: -2px; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-month-calendar .busbar-calendar-day[aria-current='date'] { background: #fff5f5 !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-month-calendar button.busbar-calendar-day[aria-current='date'] .busbar-calendar-date b { border-radius: 50% !important; background: var(--busbar-brand) !important; color: #fff !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-sunday,
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-sunday b { color: #bb2733 !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-saturday,
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-saturday b { color: #2864bd !important; }
+  /* Calendar contents keep the previously approved cell/plan/date design. */
   .app-shell[data-osan-project-theme='true'] :is(.busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) .dialog {
     padding: 28px;
     border: 1px solid #dfe3e9 !important;
@@ -216,7 +199,6 @@
     .app-shell[data-osan-project-theme='true'] .busbar-page.page-surface { padding: 24px 20px; }
     .app-shell[data-osan-project-theme='true'] .busbar-page .ds-surface { padding: 20px; }
     .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-filter-actions { justify-content: flex-start; }
-    .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-month-calendar .busbar-calendar-day { padding: 8px; }
   }
   @media (max-width: 1100px) {
     .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filterbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -1853,7 +1853,8 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole("button", {name:"패널 QR로 분할 출하"})).toBeDisabled();
     await page.getByRole("button", {name:"프로젝트 목록",exact:true}).click();
     await expect(page.getByRole("button", {name:`${data.projects[0].name} 복원`,exact:true})).toHaveCount(0);
-    await expect(page.getByRole("button",{name:"보존할 다른 프로젝트 삭제",exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"보존할 다른 프로젝트 삭제",exact:true})).toHaveCount(0);
+    await expect(page.getByText("보존할 다른 프로젝트", {exact:true})).toBeVisible();
     await page.getByLabel("삭제된 항목 보기").check();
     await page.getByRole("button", {name:`${data.projects[0].name} 복원`,exact:true}).click();
     const restore = page.getByRole("dialog", {name:"복원 확인"});
@@ -1862,7 +1863,8 @@ for (const width of [1440, 390]) {
     await expect(page.getByLabel("삭제된 항목 보기")).toBeFocused();
     await expect(page.getByText(`${data.projects[0].name} 복원했습니다.`,{exact:true})).toBeVisible();
     await page.getByLabel("삭제된 항목 보기").uncheck();
-    await expect(page.getByRole("button", {name:`${data.projects[0].name} 삭제`,exact:true})).toBeVisible();
+    await expect(page.getByRole("button", {name:`${data.projects[0].name} 삭제`,exact:true})).toHaveCount(0);
+    await expect(page.getByText(data.projects[0].name, {exact:true})).toBeVisible();
     expect(writes.map(w => w.path)).toEqual([`/api/interior-busbar/projects/${projectId}/delete`,`/api/interior-busbar/projects/${projectId}/restore`]);
     await page.screenshot({path:testInfo.outputPath(`restored-project-${width}.png`),fullPage:true});
   });

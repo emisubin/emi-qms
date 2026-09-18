@@ -474,10 +474,11 @@ test("BOM reload replaces stale editable quantities with the newest version", as
 });
 
 
-test("planned draft requires worker before uploads and shows permanent number only after both photos", async ({
+test("planned QR number survives worker selection and mobile preview then save", async ({
   page,
 }) => {
   const data = fixture();
+  data.products[0].number = "IB-00000001";
   data.products[0].workerId = null;
   data.products[0].workerName = null;
   await mock(page, data);
@@ -497,41 +498,46 @@ test("planned draft requires worker before uploads and shows permanent number on
     page.getByRole("button", { name: "새 제품 사진 등록", exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByText("2026-09-09 · 대기 1번", { exact: true }),
+    page.getByRole("button", { name: "IB-00000001 사진 등록", exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "사진등록", exact: true })
+    .getByRole("button", { name: "IB-00000001 사진 등록", exact: true })
     .click();
-  await expect(page.getByLabel("앨범에서 앞면 선택")).toBeDisabled();
-  await expect(page.getByLabel("카메라로 뒷면 촬영")).toBeDisabled();
+  await expect(page.getByLabel("모바일 앞면 사진 선택")).toBeDisabled();
+  await expect(page.getByLabel("모바일 앞면 카메라 촬영")).toBeDisabled();
   await page
     .getByRole("combobox", {
-      name: "촬영 제품의 실제 제조 작업자",
+      name: "실제 제조 작업자",
       exact: true,
     })
     .selectOption(workerId);
-  await expect(page.getByLabel("앨범에서 앞면 선택")).toBeEnabled();
+  await expect(page.getByLabel("모바일 앞면 사진 선택")).toBeEnabled();
   const upload = page.waitForRequest(
     (request) =>
       request.method() === "PUT" && request.url().endsWith("/photos/front"),
   );
   await page
-    .getByLabel("앨범에서 앞면 선택")
+    .getByLabel("모바일 앞면 사진 선택")
     .setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
+  await expect(page.getByRole("img", {name: "앞면 저장 전 미리보기"})).toBeVisible();
+  expect(data.products[0].hasFront).toBe(false);
+  await page.getByRole("button", {name: "앞면 사진 저장", exact: true}).click();
   const uploadRequest = await upload;
   expect(uploadRequest.postDataBuffer()?.toString()).toContain(
     'name="workerId"',
   );
   expect(uploadRequest.postDataBuffer()?.toString()).toContain(workerId);
   await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
-  expect(data.products[0].number).toBeUndefined();
+  expect(data.products[0].number).toBe("IB-00000001");
   await page.screenshot({
     path: test.info().outputPath("emi-busbar-plan-draft-390.png"),
     fullPage: true,
   });
+  await page.getByRole("tab", {name: "뒷면 미등록"}).click();
   await page
-    .getByLabel("앨범에서 뒷면 선택")
+    .getByLabel("모바일 뒷면 사진 선택")
     .setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
+  await page.getByRole("button", {name: "뒷면 사진 저장", exact: true}).click();
   await expect(page.locator(".busbar-completion")).toBeFocused();
   await expect(page.locator(".busbar-completion strong")).toHaveText(
     "IB-00000001",
@@ -730,7 +736,7 @@ for (const navigation of ["filter", "plan row"] as const) {
         .click();
     }
     await expect(
-      page.getByText("2026-09-12 · 대기 1번", { exact: true }),
+      page.getByRole("cell", { name: "2026-09-12 · 대기 1번", exact: true }),
     ).toBeVisible();
     releaseUpload();
     await expect(page.locator(".busbar-page")).toHaveAttribute(
@@ -741,7 +747,7 @@ for (const navigation of ["filter", "plan row"] as const) {
       page.getByLabel("계획 시작일", { exact: true }),
     ).toHaveValue("2026-09-12");
     await expect(
-      page.getByText("2026-09-12 · 대기 1번", { exact: true }),
+      page.getByRole("cell", { name: "2026-09-12 · 대기 1번", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText("2026-09-09 · 대기 1번", { exact: true }),
@@ -1379,7 +1385,8 @@ test("deadline rows highlight only today through D-3 and selected calendar day i
   const day = page.getByRole("button", { name: "2026-09-11 생산계획 선택", exact: true });
   await day.click();
   await page.keyboard.press("Escape");
-  await expect(day).toHaveCSS("background-color", "rgb(241, 245, 249)");
+  await expect(day).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(day.locator(".busbar-calendar-date b")).toHaveCSS("background-color", "rgb(40, 40, 40)");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: test.info().outputPath(`emi-busbar-gray-calendar-${width}.png`), fullPage: true });
@@ -1593,8 +1600,8 @@ test("weekend date colors survive today and selection on desktop and mobile", as
     const unselectedSaturday = page.getByRole("button",{name:"2026-09-05 생산계획 선택",exact:true});
     const unselectedSunday = page.getByRole("button",{name:"2026-09-06 생산계획 선택",exact:true});
     await expect(saturday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(37, 99, 235)");
-    await expect(unselectedSaturday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(40, 100, 189)" : "rgb(26, 26, 26)");
-    await expect(unselectedSunday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(200, 42, 50)" : "rgb(26, 26, 26)");
+    await expect(unselectedSaturday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(40, 100, 189)" : "rgb(37, 41, 48)");
+    await expect(unselectedSunday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(200, 42, 50)" : "rgb(37, 41, 48)");
     await expect(saturday).toHaveCSS("background-color", width === 390 ? "rgba(0, 0, 0, 0)" : "rgb(254, 226, 226)");
     if (width === 390) {
       await expect(saturday.locator(".busbar-calendar-date b")).toHaveCSS("background-color", "rgb(40, 100, 189)");
@@ -1686,7 +1693,7 @@ test("project Excel menu and monthly family totals", async ({ page }) => {
     await page.screenshot({path:test.info().outputPath(`emi-busbar-excel-menu-${width}.png`)});
   }
   await page.goto("/interior-busbar/plans");
-  await page.getByLabel("계획 월",{exact:true}).fill("2026-09");
+  await selectPlanMonth(page, "2026-09");
   const totals = page.getByLabel("선택 월 제품군별 생산 현황");
   await expect(totals).toContainText("계획 60대");
   await expect(totals).toContainText("생산 완료 1대");
@@ -1700,7 +1707,7 @@ test("project Excel menu and monthly family totals", async ({ page }) => {
     await page.screenshot({path:test.info().outputPath(`emi-busbar-month-totals-${width}.png`)});
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   }
-  await page.getByLabel("계획 월",{exact:true}).fill("2026-10");
+  await selectPlanMonth(page, "2026-10");
   await expect(totals).toContainText("계획 0대");
   await expect(totals).toContainText("생산 완료 0대");
 });
@@ -1884,7 +1891,7 @@ test("deletion controls cover plans purchases and master records", async ({page}
     await expect(page.getByRole("button",{name:`${label} 삭제`,exact:true})).toHaveCount(0);
   }
   await page.goto("/interior-busbar/plans");
-  await page.getByLabel("계획 월",{exact:true}).fill("2026-09");
+  await selectPlanMonth(page, "2026-09");
   await page.getByRole("button",{name:"2026-09-09 생산계획 선택",exact:true}).click();
   await page.getByRole("button",{name:"합성 제품군 A 2026-09-09 계획 삭제",exact:true}).click();
   await page.keyboard.press("Escape");

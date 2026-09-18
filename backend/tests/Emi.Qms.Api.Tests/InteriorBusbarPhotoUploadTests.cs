@@ -138,12 +138,27 @@ public sealed class InteriorBusbarPhotoUploadTests
         var preview = await previewResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
         Assert.True(preview.AsSpan(0, 2).SequenceEqual([(byte)0xff, (byte)0xd8]));
 
+        var countBeforePreview = await fixture.Scalar("select count(*) from busbar_photos");
+        using (var body = new MultipartFormDataContent())
+        {
+            var file = new ByteArrayContent(heic);
+            file.Headers.ContentType = new MediaTypeHeaderValue("image/heic");
+            body.Add(file, "file", "preview.heic");
+            using var response = await client.PostAsync($"/api/interior-busbar/products/{heicProduct}/photo-preview", body, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.Equal("image/jpeg", json.RootElement.GetProperty("contentType").GetString());
+            Assert.True(Convert.FromBase64String(json.RootElement.GetProperty("base64").GetString()!).AsSpan(0,2).SequenceEqual([(byte)0xff,(byte)0xd8]));
+            Assert.Equal(heic, scanner.Files[^1]);
+        }
+        Assert.Equal(countBeforePreview, await fixture.Scalar("select count(*) from busbar_photos"));
+
         var mismatchProduct = await fixture.Store.Product(new(Guid.NewGuid(), family, worker), fixture.Actor);
         using var mismatch = await Upload(client, mismatchProduct, heic, "wrong.jpg", "image/jpeg", worker);
         Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
         using var unknown = await Upload(client, mismatchProduct, [1, 2, 3, 4], "unknown.bin", "application/octet-stream", worker);
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
-        Assert.Equal(6, scanner.Files.Count);
+        Assert.Equal(7, scanner.Files.Count); // Four uploads, one preview, and two rejected inputs were scanned.
         Assert.Equal(0L, await fixture.Scalar($"select count(*) from busbar_photos where product_id='{mismatchProduct}'"));
     }
 

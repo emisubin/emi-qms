@@ -296,7 +296,15 @@ async function selectPlanDate(page: Page, date: string) {
 }
 async function selectPlanMonth(page: Page, month: string) {
   if (await page.getByRole("dialog").count()) await page.getByRole("button", { name: "생산계획 팝업 닫기" }).click();
-  await page.getByLabel("계획 월", { exact: true }).fill(month);
+  const input = page.getByLabel("계획 월", { exact: true });
+  if (await input.isVisible()) await input.fill(month);
+  else await input.evaluate((element, value) => {
+    const field = element as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  }, month);
 }
 test("six workspaces desktop and 390px without horizontal page overflow", async ({
   page,
@@ -1089,6 +1097,17 @@ test("calendar month boundaries and new plans preserve selected family and date"
     await selectPlanDate(page, "2026-09-09");
     await page.screenshot({ path: test.info().outputPath(`emi-busbar-plan-popup-${width}.png`), fullPage: false });
     await page.getByRole("button", { name: "생산계획 팝업 닫기" }).click();
+    if (width === 390) {
+      const selectedDate = page.getByRole("button", { name: "2026-09-09 생산계획 선택", exact: true });
+      const selectedDateCircle = selectedDate.locator(".busbar-calendar-date b");
+      await expect(selectedDate).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(selectedDateCircle).toHaveCSS("width", "32px");
+      await expect(selectedDateCircle).toHaveCSS("height", "32px");
+      await expect(selectedDateCircle).toHaveCSS("border-radius", "50%");
+      await expect(selectedDateCircle).toHaveCSS("background-color", "rgb(40, 40, 40)");
+      await expect(selectedDateCircle).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(selectedDate.locator(".busbar-calendar-mobile-indicator i")).toHaveCSS("background-color", "rgb(85, 85, 85)");
+    }
     await page.screenshot({ path: test.info().outputPath(`emi-busbar-month-calendar-${width}.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
@@ -1190,52 +1209,62 @@ test("photo popup contains registration only and table follows production order"
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   }
   await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
-  await dialog.getByLabel("앨범에서 앞면 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
-  await expect(table.getByRole("cell", { name: "1차 사진 등록 완료", exact: true })).toBeVisible();
-  await dialog.getByLabel("앨범에서 뒷면 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
+  await dialog.getByLabel("모바일 앞면 사진 선택").setInputFiles({ name: "front.png", mimeType: "image/png", buffer: png });
+  await dialog.getByRole("button", { name: "앞면 사진 저장", exact: true }).click();
+  await expect(page.locator(".busbar-production-mobile-list")).toContainText("1차 사진 등록 완료");
+  await dialog.getByRole("tab", { name: /뒷면/ }).click();
+  await dialog.getByLabel("모바일 뒷면 사진 선택").setInputFiles({ name: "back.png", mimeType: "image/png", buffer: png });
+  await dialog.getByRole("button", { name: "뒷면 사진 저장", exact: true }).click();
   await expect(dialog.locator(".busbar-completion strong")).toHaveText("IB-00000001");
   await expect(dialog.getByRole("button", { name: /QR/ })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: /생산 취소$/ })).toBeVisible();
   await dialog.getByRole("button", { name: "사진 팝업 닫기" }).click();
-  await expect(table.getByRole("button", { name: "사진보기" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "생산 제품 목록", exact: true })).toBeFocused();
 });
 
 function publishedFixture() {
   const data = fixture(); const draft = data.products[0];
   data.products = [1, 2].map((n) => ({ ...draft, id: `published-${n}`, number: `IB-0000000${n}`, status: "Complete", hasFront: true, hasBack: true, revision: 2, publishedRevision: 2, publicationState: "Published" }));
-  data.products.push(draft, { ...draft, id: "stale", status: "Complete", number: "IB-STALE", revision: 3, publishedRevision: 2, publicationState: "Published" });
+  data.products.push({ ...draft, id: "waiting", number: "IB-WAITING", revision: 1, publishedRevision: 1, publicationState: "Published" }, { ...draft, id: "stale", status: "Complete", number: "IB-STALE", revision: 3, publishedRevision: 2, publicationState: "Published" });
   return data;
 }
 test("bulk QR prepares all eligible labels and prints separate cards", async ({ page }) => {
   const data = publishedFixture(); await mock(page, data);
   await page.goto("/interior-busbar"); await selectSection(page, "생산·사진·QR");
-  await expect(page.getByLabel("IB-STALE QR 선택")).toBeDisabled();
+  await expect(page.locator(".busbar-production-desktop").getByLabel("IB-STALE QR 선택")).toBeDisabled();
   await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
-  await expect(page.getByText("2개 선택", { exact: true })).toBeVisible();
+  await expect(page.getByText("3개 선택", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.locator(".busbar-qr-preview img")).toHaveCount(2);
+  await expect(dialog.locator(".busbar-qr-preview img")).toHaveCount(3);
   await expect(dialog.getByRole("button", { name: "인쇄", exact: true })).toBeEnabled();
+  expect(await dialog.locator(".osan-qr-label").first().evaluate((element) => (element as HTMLElement).style.getPropertyValue("--label-size"))).toBe("30mm");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.screenshot({ path: test.info().outputPath(`emi-busbar-bulk-qr-${width}.png`) });
   }
-  await page.emulateMedia({ media: "print" });
-  await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
-  await expect(dialog).toBeHidden();
-  await page.emulateMedia({ media: "screen" });
-  await page.evaluate(() => { window.print = () => {
-    const sheet = document.querySelector(".busbar-print-sheet")!;
-    document.body.dataset.printEvidence = JSON.stringify({ display: getComputedStyle(sheet).display, numbers: [...sheet.querySelectorAll("p")].map((p) => p.textContent), images: [...sheet.querySelectorAll("img")].every((img) => img.complete && img.naturalWidth > 0) });
-  }; });
+  await dialog.getByLabel("50 × 50mm").check();
+  expect(await dialog.locator(".osan-qr-label").first().evaluate((element) => (element as HTMLElement).style.getPropertyValue("--label-size"))).toBe("50mm");
+  await page.evaluate(() => {
+    const observer = new MutationObserver((records) => {
+      for (const record of records) for (const node of record.addedNodes) {
+        if (!(node instanceof HTMLIFrameElement) || node.title !== "부스바 QR 인쇄" || !node.contentWindow) continue;
+        node.contentWindow.print = () => {
+          const printDocument = node.contentDocument!;
+          document.body.dataset.busbarPrintEvidence = JSON.stringify({
+            sheets: printDocument.querySelectorAll(".sheet").length,
+            labels: printDocument.querySelectorAll(".osan-qr-label").length,
+            images: Array.from(printDocument.images).every((image) => image.complete && image.naturalWidth > 0),
+            page50: printDocument.head.textContent?.includes("@page{size:50mm 50mm;margin:0}"),
+          });
+          observer.disconnect();
+        };
+      }
+    });
+    observer.observe(document.body, { childList: true });
+  });
   await dialog.getByRole("button", { name: "인쇄", exact: true }).click();
-  await expect(page.locator("body")).toHaveAttribute("data-print-evidence", JSON.stringify({ display: "none", numbers: ["IB-00000001", "IB-00000002"], images: true }));
-  await page.emulateMedia({ media: "print" });
-  await expect(page.locator(".busbar-print-sheet")).toBeVisible();
-  await page.screenshot({ path: test.info().outputPath("emi-busbar-bulk-print.png") });
-  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
-  await expect(page.locator(".busbar-print-sheet")).toHaveCount(0);
-  await page.emulateMedia({ media: "screen" });
+  await expect(page.locator("body")).toHaveAttribute("data-busbar-print-evidence", JSON.stringify({ sheets: 3, labels: 3, images: true, page50: true }));
   data.products[0].status = "Cancelled";
   await dialog.getByRole("button", { name: "인쇄", exact: true }).click();
   await expect(dialog.getByRole("alert")).toBeVisible();
@@ -1561,11 +1590,23 @@ test("weekend date colors survive today and selection on desktop and mobile", as
     await page.goto("/interior-busbar/plans");
     const saturday = page.getByRole("button",{name:"2026-09-12 생산계획 선택",exact:true});
     const sunday = page.getByRole("button",{name:"2026-09-13 생산계획 선택",exact:true});
+    const unselectedSaturday = page.getByRole("button",{name:"2026-09-05 생산계획 선택",exact:true});
+    const unselectedSunday = page.getByRole("button",{name:"2026-09-06 생산계획 선택",exact:true});
     await expect(saturday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(37, 99, 235)");
-    await expect(saturday).toHaveCSS("background-color","rgb(254, 226, 226)");
+    await expect(unselectedSaturday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(40, 100, 189)" : "rgb(26, 26, 26)");
+    await expect(unselectedSunday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(200, 42, 50)" : "rgb(26, 26, 26)");
+    await expect(saturday).toHaveCSS("background-color", width === 390 ? "rgba(0, 0, 0, 0)" : "rgb(254, 226, 226)");
+    if (width === 390) {
+      await expect(saturday.locator(".busbar-calendar-date b")).toHaveCSS("background-color", "rgb(40, 100, 189)");
+      await expect(saturday.locator(".busbar-calendar-date b")).toHaveCSS("color", "rgb(255, 255, 255)");
+    }
     await sunday.click(); await page.getByRole("button", {name:"생산계획 팝업 닫기"}).click();
     await expect(sunday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(220, 38, 38)");
-    await expect(sunday).toHaveCSS("background-color","rgb(241, 245, 249)");
+    await expect(sunday).toHaveCSS("background-color", width === 390 ? "rgba(0, 0, 0, 0)" : "rgb(241, 245, 249)");
+    if (width === 390) {
+      await expect(sunday.locator(".busbar-calendar-date b")).toHaveCSS("background-color", "rgb(200, 42, 50)");
+      await expect(sunday.locator(".busbar-calendar-date b")).toHaveCSS("color", "rgb(255, 255, 255)");
+    }
     await page.screenshot({path:test.info().outputPath(`emi-busbar-weekend-${width}.png`),fullPage:true});
   }
 });

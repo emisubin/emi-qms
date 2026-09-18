@@ -54,6 +54,9 @@ public sealed class ClamAvUploadMalwareScanner(
     IOptions<UploadSecurityOptions> options,
     ILogger<ClamAvUploadMalwareScanner> logger) : IUploadMalwareScanner
 {
+    private const int MaximumAttempts = 2;
+    private const int MaximumResponseBytes = 4096;
+
     public async Task<UploadMalwareScanResult> ScanAsync(
         Stream content,
         CancellationToken cancellationToken)
@@ -61,63 +64,156 @@ public sealed class ClamAvUploadMalwareScanner(
         var configuration = options.Value;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(configuration.TimeoutSeconds, 1, 120)));
+        var replayPosition = TryGetReplayPosition(content);
+
+        for (var attempt = 1; attempt <= MaximumAttempts; attempt += 1)
+        {
+            try
+            {
+                return await ScanOnceAsync(configuration, content, timeout.Token);
+            }
+            catch (Exception exception) when (exception is SocketException or IOException)
+            {
+                if (attempt < MaximumAttempts
+                    && replayPosition is not null
+                    && !timeout.IsCancellationRequested
+                    && TryRewind(content, replayPosition.Value))
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Upload malware scanner connection failed; retrying once within the scan timeout.");
+                    continue;
+                }
+
+                logger.LogError(exception, "Upload malware scanner is unavailable.");
+                return new UploadMalwareScanResult(
+                    UploadMalwareScanStatus.Unavailable,
+                    "SCANNER_UNAVAILABLE");
+            }
+            catch (OperationCanceledException exception)
+            {
+                logger.LogError(exception, "Upload malware scanner is unavailable.");
+                return new UploadMalwareScanResult(
+                    UploadMalwareScanStatus.Unavailable,
+                    "SCANNER_UNAVAILABLE");
+            }
+        }
+
+        return new UploadMalwareScanResult(
+            UploadMalwareScanStatus.Unavailable,
+            "SCANNER_UNAVAILABLE");
+    }
+
+    private async Task<UploadMalwareScanResult> ScanOnceAsync(
+        UploadSecurityOptions configuration,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        using var client = new TcpClient();
+        await client.ConnectAsync(
+            configuration.ScannerHost,
+            configuration.ScannerPort,
+            cancellationToken);
+        await using var network = client.GetStream();
+
+        await network.WriteAsync("zINSTREAM\0"u8.ToArray(), cancellationToken);
+
+        var buffer = new byte[8192];
+        var lengthPrefix = new byte[sizeof(int)];
+        while (true)
+        {
+            var read = await content.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            BinaryPrimitives.WriteInt32BigEndian(lengthPrefix, read);
+            await network.WriteAsync(lengthPrefix, cancellationToken);
+            await network.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+
+        Array.Clear(lengthPrefix);
+        await network.WriteAsync(lengthPrefix, cancellationToken);
+        await network.FlushAsync(cancellationToken);
+
+        var response = await ReadResponseAsync(network, cancellationToken);
+        if (response.EndsWith(" OK", StringComparison.Ordinal))
+        {
+            return new UploadMalwareScanResult(UploadMalwareScanStatus.Clean, "CLEAN");
+        }
+
+        if (response.Contains(" FOUND", StringComparison.Ordinal))
+        {
+            return new UploadMalwareScanResult(UploadMalwareScanStatus.Infected, "MALWARE_FOUND");
+        }
+
+        logger.LogError("Upload malware scanner returned an unrecognized response.");
+        return new UploadMalwareScanResult(
+            UploadMalwareScanStatus.Unavailable,
+            "SCANNER_RESPONSE_INVALID");
+    }
+
+    private static async Task<string> ReadResponseAsync(
+        Stream network,
+        CancellationToken cancellationToken)
+    {
+        var responseBytes = new byte[MaximumResponseBytes];
+        var responseLength = 0;
+        while (responseLength < responseBytes.Length)
+        {
+            var read = await network.ReadAsync(
+                responseBytes.AsMemory(responseLength),
+                cancellationToken);
+            if (read == 0)
+            {
+                if (responseLength == 0)
+                {
+                    throw new IOException("Upload malware scanner closed the connection without a response.");
+                }
+                break;
+            }
+
+            var terminatorIndex = responseBytes.AsSpan(responseLength, read).IndexOf((byte)0);
+            if (terminatorIndex >= 0)
+            {
+                responseLength += terminatorIndex;
+                return Encoding.UTF8.GetString(responseBytes, 0, responseLength).TrimEnd('\r', '\n');
+            }
+
+            responseLength += read;
+        }
+
+        return Encoding.UTF8.GetString(responseBytes, 0, responseLength).TrimEnd('\r', '\n');
+    }
+
+    private static long? TryGetReplayPosition(Stream content)
+    {
+        if (!content.CanSeek)
+        {
+            return null;
+        }
 
         try
         {
-            using var client = new TcpClient();
-            await client.ConnectAsync(
-                configuration.ScannerHost,
-                configuration.ScannerPort,
-                timeout.Token);
-            await using var network = client.GetStream();
-
-            await network.WriteAsync("zINSTREAM\0"u8.ToArray(), timeout.Token);
-
-            var buffer = new byte[8192];
-            var lengthPrefix = new byte[sizeof(int)];
-            while (true)
-            {
-                var read = await content.ReadAsync(buffer, timeout.Token);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                BinaryPrimitives.WriteInt32BigEndian(lengthPrefix, read);
-                await network.WriteAsync(lengthPrefix, timeout.Token);
-                await network.WriteAsync(buffer.AsMemory(0, read), timeout.Token);
-            }
-
-            Array.Clear(lengthPrefix);
-            await network.WriteAsync(lengthPrefix, timeout.Token);
-            await network.FlushAsync(timeout.Token);
-
-            var responseBytes = new byte[4096];
-            var responseLength = await network.ReadAsync(responseBytes, timeout.Token);
-            var response = Encoding.UTF8
-                .GetString(responseBytes, 0, responseLength)
-                .TrimEnd('\0', '\r', '\n');
-
-            if (response.EndsWith(" OK", StringComparison.Ordinal))
-            {
-                return new UploadMalwareScanResult(UploadMalwareScanStatus.Clean, "CLEAN");
-            }
-
-            if (response.Contains(" FOUND", StringComparison.Ordinal))
-            {
-                return new UploadMalwareScanResult(UploadMalwareScanStatus.Infected, "MALWARE_FOUND");
-            }
-
-            logger.LogError("Upload malware scanner returned an unrecognized response.");
-            return new UploadMalwareScanResult(UploadMalwareScanStatus.Unavailable, "SCANNER_RESPONSE_INVALID");
+            return content.Position;
         }
-        catch (Exception exception) when (
-            exception is SocketException
-                or IOException
-                or OperationCanceledException)
+        catch (Exception exception) when (exception is IOException or NotSupportedException)
         {
-            logger.LogError(exception, "Upload malware scanner is unavailable.");
-            return new UploadMalwareScanResult(UploadMalwareScanStatus.Unavailable, "SCANNER_UNAVAILABLE");
+            return null;
+        }
+    }
+
+    private static bool TryRewind(Stream content, long replayPosition)
+    {
+        try
+        {
+            content.Position = replayPosition;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or NotSupportedException)
+        {
+            return false;
         }
     }
 }

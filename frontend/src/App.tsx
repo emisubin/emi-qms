@@ -357,7 +357,7 @@ type View =
   | { kind: 'sales-settlement'; projectId: string }
   | { kind: 'sales-kpi'; year?: number; currency?: string }
   | { kind: 'sales-billing' }
-  | { kind: 'interior-busbar'; section?: BusbarSection; projectId?: string }
+  | { kind: 'interior-busbar'; section?: BusbarSection; projectId?: string; productId?: string }
   | { kind: 'g2-home' }
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
@@ -932,7 +932,7 @@ function initialViewFromLocation(): View {
     return { kind: 'interior-busbar', section: 'projects', projectId: busbarProjectMatch[1] };
   }
   const busbarSection = busbarSections.find((item) => window.location.pathname === `/interior-busbar/${item.key}`);
-  if (busbarSection) return { kind: 'interior-busbar', section: busbarSection.key };
+  if (busbarSection) return { kind: 'interior-busbar', section: busbarSection.key, productId: busbarSection.key === 'production' ? new URLSearchParams(window.location.search).get('productId') ?? undefined : undefined };
 
   if (window.location.pathname === '/manufacturing') {
     return { kind: 'manufacturing-work' };
@@ -1352,7 +1352,7 @@ function pathForView(view: View) {
     case 'interior-busbar':
       return view.projectId
         ? `/interior-busbar/projects/${view.projectId}`
-        : `/interior-busbar/${view.section ?? 'overview'}`;
+        : `/interior-busbar/${view.section ?? 'overview'}${view.productId ? `?productId=${encodeURIComponent(view.productId)}` : ''}`;
     case 'g2-home':
       return '/g2';
     case 'g2-operations':
@@ -3059,6 +3059,7 @@ function QmsAppShellContent({
           key={developmentUserKey}
           developmentUserKey={developmentUserKey}
           section={view.section ?? 'overview'}
+          initialProductId={view.productId}
           onNavigate={(section) => setView({ kind: 'interior-busbar', section })}
           onOpenProject={(projectId) => setView({ kind: 'interior-busbar', section: 'projects', projectId })}
         />

@@ -18,7 +18,7 @@ public sealed record InteriorBusbarPublicSnapshot(Guid ProductId, string Number,
     IReadOnlyList<InteriorBusbarPublicPhoto> Photos);
 
 public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicBaseUrl, Uri? BlobEndpoint, string SasToken,
-    string AuthenticationMode = "Sas", string? ManagedIdentityClientId = null)
+    string AuthenticationMode = "Sas", string? ManagedIdentityClientId = null, Uri? PmsBaseUrl = null)
 {
     public static InteriorBusbarPublicationOptions Load(IConfiguration configuration)
     {
@@ -51,7 +51,9 @@ public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicB
                 "\\A" + Regex.Escape(account) + @"\.z[0-9]+\.web\.core\.windows\.net\z"))
                 throw new InvalidOperationException("공개 주소는 같은 별도 저장소의 정적 웹사이트 기본 주소여야 합니다.");
         }
-        return new(enabled, publicUrl, blob, sas, mode, clientId);
+        var pms = ReadHttps(configuration[section + "PmsBaseUrl"] ?? (enabled ? configuration["Frontend:Origin"] : null));
+        if (enabled && pms is null) throw new InvalidOperationException("출하 전 QR의 PMS 기본 주소가 필요합니다.");
+        return new(enabled, publicUrl, blob, sas, mode, clientId, pms);
     }
 
     private static Uri? ReadHttps(string? value)
@@ -77,6 +79,27 @@ public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicB
 
 public static class InteriorBusbarPublicPage
 {
+    public static byte[] RenderPmsLink(Guid productId, Uri pmsBaseUrl)
+    {
+        if (pmsBaseUrl.Scheme != "https" || !string.IsNullOrEmpty(pmsBaseUrl.UserInfo) || pmsBaseUrl.AbsolutePath != "/")
+            throw new InvalidOperationException("QR PMS 연결 주소를 확인하세요.");
+        var url = WebUtility.HtmlEncode(new Uri(pmsBaseUrl, $"interior-busbar/production?productId={productId:D}").AbsoluteUri);
+        // This document exists only before shipment. Shipment replaces its entire body,
+        // including refresh and anchor, with Render's isolated, embedded-image snapshot.
+        return Encoding.UTF8.GetBytes($"""
+            <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'"><meta http-equiv="refresh" content="0;url={url}"><title>EMI · 패널 조회</title></head><body><p>패널 생산 정보를 확인하려면 PMS에 로그인하세요.</p><a href="{url}">패널 생산 정보 열기</a></body></html>
+            """);
+    }
+
+    public static async Task<byte[]> RenderDetachedAsync(InteriorBusbarPublicSnapshot snapshot, CancellationToken token)
+    {
+        var photos = new List<InteriorBusbarPublicPhoto>();
+        foreach (var photo in snapshot.Photos)
+            photos.Add(photo.ContentType == "image/heic" ? photo with { ContentType = "image/jpeg",
+                Content = await Task.Run(() => OsanHeicImageCodec.PreviewAsync(photo.Content, token), token).WaitAsync(token) } : photo);
+        return Render(snapshot with { Photos = photos });
+    }
+
     public static byte[] Render(InteriorBusbarPublicSnapshot product)
     {
         InteriorBusbarPublicationOptions.ValidateToken(product.Token);
@@ -195,19 +218,24 @@ public sealed class InteriorBusbarPublicationWorker(
         await using (var mutex = new NpgsqlCommand("SET LOCAL lock_timeout='5s'; SELECT pg_advisory_xact_lock(9070090)", connection, transaction))
             await mutex.ExecuteNonQueryAsync(cancellationToken);
         InteriorBusbarPublicSnapshot snapshot;
+        bool shipped;
+        byte[]? detachedHtml;
         await using (var command = new NpgsqlCommand("""
-            SELECT id,number,worker_name,manufactured_at_utc,public_token,revision,status
-            FROM busbar_products WHERE publication_state='Pending' AND status IN ('Complete','Cancelled')
-            AND manufactured_at_utc IS NOT NULL AND revision>published_revision ORDER BY manufactured_at_utc,id LIMIT 1 FOR UPDATE
+            SELECT p.id,coalesce(p.number,''),coalesce(p.worker_name,''),coalesce(p.manufactured_at_utc,p.created_at_utc),p.public_token,p.revision,p.status,
+            exists(select 1 from busbar_shipment_products sp where sp.product_id=p.id and sp.released_at_utc is null),(select html from busbar_detached_pages d where d.product_id=p.id)
+            FROM busbar_products p WHERE (p.publication_state='Pending' AND p.revision>p.published_revision)
+            OR exists(select 1 from busbar_publication_recovery r where r.product_id=p.id and r.next_attempt_at_utc<=now()) ORDER BY p.created_at_utc,p.id LIMIT 1 FOR UPDATE
             """, connection, transaction))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
             if (!await reader.ReadAsync(cancellationToken)) return false;
             snapshot = new(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetFieldValue<DateTimeOffset>(3),
                 reader.GetString(4), reader.GetInt32(5), reader.GetString(6) == "Cancelled", []);
+            shipped = reader.GetBoolean(7);
+            detachedHtml = reader.IsDBNull(8) ? null : reader.GetFieldValue<byte[]>(8);
         }
         var photos = new List<InteriorBusbarPublicPhoto>();
-        if (!snapshot.Cancelled)
+        if (!snapshot.Cancelled && shipped && detachedHtml is null)
         {
             await using var photoCommand = new NpgsqlCommand("SELECT side,content_type,content FROM busbar_photos WHERE product_id=@id", connection, transaction);
             photoCommand.Parameters.AddWithValue("id", snapshot.ProductId);
@@ -220,24 +248,17 @@ public sealed class InteriorBusbarPublicationWorker(
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
-            if (!snapshot.Cancelled && snapshot.Photos.Any(photo => photo.ContentType == "image/heic"))
+            var html = snapshot.Cancelled ? InteriorBusbarPublicPage.Render(snapshot)
+                : shipped ? detachedHtml ?? await InteriorBusbarPublicPage.RenderDetachedAsync(snapshot, timeout.Token)
+                : InteriorBusbarPublicPage.RenderPmsLink(snapshot.ProductId, options.PmsBaseUrl ?? throw new InvalidOperationException("PMS 주소가 없습니다."));
+            await sink.PublishAsync(snapshot.Token, html, timeout.Token);
+            if (shipped && !snapshot.Cancelled && detachedHtml is null)
             {
-                var renderPhotos = new List<InteriorBusbarPublicPhoto>(snapshot.Photos.Count);
-                foreach (var photo in snapshot.Photos)
-                {
-                    renderPhotos.Add(photo.ContentType == "image/heic"
-                        ? photo with
-                        {
-                            ContentType = "image/jpeg",
-                            Content = await Task.Run(
-                                () => OsanHeicImageCodec.PreviewAsync(photo.Content, timeout.Token),
-                                timeout.Token).WaitAsync(timeout.Token)
-                        }
-                        : photo);
-                }
-                snapshot = snapshot with { Photos = renderPhotos };
+                await using var freeze = new NpgsqlCommand("insert into busbar_detached_pages(product_id,html) values(@id,@html) on conflict do nothing", connection, transaction);
+                freeze.Parameters.AddWithValue("id", snapshot.ProductId);
+                freeze.Parameters.AddWithValue("html", html);
+                await freeze.ExecuteNonQueryAsync(cancellationToken);
             }
-            await sink.PublishAsync(snapshot.Token, InteriorBusbarPublicPage.Render(snapshot), timeout.Token);
             published = true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -253,6 +274,18 @@ public sealed class InteriorBusbarPublicationWorker(
         update.Parameters.AddWithValue("revision", snapshot.Revision);
         update.Parameters.AddWithValue("id", snapshot.ProductId);
         await update.ExecuteNonQueryAsync(cancellationToken);
+        if (published)
+        {
+            await using var clear = new NpgsqlCommand("delete from busbar_publication_recovery where product_id=@id", connection, transaction);
+            clear.Parameters.AddWithValue("id", snapshot.ProductId);
+            await clear.ExecuteNonQueryAsync(cancellationToken);
+        }
+        else
+        {
+            await using var delay = new NpgsqlCommand("update busbar_publication_recovery set next_attempt_at_utc=now()+interval '30 seconds' where product_id=@id", connection, transaction);
+            delay.Parameters.AddWithValue("id", snapshot.ProductId);
+            await delay.ExecuteNonQueryAsync(cancellationToken);
+        }
         await transaction.CommitAsync(cancellationToken);
         return true;
     }

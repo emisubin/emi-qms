@@ -21,7 +21,7 @@ public sealed class InteriorBusbarQrTests
         await using var fixture = await Fixture.Create(Options);
         var (product, family, material) = await Prepare(fixture);
         await fixture.Store.Photo(product, "front", [1], null, fixture.Actor);
-        Assert.Equal(0L, await fixture.Scalar("select count(*) from busbar_product_qr"));
+        Assert.Equal(1L, await fixture.Scalar("select count(*) from busbar_product_qr"));
         await fixture.Store.Photo(product, "back", [2], null, fixture.Actor);
         var completed = await fixture.Store.GetProduct(product);
         Assert.Equal("Complete", completed["status"]);

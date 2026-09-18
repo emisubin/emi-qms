@@ -4,7 +4,7 @@ using Npgsql;
 using QRCoder;
 namespace Emi.Qms.Api.InteriorBusbar;
 
-public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null, InteriorBusbarEcountOptions? ecountOptions = null)
+public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null, InteriorBusbarEcountOptions? ecountOptions = null, IInteriorBusbarPublicationSink? publicationSink = null)
 {
     // The same transaction lock fences inventory mutations and bounded external publication.
     // Checks, immutable ledger deltas and derived balances must commit together.
@@ -102,6 +102,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         Require(planDateFrom is null || planDateTo is null || planDateFrom <= planDateTo, "조회 시작일은 종료일보다 늦을 수 없습니다.");
         Require(status is null or "Draft" or "Complete" or "Cancelled", "생산 상태를 확인하세요.");
         var predicates = new List<string>();
+        if (status is null) predicates.Add("p.status<>'Cancelled'");
         var filterArgs = new List<(string, object?)>();
         if (planId is not null) { predicates.Add("p.plan_id=@plan"); filterArgs.Add(("plan", planId.Value)); }
         if (productFamilyId is not null) { predicates.Add("p.product_family_id=@family"); filterArgs.Add(("family", productFamilyId.Value)); }
@@ -145,7 +146,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             asOfDate = koreanDate,
             productionToday = await Rows(c, "select product_family_id,count(*) quantity from busbar_products where status='Complete' and manufactured_at_utc>=@start and manufactured_at_utc<@end group by product_family_id", ("start", dayStart), ("end", dayStart.AddDays(1)))
         };
-        result["publicationOutstandingCount"] = (await Rows(c, "select count(*) total from busbar_products where status in ('Complete','Cancelled') and manufactured_at_utc is not null and (publication_state<>'Published' or revision<>published_revision)"))[0]["total"];
+        result["publicationOutstandingCount"] = (await Rows(c, "select count(*) total from busbar_products where publication_state<>'Published' or revision<>published_revision"))[0]["total"];
         result["pagination"] = new
         {
             page,
@@ -342,11 +343,13 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
                     """, ("id", productId), ("request", Guid.NewGuid()), ("family", r.ProductFamilyId),
                     ("token", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant()),
                     ("actor", actor), ("plan", id), ("sequence", ++sequence));
+                var created = await One(c, "busbar_products", productId);
+                await EnsureQr(c, productId, (string)created["publicToken"]!);
             }
         }
         foreach (var product in untouched)
         {
-            await Exec(c, "update busbar_products set status='Cancelled' where id=@id", ("id", Id(product)));
+            await Exec(c, "update busbar_products set status='Cancelled',revision=revision+1,publication_state='Pending' where id=@id", ("id", Id(product)));
             await Audit(c, "Product", Id(product), actor, "생산계획 수량 감소로 미착수 제품 철회",
                 new { status = "Draft", planId = id, planSequence = product["planSequence"] },
                 new { status = "Cancelled", planId = id, planSequence = product["planSequence"] });
@@ -458,6 +461,8 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         await Exec(c, "insert into busbar_shipments(id,project_id,quantity,project_name_snapshot,destination_snapshot,task_number_snapshot) values(@id,@project,@quantity,@name,@destination,@task)", ("id", id), ("project", r.ProjectId), ("quantity", r.Quantity), ("name", project["name"]), ("destination", project["destination"]), ("task", project["customerJobNumber"]));
         foreach (var productId in r.ProductIds!)
             await Exec(c, "insert into busbar_shipment_products(shipment_id,product_id) values(@shipment,@product)", ("shipment", id), ("product", productId));
+        foreach (var productId in r.ProductIds!)
+            await PublishShippedPanel(c, productId);
         await EnqueueShipmentSale(c, r.ProjectId, id);
         return id;
     });
@@ -478,6 +483,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         if (kind == "Shipment")
         {
             await Exec(c, "update busbar_shipment_products set released_at_utc=now() where shipment_id=@id", ("id", operation));
+            await Exec(c, "update busbar_products set revision=revision+1,publication_state='Pending',publication_error=null where id in(select product_id from busbar_shipment_products where shipment_id=@id)", ("id", operation));
             await CancelShipmentSale(c, operation);
         }
         return id;
@@ -497,6 +503,8 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         var worker = await One(c, "busbar_workers", r.WorkerId);
         var id = Guid.NewGuid();
         await Exec(c, "insert into busbar_products(id,request_id,product_family_id,worker_id,worker_name,public_token,created_by) values(@id,@request,@family,@worker,@name,@token,@actor)", ("id", id), ("request", r.RequestId), ("family", r.ProductFamilyId), ("worker", r.WorkerId), ("name", worker["name"]), ("token", Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant()), ("actor", actor));
+        var created = await One(c, "busbar_products", id);
+        await EnsureQr(c, id, (string)created["publicToken"]!);
         return id;
     });
 
@@ -545,10 +553,10 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             var operation = await Operation(c, product, "Production", product, actor, "사진 두 장 등록 생산 완료");
             await Delta(c, operation, "Finished", Id(p, "productFamilyId"), 1);
             foreach (var l in await Rows(c, "select * from busbar_bom_lines where bom_id=@id", ("id", bom))) await Delta(c, operation, "Material", Id(l, "materialId"), -Num(l, "quantity"));
-            await Exec(c, "update busbar_products set status='Complete',number='IB-'||lpad(nextval('busbar_product_number_seq')::text,8,'0'),manufactured_at_utc=@now,photo_registered_by=@actor,bom_id=@bom,revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("now", now), ("bom", bom), ("id", product), ("actor", actor));
+            await Exec(c, "update busbar_products set status='Complete',number=coalesce(number,'IB-'||lpad(nextval('busbar_product_number_seq')::text,8,'0')),manufactured_at_utc=@now,photo_registered_by=@actor,bom_id=@bom,revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("now", now), ("bom", bom), ("id", product), ("actor", actor));
             await EnsureQr(c, product, (string)p["publicToken"]!);
         }
-        else await Exec(c, "update busbar_products set revision=revision+1 where id=@id", ("id", product));
+        else await Exec(c, "update busbar_products set revision=revision+1,publication_state='Pending' where id=@id", ("id", product));
         await Audit(c, "ProductPhoto", product, actor, reason ?? "사진 등록", new
         {
             side
@@ -568,7 +576,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
         Require((string)p["status"]! != "Cancelled", "취소된 제품입니다.");
         await Active(c, "busbar_workers", r.WorkerId);
         var worker = await One(c, "busbar_workers", r.WorkerId);
-        await Exec(c, "update busbar_products set worker_id=@worker,worker_name=@name,revision=revision+case when status='Complete' then 1 else 0 end,publication_state='Pending',publication_error=null where id=@id", ("worker", r.WorkerId), ("name", worker["name"]), ("id", id));
+        await Exec(c, "update busbar_products set worker_id=@worker,worker_name=@name,revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("worker", r.WorkerId), ("name", worker["name"]), ("id", id));
         await Audit(c, "Product", id, actor, r.Reason, p, r);
         return id;
     });
@@ -612,7 +620,6 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     {
         product["qrState"] = (string)product["status"]! == "Cancelled" ? "Cancelled"
             : (bool)product["qrReady"]! ? "Ready"
-            : product["manufacturedAtUtc"] is null ? "AwaitingCompletion"
             : publicationOptions?.PublicBaseUrl is null ? "ConfigurationPending" : "PendingGeneration";
     }
 
@@ -639,7 +646,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     private async Task<byte[]> ReadPrintableQr(NpgsqlConnection c, Guid id, bool allowPersist)
     {
         var product = await One(c, "busbar_products", id);
-        if ((string)product["status"]! != "Complete" || (string)product["publicationState"]! != "Published"
+        if ((string)product["status"]! == "Cancelled" || (string)product["publicationState"]! != "Published"
             || Convert.ToInt32(product["revision"]) != Convert.ToInt32(product["publishedRevision"]))
             throw new BusbarException("publication_not_ready", "최신 제품 정보의 게시가 완료된 뒤 출력하세요.", 409);
         var stored = await Rows(c, "select url,png from busbar_product_qr where product_id=@id", ("id", id));
@@ -667,7 +674,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
     public Task<Guid> RetryPublication(Guid id) => Transaction(async c =>
     {
         var p = await One(c, "busbar_products", id);
-        Require((string)p["status"]! != "Draft" && p["manufacturedAtUtc"] is not null, "완료된 제품만 게시할 수 있습니다.");
+
         if ((string)p["publicationState"]! == "Published" && Convert.ToInt32(p["revision"]) == Convert.ToInt32(p["publishedRevision"])) return id;
         await Exec(c, "update busbar_products set publication_state='Pending',publication_error=null where id=@id", ("id", id));
         return id;

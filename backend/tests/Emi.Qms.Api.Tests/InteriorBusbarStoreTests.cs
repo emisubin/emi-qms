@@ -142,7 +142,7 @@ public sealed class InteriorBusbarStoreTests
     }
 
     [Fact(SkipUnless = nameof(HasDatabase), Skip = "Requires explicitly configured disposable busbar database.")]
-    public async Task PlanPreparesEmptyProducts_ReplayAndGrowthDoNotDuplicate_WorkerAndNumberWaitForPhotos()
+    public async Task PlanPreparesEmptyProducts_ReplayAndGrowthDoNotDuplicate_WorkerWaitsForPhotos_NumberAssignedAtPlan()
     {
         await using var f = await Fixture.Create();
         var family = await f.Store.Master("product-families", new(null,"F","Family"), f.Actor);
@@ -154,12 +154,12 @@ public sealed class InteriorBusbarStoreTests
         Assert.Equal(2L, await f.Scalar("select count(*) from busbar_products"));
         var workspace = (Dictionary<string,object?>)await f.Store.Workspace(true,planId:request.Id);
         var products = (List<Dictionary<string,object?>>)workspace["products"]!;
-        Assert.All(products,p => { Assert.Null(p["workerId"]); Assert.Null(p["workerName"]); Assert.Null(p["number"]); Assert.Null(p["manufacturedAtUtc"]); Assert.Equal("Draft",p["status"]); });
+        Assert.All(products,p => { Assert.Null(p["workerId"]); Assert.Null(p["workerName"]); Assert.NotNull(p["number"]); Assert.Null(p["manufacturedAtUtc"]); Assert.Equal("Draft",p["status"]); });
         Assert.Equal(new[] {1,2}, products.Select(p => (int)p["planSequence"]!));
         var first = (Guid)products[0]["id"]!;
         await Assert.ThrowsAsync<BusbarException>(() => f.Store.Photo(first,"front",[1],null,f.Actor));
         await f.Store.Photo(first,"front",[1],null,f.Actor,worker);
-        Assert.Null((await f.Store.GetProduct(first))["number"]);
+        Assert.NotNull((await f.Store.GetProduct(first))["number"]);
         Assert.Equal(0m,await f.Balance("Finished",family));
         await f.Store.Photo(first,"back",[2],null,f.Actor);
         Assert.NotNull((await f.Store.GetProduct(first))["number"]);
@@ -295,6 +295,11 @@ public sealed class InteriorBusbarStoreTests
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
+    internal sealed class TestPublicationSink : IInteriorBusbarPublicationSink
+    {
+        public Task PublishAsync(string token, byte[] html, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
     internal sealed class Fixture : IAsyncDisposable
     {
         public required string Connection
@@ -340,6 +345,8 @@ public sealed class InteriorBusbarStoreTests
                 await new NpgsqlCommand($"create schema {schema}", c).ExecuteNonQueryAsync();
             }
             builder.SearchPath = schema;
+            // Each fixture owns a one-use schema; do not retain a pool per schema.
+            builder.Pooling = false;
             var clock = new Clock();
             var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -352,7 +359,7 @@ public sealed class InteriorBusbarStoreTests
                 BaseConnection = baseConnection,
                 Schema = schema,
                 Clock = clock,
-                Store = new(new(config), clock, publicationOptions)
+                Store = new(new(config), clock, publicationOptions, publicationSink: new TestPublicationSink())
             }
 ;
             await using (var c = new NpgsqlConnection(f.Connection))
@@ -379,6 +386,8 @@ public sealed class InteriorBusbarStoreTests
                     if (applyPhotoMigration)
                         await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0118_interior_busbar_photo_originals.sql")), c).ExecuteNonQueryAsync();
                 }
+                if (applyPhotoMigration && applyDeletionMigration && applyTraceMigration && applyShipmentMigration)
+                    await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0120_interior_busbar_qr_lifecycle.sql")), c).ExecuteNonQueryAsync();
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);

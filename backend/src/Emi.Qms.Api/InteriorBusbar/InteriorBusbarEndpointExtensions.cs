@@ -86,7 +86,7 @@ public static class InteriorBusbarEndpointExtensions
             if (target?.User.IsActive != true || ApprovalReadinessPolicy.IsApprovalPending(target)) return Results.BadRequest(new { message = "활성 청주 사용자를 선택하세요." });
             return Results.Ok(new { id = await s.SetMasterAccess(r, Actor(u)) });
         });
-        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId, Guid? productFamilyId, DateOnly? planDateFrom, DateOnly? planDateTo, string? status) => s.Workspace(((BusbarAccess)h.Items["busbarAccess"]!).Any, page ?? 1, pageSize ?? 100, planId, productFamilyId, planDateFrom, planDateTo, status, (BusbarAccess)h.Items["busbarAccess"]!));
+        api.MapGet("/workspace", (HttpContext h, InteriorBusbarStore s, int? page, int? pageSize, Guid? planId, Guid? productFamilyId, DateOnly? planDateFrom, DateOnly? planDateTo, string? status, string? labelState) => s.Workspace(((BusbarAccess)h.Items["busbarAccess"]!).Any, page ?? 1, pageSize ?? 100, planId, productFamilyId, planDateFrom, planDateTo, status, (BusbarAccess)h.Items["busbarAccess"]!, labelState));
         foreach (var kind in new[] { "product-families", "materials", "workers" })
         {
             var captured = kind;
@@ -154,6 +154,11 @@ public static class InteriorBusbarEndpointExtensions
         {
             id = await s.Product(r, Actor(u))
         }));
+        api.MapGet("/labels/pending", (ClaimsPrincipal u, InteriorBusbarStore s) => s.PendingLabels(Actor(u)));
+        api.MapGet("/labels/resolve", (string code, InteriorBusbarStore s) => s.ResolveLabel(code));
+        api.MapGet("/products/{id:guid}/label-history", (Guid id, InteriorBusbarStore s) => s.LabelHistory(id));
+        api.MapPost("/labels/printed", async (BusbarLabelRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { id = await s.ConfirmLabels(r, Actor(u), false) }));
+        api.MapPost("/labels/attached", async (BusbarLabelRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new { id = await s.ConfirmLabels(r, Actor(u), true) }));
         api.MapGet("/products/{id:guid}", (Guid id, InteriorBusbarStore s) => s.GetProduct(id));
         api.MapPatch("/products/{id:guid}", async (Guid id, BusbarProductCorrectionRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
         {

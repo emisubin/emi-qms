@@ -81,7 +81,7 @@
   flex-wrap: wrap;
 }
 .busbar-page .busbar-editor {
-  border-left: 4px solid #2563eb;
+
 }
 .busbar-page .busbar-note {
   color: #64748b;
@@ -659,3 +659,46 @@
 @media screen and (min-width: 701px) {
   .busbar-photo-desktop-workspace { display: block; }
 }
+
+/* Evidence colors must not inherit the shared wireframe grayscale. */
+.app-shell .busbar-page img,
+.app-shell .busbar-plan-dialog img,
+.app-shell .busbar-mobile-photo-zoom img { filter: none !important; }
+.app-shell .busbar-plan-dialog .busbar-mobile-photo-save,
+.app-shell .busbar-plan-dialog .busbar-mobile-photo-save * { color: #fff !important; }
+.app-shell .busbar-plan-dialog .busbar-mobile-photo-save:disabled { background: #727272 !important; color: #fff !important; opacity: 1; }
+.busbar-label-history { display: grid; gap: 16px; padding-left: 24px; }
+.busbar-label-history li > span { display: block; margin-top: 4px; font-size: 13px; }
+.busbar-label-lookup { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.busbar-label-lookup label { display: grid; gap: 6px; flex: 1 1 180px; min-width: 0; }
+.busbar-label-lookup input { width: 100%; min-width: 0; box-sizing: border-box; }
+.busbar-label-camera { width: 100%; max-height: 35dvh; object-fit: contain; }
+.busbar-label-camera[hidden] { display: none; }
+.busbar-label-groups { display: grid; gap: 12px; }
+.busbar-label-groups h4 { margin: 12px 0 8px; }
+.busbar-label-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
+.busbar-label-row input[type=checkbox] { width: 20px; min-height: 20px; height: 20px; flex: 0 0 20px; }
+.busbar-label-row span { min-width: 0; overflow-wrap: anywhere; }
+.busbar-label-row small { display: block; margin-top: 4px; }
+.busbar-label-footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+@media (max-width: 700px) {
+  .app-shell[data-busbar=true] .mobile-app-bar { gap: 8px; flex-wrap: wrap; }
+  .app-shell[data-busbar=true] .mobile-app-brand { min-width: 0; flex: 1 1 150px; }
+  .app-shell[data-busbar=true] .mobile-app-brand > span { min-width: 0; }
+  .app-shell[data-busbar=true] .mobile-app-brand strong { white-space: normal; overflow-wrap: anywhere; }
+  .app-shell[data-busbar=true] .mobile-app-brand .app-brand-logo { max-width: 72px; height: auto; }
+  .app-shell .busbar-page .busbar-table-wrap,
+  .app-shell .busbar-plan-dialog .busbar-table-wrap { overflow: visible; min-width: 0; }
+  .busbar-table-wrap table, .busbar-table-wrap tbody { display: block; min-width: 0 !important; width: 100%; }
+  .busbar-table-wrap thead { display: none; }
+  .busbar-table-wrap tr { display: grid; width: 100%; padding: 12px 0; border-bottom: 1px solid #ddd; }
+  .app-shell .busbar-table-wrap td { display: grid; grid-template-columns: minmax(74px, .65fr) minmax(0, 1.35fr); gap: 8px; width: auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; border: 0 !important; padding: 6px 0; }
+  .busbar-table-wrap td::before { content: attr(data-label); font-size: 12px; font-weight: 600; color: #666; }
+  .busbar-table-wrap td > * { min-width: 0; max-width: 100%; }
+  .busbar-table-wrap td button { white-space: normal; }
+  .app-shell .busbar-label-dialog .dialog { width: calc(100vw - 24px); padding: 16px; box-sizing: border-box; max-height: calc(100dvh - 24px); }
+}
+
+.app-shell .busbar-label-dialog > .dialog { min-width: 0 !important; width: min(620px, calc(100vw - 48px)) !important; max-width: calc(100vw - 48px) !important; box-sizing: border-box !important; justify-self: center; }
+.app-shell .busbar-label-dialog .busbar-label-row { display: flex !important; }
+.app-shell .busbar-label-dialog .busbar-label-row input[type=checkbox] { min-width: 20px; max-width: 20px; margin: 0; }

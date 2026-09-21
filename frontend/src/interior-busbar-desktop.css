@@ -160,7 +160,7 @@
   .app-shell[data-osan-project-theme='true'] .busbar-page td:first-child { font-weight: 600; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .ds-badge { border-radius: 4px !important; font-size: 11px; padding: 3px 7px; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-negative { color: #b6212b !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-editor { border-left: 3px solid var(--busbar-brand) !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-editor { border: 1px solid #e2e5e9 !important; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-form { gap: 18px 24px; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-form-actions { padding-top: 18px; margin-top: 4px; border-top: 1px solid var(--busbar-line); justify-content: flex-end; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-project-fields { gap: 24px; padding-block: 8px; }
@@ -185,8 +185,8 @@
   .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-photobox h4 { margin: 0; font-size: 14px; }
   .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog input[type='file'] { padding: 6px; background: white !important; }
   .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog input[type='file']::file-selector-button { padding: 7px 10px; margin-right: 10px; border: 0; border-radius: 4px; background: #edf0f4; color: #343b46; font: inherit; cursor: pointer; }
-  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-completion { padding: 18px; border: 1px solid #ceded4 !important; border-radius: 8px !important; background: #f3f8f5 !important; }
-  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-completion strong { font-size: 25px; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-completion { padding: 10px 14px; border: 1px solid #ceded4 !important; border-radius: 8px !important; background: #f3f8f5 !important; }
+  .app-shell[data-osan-project-theme='true'] .busbar-plan-dialog .busbar-completion strong { font-size: 18px; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-access-granted { gap: 8px 24px; }
   .app-shell[data-osan-project-theme='true'] .busbar-page .busbar-access-granted li { padding: 8px 0; }
   .app-shell[data-osan-project-theme='true'] .busbar-page[data-busbar-section='projects'] .busbar-filterbar {
@@ -208,4 +208,14 @@
   @media (prefers-reduced-motion: reduce) {
     .app-shell[data-osan-project-theme='true'] :is(.busbar-page, .busbar-plan-dialog, .busbar-record-dialog, .busbar-access-dialog) button { transition: none; }
   }
+}
+
+@media screen and (min-width: 861px) {
+  .app-shell .busbar-page .busbar-month-totals { max-height: none; overflow-y: visible; }
+}
+@media screen and (min-width: 861px) {
+  .app-shell[data-osan-project-theme='true'] .busbar-page .ds-toolbar.busbar-filterbar--production { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .busbar-filterbar--production > .busbar-filter-date-range { grid-column: 1 / 3; grid-row: 2; }
+  .busbar-filterbar--production > label:last-of-type { grid-column: 3; grid-row: 2; }
+  .busbar-filterbar--production > .busbar-filter-actions { grid-column: 1 / -1; grid-row: 3; }
 }

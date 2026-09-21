@@ -36,7 +36,7 @@ public sealed class AuditInfrastructureTests
                 sales_monthly_target_audit_events ul891_recovery_case_events
                 user_notification_preference_audit_events user_profile_photo_audit_events
                 osan_project_events osan_project_management_history
-                busbar_audit busbar_operations busbar_ledger busbar_shipments busbar_receipts busbar_photo_history
+                busbar_audit busbar_operations busbar_ledger busbar_shipments busbar_receipts busbar_photo_history busbar_label_events
                 """),
             ["ProviderWorkerOrGeneratedArtifact"] = ParseRelationNames("""
                 iqc_report_pdf_artifacts notification_deliveries notification_delivery_attempts
@@ -47,7 +47,7 @@ public sealed class AuditInfrastructureTests
                 busbar_detached_pages busbar_publication_recovery
                 """),
             ["OperationImportOrIdempotency"] = ParseRelationNames("""
-                logistics_operations panel_information_excel_import_batches panel_kitting_batches
+                busbar_label_requests logistics_operations panel_information_excel_import_batches panel_kitting_batches
                 panel_manufacturing_assembly_batch_operations panel_manufacturing_operations
                 panel_manufacturing_release_operations panel_quality_operations pending_photo_operations
                 procurement_excel_import_batch_projects procurement_excel_import_batches
@@ -191,7 +191,7 @@ public sealed class AuditInfrastructureTests
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
         Assert.Equal(120, trackedRelations.Count);
-        Assert.Equal(76, excludedRelations.Length);
+        Assert.Equal(78, excludedRelations.Length);
     }
 
     [Fact]

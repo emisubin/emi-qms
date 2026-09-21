@@ -1,3 +1,4 @@
+import { BusbarLabelEntryPrompt } from "./BusbarLabelTracking";
 import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
@@ -2446,6 +2447,7 @@ function QmsAppShellContent({
   return (
     <main
       className="app-shell"
+      data-busbar={view.kind === "interior-busbar" ? "true" : undefined}
       data-layout-mode={layout.mode}
       data-touch-optimized={layout.touchOptimized}
       data-osan-project-theme={(isOsan && (view.kind === 'list' || view.kind === 'detail')) || view.kind === 'interior-busbar' ? 'true' : undefined}
@@ -2456,6 +2458,7 @@ function QmsAppShellContent({
       {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
+        {currentUser.kind === "ready" && !currentUser.data.approvalPending && !isOsan && <BusbarLabelEntryPrompt key={busbarScopeKey} user={developmentUserKey} scope={busbarScopeKey} mobile={layout.isMobile || layout.touchOptimized} />}
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
         {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
           <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />

@@ -25,6 +25,7 @@ public sealed record BusbarAccess(bool Projects, bool Planning, bool Production,
         "/api/interior-busbar/plans" or "/api/interior-busbar/plans/{id:guid}/delete" or "/api/interior-busbar/plans/{id:guid}/restore" => Planning,
         "/api/interior-busbar/purchases" or "/api/interior-busbar/purchases/{id:guid}/delete" or "/api/interior-busbar/purchases/{id:guid}/restore" or "/api/interior-busbar/receipts" or
         "/api/interior-busbar/purchases/import/preview" or "/api/interior-busbar/purchases/import/apply" => Purchases,
+        "/api/interior-busbar/labels/printed" or "/api/interior-busbar/labels/attached" or
         "/api/interior-busbar/products" or "/api/interior-busbar/products/{id:guid}" or
         "/api/interior-busbar/products/{id:guid}/photos/{side}" or
         "/api/interior-busbar/products/{id:guid}/photo-preview" or

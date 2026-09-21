@@ -52,6 +52,13 @@ export type BusbarProduct = {
   productFamilyId: string;
   planId?: string | null;
   planSequence?: number | null;
+  planDate?: string | null;
+  productFamilyName?: string;
+  labelState?: "LegacyUnknown" | "Unprinted" | "Printed" | "Attached";
+  labelPrintedAtUtc?: string | null;
+  labelPrintedByDisplayName?: string | null;
+  labelAttachedAtUtc?: string | null;
+  labelAttachedByDisplayName?: string | null;
   workerId: string | null;
   workerName: string | null;
   registeredByDisplayName?: string;
@@ -150,7 +157,7 @@ export type BusbarCommercialPreview = {
   customerCode: string; warehouseCode: string; productCode: string | null;
   transmissionEnabled: boolean;
 };
-export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string };
+export type BusbarProductFilters = { productFamilyId?: string; planDateFrom?: string; planDateTo?: string; status?: string; labelState?: string };
 export const busbarPhotoAccept = "image/jpeg,image/png,image/heic,image/heif,image/webp,.jpg,.jpeg,.png,.heic,.heif,.webp";
 export function validateBusbarPhoto(file: File): string | null {
   if (!file.size) return "빈 파일은 첨부할 수 없습니다.";
@@ -164,7 +171,12 @@ export function validateBusbarPhoto(file: File): string | null {
 export const isBusbarHeicPhoto = (file: File) =>
   ["image/heic", "image/heif"].includes(file.type.toLowerCase()) || /\.hei[cf]$/i.test(file.name);
 const root = "/api/interior-busbar";
+export type BusbarLabelEvent = { id: string; action: "Printed" | "Attached"; actorId: string; actorDisplayName: string; createdAtUtc: string };
+export const busbarLabelState = (state?: string) => ({ LegacyUnknown: "기존 라벨 확인 필요", Unprinted: "미출력", Printed: "출력 확인", Attached: "부착 완료" })[state ?? "LegacyUnknown"] ?? "기존 라벨 확인 필요";
 export const busbarApi = {
+  pendingLabels: (user: string) => fetchJson<BusbarProduct[]>(`${root}/labels/pending`, user),
+  resolveLabel: (user: string, code: string) => fetchJson<BusbarProduct>(`${root}/labels/resolve?${new URLSearchParams({ code })}`, user),
+  labelHistory: (user: string, id: string) => fetchJson<BusbarLabelEvent[]>(`${root}/products/${id}/label-history`, user),
   access: (user: string) => fetchJson<NonNullable<BusbarWorkspace["permissions"]>>(`${root}/access`, user),
   masters: (user: string) => fetchJson<BusbarWorkspace>(`${root}/masters`, user),
   masterAccess: (user: string) => fetchJson<Array<{userId: string; displayName: string; departmentName?: string; access: string; automatic: boolean}>>(`${root}/master-access`, user),

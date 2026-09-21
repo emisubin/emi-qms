@@ -58,6 +58,13 @@ public sealed class InteriorBusbarTraceTests
         var product=await f.Store.GetProduct(panels[0]);
         var number=(string)product["number"]!;
         var resolved=JsonSerializer.SerializeToElement(await f.Store.ResolveShipmentPanel(project,number));
+        Assert.Equal(panels[0],JsonSerializer.SerializeToElement(await f.Store.ResolveShipmentPanel(project,InteriorBusbarStore.NormalizePanelNumber(number)!)).GetProperty("id").GetGuid());
+        await using (var published=new NpgsqlConnection(f.Connection))
+        {
+            await published.OpenAsync(TestContext.Current.CancellationToken);
+            await new NpgsqlCommand("update busbar_products set publication_state='Published',published_revision=revision",published).ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+        await f.Store.ConfirmLabels(new(Guid.NewGuid(),panels[..2]),f.Actor,false);
         Assert.Equal(panels[0],resolved.GetProperty("id").GetGuid());
         await using(var c=new NpgsqlConnection(f.Connection)) {
             await c.OpenAsync(TestContext.Current.CancellationToken);
@@ -68,6 +75,8 @@ public sealed class InteriorBusbarTraceTests
         var request=new BusbarShipmentRequest(Guid.NewGuid(),project,2,panels[..2]);
         var shipment=await f.Store.Shipment(request,f.Actor);
         Assert.Equal(shipment,await f.Store.Shipment(request,f.Actor));
+        Assert.Empty(Assert.IsType<List<Dictionary<string,object?>>>(await f.Store.PendingLabels(f.Actor)));
+        await Assert.ThrowsAsync<BusbarException>(()=>f.Store.ConfirmLabels(new(Guid.NewGuid(),panels[..2]),f.Actor,true));
         Assert.Equal(1m,await f.Balance("Finished",family));
         await Assert.ThrowsAsync<BusbarException>(()=>f.Store.ResolveShipmentPanel(project,number));
         await Assert.ThrowsAsync<BusbarException>(()=>f.Store.CancelProduct(panels[0],new(Guid.NewGuid(),"Wrong"),f.Actor));

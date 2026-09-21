@@ -546,7 +546,7 @@ test("planned QR number survives worker selection and mobile preview then save",
     page.getByRole("button", { name: "QR 인쇄 준비", exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByText("이 번호를 임시 스티커에 표시하세요.", { exact: false }),
+    page.getByText("생산계획 때 발급된 QR을 계속 사용합니다.", { exact: false }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -1205,7 +1205,8 @@ test("photo popup contains registration only and table follows production order"
   await selectSection(page, "생산·사진·QR");
   const table = page.getByRole("region", { name: "선택 목록", exact: true });
   await expect(table.getByRole("button", { name: /제품 관리$/ })).toHaveCount(0);
-  await expect(table.getByRole("columnheader")).toHaveText(["선택", "사진등록", "제품군", "작업자", "생산일시", "생산 상태", "제품번호", "외부게시"]);
+  await expect(table.getByRole("columnheader").first().getByRole("checkbox", {name: "현재 목록 출력 가능 제품 모두 선택"})).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveText(["", "사진등록", "제품군", "계획일", "작업자", "생산일시", "생산 상태", "제품번호", "라벨 상태", "외부게시"]);
   await expect(table.getByRole("cell", { name: "사진 등록 전", exact: true })).toBeVisible();
   await table.getByRole("button", { name: "사진등록" }).click();
   const dialog = page.getByRole("dialog");
@@ -1238,7 +1239,7 @@ test("bulk QR prepares all eligible labels and prints separate cards", async ({ 
   const data = publishedFixture(); await mock(page, data);
   await page.goto("/interior-busbar"); await selectSection(page, "생산·사진·QR");
   await expect(page.locator(".busbar-production-desktop").getByLabel("IB-STALE QR 선택")).toBeDisabled();
-  await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
+  await page.getByRole("checkbox", { name: "현재 목록 출력 가능 제품 모두 선택" }).check();
   await expect(page.getByText("3개 선택", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -1280,7 +1281,7 @@ test("one failed QR request never offers partial labels", async ({ page }) => {
   const data = publishedFixture(); await mock(page, data);
   await page.route("**/products/published-2/qr", (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ message: "QR 준비 실패" }) }));
   await page.goto("/interior-busbar"); await selectSection(page, "생산·사진·QR");
-  await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
+  await page.getByRole("checkbox", { name: "현재 목록 출력 가능 제품 모두 선택" }).check();
   await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("alert")).toContainText("QR 준비 실패");
@@ -1342,7 +1343,7 @@ test("QR changed during preparation cannot create a printable preview", async ({
     await route.fulfill({ contentType: "image/png", body: qrPng });
   });
   await page.goto("/interior-busbar"); await selectSection(page, "생산·사진·QR");
-  await page.getByLabel("현재 목록 출력 가능 제품 모두 선택").check();
+  await page.getByRole("checkbox", { name: "현재 목록 출력 가능 제품 모두 선택" }).check();
   await page.getByRole("button", { name: "선택 QR 인쇄", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText("게시 상태가 변경됐습니다");
   await expect(page.locator(".busbar-qr-preview img")).toHaveCount(0);
@@ -1479,7 +1480,7 @@ test("ecount status blocks uncertain retries and records a reason for definite f
   await page.getByRole("button", {name:"대기 등록",exact:true}).click();
   await expect.poll(()=>writes.filter(w=>w.path.endsWith("/retry")).length).toBe(1);
   expect(writes.find(w=>w.path.endsWith("/retry"))?.body).toEqual({reason:"합성 설정 오류 수정"});
-  await expect(page.getByRole("cell", {name:"전송 대기",exact:true})).toBeVisible();
+  await expect(page.getByRole("region", {name:"이카운트 전송 상태",exact:true}).getByText("전송 대기", {exact:true})).toBeVisible();
   await expect(page.getByRole("button", {name:"다시 대기",exact:true})).toHaveCount(0);
 });
 

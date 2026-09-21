@@ -15,7 +15,7 @@ namespace Emi.Qms.Api.InteriorBusbar;
 public sealed record InteriorBusbarPublicPhoto(string Side, string ContentType, byte[] Content);
 public sealed record InteriorBusbarPublicSnapshot(Guid ProductId, string Number, string WorkerName,
     DateTimeOffset ManufacturedAtUtc, string Token, int Revision, bool Cancelled,
-    IReadOnlyList<InteriorBusbarPublicPhoto> Photos);
+    IReadOnlyList<InteriorBusbarPublicPhoto> Photos, string? InspectedByDisplayName = null, DateTimeOffset? InspectedAtUtc = null);
 
 public sealed record InteriorBusbarPublicationOptions(bool Enabled, Uri? PublicBaseUrl, Uri? BlobEndpoint, string SasToken,
     string AuthenticationMode = "Sas", string? ManagedIdentityClientId = null, Uri? PmsBaseUrl = null)
@@ -105,8 +105,11 @@ public static class InteriorBusbarPublicPage
         InteriorBusbarPublicationOptions.ValidateToken(product.Token);
         static string H(string value) => WebUtility.HtmlEncode(value);
         var local = TimeZoneInfo.ConvertTime(product.ManufacturedAtUtc, TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul"));
+        var inspection = product.InspectedAtUtc is { } inspectedAt && product.InspectedByDisplayName is { } inspector
+            ? $"<dl class=inspection><div><dt>품질 검사자</dt><dd>{H(inspector)}</dd></div><div><dt>검사일시</dt><dd>{TimeZoneInfo.ConvertTime(inspectedAt, TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul")):yyyy-MM-dd HH:mm:ss}<span class=timezone>한국 시간</span></dd></div></dl>"
+            : "";
         var body = product.Cancelled ? "<section class=stopped><h1>제품 정보 제공이 중지되었습니다.</h1></section>" :
-            $"<p class=eyebrow>INTERIOR BUSBAR</p><div class=title-line><h1>제품 제조정보</h1></div><dl class=info><div><dt>제조일</dt><dd>{local:yyyy-MM-dd}</dd></div><div><dt>제조시간</dt><dd>{local:HH:mm:ss}<span class=timezone>한국 시간</span></dd></div><div><dt>작업자</dt><dd>{H(product.WorkerName)}</dd></div></dl><div class=section-head><h2>제품 사진</h2><span>앞면 · 뒷면</span></div><div class=photos>";
+            $"<p class=eyebrow>INTERIOR BUSBAR</p><div class=title-line><h1>제품 제조정보</h1></div><dl class=info><div><dt>제조일</dt><dd>{local:yyyy-MM-dd}</dd></div><div><dt>제조시간</dt><dd>{local:HH:mm:ss}<span class=timezone>한국 시간</span></dd></div><div><dt>작업자</dt><dd>{H(product.WorkerName)}</dd></div></dl>{inspection}<div class=section-head><h2>제품 사진</h2><span>앞면 · 뒷면</span></div><div class=photos>";
         if (!product.Cancelled)
         {
             foreach (var side in new[] { "front", "back" })
@@ -124,7 +127,7 @@ public static class InteriorBusbarPublicPage
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>EMI · 제품 제조정보</title><style>
 *{box-sizing:border-box}body{margin:0;background:#f5f6f7;color:#20252b;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}header{background:white;border-bottom:1px solid #e6e8eb} .header-inner{max-width:1000px;margin:auto;padding:21px 32px;display:flex;align-items:center;justify-content:space-between}.brand{font-size:27px;font-weight:900;letter-spacing:-1.6px;color:#dc2626;line-height:1}.brand span{font-size:11px;letter-spacing:0;color:#747b83;font-weight:500;border-left:1px solid #ddd;margin-left:15px;padding-left:15px;vertical-align:middle}.header-label{font-size:12px;color:#828891}main{max-width:1000px;margin:auto;padding:38px 32px 24px}.eyebrow{font-size:12px;font-weight:700;color:#bb242b;letter-spacing:1.6px;margin:0 0 9px}.title-line{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:25px}h1{font-size:34px;letter-spacing:-1px;line-height:1.2;margin:0;font-variant-numeric:tabular-nums}.product-label{font-size:12px;color:#727a83;margin:0 0 8px}.sample{font-size:11px;border:1px solid #e1e4e8;background:#fff;padding:5px 9px;border-radius:5px;color:#737b83;white-space:nowrap}.info{display:grid;grid-template-columns:1.2fr 1fr 1fr;margin:0 0 35px;background:white;border:1px solid #e4e7eb;border-radius:12px;padding:23px 0}.info>div{padding:0 25px;border-right:1px solid #e9ebee}.info>div:last-child{border:0}dt{color:#7b828a;font-size:12px;margin-bottom:8px}dd{font-size:17px;font-weight:650;margin:0;overflow-wrap:anywhere}.timezone{font-weight:400;font-size:10px;color:#89919b;margin-left:5px}.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 14px}h2{font-size:18px;letter-spacing:-.5px;margin:0}.section-head span{font-size:12px;color:#8a9097}.photos{display:grid;grid-template-columns:1fr 1fr;gap:18px}figure{border:1px solid #e0e4e8;margin:0;border-radius:12px;overflow:hidden;background:white}figcaption{padding:16px 18px;display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700}.index{font-size:10px;font-weight:600;color:#a0a7ae;letter-spacing:1px}.photo{background:#edf0f2;border-top:1px solid #edf0f2}.photo img{display:block;width:100%;height:auto;aspect-ratio:1.6;object-fit:contain}.photo-note{padding:10px 18px;color:#9298a0;font-size:11px;border-top:1px solid #edf0f2}.notice{font-size:12px;color:#858c94;margin:18px 0 36px}footer{border-top:1px solid #e0e4e8;padding:19px 0;display:flex;justify-content:space-between;font-size:11px;color:#9298a0}footer strong{color:#626a73;font-weight:600}.design-note{font-size:11px;color:#939ba3;text-align:center;margin:15px 0 0}@media(max-width:600px){.header-inner{padding:19px 20px}.brand{font-size:25px}.brand span{margin-left:11px;padding-left:11px}.header-label{display:none}main{padding:27px 20px 15px}.eyebrow{font-size:10px;letter-spacing:1.3px}.title-line{align-items:center;margin-bottom:22px}h1{font-size:28px}.sample{font-size:10px;padding:4px 6px}.info{padding:18px 0;margin-bottom:28px}.info>div{padding:0 13px}dt{font-size:11px}dd{font-size:14px}.timezone{display:block;margin:3px 0 0;font-size:10px}.photos{grid-template-columns:1fr;gap:16px}h2{font-size:17px}figcaption{padding:13px 16px}.photo-note{padding:8px 16px}.notice{font-size:11px;margin-bottom:27px}footer{font-size:10px}}
 
-.photos{margin-bottom:32px}.photo img{aspect-ratio:auto;object-fit:contain}.stopped{background:white;border:1px solid #e4e7eb;border-radius:12px;padding:28px;margin-bottom:32px}.stopped h1{font-size:24px}
+.inspection{display:grid;grid-template-columns:1fr 2fr;gap:20px;background:white;border:1px solid #e4e7eb;border-radius:12px;padding:20px;margin:0 0 30px}.inspection dd{font-size:15px}.photos{margin-bottom:32px}.photo img{aspect-ratio:auto;object-fit:contain}.stopped{background:white;border:1px solid #e4e7eb;border-radius:12px;padding:28px;margin-bottom:32px}.stopped h1{font-size:24px}
 </style></head><body><header><div class="header-inner"><div class="brand">EMI<span>이엠아이</span></div><div class="header-label">제품 정보 조회</div></div></header><main>
 """;
         return Encoding.UTF8.GetBytes(prefix + body + "<footer><strong>주식회사 이엠아이</strong><span>제품 제조 정보</span></footer></main></body></html>");
@@ -222,7 +225,7 @@ public sealed class InteriorBusbarPublicationWorker(
         byte[]? detachedHtml;
         await using (var command = new NpgsqlCommand("""
             SELECT p.id,coalesce(p.number,''),coalesce(p.worker_name,''),coalesce(p.manufactured_at_utc,p.created_at_utc),p.public_token,p.revision,p.status,
-            exists(select 1 from busbar_shipment_products sp where sp.product_id=p.id and sp.released_at_utc is null),(select html from busbar_detached_pages d where d.product_id=p.id)
+            exists(select 1 from busbar_shipment_products sp where sp.product_id=p.id and sp.released_at_utc is null),(select html from busbar_detached_pages d where d.product_id=p.id),p.inspected_by_display_name,p.inspected_at_utc
             FROM busbar_products p WHERE (p.publication_state='Pending' AND p.revision>p.published_revision)
             OR exists(select 1 from busbar_publication_recovery r where r.product_id=p.id and r.next_attempt_at_utc<=now()) ORDER BY p.created_at_utc,p.id LIMIT 1 FOR UPDATE
             """, connection, transaction))
@@ -230,7 +233,8 @@ public sealed class InteriorBusbarPublicationWorker(
         {
             if (!await reader.ReadAsync(cancellationToken)) return false;
             snapshot = new(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetFieldValue<DateTimeOffset>(3),
-                reader.GetString(4), reader.GetInt32(5), reader.GetString(6) == "Cancelled", []);
+                reader.GetString(4), reader.GetInt32(5), reader.GetString(6) == "Cancelled", [],
+                reader.IsDBNull(9) ? null : reader.GetString(9), reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10));
             shipped = reader.GetBoolean(7);
             detachedHtml = reader.IsDBNull(8) ? null : reader.GetFieldValue<byte[]>(8);
         }

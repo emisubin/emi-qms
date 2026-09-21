@@ -11,7 +11,8 @@ public sealed partial class InteriorBusbarStore
         var snapshot = new InteriorBusbarPublicSnapshot(id, (string)p["number"]!, (string)p["workerName"]!,
             new DateTimeOffset((DateTime)p["manufacturedAtUtc"]!, TimeSpan.Zero), (string)p["publicToken"]!,
             Convert.ToInt32(p["revision"]) + 1, false,
-            photos.Select(photo => new InteriorBusbarPublicPhoto((string)photo["side"]!, (string)photo["contentType"]!, (byte[])photo["content"]!)).ToArray());
+            photos.Select(photo => new InteriorBusbarPublicPhoto((string)photo["side"]!, (string)photo["contentType"]!, (byte[])photo["content"]!)).ToArray(),
+            (string)p["inspectedByDisplayName"]!, new DateTimeOffset((DateTime)p["inspectedAtUtc"]!, TimeSpan.Zero));
         // Survives shipment rollback/process interruption. The worker restores the
         // committed lifecycle state under the same global mutation lock.
         await using (var recovery = new Npgsql.NpgsqlConnection(provider.GetConnectionString()))

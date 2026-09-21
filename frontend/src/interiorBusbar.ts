@@ -59,6 +59,9 @@ export type BusbarProduct = {
   labelPrintedByDisplayName?: string | null;
   labelAttachedAtUtc?: string | null;
   labelAttachedByDisplayName?: string | null;
+  inspectedAtUtc?: string | null;
+  inspectedByDisplayName?: string | null;
+  isShipped?: boolean;
   workerId: string | null;
   workerName: string | null;
   registeredByDisplayName?: string;
@@ -111,7 +114,7 @@ export type BusbarWorkspace = {
   };
   publicationOutstandingCount?: number;
   canWrite: boolean;
-  permissions?: { projects: boolean; planning: boolean; production: boolean; purchases: boolean; administration: boolean; mastersRead?: boolean; mastersWrite?: boolean; manageMasterPermissions?: boolean };
+  permissions?: { inspection?: boolean; projects: boolean; planning: boolean; production: boolean; purchases: boolean; administration: boolean; mastersRead?: boolean; mastersWrite?: boolean; manageMasterPermissions?: boolean };
   settings: { commonProjectCode: string; ecountCustomerCode?: string; ecountWarehouseCode?: string };
   productFamilies: BusbarMaster[];
   materials: BusbarMaster[];

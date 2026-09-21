@@ -702,3 +702,5 @@
 .app-shell .busbar-label-dialog > .dialog { min-width: 0 !important; width: min(620px, calc(100vw - 48px)) !important; max-width: calc(100vw - 48px) !important; box-sizing: border-box !important; justify-self: center; }
 .app-shell .busbar-label-dialog .busbar-label-row { display: flex !important; }
 .app-shell .busbar-label-dialog .busbar-label-row input[type=checkbox] { min-width: 20px; max-width: 20px; margin: 0; }
+
+.busbar-inspection{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid #e1e4e8;margin-bottom:16px}.busbar-inspection p{margin:6px 0 0;color:#69717c;font-size:13px;overflow-wrap:anywhere}.busbar-inspection button{flex-shrink:0;background:#292d33;color:#fff;border:1px solid #292d33;border-radius:6px;padding:10px 16px}.busbar-inspection button:disabled{opacity:.5}@media(max-width:480px){.busbar-inspection{align-items:flex-start;flex-wrap:wrap}.busbar-inspection button{width:100%}}

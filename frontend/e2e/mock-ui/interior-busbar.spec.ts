@@ -1206,7 +1206,7 @@ test("photo popup contains registration only and table follows production order"
   const table = page.getByRole("region", { name: "선택 목록", exact: true });
   await expect(table.getByRole("button", { name: /제품 관리$/ })).toHaveCount(0);
   await expect(table.getByRole("columnheader").first().getByRole("checkbox", {name: "현재 목록 출력 가능 제품 모두 선택"})).toBeVisible();
-  await expect(table.getByRole("columnheader")).toHaveText(["", "사진등록", "제품군", "계획일", "작업자", "생산일시", "생산 상태", "제품번호", "라벨 상태", "외부게시"]);
+  await expect(table.getByRole("columnheader")).toHaveText(["", "사진등록", "제품군", "계획일", "작업자", "생산일시", "생산 상태", "검사 상태", "제품번호", "라벨 상태", "외부게시"]);
   await expect(table.getByRole("cell", { name: "사진 등록 전", exact: true })).toBeVisible();
   await table.getByRole("button", { name: "사진등록" }).click();
   const dialog = page.getByRole("dialog");
@@ -1994,4 +1994,26 @@ test("photo upload supports HEIC previews and rejects unsupported input without 
   await preview;
   await expect(page.getByRole("img", { name: "앞면 등록 사진" })).toBeVisible();
   expect(writes.filter(w => w.path.includes("/photos/"))).toHaveLength(1);
+});
+
+
+test("quality inspection is available through panel QR landing on desktop and mobile", async ({ page }) => {
+ const data=publishedFixture(); data.permissions={...data.permissions!, production:false, administration:false, inspection:true};
+ await mock(page,data);
+ await page.route("http://localhost:5080/api/interior-busbar/products/published-1/inspection", async route => {
+   expect(route.request().method()).toBe("POST"); expect(route.request().postDataJSON()).toEqual({});
+   Object.assign(data.products[0],{inspectedAtUtc:"2026-09-21T03:00:00Z",inspectedByDisplayName:"합성 검사자"});
+   await route.fulfill({json:{id:"published-1"}});
+ });
+ await page.goto("/interior-busbar/production?productId=published-1");
+ const dialog=page.getByRole("dialog");
+ await expect(dialog.getByRole("region",{name:"품질 검사"})).toContainText("검사 미완료");
+ for(const width of [1440,390]){
+   await page.setViewportSize({width,height:900});
+   await expect(dialog.getByRole("button",{name:"검사 완료",exact:true})).toBeVisible();
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBe(0);
+ }
+ await dialog.getByRole("button",{name:"검사 완료",exact:true}).click();
+ await expect(dialog.getByRole("region",{name:"품질 검사"})).toContainText("합성 검사자");
+ await expect(dialog.getByRole("button",{name:"검사 완료",exact:true})).toHaveCount(0);
 });

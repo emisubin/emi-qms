@@ -84,6 +84,8 @@ public sealed class InteriorBusbarLifecycleTests
         Assert.Equal(shipment,await store.Shipment(request,f.Actor));
         var frozen = sink.Html;
         Assert.Contains("data:image/jpeg;base64,",frozen);
+        Assert.Contains("Synthetic quality inspector",frozen);
+        Assert.Contains("2026-09-09 10:00:00",frozen);
         Assert.DoesNotContain("https://",frozen);
         Assert.DoesNotContain("/api/",frozen);
         Assert.DoesNotContain("PMS",frozen);

@@ -7,6 +7,8 @@ public sealed partial class InteriorBusbarStore
         var p = await One(c, "busbar_products", productId);
         Require(Equals(p["productFamilyId"], familyId), "프로젝트와 다른 제품군의 패널입니다.");
         Require((string)p["status"]! == "Complete", "생산 완료 패널만 출하할 수 있습니다.");
+        if (p["inspectedAtUtc"] is null)
+            throw new BusbarException("inspection_required", "품질 검사를 완료한 패널만 출하할 수 있습니다.", 409);
         Require((await Rows(c, "select product_id from busbar_shipment_products where product_id=@id and released_at_utc is null", ("id", productId))).Count == 0,
             "이미 출하된 패널입니다. 기존 출하 이력을 확인하세요.");
     }

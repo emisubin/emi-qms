@@ -65,6 +65,7 @@ public sealed class InteriorBusbarAuthorizationTests
     [Theory]
     [InlineData("GET", "/api/interior-busbar/labels/pending")]
     [InlineData("GET", "/api/interior-busbar/labels/resolve?code=1")]
+    [InlineData("POST", "/api/interior-busbar/products/00000000-0000-0000-0000-000000000001/inspection")]
     [InlineData("POST", "/api/interior-busbar/labels/printed")]
     [InlineData("POST", "/api/interior-busbar/labels/attached")]
     [InlineData("GET", "/api/interior-busbar/access")]

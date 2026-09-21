@@ -2,6 +2,9 @@
 
 ## 현재 우선 작업 · 2026-09-21
 
+Current update: [Interior Busbar Change044](../tasks/interior-busbar-001.md) quality inspection, shipment gate, detached inspector record and approved QR labels implemented locally; focused checks and independent review passed. User acceptance at5256 pending. No remote merge/deployment for this change. Prior Change043 release history remains below.
+
+
 [인테리어 부스바 Change 043](../tasks/interior-busbar-001.md)의 QR 출력·부착 추적 및 화면 보정은 사용자 검수와 로컬 회귀를 완료하고 PR151로 원격 main에 병합, Azure35569599016 공개배포를 마쳤다. 사용자의 이번 한 번 선배포 예외 승인에 따라 원격 CI는 계속 실행 중이며, 실물 카메라·30/50mm 라벨 출력 확인은 남아 있다. 임시 관리자 예외는 병합 직후 원복했다. 상세 검증·잔여 상태는 해당 Task 최신 기록을 따른다. 아래 날짜별 오산 실행 큐는 이전 이력이다.
 
 ## 현재 구현 · 2026-09-16

@@ -6,7 +6,7 @@ public sealed record BusbarLabelRequest(Guid RequestId, IReadOnlyList<Guid> Prod
 
 public sealed partial class InteriorBusbarStore
 {
-    private const string LabelColumns = ", (select name from busbar_product_families f where f.id=p.product_family_id) product_family_name, (select plan_date from busbar_plans pl where pl.id=p.plan_id) plan_date, (select display_name from qms_users u where u.id=p.label_printed_by) label_printed_by_display_name, (select display_name from qms_users u where u.id=p.label_attached_by) label_attached_by_display_name";
+    private const string LabelColumns = ", exists(select 1 from busbar_shipment_products sp where sp.product_id=p.id and sp.released_at_utc is null) is_shipped, (select name from busbar_product_families f where f.id=p.product_family_id) product_family_name, (select plan_date from busbar_plans pl where pl.id=p.plan_id) plan_date, (select display_name from qms_users u where u.id=p.label_printed_by) label_printed_by_display_name, (select display_name from qms_users u where u.id=p.label_attached_by) label_attached_by_display_name";
     private const string EligibleLabel = "p.status<>'Cancelled' and not exists(select 1 from busbar_shipment_products sp where sp.product_id=p.id and sp.released_at_utc is null)";
 
     public static string? NormalizePanelNumber(string code)

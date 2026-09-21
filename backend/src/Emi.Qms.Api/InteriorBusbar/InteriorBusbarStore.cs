@@ -601,7 +601,7 @@ public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider
             await ReverseOperation(c, Id(op[0]), r, actor, true);
         }
         else await Operation(c, r.RequestId, "Reversal", id, actor, r.Reason, payload: r);
-        await Exec(c, "update busbar_products set status='Cancelled',revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("id", id));
+        await Exec(c, "update busbar_products set status='Cancelled',inspected_by=null,inspected_by_display_name=null,inspected_at_utc=null,revision=revision+1,publication_state='Pending',publication_error=null where id=@id", ("id", id));
         await Audit(c, "Product", id, actor, r.Reason, p, new
         {
             status = "Cancelled"

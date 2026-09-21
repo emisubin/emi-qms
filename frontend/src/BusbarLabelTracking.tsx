@@ -88,7 +88,11 @@ export function BusbarAttachmentDialog({ user, products: initial, entry = false,
     {camera && <button type="button" onClick={stop}>카메라 닫기</button>}
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     {products.length > 200 && <p>한 번에 최대 200개씩 부착 확인합니다. 나머지는 저장 후 이어서 선택해 주세요.</p>}
-    <button type="button" disabled={busy} onClick={() => setSelected(selected.length ? [] : products.slice(0, 200).map(p => p.id))}>{selected.length ? "선택 해제" : "모두 선택 (최대 200개)"}</button>
+    <label className="busbar-label-row"><input type="checkbox" aria-label="부착 확인 전체 선택"
+      checked={products.length > 0 && selected.length === Math.min(products.length, 200)}
+      ref={element => { if (element) element.indeterminate = selected.length > 0 && selected.length < Math.min(products.length, 200); }}
+      disabled={busy || !products.length}
+      onChange={event => setSelected(event.target.checked ? products.slice(0, 200).map(p => p.id) : [])} /><span>전체 선택{products.length > 200 ? " (최대 200개)" : ""}</span></label>
     <div className="busbar-label-groups">{dates.map(date => <section key={date}><h4>생산계획 {date}</h4>{products.filter(p => (p.planDate ?? "계획일 미지정") === date).map(p => <label className="busbar-label-row" key={p.id}><input type="checkbox" checked={selected.includes(p.id)} disabled={busy || (!selected.includes(p.id) && selected.length >= 200)} onChange={e => setSelected(ids => e.target.checked ? [...ids, p.id] : ids.filter(id => id !== p.id))} /><span><strong>{p.number}</strong><small>{p.productFamilyName} · {busbarLabelState(p.labelState)}</small></span></label>)}</section>)}</div>
     <div className="busbar-label-footer"><button disabled={busy} onClick={() => { stop(); onClose(); }}>{entry ? "나중에 확인" : "취소"}</button><button disabled={busy || !selected.length} onClick={() => void save()}>선택 {selected.length}개 부착 완료</button></div>
   </BusbarDialog>;

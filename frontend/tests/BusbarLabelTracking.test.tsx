@@ -10,7 +10,7 @@ afterEach(cleanup);
 it("saves only selected panels and leaves remaining visible", async () => {
  vi.mocked(busbarApi.write).mockResolvedValue({id:"saved"}); const changed=vi.fn();
  render(<BusbarAttachmentDialog user="a" products={[panel("1"),panel("2")]} onClose={vi.fn()} onChanged={changed}/>);
- fireEvent.click(screen.getAllByRole("checkbox")[1]); fireEvent.click(screen.getByRole("button",{name:"선택 1개 부착 완료"}));
+ fireEvent.click(screen.getAllByRole("checkbox", { name: /^IB-/ })[1]); fireEvent.click(screen.getByRole("button",{name:"선택 1개 부착 완료"}));
  await waitFor(()=>expect(changed).toHaveBeenCalledOnce()); expect(busbarApi.write).toHaveBeenCalledWith("a","/labels/attached",expect.objectContaining({productIds:["1"]})); expect(screen.queryByText("IB-00000001")).toBeNull(); expect(screen.getByText("IB-00000002")).toBeTruthy();
 });
 it("reuses idempotency request after failed response", async () => {
@@ -36,7 +36,7 @@ it("production denial prevents pending query", async () => {
 });
 it("caps a backlog at 200 selected panels", () => {
  render(<BusbarAttachmentDialog user="a" products={Array.from({length:201},(_,i)=>panel(String(i+1)))} onClose={vi.fn()} onChanged={vi.fn()}/>);
- expect(screen.getByRole("button",{name:"선택 200개 부착 완료"})).toBeTruthy(); expect(screen.getAllByRole("checkbox")[200]).toBeDisabled();
+ expect(screen.getByRole("button",{name:"선택 200개 부착 완료"})).toBeTruthy(); expect(screen.getAllByRole("checkbox", { name: /^IB-/ })[200]).toBeDisabled();
 });
 it("refreshes an open prompt on app return and closes when others attached everything", async () => {
  let hidden=false; vi.spyOn(document,"hidden","get").mockImplementation(()=>hidden);
@@ -48,5 +48,5 @@ it("refreshes an open prompt on app return and closes when others attached every
 });
 it("lookup at the selection limit explains the limit without claiming selection", async () => {
  vi.mocked(busbarApi.resolveLabel).mockResolvedValue(panel("201")); render(<BusbarAttachmentDialog user="a" products={Array.from({length:200},(_,i)=>panel(String(i+1)))} onClose={vi.fn()} onChanged={vi.fn()}/>);
- fireEvent.change(screen.getByRole("textbox"),{target:{value:"201"}}); fireEvent.click(screen.getByRole("button",{name:"찾기"})); await screen.findByRole("alert"); expect(screen.queryByRole("status")).toBeNull(); expect(screen.getAllByRole("checkbox")).toHaveLength(200);
+ fireEvent.change(screen.getByRole("textbox"),{target:{value:"201"}}); fireEvent.click(screen.getByRole("button",{name:"찾기"})); await screen.findByRole("alert"); expect(screen.queryByRole("status")).toBeNull(); expect(screen.getAllByRole("checkbox", { name: /^IB-/ })).toHaveLength(200);
 });

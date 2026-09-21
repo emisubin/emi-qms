@@ -642,3 +642,8 @@ Review split by author because a third reviewer spawn/resume hit agent-thread li
 Direct CUA verification on isolated5253/5105 and newly copied synthetic DB busbar_labels_synthetic_20260921:390 mobile and1440 desktop, existing status/plan date,1/0001 numeric lookup, actual attachment persistence, same-account2-panel entry prompt and partial2→1 remaining, defer,30mm113.38px/50mm188.97px preview dimensions, mobile day-plan actions without page horizontal overflow. Synthetic RGB PNG selected, saved through API, viewed and enlarged in color; computed filter none and active save white text onrgb(40,40,40). No browser error logs observed. QR preview uses reserved-domain synthetic fixture artifacts; test output records do not represent real printing. Public static publisher, ERP and notifications are disabled in this preview. Existing screenshots/prototype are not real scan/print evidence.
 
 Remaining: user product acceptance, physical mobile camera and30/50mm label-printer check, final requiredCI/regression before a separately authorized merge/deploy. No productionDB/provider change, remote push/merge or public deployment performed forChange043.
+
+### Change 043 검수 보정: 전체 선택 위치
+- 사용자 요청에 따라 별도 전체 선택 제어를 생산 표 선택 열 헤더(모바일은 목록 바로 위) 체크박스로 이동. 부착 확인 팝업도 목록 상단 체크박스로 통일.
+- 전체 선택/해제 및 일부 선택 표시, 기존 출력 가능 대상/최대 200개 제한 유지.
+- TypeScript 통과, 라벨 관련 테스트 9건 통과. 로컬 PC 헤더 및 모바일 팝업에서 선택/해제와 배치 직접 확인. 공개배포 없음.

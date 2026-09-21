@@ -444,6 +444,11 @@ export function InteriorBusbarPage({
   const visibleProducts = data.products.filter((product) => matches(productLabel(product), familyName(product.productFamilyId), product.planDate ?? "미지정", product.workerName));
   const eligibleProducts = visibleProducts.filter(canPrintBusbarQr);
   const selectedIds = selectedQrIds.filter((id) => eligibleProducts.some((product) => product.id === id));
+  const selectAllQr = <input type="checkbox" aria-label="현재 목록 출력 가능 제품 모두 선택"
+    checked={eligibleProducts.length > 0 && selectedIds.length === eligibleProducts.length}
+    ref={element => { if (element) element.indeterminate = selectedIds.length > 0 && selectedIds.length < eligibleProducts.length; }}
+    disabled={busy || eligibleProducts.length === 0}
+    onChange={event => setSelectedQrIds(event.target.checked ? eligibleProducts.map(product => product.id) : [])} />;
   async function validateLabels(labels: Array<{ productId: string; revision: number; sourceNumber?: string }>) {
     const fresh = await Promise.all(labels.map((label) => busbarApi.product(user, label.productId)));
     fresh.forEach((product, index) => {
@@ -743,17 +748,14 @@ export function InteriorBusbarPage({
               </div>
             </DsToolbar>
             <DsToolbar label="제품 QR 선택">
-              <label className="busbar-check-label"><input type="checkbox" aria-label="현재 목록 출력 가능 제품 모두 선택"
-                checked={eligibleProducts.length > 0 && selectedIds.length === eligibleProducts.length}
-                disabled={busy || eligibleProducts.length === 0}
-                onChange={(event) => setSelectedQrIds(event.target.checked ? eligibleProducts.map((product) => product.id) : [])} />현재 목록 전체 선택</label>
+
               <span>{selectedIds.length}개 선택</span>
               <button disabled={busy || !canWrite || selectedIds.length === 0} onClick={prepareQrLabels}>선택 QR 인쇄</button>
               {canWrite && <><button disabled={busy || !selectedIds.length} onClick={() => setAttachmentProducts(eligibleProducts.filter(p => selectedIds.includes(p.id) && p.labelState !== "Attached"))}>선택 부착 확인</button><button disabled={busy} onClick={() => setAttachmentProducts([])}>QR·번호로 부착 확인</button></>}
             </DsToolbar>
             <p className="busbar-note">외부 게시가 완료된 생산 대기 패널도 QR을 미리 출력할 수 있습니다.</p>
             <div className="busbar-production-desktop">
-              <Table headings={["선택", "사진등록", "제품군", "계획일", "작업자", "생산일시", "생산 상태", "제품번호", "라벨 상태", "외부게시"]}
+              <Table firstHeading={selectAllQr} headings={["선택", "사진등록", "제품군", "계획일", "작업자", "생산일시", "생산 상태", "제품번호", "라벨 상태", "외부게시"]}
                 rows={visibleProducts.map((product) => [
                   <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintBusbarQr(product)}
                     onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />,
@@ -767,6 +769,7 @@ export function InteriorBusbarPage({
                 ])} />
             </div>
             <div className="busbar-production-mobile-list" aria-label="생산 패널 목록">
+              <label className="busbar-check-label">{selectAllQr}<span>전체 선택</span></label>
               {visibleProducts.map((product) => <article className="busbar-production-mobile-row" key={product.id}>
                 <input type="checkbox" aria-label={`${productLabel(product)} QR 선택`} checked={selectedIds.includes(product.id)} disabled={busy || !canPrintBusbarQr(product)}
                   onChange={(event) => setSelectedQrIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} />
@@ -1110,10 +1113,12 @@ export function Table({
   rows,
   rowActions,
   rowClasses,
+  firstHeading,
   emptyTitle = "등록된 항목이 없습니다.",
 }: {
   emptyTitle?: string;
   headings: string[];
+  firstHeading?: ReactNode;
   rows: ReactNode[][];
   rowClasses?: string[];
   rowActions?: { expanded?: boolean; toggle: () => void }[];
@@ -1130,7 +1135,7 @@ export function Table({
           <tr>
             {headings.map((h, i) => (
               <th key={i} scope="col">
-                {h}
+                {i === 0 ? firstHeading ?? h : h}
               </th>
             ))}
           </tr>

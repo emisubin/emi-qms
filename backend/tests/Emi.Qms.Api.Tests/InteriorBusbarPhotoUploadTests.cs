@@ -222,6 +222,15 @@ public sealed class InteriorBusbarPhotoUploadTests
         Assert.Equal(storedMime, download.Content.Headers.ContentType?.MediaType);
         var stored = await download.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
         Assert.Equal(expected.Content, stored);
+        // Independent pixel property: fixtures are chromatic; saved bytes must not become grayscale.
+        using (var color = new MagickImage(stored))
+        {
+            color.Depth = 8;
+            var rgba = color.ToByteArray(MagickFormat.Rgba);
+            Assert.True(Enumerable.Range(0, rgba.Length / 4).Any(i =>
+                Math.Abs(rgba[i * 4] - rgba[i * 4 + 1]) > 10 || Math.Abs(rgba[i * 4 + 1] - rgba[i * 4 + 2]) > 10),
+                "Stored evidence must retain chromatic pixels: " + declaredMime);
+        }
         if (declaredMime == "image/jpeg")
             Assert.DoesNotContain("SYNTHETIC-PRIVATE", System.Text.Encoding.UTF8.GetString(stored));
         if (declaredMime == "image/heic")

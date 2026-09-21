@@ -17,7 +17,7 @@ public sealed partial class InteriorBusbarStore
         code = code.Trim();
         var project = await One(c, "busbar_projects", projectId);
         // Match stored QR URLs locally. Never fetch or follow a scanned URL.
-        var matches = await Rows(c, "select p.* from busbar_products p where p.number=@code or p.public_token=@code or exists(select 1 from busbar_product_qr q where q.product_id=p.id and q.url=@code)", ("code", code));
+        var matches = await FindPanel(c, code);
         Require(matches.Count == 1, "등록된 패널 QR 또는 제품번호를 확인하세요.");
         var p = matches[0];
         await RequireShippable(c, Id(p), Id(project, "productFamilyId"));

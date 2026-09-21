@@ -36,6 +36,19 @@ public sealed class InteriorBusbarAuthorizationTests
     }
 
     [Theory]
+    [InlineData("printed")]
+    [InlineData("attached")]
+    public async Task UnprivilegedUserCannotConfirmLabels(string action)
+    {
+        using var factory = new QmsWebApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-viewer");
+        using var response = await client.PostAsJsonAsync("/api/interior-busbar/labels/" + action,
+            new BusbarLabelRequest(Guid.NewGuid(), [Guid.NewGuid()]), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
     [InlineData("dev-sales")]
     [InlineData("dev-manufacturing")]
     [InlineData("dev-logistics")]
@@ -50,6 +63,10 @@ public sealed class InteriorBusbarAuthorizationTests
     }
 
     [Theory]
+    [InlineData("GET", "/api/interior-busbar/labels/pending")]
+    [InlineData("GET", "/api/interior-busbar/labels/resolve?code=1")]
+    [InlineData("POST", "/api/interior-busbar/labels/printed")]
+    [InlineData("POST", "/api/interior-busbar/labels/attached")]
     [InlineData("GET", "/api/interior-busbar/access")]
     [InlineData("GET", "/api/interior-busbar/masters")]
     [InlineData("GET", "/api/interior-busbar/master-access")]
@@ -239,6 +256,13 @@ public sealed class InteriorBusbarAuthorizationTests
         },identityStore:new MutableIdentity(f.Actor));
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader,"busbar-fixture");
+        foreach (var action in new[] { "printed", "attached" })
+        {
+            using var write = await client.PostAsJsonAsync("/api/interior-busbar/labels/" + action,
+                new BusbarLabelRequest(Guid.NewGuid(), [product]), TestContext.Current.CancellationToken);
+            Assert.Equal((HttpStatusCode)423, write.StatusCode);
+        }
+        Assert.Equal(0L, await f.Scalar("select count(*) from busbar_label_events"));
         var blocked = await client.GetAsync($"/api/interior-busbar/products/{product}/qr",TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Conflict,blocked.StatusCode);
         Assert.Contains("qr_generation_pending",await blocked.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));

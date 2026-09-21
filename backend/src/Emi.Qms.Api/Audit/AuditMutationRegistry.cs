@@ -22,6 +22,8 @@ public static partial class AuditMutationRegistry
     // This closed set is populated from the runtime endpoint catalog and locked by a contract test.
     // Any new mutation endpoint must be deliberately classified before application startup succeeds.
     internal static readonly IReadOnlySet<string> KnownMutationRouteKeys = ParseRouteKeys("""
+        POST /api/interior-busbar/labels/printed
+        POST /api/interior-busbar/labels/attached
         PATCH /api/interior-busbar/products/{id:guid}
         PUT /api/interior-busbar/master-access
         PUT /api/interior-busbar/settings

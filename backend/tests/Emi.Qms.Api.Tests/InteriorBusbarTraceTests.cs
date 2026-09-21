@@ -55,6 +55,7 @@ public sealed class InteriorBusbarTraceTests
     {
         await using var f=await InteriorBusbarStoreTests.Fixture.Create(new(false,new Uri("https://synthetic.example/"),null,""));
         var (family,_,project,panels)=await Arrange(f);
+        foreach (var panel in panels) await f.Store.InspectProduct(panel,f.Actor,"Synthetic inspector");
         var product=await f.Store.GetProduct(panels[0]);
         var number=(string)product["number"]!;
         var resolved=JsonSerializer.SerializeToElement(await f.Store.ResolveShipmentPanel(project,number));
@@ -109,6 +110,7 @@ public sealed class InteriorBusbarTraceTests
             await Assert.ThrowsAsync<BusbarException>(()=>f.Store.Shipment(request,f.Actor));
         Assert.Equal(0L,await f.Scalar("select count(*) from busbar_shipments"));
         Assert.Equal(3m,await f.Balance("Finished",family));
+        foreach (var panel in panels) await f.Store.InspectProduct(panel,f.Actor,"Synthetic inspector");
         var competing=await f.Store.Project(new(null,"Competing","",family,10,"Other destination",new(2026,10,1)),f.Actor);
         async Task<bool> Ship(Guid target) { try { await f.Store.Shipment(new(Guid.NewGuid(),target,1,[panels[0]]),f.Actor); return true; } catch(BusbarException) { return false; } }
         Assert.Single(await Task.WhenAll(Ship(project),Ship(competing)),x=>x);

@@ -46,6 +46,7 @@ public static class InteriorBusbarEndpointExtensions
                 access = await http.RequestServices.GetRequiredService<InteriorBusbarStore>().MasterAccess(actor, access);
             if (routePath == "/api/interior-busbar/masters" && !access.MastersRead || routePath == "/api/interior-busbar/master-access" && !access.ManageMasterPermissions) return Results.Forbid();
             http.Items["busbarAccess"] = access;
+            http.Items["busbarActorDisplayName"] = profile.User.DisplayName;
             if (http.Request.Method != "GET" && !access.Allows((http.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText)) return Results.Forbid();
             try
             {
@@ -153,6 +154,10 @@ public static class InteriorBusbarEndpointExtensions
         api.MapPost("/products", async (BusbarProductRequest r, ClaimsPrincipal u, InteriorBusbarStore s) => Results.Ok(new
         {
             id = await s.Product(r, Actor(u))
+        }));
+        api.MapPost("/products/{id:guid}/inspection", async (Guid id, HttpContext h, InteriorBusbarStore s) => Results.Ok(new
+        {
+            id = await s.InspectProduct(id, Actor(h.User), (string)h.Items["busbarActorDisplayName"]!)
         }));
         api.MapGet("/labels/pending", (ClaimsPrincipal u, InteriorBusbarStore s) => s.PendingLabels(Actor(u)));
         api.MapGet("/labels/resolve", (string code, InteriorBusbarStore s) => s.ResolveLabel(code));

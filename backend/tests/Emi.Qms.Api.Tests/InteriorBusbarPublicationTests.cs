@@ -172,6 +172,7 @@ public sealed class InteriorBusbarPublicationTests
 
         await f.Store.Settings(new("SYN"), f.Actor);
         var project = await f.Store.Project(new(null, "Shipment", "TEST", family, 1, "Destination", new DateOnly(2026,9,30)), f.Actor);
+        await f.Store.InspectProduct(productId,f.Actor,"Synthetic quality inspector");
         await f.Store.Shipment(new(Guid.NewGuid(), project, 1, [productId]), f.Actor);
         // Queue a republish of the frozen shipment snapshot.
         await f.Store.CorrectProduct(productId, new(workerId, "독립 출하 사진 보존 확인"), f.Actor);

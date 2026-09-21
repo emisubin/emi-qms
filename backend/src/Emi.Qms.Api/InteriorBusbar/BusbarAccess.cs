@@ -6,7 +6,8 @@ public sealed record BusbarAccess(bool Projects, bool Planning, bool Production,
     public bool MastersRead { get; init; }
     public bool MastersWrite { get; init; }
     public bool ManageMasterPermissions { get; init; }
-    public bool Any => MastersWrite || Projects || Planning || Production || Purchases || Administration;
+    public bool Inspection { get; init; }
+    public bool Any => Inspection || MastersWrite || Projects || Planning || Production || Purchases || Administration;
 
     public static BusbarAccess For(UserAuthorizationProfile profile, bool overallAdministrator)
     {
@@ -15,11 +16,12 @@ public sealed record BusbarAccess(bool Projects, bool Planning, bool Production,
         // Team ownership follows the current department, not a stale or separately assigned department role.
         var department = profile.Department?.Code;
         return new(admin || department == "sales", admin || department == "production-planning",
-            admin || department == "manufacturing", admin || department == "production-planning", admin) { MastersRead = manage, MastersWrite = manage, ManageMasterPermissions = manage };
+            admin || department == "manufacturing", admin || department == "production-planning", admin) { Inspection = department == "quality", MastersRead = manage, MastersWrite = manage, ManageMasterPermissions = manage };
     }
 
     public bool Allows(string? route) => route switch
     {
+        "/api/interior-busbar/products/{id:guid}/inspection" => Inspection,
         "/api/interior-busbar/projects" or "/api/interior-busbar/projects/{id:guid}/delete" or "/api/interior-busbar/projects/{id:guid}/restore" or "/api/interior-busbar/shipments" or
         "/api/interior-busbar/projects/import/preview" or "/api/interior-busbar/projects/import/apply" => Projects,
         "/api/interior-busbar/plans" or "/api/interior-busbar/plans/{id:guid}/delete" or "/api/interior-busbar/plans/{id:guid}/restore" => Planning,

@@ -658,3 +658,21 @@ Remaining: user product acceptance, physical mobile camera and30/50mm label-prin
 - 물리 카메라·라벨 프린터, 원격 required CI, 운영 배포는 별도 단계이며 아직 미실행.
 
 최종 상태: 로컬 자동 회귀와 사용자 화면 검수 완료. 이번 회귀 보정은 기존 기대 문구·열·접근성 선택자를 갱신한 테스트 1개 파일뿐이며 제품 코드 변경 없음. 로그는 /private/tmp/busbar-043-final-{frontend,backend,backend-db-retry,isolation,browser-isolated,browser-corrected,browser-selection,build}.log. 백엔드 최초 948건의 실패 범위는 후속 결과로 모두 해소. 원격 required CI와 실물 스캔·프린터 검증은 대체하지 않음. 검증 전용 5254 서버와 일회성 분리 DB 하네스는 정리했고 5253/5105 검수 서버는 유지. 원격 push·병합·배포는 별도 명시 승인 대기.
+
+
+### Change 043 공개배포 — 2026-09-21
+- 사용자가 원격 main 병합·공개배포와 이번 한 번 CI 완료 전 선배포를 명시 승인했다. 추가로 PR151에 한정한 임시 관리자 예외·즉시 원복을 승인했다. ruleset18957566의 원본을 보관하고 PR 전용 관리자 bypass를 잠시 추가, 병합 직후 모든 원본 필드와 일치함을 확인했다. 현재 active/bypass_actors=[]이다.
+- PR151 https://github.com/emisubin/emi-qms/pull/151 을 main bfddc8236333a2318d0ecb2b2f0ca640f0448053 으로 squash 병합. 최신 main 통합 후보 af7b84b와 최종 로컬 검증본4c2f77a 및 병합 main의 tree가 동일함을 확인했다. 기존 squash 계보 통합 충돌은 검증된 동일 tree로 해소했으며 추가 제품 변경 없음.
+- Azure release35569599016 https://github.com/emisubin/emi-qms/actions/runs/35569599016 성공. 추가 migration0121 실행 migration-gnhg1qm Succeeded, backend--0000062/frontend--0000052 Healthy·active·latestReady. 공개 health200, 비로그인 root/API401, workflow security smoke PASS. 배포 직후 backend 로그102줄에서 fail/unhandled/fatal/publication-failure 표시0건(짧은 관찰 구간).
+- 기존 DB 복구 보존14일 확인. DB reset/drop, role bootstrap, membership backfill, 실제 ERP 시험 전표, 신규 자원 생성 없음. 기존 QR/패널 번호 보존. 관련 없는 WIP와5253/5105 검수 서버 유지.
+- PR CI35569281601 및 병합 main CI35569410352는 계속 실행 중. 프런트엔드는 통과했으나 서버·전체 통합 검증은 아직 완료되지 않아 전체 CI 통과로 보고하지 않는다. 물리 카메라·30/50mm 라벨 프린터 검증은 별도 미완료.
+
+
+### Change 044 — 품질 검사 및 라벨 (2026-09-21)
+사용자 승인: 사진2회에 따른 생산 완료는 유지, 품질팀이 버튼만으로 검사 완료 등록. 검사 미완료는 출하 차단. 인증된 검사자·서버 시간을 기록하고 출하 후 PMS와 분리된 외부 HTML에 함께 보존. 기존 출하 자료는 검사 이력을 임의 생성하지 않고 보존. 생산 전 출력하는 라벨의 체크칸은 수기용 빈 칸이며 PMS 상태와 별개.
+확정 시안: /private/tmp/emi-busbar-calendar-design/quality-labels.html (5250). 날짜를 맨 위 가운데에 작게 표시하고 계획 단어/emi 표시는 제외. QR, 패널번호, 제품군, 한 줄 여백, 생산완료/검사완료 체크칸.30/50mm 한 장에 모두 포함. Carbon checkbox 가이드, 실제 GitHub Issues 운영 화면, DENSO QR 여백 가이드를 참고. 제품의 기존 조회/버튼 패턴을 재사용하고 별도 페이지 재설계 없음.
+구현 기준선024a8e4 (배포 bfddc82와 제품 동일), branch codex/busbar-quality-inspection. backend+DB는 별도 구현자, parent frontend/docs. 신규 migration, 권한·중복요청·출하 차단·분리 문서와 화면/인쇄 검증 예정. 운영 데이터 변경·원격 게시·공개배포 승인 범위 아님. 실제 라벨 카메라·프린터 검증은 별도.
+
+Change044 implementation verification: quality-department server permission only; authenticated inspector/server time. Duplicate inspection preserves the first record under shared transaction lock. Both photos/Complete prerequisite, scan and shipment reject uninspected with409 inspection_required. Cancellation clears active inspection with audit preservation. Detached HTML includes escaped inspector/Korea timestamp/embedded photos and no PMS/network connection. Migration0122 leaves old panels uninspected, old shipped HTML unchanged.
+Backend Release build0 warnings/errors; busbar+audit273/273 and latest inspection/publication/lifecycle32/32 passed,0 skipped; includes actual pre0119-to-current catalog upgrade. Frontend inspection/labels14/14, related mock-browser3/3 (photo workflow,3 separate label print sheets,quality QR entry at PC/mobile), typecheck/targeted lint/build passed; existing bundle-size warning only. Independent GPT6 High full diff review GO, no blocking finding.
+Direct UI/API: separate synthetic busbar_quality_synthetic_20260921 DB,5106 API,5256 quality preview. RGB synthetic photos completed production; quality button persisted inspector/time across reload.1440/390 inspection and actual compiled detached HTML visually checked; mobile overflow0.30mm component screenshot inspected;50mm iframe3-sheet print verified. Physical printer/camera not tested. External render5250/quality-external.html uses synthetic1px images. External providers disabled; existing5253/5105 and original checkout WIP preserved. Product acceptance pending; no remote push/merge/deploy for Change044.

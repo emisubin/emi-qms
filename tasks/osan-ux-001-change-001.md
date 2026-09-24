@@ -520,3 +520,4 @@
 - 최초1회 bootstrap runner는 구 앱 중단→필수 읽기 전용 drain 진단→migration→공지 준비/저장 제한→새 앱→검증→저장 재개 순서를 강제한다. migration 이전 실패만 구 revision 복구, 이후 실패는 중단 상태에서 forward fix하며 자동 재시도·역migration하지 않는다. 정상/중단/drain/migration/불확실 start/교체/완료/승인 누락/helper 누락9개 모의 검증 통과. 일반 배포 경로는 바꾸지 않았다.
 - Azure maintenance Manual job을 기존 Key Vault 참조와 identity로 준비했다. 실행·운영 DB 변경·서비스 중단은 아직 없다. 운영 DB는 외부 네트워크 비활성, PITR14일 보존을 확인했다. 내부 읽기 전용 진단 경로와 actor·동일 DB 연결 검증을 준비 중이다.
 - 첫 PR CI는 프런트 mock4개 실패를 발견하여 보정 중이며 Backend 실행 중이다. 최신 후보의 required CI, 원격 main 병합, 실제 공지/점검 중단/공개배포는 미완료다.
+- 추가 화면 회귀: 첫 CI의 mock UI4개는 실행 날짜·고객 원장 fixture·변경된 필터/자동 닫기 기대를 보정하여 모두 통과했다. 실제3DB 오산 등록 검증은 고객 생성/담당 배정/화면 고객 연결 완료/POST201/상세customerId/청주 불변을 확인하고1개 통과했다. 변경은 테스트3개 파일이며 제품 검증을 축소하지 않았다. 생성한 테스트 DB·역할·프로세스·Compose 정리 완료. parent diff 검토 완료.

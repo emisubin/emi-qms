@@ -1,5 +1,6 @@
 import { expect, type Page, type Route, test } from '@playwright/test';
 
+const customerId = '95000000-0000-0000-0000-000000000001';
 const projectId = '91000000-0000-0000-0000-000000000001';
 const cheongjuProjectId = '71000000-0000-0000-0000-000000000010';
 const cheongjuPanelIds = [
@@ -50,7 +51,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
 
   await page.getByLabel('장비명').fill('  저장된 Title  ');
   await page.getByLabel('프로젝트 코드').fill('  AbC  001  ');
-  await page.getByLabel('고객사').fill('  고객사  ');
+  await page.getByRole('textbox', { name: '고객사', exact: true }).fill('  고객사  ');
   await page.getByLabel('PO No').fill('  001-PO/+  ');
   await page.getByLabel('W/O No').fill('  000-W/O  ');
   await page.getByLabel('납기일').fill('2026-12-31');
@@ -64,6 +65,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
     title: '저장된 Title',
     projectCode: 'AbC  001',
     customerName: '고객사',
+    customerId,
     poNumber: '001-PO/+',
     workOrderNumber: '000-W/O',
     deliveryDate: '2026-12-31',
@@ -182,15 +184,16 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
-  await expect(osanMobilePage.getByLabel('프로젝트 요약').locator(':scope > div')).toHaveText(['전체1', '시작 전1', '진행 중0', '완료0']);
+  await expect(osanMobilePage.getByLabel('프로젝트 요약').getByRole('button')).toHaveText(['전체1', '시작 전1', '진행 중0', '완료0']);
   await osanMobilePage.getByRole('button', { name: '필터', exact: true }).click();
-  await expect(osanMobilePage.getByRole('combobox', { name: '상태별' })).toHaveValue('All');
-  await expect(osanMobilePage.getByRole('combobox')).toHaveCount(2);
-  await expect(osanMobilePage.getByLabel('시작일')).toHaveCount(0);
-  await osanMobilePage.getByRole('combobox', { name: '고객사별' }).selectOption('고객사');
+  await expect(osanMobilePage.getByRole('group', { name: '상태별' }).getByRole('checkbox')).toHaveCount(4);
+  await expect(osanMobilePage.getByRole('group', { name: '상태별' }).locator('input:checked')).toHaveCount(0);
+  await expect(osanMobilePage.getByLabel('납기 시작일', { exact: true })).toHaveValue('');
+  await expect(osanMobilePage.getByLabel('납기 종료일', { exact: true })).toHaveValue('');
+  await osanMobilePage.getByRole('group', { name: '고객사별' }).getByRole('checkbox', { name: '고객사', exact: true }).check();
   await expect(mobileList).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
-  await osanMobilePage.getByRole('combobox', { name: '상태별' }).selectOption('Completed');
+  await osanMobilePage.getByRole('group', { name: '상태별' }).getByRole('checkbox', { name: '포장완료', exact: true }).check();
   await expect(page.getByText('조건에 맞는 프로젝트가 없습니다.')).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
   await expect(mobileList).toBeVisible();
@@ -223,7 +226,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(desktopProjectRow.getByText('0%')).toBeVisible();
   const osanDesktopPage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanDesktopPage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
-  await expect(osanDesktopPage.getByLabel('프로젝트 요약').locator(':scope > div')).toHaveCount(4);
+  await expect(osanDesktopPage.getByLabel('프로젝트 요약').getByRole('button')).toHaveCount(4);
   const osanDesktopPageContract = await osanListFrameContract(page);
   expect(osanDesktopPageContract.order).toEqual(osanMobilePageContract.order);
   const osanDesktopListContract = await projectListContract(page);
@@ -238,7 +241,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
     await expect(page.getByRole('list', { name: '프로젝트 진행 목록' })).toBeVisible();
     const dashboardContract = await osanListFrameContract(page);
     expect(dashboardContract.order).toEqual(osanDesktopPageContract.order);
-    expect(dashboardContract.labels).toEqual(['관리 대상', '공정 시작 전', '공정 진행 중', '포장완료', 'HOLD']);
+    expect(dashboardContract.labels).toEqual(['관리 대상', '공정 시작 전', '공정 진행 중', '공정 이상', 'HOLD']);
     expect(await hasHorizontalOverflow(page)).toBe(false);
   }
 
@@ -392,7 +395,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   await dialog.getByLabel('작성한 엑셀 파일').setInputFiles({ name: 'projects.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic workbook') });
   await dialog.getByRole('button', { name: '내용 미리보기' }).click();
   await expect(dialog.getByLabel('2행 장비명')).toHaveText('입력 필요');
-  await expect(dialog.getByRole('textbox')).toHaveCount(0);
+  await expect(dialog.getByRole('textbox', { name: /^\d+행 / })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: '1개 프로젝트 등록' })).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath('osan-excel-edit-desktop.png'), fullPage: true });
   await dialog.getByRole('button', { name: '1개 프로젝트 등록' }).focus();
@@ -407,7 +410,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   await dialog.getByLabel('2행 장비명').click();
   await dialog.getByLabel('2행 장비명').fill(projectDetail().title);
   await page.keyboard.press('Enter');
-  await expect(dialog.getByRole('textbox')).toHaveCount(0);
+  await expect(dialog.getByRole('textbox', { name: /^\d+행 / })).toHaveCount(0);
   await page.keyboard.press('Tab');
   expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -418,9 +421,9 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   expect(submitted).toEqual([[3]]);
   await page.screenshot({ path: testInfo.outputPath('osan-excel-duplicate-mobile.png'), fullPage: true });
   await dialog.getByRole('button', { name: '중복 포함 1개 등록' }).click();
-  await expect(dialog.getByLabel('2행 장비명')).toBeDisabled();
+  await expect(dialog).toHaveCount(0);
   expect(submitted).toEqual([[3], [2]]);
-  await dialog.getByRole('button', { name: '닫기', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '1개 프로젝트를 등록했습니다.' })).toBeVisible();
   await expect(page.getByTestId('osan-project-list-mobile')).toBeVisible();
   expect(await hasHorizontalOverflow(page)).toBe(false);
   expect(unexpected).toEqual([]); expect(consoleErrors).toEqual([]);
@@ -439,6 +442,12 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
       });
     }
     if (path === '/api/me') return fulfillJson(route, currentUser(businessUnit));
+    if (path === '/api/osan/customers') return fulfillJson(route, { items: [{ customerId, name: '고객사', version: 1 }] });
+    if (path === '/api/osan/notices/popups') return fulfillJson(route, { items: [] });
+    if (path === '/api/maintenance') return fulfillJson(route, {
+      releaseId: null, version: 0, popupVersion: 0, state: 'Idle', writeBlocked: false,
+      title: '', body: '', startsAtUtc: null, expectedEndsAtUtc: null, noticeId: null, popupPending: false
+    });
     if (path === '/api/interior-busbar/access') return fulfillJson(route, { projects: false, planning: false, production: false, mastersRead: false, mastersEdit: false, administrator: false });
     if (path === '/api/audit/site-access/signals') {
       return fulfillJson(route, {
@@ -597,6 +606,7 @@ function projectDetail() {
     title: '저장된 Title',
     projectCode: 'AbC  001',
     customerName: '고객사',
+    customerId,
     poNumber: '001-PO/+',
     workOrderNumber: '000-W/O',
     deliveryDate: '2026-12-31',
@@ -850,7 +860,7 @@ function osanListFrameContract(page: Page) {
     return {
       order: Array.from(root.children).flatMap(element => [...sections].filter(([selector]) => element.matches(selector)).map(([, name]) => name)),
       geometry: elements.map(element => ({ y: element.getBoundingClientRect().y, height: element.getBoundingClientRect().height })),
-      labels: Array.from(root.querySelectorAll('.osan-dashboard-summary > div > span')).map(element => element.textContent)
+      labels: Array.from(root.querySelectorAll('.osan-dashboard-summary > :is(div,button) > span')).map(element => element.textContent)
     };
   });
 }

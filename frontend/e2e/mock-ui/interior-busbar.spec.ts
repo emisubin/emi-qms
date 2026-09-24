@@ -1178,6 +1178,7 @@ test("all calendar cells match the busiest day across weeks and viewports", asyn
 });
 
 test("overview excludes completed projects and orders pending projects by due date", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-12T06:00:00Z"));
   const data = fixture(), project = data.projects[0];
   data.projects = [
     { ...project, id: "later", name: "합성 나중 현장", dueDate: "2026-09-30" },

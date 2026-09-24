@@ -2457,17 +2457,17 @@ function QmsAppShellContent({
   ];
   const navigationItems: NavigationItem[] = isOsan
     ? [
-        { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
-        { label: '알림', view: { kind: 'notifications' }, active: ['notifications', 'teams-notification-detail', 'notification-preferences'].includes(view.kind), group: '내 업무', badge: displayedShellBadges.unreadNotificationCount },
-        { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
+        { label: '홈', view: { kind: 'home' }, active: view.kind === 'home' },
+        { label: '알림', view: { kind: 'notifications' }, active: ['notifications', 'teams-notification-detail', 'notification-preferences'].includes(view.kind), badge: displayedShellBadges.unreadNotificationCount },
+        { label: '공지사항', view: { kind: 'notice-board' }, active: view.kind === 'notice-board' },
+        { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list' },
+        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress' },
         ...(isSystemAdministrator ? [
-          {label:'Gate 승인 대기',view:{kind:'osan-gate-approvals'} as View,active:view.kind==='osan-gate-approvals',group:'관리' as const},
-          {label:'관리자',view:{kind:'osan-customer-admin'} as View,active:['osan-customer-admin','osan-gate-settings'].includes(view.kind),group:'관리' as const,children:[
+          {label:'관리자',view:{kind:'osan-customer-admin'} as View,active:['osan-customer-admin','osan-gate-settings','osan-gate-approvals'].includes(view.kind),children:[
             {key:'osan-customers',label:'고객사 관리',view:{kind:'osan-customer-admin'} as View,active:view.kind==='osan-customer-admin'},
-            {key:'osan-gates',label:'Gate 설정',view:{kind:'osan-gate-settings'} as View,active:view.kind==='osan-gate-settings'}]}
-        ] : []),
-        { label: '공지사항', view: { kind: 'notice-board' }, active: view.kind === 'notice-board', group: '공통 조회' }
+            {key:'osan-gates',label:'Gate 설정',view:{kind:'osan-gate-settings'} as View,active:view.kind==='osan-gate-settings'},
+            {key:'osan-approvals',label:'Gate 승인 대기',view:{kind:'osan-gate-approvals'} as View,active:view.kind==='osan-gate-approvals'}]}
+        ] : [])
       ]
     : cheongjuNavigationItems;
 
@@ -3417,7 +3417,7 @@ function AppNavigation({
 }) {
   // Departments start collapsed; the whole parent row is the disclosure and
   // at most one department is open. Child navigation keeps its parent open.
-  const [expandedLabel, setExpandedLabel] = useState<string | null>(() => items.find((item) => item.active && item.label === '인테리어 부스바')?.label ?? null);
+  const [expandedLabel, setExpandedLabel] = useState<string | null>(() => items.find((item) => item.active && (item.label === '인테리어 부스바' || (isOsan && item.label === '관리자')))?.label ?? null);
 
   return (
     <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
@@ -3445,7 +3445,7 @@ function AppNavigation({
               {item.group && item.group !== items[index - 1]?.group ? <p className="app-nav-group-label">{item.group}</p> : null}
               <button
                 type="button"
-                className={`${item.active ? 'app-nav-button active' : 'app-nav-button'}${isOsan && item.label === '공지사항' ? ' osan-notice-nav' : ''}`}
+                className={`${item.active ? 'app-nav-button active' : 'app-nav-button'}`}
                 aria-current={item.active ? 'page' : undefined}
                 aria-expanded={item.children ? expanded : undefined}
                 aria-controls={item.children ? childListId : undefined}
@@ -3705,6 +3705,10 @@ function NavigationIcon({ label }: { label: string }) {
   switch (label) {
     case '홈':
       return <svg {...common}><path d="m3.5 10 8.5-7 8.5 7" /><path d="M5.5 9.5V21h13V9.5" /><path d="M9.5 21v-6h5v6" /></svg>;
+    case '공지사항':
+      return <svg {...common}><path d="m3 11 18-5v12L3 14v-3ZM7 15l1 6h3l-2-5M21 3v18" /></svg>;
+    case '진행 현황':
+      return <svg {...common}><path d="M5 20v-5M12 20V9M19 20V3" /></svg>;
     case '내 업무':
       return <svg {...common}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3.5h6v3H9zM9 11h6M9 15h4" /></svg>;
     case '프로젝트':

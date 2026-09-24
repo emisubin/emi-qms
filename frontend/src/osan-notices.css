@@ -22,3 +22,12 @@
  .app-shell .osan-board .board-table td{font-size:11px;line-height:15px}
  .app-shell .osan-board .title button{min-height:21px!important;height:auto!important;line-height:18px;padding:0 0 2px!important;font-size:13px}
 }
+
+/* Mobile board: title and author share a compact row; date stays in a small secondary line. */
+@media(max-width:700px){
+ .app-shell .osan-board .board-table tr{grid-template-columns:minmax(0,1fr) minmax(50px,76px);align-items:center;min-height:40px;padding:4px 8px;column-gap:10px}
+ .app-shell .osan-board .board-table td.title{grid-column:1;min-width:0;overflow:hidden}
+ .app-shell .osan-board .board-table td.author{grid-column:2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+ .app-shell .osan-board .board-table td.date{grid-column:1/-1;font-size:10px;line-height:12px;color:#888}
+ .app-shell .osan-board .title button{display:block;width:100%;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:20px!important;line-height:20px;padding:0!important}
+}

@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.ReviewSafe;
+using Microsoft.Extensions.Logging.Abstractions;
 using Emi.Qms.Api.G2;
 using Emi.Qms.Api.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -220,7 +223,9 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
     [Fact]
     public async Task OperationsEndpoint_RejectsEntireMixedPermissionRequestBeforeDatabaseWrite()
     {
-        using var client = factory.CreateClient();
+        await using var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        using var databaseFactory = await CreateOperationsFactoryAsync(databases);
+        using var client = databaseFactory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-manufacturing");
         using var response = await client.PutAsJsonAsync(
             "/api/g2/operations/2026-08-18",
@@ -232,12 +237,17 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Administrator, "select count(*) from g2_daily_metrics",
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task OperationsEndpoint_RejectsDefectForLogisticsRole()
     {
-        using var client = factory.CreateClient();
+        await using var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        using var databaseFactory = await CreateOperationsFactoryAsync(databases);
+        using var client = databaseFactory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-logistics");
         using var response = await client.PutAsJsonAsync(
             "/api/g2/operations/2026-08-18",
@@ -245,12 +255,17 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Administrator, "select count(*) from g2_daily_metrics",
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task OperationsEndpoint_RejectsRepairsForLogisticsRole()
     {
-        using var client = factory.CreateClient();
+        await using var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        using var databaseFactory = await CreateOperationsFactoryAsync(databases);
+        using var client = databaseFactory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-logistics");
         using var response = await client.PutAsJsonAsync(
             "/api/g2/operations/2026-08-18",
@@ -258,5 +273,30 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
+            BusinessUnitConnectionPurpose.Administrator, "select count(*) from g2_daily_metrics",
+            TestContext.Current.CancellationToken));
+    }
+
+    private static async Task<QmsWebApplicationFactory> CreateOperationsFactoryAsync(
+        BusinessUnitIsolationTests.IsolationDatabaseSet databases)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
+        await new DatabaseMigrationRunner(provider,
+            DatabaseMigrationCatalog.FromPath(Path.Combine(databases.RepositoryRoot, "database", "migrations")),
+            new DatabaseRuntimePrivilegeManager(), databases.Configuration,
+            NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+        // The real maintenance middleware runs before the endpoint's per-field permission checks.
+        return QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
+        {
+            ["DevAuthentication:Enabled"] = "true",
+            ["Database:ApplyMigrationsOnStartup"] = "false",
+            ["DevelopmentData:SeedEnabled"] = "false",
+            ["ConnectionStrings:QmsDatabase"] = provider.GetConnectionString(
+                databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Cheongju))
+        });
     }
 }

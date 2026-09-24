@@ -16,6 +16,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var configuration = database.CreateConfiguration();
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         await database.ExecuteAsync("""
             insert into qms_users(id,development_user_key,display_name,department_id,is_active)
             values(@requester,'work-request-admin','Request Admin',(select id from departments where code='administration'),true),
@@ -106,6 +107,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var configuration = database.CreateConfiguration();
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         await database.ExecuteAsync("""
             insert into qms_users(id,development_user_key,display_name,is_active)
             values(@requester,'work-request-admin-2','Request Admin',true),

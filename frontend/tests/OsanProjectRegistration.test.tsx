@@ -16,6 +16,7 @@ import {
 } from '../src/api';
 
 const projectId = '91000000-0000-0000-0000-000000000001';
+const customerId = 'a1000000-0000-0000-0000-000000000001';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -102,14 +103,16 @@ function shellFetch(handler?: (url: URL, init?: RequestInit) => Response | Promi
       reason: 'development'
     });
     if (url.pathname === '/api/me') return json(currentUser());
+    if (url.pathname === '/api/osan/customers') return json({ items: [{ customerId, name: '고객사' }] });
     return json({ title: 'unexpected test request' }, 404);
   });
 }
 
-function fillCreateForm() {
+async function fillCreateForm() {
   fireEvent.change(screen.getByLabelText(/^장비명/), { target: { value: '  저장된 Title  ' } });
   fireEvent.change(screen.getByLabelText(/^프로젝트 코드/), { target: { value: ' AbC  001 ' } });
-  fireEvent.change(screen.getByLabelText(/^고객사/), { target: { value: ' 고객사 ' } });
+  fireEvent.change(screen.getByRole('textbox', { name: '고객사' }), { target: { value: ' 고객사 ' } });
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('연결된 고객사: 고객사'));
   fireEvent.change(screen.getByLabelText('PO No'), { target: { value: ' 001-PO/+ ' } });
   fireEvent.change(screen.getByLabelText('W/O No'), { target: { value: ' 000-W/O ' } });
   fireEvent.change(screen.getByLabelText(/^납기일/), { target: { value: '2026-12-31' } });
@@ -281,7 +284,7 @@ describe('Osan project registration', () => {
     expect(Array.from(summary.children).map(item => item.textContent)).toEqual(['전체3', '시작 전2', '진행 중0', '완료1']);
     const pageQueries = within(page as HTMLElement);
     fireEvent.click(pageQueries.getByRole('button', { name: '필터' }));
-    expect(pageQueries.getByRole('combobox', { name: '상태별' })).toHaveValue('All');
+    expect(pageQueries.getByRole('checkbox', { name: '포장완료' })).not.toBeChecked();
     expect(pageQueries.getByRole('checkbox', { name: '현재 목록 전체 선택' })).toBeInTheDocument();
     expect(pageQueries.queryByRole('checkbox', { name: '완료 프로젝트 제외' })).not.toBeInTheDocument();
     expect(page).not.toHaveTextContent('Excel');
@@ -291,26 +294,29 @@ describe('Osan project registration', () => {
     const searchInput = pageQueries.getByRole('textbox', { name: '프로젝트 검색' });
     for (const query of ['완료 검색명', 'done-code', '두번째 고객사', '완료 제품']) {
       fireEvent.change(searchInput, { target: { value: query } });
+      fireEvent.click(pageQueries.getByRole('button', { name: '검색' }));
       expect(within(table).getAllByRole('row')).toHaveLength(2);
       expect(within(table).getByText('완료 검색명')).toBeInTheDocument();
     }
 
     fireEvent.change(searchInput, { target: { value: '' } });
-    expect(pageQueries.queryByLabelText('시작일')).not.toBeInTheDocument();
-    fireEvent.change(pageQueries.getByRole('combobox', { name: '고객사별' }), { target: { value: '두번째 고객사' } });
+    fireEvent.click(pageQueries.getByRole('button', { name: '검색' }));
+    expect(pageQueries.getByLabelText('납기 시작일')).toBeInTheDocument();
+    fireEvent.click(pageQueries.getByRole('checkbox', { name: '두번째 고객사' }));
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(within(table).getByText('완료 검색명')).toBeInTheDocument();
 
     fireEvent.click(pageQueries.getByRole('button', { name: '초기화' }));
-    fireEvent.change(pageQueries.getByRole('combobox', { name: '상태별' }), { target: { value: 'NotStarted' } });
+    fireEvent.click(pageQueries.getByRole('checkbox', { name: '공정 시작 전' }));
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     expect(within(table).queryByText('완료 검색명')).not.toBeInTheDocument();
 
     fireEvent.change(searchInput, { target: { value: '일치하지 않는 검색어' } });
+    fireEvent.click(pageQueries.getByRole('button', { name: '검색' }));
     expect(await screen.findByText('조건에 맞는 프로젝트가 없습니다.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '검색 조건 초기화' }));
     expect(await screen.findByRole('table', { name: '오산 프로젝트 목록' })).toBeInTheDocument();
-    expect(pageQueries.getByRole('combobox', { name: '상태별' })).toHaveValue('All');
+    expect(pageQueries.getByRole('checkbox', { name: '공정 시작 전' })).not.toBeChecked();
     expect(within(screen.getByRole('table', { name: '오산 프로젝트 목록' })).getAllByRole('row')).toHaveLength(4);
 
     expect(fetchMock.mock.calls.filter(([input, init]) => (
@@ -354,7 +360,7 @@ describe('Osan project registration', () => {
     expect(Array.from(document.querySelectorAll('.osan-project-form input')).map(input => input.getAttribute('aria-label')))
       .toEqual(['장비명', '프로젝트 코드', 'part 분류', '고객사', 'PO No', 'W/O No', '납기일']);
     expect(screen.queryByLabelText(/^수량/)).not.toBeInTheDocument();
-    fillCreateForm();
+    await fillCreateForm();
     const submit = screen.getByRole('button', { name: '프로젝트 등록' });
     fireEvent.click(submit);
     fireEvent.click(submit);
@@ -364,6 +370,7 @@ describe('Osan project registration', () => {
       title: '저장된 Title',
       projectCode: 'AbC  001',
       customerName: '고객사',
+      customerId,
       poNumber: '001-PO/+',
       workOrderNumber: '000-W/O',
       deliveryDate: '2026-12-31',
@@ -440,7 +447,7 @@ describe('Osan project registration', () => {
     render(<App />);
     await screen.findByRole('heading', { name: '프로젝트 목록' });
     fireEvent.click(screen.getAllByRole('button', { name: '신규 프로젝트' })[0]);
-    fillCreateForm();
+    await fillCreateForm();
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
 
     expect(await screen.findByText('이미 등록된 프로젝트 코드입니다.')).toBeInTheDocument();
@@ -474,7 +481,7 @@ describe('Osan project registration', () => {
     render(<App />);
     await screen.findByRole('heading', { name: '프로젝트 목록' });
     fireEvent.click(screen.getAllByRole('button', { name: '신규 프로젝트' })[0]);
-    fillCreateForm();
+    await fillCreateForm();
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 등록' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('같은 요청 식별자가 다른 입력에 사용되었습니다.');

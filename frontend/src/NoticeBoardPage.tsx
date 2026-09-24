@@ -661,7 +661,7 @@ function NoticeFormFields({ idPrefix, value, onChange, errors, titleRef, bodyRef
   );
 }
 
-function NoticeBody({ body, bodyFormat }: { body: string; bodyFormat: NoticeBodyFormat }) {
+export function NoticeBody({ body, bodyFormat }: { body: string; bodyFormat: NoticeBodyFormat }) {
   if (bodyFormat !== 'BoldMarkupV1') return <>{body}</>;
   const nodes: ReactNode[] = [];
   const expression = /\*\*([\s\S]+?)\*\*/g;

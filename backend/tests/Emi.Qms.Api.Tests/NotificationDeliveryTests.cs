@@ -3592,10 +3592,18 @@ public sealed class NotificationDeliveryTests
             {
                 update.CommandText = """
                     update projects set project_profile='Osan',osan_quantity=1,osan_product_name='Test Part',delivery_date=current_date where id=@id;
+                    insert into osan_customers(name)
+                    select customer_name from projects where id=@id on conflict(name) do nothing;
+                    update projects p set osan_customer_id=c.id
+                    from osan_customers c where p.id=@id and c.name=p.customer_name;
+                    insert into osan_customer_assignments(user_id,customer_id)
+                    select @recipient,osan_customer_id from projects where id=@id
+                    on conflict(user_id,customer_id) do nothing;
                     insert into qms_database_identity(singleton,database_kind,business_unit_code,schema_contract)
                     values(true,'business','OSAN','0086_business_unit_database_identity');
                     """;
                 update.Parameters.AddWithValue("id", DemoProjectId);
+                update.Parameters.AddWithValue("recipient", DevSalesUserId);
                 await update.ExecuteNonQueryAsync(ct);
             }
             var operation = Guid.NewGuid();

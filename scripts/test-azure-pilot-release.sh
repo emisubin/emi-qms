@@ -12,6 +12,7 @@ cleanup() {
     "${temporary_directory}/backend-image" \
     "${temporary_directory}/frontend-image" \
     "${temporary_directory}/calls" \
+    "${temporary_directory}/maintenance-action" \
     "${temporary_directory}/stdout" \
     "${temporary_directory}/stderr"
   rmdir "${temporary_directory}" 2>/dev/null || true
@@ -27,6 +28,7 @@ query=''
 image=''
 revision=''
 inspection='false'
+maintenance_action=''
 inspection_environment_count=0
 cpu=''
 memory=''
@@ -51,6 +53,9 @@ for ((index = 1; index <= $#; index++)); do
       ;;
     --args=--inspect-business-unit-membership-backfill)
       inspection='true'
+      ;;
+    --args=--maintenance-*)
+      maintenance_action="${argument#--args=--maintenance-}"
       ;;
     --cpu)
       next=$((index + 1))
@@ -90,7 +95,15 @@ case "${command_group}" in
         fi
         ;;
       properties.latestReadyRevisionName)
-        if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'backend-release-failed' \
+        if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'baseline-database-unready' \
+          && "${name}" == "${BACKEND_APP_NAME}" ]]; then
+          printf '\n'
+        elif [[ "${AZURE_RELEASE_TEST_SCENARIO}" == 'final-app-unready' \
+          && "${name}" == "${BACKEND_APP_NAME}" ]] \
+          && grep -Fxq 'frontend-update' "${AZURE_RELEASE_TEST_STATE}/calls"; then
+          printf '\n'
+        elif [[ ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'backend-release-failed' \
+            || "${AZURE_RELEASE_TEST_SCENARIO}" == 'database-readiness-failed' ) \
           && "${name}" == "${BACKEND_APP_NAME}" ]] \
           && grep -q '@sha256:' "${image_file}"; then
           printf '%s-old\n' "${name}"
@@ -164,6 +177,8 @@ case "${command_group}" in
         printf 'ConnectionStrings__QmsDirectoryMigration\tqms-directory-migration\n'
         printf 'ConnectionStrings__QmsCheongjuMigration\tqms-cheongju-migration\n'
         printf 'ConnectionStrings__QmsOsanMigration\tqms-osan-migration\n'
+        printf 'ConnectionStrings__QmsCheongjuRuntime\tqms-cheongju-runtime\n'
+        printf 'ConnectionStrings__QmsOsanRuntime\tqms-osan-runtime\n'
         printf 'BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited\tapproved-users\n'
         printf 'BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited\toverall-administrators\n'
         ;;
@@ -201,6 +216,17 @@ case "${command_group}" in
         fi
         ;;
       "${MIGRATION_JOB_NAME}") printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
+      "${MAINTENANCE_JOB_NAME}")
+        [[ "${maintenance_action}" =~ ^(prepare|activate|delay|fail|complete)$ \
+          && "${cpu}" == '0.5' && "${memory}" == '1Gi' ]] || exit 2
+        if [[ "${maintenance_action}" == 'complete' && "${DEPLOY_BACKEND}" == 'true' ]]; then
+          [[ "${image}" == "${BACKEND_RELEASE_IMAGE}" ]] || exit 2
+        else
+          [[ "${image}" == 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' ]] || exit 2
+        fi
+        printf 'maintenance-%s\n' "${maintenance_action}" >>"${AZURE_RELEASE_TEST_STATE}/calls"
+        printf '%s\n' "${maintenance_action}" >"${AZURE_RELEASE_TEST_STATE}/maintenance-action"
+        ;;
       *) exit 2 ;;
     esac
     printf 'synthetic-execution\n'
@@ -213,7 +239,11 @@ case "${command_group}" in
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'backfill-failed' \
           && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) \
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'inspection-failed' \
-          && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) ]]; then
+          && "${name}" == "${MEMBERSHIP_BACKFILL_JOB_NAME}" ) \
+      || ( "${name}" == "${MAINTENANCE_JOB_NAME}" \
+          && ( "${AZURE_RELEASE_TEST_SCENARIO}" == "maintenance-$(cat "${AZURE_RELEASE_TEST_STATE}/maintenance-action")-failed" \
+            || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'cached-healthy-database-unready' \
+              && "$(cat "${AZURE_RELEASE_TEST_STATE}/maintenance-action")" == 'complete' ) ) ) ]]; then
       printf 'Failed\n'
     else
       printf 'Succeeded\n'
@@ -297,6 +327,7 @@ run_case() {
       >"${temporary_directory}/pms-synthetic-backend-image"
   fi
   : >"${temporary_directory}/calls"
+  : >"${temporary_directory}/maintenance-action"
 
   set +e
   env \
@@ -310,6 +341,13 @@ run_case() {
     MIGRATION_JOB_NAME='pms-synthetic-migration' \
     DATABASE_BOOTSTRAP_JOB_NAME='pms-synthetic-bootstrap' \
     MEMBERSHIP_BACKFILL_JOB_NAME='pms-synthetic-backfill' \
+    MAINTENANCE_JOB_NAME='pms-synthetic-maintenance' \
+    MAINTENANCE_RELEASE_ID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' \
+    MAINTENANCE_ACTOR_USER_ID='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' \
+    MAINTENANCE_TITLE='Synthetic release' \
+    MAINTENANCE_BODY='Synthetic deployment notice' \
+    MAINTENANCE_STARTS_AT_UTC='2026-09-24T07:00:00Z' \
+    MAINTENANCE_EXPECTED_ENDS_AT_UTC='2026-09-24T07:30:00Z' \
     BACKEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" \
     FRONTEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-frontend@sha256:${frontend_digest}" \
     DEPLOY_BACKEND="${deploy_backend}" \
@@ -342,7 +380,28 @@ run_case() {
     printf 'azurePilotReleaseTests=UNEXPECTED_FAILURE_CODE_%s\n' "${case_number}" >&2
     exit 1
   fi
+  if [[ "${scenario}" == 'maintenance-prepare-failed' ]]; then
+    expected_calls='maintenance-prepare'
+  elif [[ "${scenario}" == 'maintenance-activate-failed' ]]; then
+    expected_calls='maintenance-prepare,maintenance-activate'
+  elif [[ "${expected_code}" != 'INVALID_RELEASE_SCOPE' \
+    && "${expected_code}" != 'MIGRATION_REQUIRES_BACKEND_RELEASE' \
+    && ( "${deploy_backend}" == 'true' || "${deploy_frontend}" == 'true' \
+      || "${run_migration}" == 'true' || "${run_database_bootstrap}" == 'true' \
+      || "${run_membership_backfill}" == 'true' ) \
+    && "${scenario}" != baseline-* && "${scenario}" != 'unsafe-rollback' ]]; then
+    expected_calls="maintenance-prepare,maintenance-activate,${expected_calls}"
+    if [[ "${expected_exit}" -eq 0 ]]; then
+      expected_calls="${expected_calls},maintenance-complete"
+    elif [[ "${scenario}" == 'maintenance-complete-failed' \
+      || "${scenario}" == 'cached-healthy-database-unready' ]]; then
+      expected_calls="${expected_calls},maintenance-complete,maintenance-fail"
+    else
+      expected_calls="${expected_calls},maintenance-fail"
+    fi
+  fi
   if [[ "$(paste -sd, "${temporary_directory}/calls")" != "${expected_calls}" ]]; then
+    printf 'expected=%s\nactual=%s\n' "${expected_calls}" "$(paste -sd, "${temporary_directory}/calls")" >&2
     printf 'azurePilotReleaseTests=UNEXPECTED_CALL_ORDER_%s\n' "${case_number}" >&2
     exit 1
   fi
@@ -352,16 +411,20 @@ run_case 'success' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
 run_case 'success-running-at-max-scale' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
+run_case 'maintenance-prepare-failed' 79 MAINTENANCE_PREPARE_FAILED ''
+run_case 'maintenance-activate-failed' 79 MAINTENANCE_ACTIVATION_FAILED ''
+run_case 'maintenance-complete-failed' 80 MAINTENANCE_RELEASE_FAILED \
+  'migration-update,migration-start,backend-update,frontend-update'
 run_case 'success' 0 '' \
   'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start,backend-update,frontend-update' \
   true true true true true
-run_case 'success' 0 '' \
-  'bootstrap-update,bootstrap-start,migration-update,migration-start,backfill-update,backfill-start' \
+run_case 'success' 65 MIGRATION_REQUIRES_BACKEND_RELEASE '' \
   false false true true true
 run_case 'baseline-stopped' 70 BASELINE_NOT_READY ''
 run_case 'baseline-scale-to-zero' 70 BASELINE_NOT_READY ''
 run_case 'baseline-degraded' 70 BASELINE_NOT_READY ''
 run_case 'baseline-unknown' 70 BASELINE_NOT_READY ''
+run_case 'baseline-database-unready' 70 BASELINE_NOT_READY ''
 run_case 'unsafe-rollback' 69 UNSAFE_ROLLBACK_BASELINE ''
 run_case 'bootstrap-failed' 73 DATABASE_BOOTSTRAP_FAILED \
   'bootstrap-update,bootstrap-start' true true true true true
@@ -381,14 +444,20 @@ run_case 'inspection-config-invalid' 79 MEMBERSHIP_BACKFILL_INSPECTION_CONFIGURA
   '' false false false false false true
 run_case 'backend-release-failed' 1 BACKEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,backend-rollback'
+run_case 'database-readiness-failed' 1 BACKEND_RELEASE_FAILED \
+  'migration-update,migration-start,backend-update,backend-rollback'
 run_case 'frontend-release-failed' 1 FRONTEND_RELEASE_FAILED \
   'migration-update,migration-start,backend-update,frontend-update,frontend-rollback,backend-rollback'
 run_case 'public-security-failed' 1 PUBLIC_SECURITY_SMOKE_FAILED \
   'migration-update,migration-start,backend-update,frontend-update,frontend-rollback,backend-rollback'
+run_case 'final-app-unready' 1 FINAL_APP_NOT_READY \
+  'migration-update,migration-start,backend-update,frontend-update,frontend-rollback,backend-rollback'
 run_case 'success' 0 '' 'backend-update' true false false
 run_case 'success' 0 '' 'frontend-update' false true false
 run_case 'success' 0 '' 'migration-update,migration-start,backend-update' true false true
-run_case 'success' 0 '' 'migration-update,migration-start' false false true
+run_case 'success' 65 MIGRATION_REQUIRES_BACKEND_RELEASE '' false false true
+run_case 'cached-healthy-database-unready' 80 MAINTENANCE_RELEASE_FAILED \
+  'frontend-update' false true false
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false true false
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false false true
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' false false true false true true

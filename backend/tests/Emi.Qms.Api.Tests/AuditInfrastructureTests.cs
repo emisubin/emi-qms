@@ -10,6 +10,7 @@ public sealed class AuditInfrastructureTests
 {
     private static readonly IReadOnlySet<string> PostGlobalAuditMigrationTrackedRelations =
         ParseRelationNames("""
+            osan_customers osan_customer_assignments osan_gate_configuration osan_gate_departments deployment_maintenance
             g2_defect_inventory_counts osan_project_target_steps osan_project_targets osan_photo_edit_requests
             osan_stage_issues osan_notification_preference_profiles osan_notification_preferences
             osan_notification_global_preference_profiles osan_notification_global_preferences
@@ -28,6 +29,7 @@ public sealed class AuditInfrastructureTests
                 qms_database_identity
                 """),
             ["ExistingCanonicalLedger"] = ParseRelationNames("""
+                notice_setting_events
                 admin_master_change_logs authorization_audit_events data_export_events
                 form_template_audit_events lqc_item_setting_audit_events material_category_audit_events
                 material_category_iqc_setting_audit_events material_receipt_events notice_post_revisions
@@ -42,11 +44,13 @@ public sealed class AuditInfrastructureTests
                 iqc_report_pdf_artifacts notification_deliveries notification_delivery_attempts
                 notification_delivery_reprocess_events notification_recipients notifications
                 panel_quality_report_pdf_artifacts web_push_subscription_events web_push_subscriptions
+                notice_reads notice_popup_receipts deployment_maintenance_popup_receipts
                 work_item_escalations osan_notification_events
                 busbar_ecount_jobs busbar_ecount_attempts busbar_ecount_runtime busbar_product_qr
                 busbar_detached_pages busbar_publication_recovery
                 """),
             ["OperationImportOrIdempotency"] = ParseRelationNames("""
+                osan_customer_assignment_versions
                 busbar_label_requests logistics_operations panel_information_excel_import_batches panel_kitting_batches
                 panel_manufacturing_assembly_batch_operations panel_manufacturing_operations
                 panel_manufacturing_release_operations panel_quality_operations pending_photo_operations
@@ -190,8 +194,8 @@ public sealed class AuditInfrastructureTests
         Assert.True(
             missing.Length == 0 && stale.Length == 0,
             $"Missing=[{string.Join(" | ", missing)}] Stale=[{string.Join(" | ", stale)}]");
-        Assert.Equal(120, trackedRelations.Count);
-        Assert.Equal(78, excludedRelations.Length);
+        Assert.Equal(125, trackedRelations.Count);
+        Assert.Equal(83, excludedRelations.Length);
     }
 
     [Fact]

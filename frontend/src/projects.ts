@@ -1,6 +1,7 @@
 export const maxPanelsPerProject = 500;
 
 export interface CreateOsanProjectRequest {
+  customerId?: string;
   title: string;
   projectCode: string;
   customerName: string;
@@ -16,6 +17,7 @@ export interface OsanProjectListResponse {
 }
 
 export interface OsanProjectListItem {
+  customerId?: string;
   deliveryHold?: boolean;
   completedStepCount: number;
   totalStepCount: number;

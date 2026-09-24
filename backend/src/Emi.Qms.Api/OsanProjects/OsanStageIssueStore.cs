@@ -33,6 +33,10 @@ public sealed partial class OsanProgressStore
                     return OsanProgressMutationResult.Conflict("osan_progress_operation_conflict", "같은 요청 식별자가 다른 입력에 사용되었습니다.");
                 return OsanProgressMutationResult.Success(new(input.OperationId, true, (await ReadProgressAsync(c, tx, projectId, ct))!));
             }
+            if (resolve && !await OsanPolicyStore.CanCompleteAsync(c, tx, actor,
+                    input.StageSequence, isAdministrator, ct))
+                return OsanProgressMutationResult.Conflict("osan_gate_department_denied",
+                    "이 Gate의 이상 조치를 완료할 수 있는 부서로 지정되지 않았습니다.");
             await using var cmd = c.CreateCommand(); cmd.Transaction = tx;
             cmd.Parameters.AddWithValue("project", projectId); cmd.Parameters.AddWithValue("target", target.TargetId);
             cmd.Parameters.AddWithValue("stage", input.StageSequence); cmd.Parameters.AddWithValue("actor", actor);

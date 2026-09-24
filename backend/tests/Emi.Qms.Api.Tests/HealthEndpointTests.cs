@@ -19,13 +19,13 @@ public sealed class HealthEndpointTests(QmsWebApplicationFactory factory) : ICla
     }
 
     [Fact]
-    public async Task ReadyHealth_ReturnsHealthPayloadEvenWhenDatabaseIsUnavailable()
+    public async Task ReadyHealth_ReturnsUnavailableWithHealthPayloadWhenDatabaseIsUnavailable()
     {
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("\"name\":\"ready\"", body, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"database\"", body, StringComparison.OrdinalIgnoreCase);

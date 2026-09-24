@@ -71,7 +71,8 @@ public static class OsanProjectInputNormalizer
             request.DeliveryDate.Value,
             productName,
             request.Quantity.Value,
-            request.OperationId), errors);
+            request.OperationId,
+            request.CustomerId), errors);
     }
 
     private static string? RequiredText(

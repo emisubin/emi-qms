@@ -201,6 +201,11 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                     new OsanProgressMutationResponse(input.OperationId, true, replayed));
             }
 
+            if (!await OsanPolicyStore.CanCompleteAsync(connection, transaction, actorUserId,
+                    input.StageSequence, isAdministrator, cancellationToken))
+                return await RollbackConflictAsync(transaction, "osan_gate_department_denied",
+                    "이 Gate를 완료할 수 있는 부서로 지정되지 않았습니다.", cancellationToken);
+
             if (string.Equals(projectStatus, "Completed", StringComparison.Ordinal))
             {
                 return await RollbackConflictAsync(

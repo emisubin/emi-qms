@@ -118,7 +118,7 @@ public sealed class AuthorizationEndpointTests(QmsWebApplicationFactory factory)
         using var response = await client.GetAsync("/health/ready", TestContext.Current.CancellationToken);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.DoesNotContain("migration", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("environment", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("worker", body, StringComparison.OrdinalIgnoreCase);

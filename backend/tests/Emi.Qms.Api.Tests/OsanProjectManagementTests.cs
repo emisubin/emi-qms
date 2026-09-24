@@ -13,6 +13,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var config = database.CreateConfiguration();
         var provider = new DatabaseConnectionStringProvider(config);
         await CreateMigrationRunner(database.RepositoryRoot, provider, config).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'hold-test','Admin',true)", ct, ("actor", UserId));
         var projects = new OsanProjectStore(provider);
         var input = Normalize(ValidRequest(quantity: 1));
@@ -53,6 +54,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
         var config=database.CreateConfiguration();var provider=new DatabaseConnectionStringProvider(config);
         await CreateMigrationRunner(database.RepositoryRoot,provider,config).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         var other=Guid.NewGuid();
         await database.ExecuteAsync("""
             insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'mgmt-test','Admin',true),(@other,'mgmt-other','Worker',true);

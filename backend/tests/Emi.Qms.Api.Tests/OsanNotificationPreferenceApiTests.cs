@@ -126,14 +126,17 @@ public sealed partial class BusinessUnitIsolationTests
             NullLogger<DevelopmentIdentitySeeder>.Instance, new MigrationLedgerInspector(catalog)).SeedAsync(ct);
 
         var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
         var subscriptionId = Guid.NewGuid();
         await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration, $"""
+            insert into osan_customers(id,name) values('{customerId}','Synthetic Customer');
+            insert into osan_customer_assignments(user_id,customer_id) values('{SalesUserId}','{customerId}');
             insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
                 project_title_normalized,delivery_date,sales_owner_user_id,status,created_by_user_id,
-                project_profile,osan_product_name,osan_quantity)
+                project_profile,osan_product_name,osan_quantity,osan_customer_id)
             values('{projectId}','prefs-project','PREFS-PROJECT','Prefs Project','Synthetic Customer','UL891',
                 'PREFS-PROJECT','Prefs Project','PREFS PROJECT',current_date+30,'{SalesUserId}','Active',
-                '{SalesUserId}','Osan','Synthetic Product',1);
+                '{SalesUserId}','Osan','Synthetic Product',1,'{customerId}');
             insert into web_push_subscriptions(id,user_id,endpoint,endpoint_hash,p256dh_key,auth_key,activated_at_utc)
             values('{subscriptionId}','{SalesUserId}','https://push.example.test/prefs','prefs-hash','p256dh','auth',now()-interval '1 day');
             insert into osan_notification_global_preferences(scope_id,event_kind,channel,stage_sequence,is_enabled)

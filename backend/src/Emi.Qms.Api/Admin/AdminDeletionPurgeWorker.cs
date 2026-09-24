@@ -1,11 +1,13 @@
 using Microsoft.Extensions.Options;
+using Emi.Qms.Api.DeploymentMaintenance;
 
 namespace Emi.Qms.Api.Admin;
 
 public sealed class AdminDeletionPurgeWorker(
     IAdminDeletionPurgeService deletionService,
     IOptionsMonitor<AdminDeletionPurgeOptions> options,
-    ILogger<AdminDeletionPurgeWorker> logger)
+    ILogger<AdminDeletionPurgeWorker> logger,
+    DatabaseConnectionStringProvider? connections = null)
     : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
@@ -29,7 +31,14 @@ public sealed class AdminDeletionPurgeWorker(
 
             try
             {
-                await deletionService.PurgeDueAsync(stoppingToken);
+                if (connections is null)
+                    await deletionService.PurgeDueAsync(stoppingToken);
+                else
+                {
+                    await using var lease = await DeploymentMaintenanceLease.AcquireAsync(
+                        connections, connections.BusinessUnits.Businesses, stoppingToken);
+                    if (lease is not null) await deletionService.PurgeDueAsync(stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

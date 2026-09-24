@@ -1,5 +1,9 @@
 # 제품 방향과 실행 큐
 
+## 오산 후속 구현 · 2026-09-24
+
+[OSAN-UX Change001](../tasks/osan-ux-001-change-001.md)의 정책 및 신규 시안 확정 완료. 최신 main daa98c2 기반 격리 작업공간에서 제품 구현·관련 로컬 검증 완료, 사용자 검수 대기. 현재 범위·승인·검증 및 최초 운영 전환 선행조건은 해당 Task 제20절에서 관리한다. 원격 병합·공개배포 승인 없음.
+
 ## 현재 우선 작업 · 2026-09-21
 
 Current update: [Interior Busbar Change044](../tasks/interior-busbar-001.md) quality inspection, shipment gate, detached inspector record and approved QR labels implemented locally; focused checks and independent review passed. User acceptance at5256 pending. No remote merge/deployment for this change. Prior Change043 release history remains below.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { DsDialog } from './design-system';
 import { ApiError } from './api';
+import { OsanCustomerMatch } from './OsanCustomerMatch';
 import { applyOsanProjectExcel, downloadOsanProjectTemplate, previewOsanProjectExcel, type OsanProjectExcelPreview, type OsanProjectExcelRow } from './osanProjectExcel';
 import './osan-project-excel.css';
 
@@ -68,7 +69,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
     setConfirmation(null); setMessage('');
     setPreview(current => current && { ...current, rows: current.rows.map(row => {
       if (row.rowNumber !== rowNumber) return row;
-      const updated = { ...row, [key]: value, duplicateKind: null };
+      const updated = { ...row, [key]: value, ...(key === "customerName" ? {customerId:undefined} : {}), duplicateKind: null };
       return { ...updated, errors: inputErrors(updated) };
     }) });
   }
@@ -113,9 +114,11 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
         if (!Array.isArray(result.createdRowNumbers) || result.createdRowNumbers.length !== result.createdCount) throw new Error('Incomplete registration response');
         const createdRows = result.createdRowNumbers;
         setSaved(current => [...new Set([...current, ...createdRows])]); setRetry(null); setConfirmation(null);
-        const hasRemaining = preview?.rows.some(row => !saved.includes(row.rowNumber) && !createdRows.includes(row.rowNumber));
-        setSuccess(`${result.createdCount}개 프로젝트를 등록했습니다. ${hasRemaining ? '미등록 행은 수정 후 추가 등록할 수 있습니다.' : '모든 행의 등록이 완료됐습니다.'}`);
+        const remainingCount = preview?.rows.filter(row => !saved.includes(row.rowNumber) && !createdRows.includes(row.rowNumber)).length ?? 0;
+        setSuccess(`${result.createdCount}개 프로젝트를 등록했습니다.`);
+        if (remainingCount > 0) setMessage(`${remainingCount}개 행이 등록되지 않았습니다. 각 행의 오류를 확인하고 수정한 뒤 다시 등록해 주세요.`);
         onApplied(result.createdCount);
+        if (remainingCount === 0) onClose();
       }
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -163,7 +166,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
               const complete = saved.includes(row.rowNumber);
               const errors = [...new Set([...row.errors, ...inputErrors(row)])];
               return <tr key={row.rowNumber} className={complete ? 'osan-excel-saved' : errors.length ? 'osan-excel-invalid' : undefined}>
-                <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}>{editingCell?.rowNumber === row.rowNumber && editingCell.key === key && !complete ? <input
+                <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}>{key === 'customerName' && !complete ? <OsanCustomerMatch value={row.customerName} customerId={row.customerId} userKey={developmentUserKey} disabled={locked} onChange={(name,id)=>setPreview(current=>current&&({...current,rows:current.rows.map(item=>item.rowNumber===row.rowNumber?{...item,customerName:name,customerId:id,errors:inputErrors({...item,customerName:name,customerId:id})}:item)}))}/> : editingCell?.rowNumber === row.rowNumber && editingCell.key === key && !complete ? <input
                   ref={element => { element?.focus(); }}
                   onBlur={() => setEditingCell(null)}
                   onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dialog.current?.focus(); setEditingCell(null); } }}

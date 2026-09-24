@@ -32,6 +32,17 @@ public sealed partial class OsanProjectStore
         if (current is null) return new(404);
         if (!string.Equals(expectedToken, EditToken(current), StringComparison.Ordinal))
             return new(409, Message: "다른 사용자가 정보를 변경했습니다. 새로고침 후 다시 확인해 주세요.");
+        // Existing archived associations remain editable; changing the customer still
+        // requires an active catalog entry validated under a row lock.
+        if (input is not null && (input.CustomerId != current.CustomerId
+            || !string.Equals(input.CustomerName, current.CustomerName, StringComparison.Ordinal)))
+        {
+            var customer = await OsanPolicyStore.BoundCustomerAsync(connection, tx,
+                input.CustomerId, input.CustomerName, ct);
+            if (customer is null)
+                return new(400, Message: "등록된 고객사를 선택하고 연결 상태를 다시 확인해 주세요.");
+            input = input with { CustomerName = customer.Name };
+        }
         var nextHold = deliveryHold ?? current.DeliveryHold;
         var holdChanged = input is not null && nextHold != current.DeliveryHold;
         if (holdChanged && (string.IsNullOrWhiteSpace(holdReason) || holdReason.Trim().Length > 500))
@@ -55,6 +66,7 @@ public sealed partial class OsanProjectStore
             command.Parameters.AddWithValue("title", input.Title);
             command.Parameters.AddWithValue("code", input.ProjectCode);
             command.Parameters.AddWithValue("customer", input.CustomerName);
+            command.Parameters.AddWithValue("customer_id", input.CustomerId!.Value);
             command.Parameters.AddWithValue("po", (object?)input.PoNumber ?? DBNull.Value);
             command.Parameters.AddWithValue("wo", (object?)input.WorkOrderNumber ?? DBNull.Value);
             command.Parameters.AddWithValue("date", input.DeliveryDate);
@@ -64,7 +76,8 @@ public sealed partial class OsanProjectStore
             command.CommandText = """
                 update projects set project_title=@title, project_code=@code, customer_name=@customer,
                   osan_po_number=@po, osan_work_order_number=@wo, delivery_date=@date,
-                  osan_product_name=@part, osan_quantity=@quantity, osan_delivery_hold=@hold, updated_at_utc=now() where id=@id;
+                  osan_product_name=@part, osan_quantity=@quantity, osan_customer_id=@customer_id,
+                  osan_delivery_hold=@hold, updated_at_utc=now() where id=@id;
                 update osan_project_targets set display_name=@part || ' ' || sequence_number::text,
                   updated_at_utc=now() where project_id=@id;
                 """;

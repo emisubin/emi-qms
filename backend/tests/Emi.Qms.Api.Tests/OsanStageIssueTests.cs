@@ -21,7 +21,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
         var config = database.CreateConfiguration(); var provider = new DatabaseConnectionStringProvider(config);
         await CreateMigrationRunner(database.RepositoryRoot, provider, config).ApplyAndVerifyAsync(ct);
-        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'issue-worker','Worker',true)", ct, ("actor", UserId));
+        await SeedDefaultCustomerAsync(database, ct);
+        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,department_id,is_active) values(@actor,'issue-worker','Worker',(select id from departments where code='manufacturing'),true)", ct, ("actor", UserId));
         var projects = new OsanProjectStore(provider); var store = new OsanProgressStore(provider); var edits = new OsanPhotoEditStore(provider);
         var created = await projects.CreateAsync(Normalize(ValidRequest(quantity: 1)), UserId, ct);
         var id = created.Value!.Project.ProjectId;
@@ -97,7 +98,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
         var config = database.CreateConfiguration(); var provider = new DatabaseConnectionStringProvider(config);
         await CreateMigrationRunner(database.RepositoryRoot, provider, config).ApplyAndVerifyAsync(ct);
-        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'issue-admin','Admin',true)", ct, ("actor", UserId));
+        await SeedDefaultCustomerAsync(database, ct);
+        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,department_id,is_active) values(@actor,'issue-admin','Admin',(select id from departments where code='manufacturing'),true)", ct, ("actor", UserId));
         var projects = new OsanProjectStore(provider); var store = new OsanProgressStore(provider); var edits = new OsanPhotoEditStore(provider);
         var id = (await projects.CreateAsync(Normalize(ValidRequest(quantity: 1)), UserId, ct)).Value!.Project.ProjectId;
         async Task<CompleteOsanProgressInput> Input(int stage)
@@ -150,7 +152,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
         var config = database.CreateConfiguration(); var provider = new DatabaseConnectionStringProvider(config);
         await CreateMigrationRunner(database.RepositoryRoot, provider, config).ApplyAndVerifyAsync(ct);
-        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'issue-snapshot','Synthetic',true)", ct, ("actor", UserId));
+        await SeedDefaultCustomerAsync(database, ct);
+        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,department_id,is_active) values(@actor,'issue-snapshot','Synthetic',(select id from departments where code='manufacturing'),true)", ct, ("actor", UserId));
         var projects = new OsanProjectStore(provider); var store = new OsanProgressStore(provider);
         var id = (await projects.CreateAsync(Normalize(ValidRequest(quantity: 1)), UserId, ct)).Value!.Project.ProjectId;
         var initial = (await store.GetAsync(id, ct))!.Targets[0];

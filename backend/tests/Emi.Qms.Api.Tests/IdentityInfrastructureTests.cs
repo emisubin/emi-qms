@@ -928,12 +928,16 @@ public sealed class IdentityInfrastructureTests
             $"select count(*) from web_push_subscription_events where user_id='{target.User.Id}' and event_type='AccountDeactivated';"));
     }
 
-    [Fact]
-    public async Task WebPushTechnicalRowsDoNotBlockScheduledUserPurge()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WebPushTechnicalRowsDoNotBlockScheduledUserPurge(bool hasBusinessAuditHistory)
     {
         await using var context = await IdentityTestContext.CreateAsync();
         var targetUserId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
         await context.ExecuteSqlAsync($"""
+            insert into osan_customers(id, name) values ('{customerId}', 'Purge access customer');
             insert into qms_users (
                 id, development_user_key, display_name, is_active, auth_provider,
                 entra_object_id, email
@@ -956,13 +960,41 @@ public sealed class IdentityInfrastructureTests
             where id='{targetUserId}';
             """);
 
+        Assert.Equal(1L, await context.ReadScalarAsync<long>(
+            $"select count(*) from osan_customer_assignment_versions where user_id='{targetUserId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>(
+            $"select count(*) from osan_customer_assignments where user_id='{targetUserId}' and customer_id='{customerId}';"));
+        if (hasBusinessAuditHistory)
+        {
+            await context.ExecuteSqlAsync($"""
+                insert into data_export_events (
+                    id, actor_user_id, export_kind, row_count, filters_applied, sensitive_sales_amount_included
+                ) values (
+                    gen_random_uuid(), '{targetUserId}', 'MyWork', 0, false, false
+                );
+                """);
+        }
+
         var deletionService = context.Services.GetRequiredService<AdminScheduledDeletionService>();
         var result = await deletionService.PurgeUserNowAsync(
             targetUserId,
             new Guid("50000000-0000-0000-0000-000000000001"),
             TestContext.Current.CancellationToken);
 
+        if (hasBusinessAuditHistory)
+        {
+            Assert.Equal("PurgeBlocked", result.Status);
+            Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id='{targetUserId}';"));
+            Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from data_export_events where actor_user_id='{targetUserId}';"));
+            Assert.Equal(1L, await context.ReadScalarAsync<long>(
+                $"select count(*) from osan_customer_assignments where user_id='{targetUserId}' and customer_id='{customerId}';"));
+            return;
+        }
+
         Assert.Equal("Purged", result.Status);
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from osan_customer_assignment_versions where user_id='{targetUserId}';"));
+        Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from osan_customer_assignments where user_id='{targetUserId}';"));
+        Assert.Equal(1L, await context.ReadScalarAsync<long>($"select count(*) from osan_customers where id='{customerId}';"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from qms_users where id='{targetUserId}';"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from web_push_subscriptions where user_id='{targetUserId}';"));
         Assert.Equal(0L, await context.ReadScalarAsync<long>($"select count(*) from web_push_subscription_events where user_id='{targetUserId}';"));

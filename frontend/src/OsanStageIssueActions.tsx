@@ -1,3 +1,4 @@
+import { OsanStageAction } from './OsanStageActions';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
 import { dismissOnBackdrop } from './dialogBackdrop';
@@ -45,9 +46,9 @@ export function OsanStageIssueActions({ projectId, target, stage, userKey, mutat
   }
   if (!mutationAllowed) return null;
   return <>
-    {resolveOnly ? step.openIssue && <button type="button" disabled={disabled || busy || !step.canResolveIssue} onClick={() => open('resolve')}>조치 완료</button> : step.openIssue ?
-      <button type="button" disabled={disabled || busy || !step.canRegisterIssue} onClick={() => open('record')}>기록 추가</button>
-      : step.canRegisterIssue && <button type="button" className="osan-issue-register" disabled={disabled || busy} onClick={() => open('register')}>공정 이상 발생</button>}
+    {resolveOnly ? step.openIssue && <OsanStageAction placement="primary" type="button" disabled={disabled || busy || !step.canResolveIssue} onClick={() => open('resolve')}>조치 완료</OsanStageAction> : step.openIssue ?
+      <OsanStageAction placement="secondary" type="button" disabled={disabled || busy || !step.canRegisterIssue} onClick={() => open('record')}>기록 추가</OsanStageAction>
+      : step.canRegisterIssue && <OsanStageAction placement={step.status === 'Completed' ? 'secondary' : 'visible'} type="button" className="osan-issue-register" disabled={disabled || busy} onClick={() => open('register')}>공정 이상 발생</OsanStageAction>}
     <dialog ref={dialog} className="osan-progress-completion-modal osan-issue-modal" aria-labelledby={`issue-title-${target.targetId}-${resolveOnly ? 'resolve' : 'record'}`}
       onCancel={e => { if (busy) e.preventDefault(); else setAction(null); }} onClick={e => dismissOnBackdrop(e, () => { if (!busy) setAction(null); })}>
       <h2 id={`issue-title-${target.targetId}-${resolveOnly ? 'resolve' : 'record'}`}>{action ? labels[action] : '이상 처리'}</h2>

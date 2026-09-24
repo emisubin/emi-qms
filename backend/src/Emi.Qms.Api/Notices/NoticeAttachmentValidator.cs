@@ -12,6 +12,11 @@ public static class NoticeAttachmentValidator
         new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             ["application/pdf"] = [".pdf"],
+            ["application/zip"] = [".zip"],
+            ["application/x-hwp"] = [".hwp"],
+            ["application/msword"] = [".doc"],
+            ["application/vnd.ms-excel"] = [".xls"],
+            ["application/vnd.ms-powerpoint"] = [".ppt"],
             ["image/jpeg"] = [".jpg", ".jpeg"],
             ["image/png"] = [".png"],
             ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"] = [".docx"],
@@ -19,22 +24,23 @@ public static class NoticeAttachmentValidator
             ["application/vnd.openxmlformats-officedocument.presentationml.presentation"] = [".pptx"]
         };
 
-    public static NoticeAttachmentValidationResult Validate(string? fileName, byte[] content)
+    public static NoticeAttachmentValidationResult Validate(string? fileName, byte[] content, bool osan = false)
     {
         var safeName = SanitizeFileName(fileName);
         if (safeName is null)
         {
             return NoticeAttachmentValidationResult.Invalid("파일명은 1~180자여야 합니다.");
         }
-        if (content.Length is < 1 or > MaximumFileBytes)
+        if (content.Length < 1 || content.Length > (osan ? 20 * 1024 * 1024 : MaximumFileBytes))
         {
-            return NoticeAttachmentValidationResult.Invalid("파일은 개별 10MB 이하여야 합니다.");
+            return NoticeAttachmentValidationResult.Invalid(osan ? "파일은 개별 20MB 이하여야 합니다." : "파일은 개별 10MB 이하여야 합니다.");
         }
 
         var contentType = DetectContentType(content);
+        if (contentType is null && osan) contentType = DetectAdditionalDocument(fileName, content);
         if (contentType is null)
         {
-            return NoticeAttachmentValidationResult.Invalid("PDF, JPEG, PNG, DOCX, XLSX 또는 PPTX 파일만 등록할 수 있습니다.");
+            return NoticeAttachmentValidationResult.Invalid(osan ? "JPEG, PNG, PDF, Office, HWP 또는 ZIP 형식의 정상 파일을 등록해 주세요." : "PDF, JPEG, PNG, DOCX, XLSX 또는 PPTX 파일만 등록할 수 있습니다.");
         }
 
         var extension = Path.GetExtension(safeName);
@@ -47,6 +53,34 @@ public static class NoticeAttachmentValidator
             safeName,
             contentType,
             Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant());
+    }
+
+    private static string? DetectAdditionalDocument(string? name, byte[] content)
+    {
+        var extension = Path.GetExtension(name ?? "").ToLowerInvariant();
+        if(extension == ".zip")
+        {
+            try
+            {
+                using var archive = new ZipArchive(new MemoryStream(content, false), ZipArchiveMode.Read);
+                if(archive.Entries.Count > 10000) return null;
+                long total = 0;
+                foreach(var entry in archive.Entries)
+                {
+                    if(entry.FullName.Replace('\\','/').Split('/').Contains("..") || entry.FullName.StartsWith('/')) return null;
+                    total += entry.Length;
+                    if(total > 500L*1024*1024) return null;
+                }
+                return "application/zip";
+            }
+            catch(InvalidDataException) { return null; }
+        }
+        // Legacy Office/HWP use a compound document container. Require its header and format stream name.
+        ReadOnlySpan<byte> compound = [0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1];
+        if(content.Length < 512 || !content.AsSpan().StartsWith(compound)) return null;
+        var marker = extension switch { ".hwp"=>"FileHeader", ".doc"=>"WordDocument", ".xls"=>"Workbook", ".ppt"=>"PowerPoint Document", _=>null };
+        if(marker is null || content.AsSpan().IndexOf(System.Text.Encoding.Unicode.GetBytes(marker)) < 0) return null;
+        return extension switch { ".hwp"=>"application/x-hwp", ".doc"=>"application/msword", ".xls"=>"application/vnd.ms-excel", _=>"application/vnd.ms-powerpoint" };
     }
 
     private static string? SanitizeFileName(string? value)

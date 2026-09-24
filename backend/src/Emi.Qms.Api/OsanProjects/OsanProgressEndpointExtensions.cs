@@ -36,7 +36,8 @@ public static class OsanProgressEndpointExtensions
             }
 
             var value = await store.GetAsync(projectId, cancellationToken);
-            return value is null ? Results.NotFound() : Results.Ok(WithPermissions(value, user));
+            return value is null ? Results.NotFound() : Results.Ok(await WithPermissionsAsync(
+                value, user, connectionStringProvider, cancellationToken));
         })
         .RequireAuthorization()
         .WithName("GetOsanProgress");
@@ -81,7 +82,7 @@ public static class OsanProgressEndpointExtensions
         {
             var denied = await AuthorizeProjectAsync(
                 projectId,
-                QmsPermissions.ManufacturingUpdate,
+                QmsPermissions.ProjectRead,
                 projectStore,
                 connectionStringProvider,
                 user,
@@ -106,10 +107,10 @@ public static class OsanProgressEndpointExtensions
             var result = await store.CompleteAsync(projectId, parsed.Input, actorId.Value,
                 cancellationToken, user.IsInRole(QmsRoles.SystemAdministrator));
             if(result.Value is not null) result=result with { Value=result.Value with {
-                Project=WithPermissions(result.Value.Project, user) } };
+                Project=await WithPermissionsAsync(result.Value.Project, user, connectionStringProvider, cancellationToken) } };
             return ToResult(result);
         })
-        .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
+        .RequireAuthorization()
         .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
         .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
         .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
@@ -123,7 +124,8 @@ public static class OsanProgressEndpointExtensions
                 OsanProjectStore projectStore, DatabaseConnectionStringProvider connectionStringProvider,
                 ClaimsPrincipal user, CancellationToken cancellationToken) =>
             {
-                var denied = await AuthorizeProjectAsync(projectId, QmsPermissions.ManufacturingUpdate,
+                var denied = await AuthorizeProjectAsync(projectId,
+                    resolve ? QmsPermissions.ProjectRead : QmsPermissions.ManufacturingUpdate,
                     projectStore, connectionStringProvider, user, cancellationToken);
                 if (denied is not null) return denied;
                 var actor = ProjectEndpointExtensions.GetCurrentUserId(user);
@@ -132,10 +134,11 @@ public static class OsanProgressEndpointExtensions
                 if (parsed.Input is null) return Results.ValidationProblem(parsed.Errors);
                 var result = await store.RecordIssueAsync(projectId, parsed.Input, actor.Value, resolve,
                     cancellationToken, user.IsInRole(QmsRoles.SystemAdministrator), requireOpen);
-                if (result.Value is not null) result = result with { Value = result.Value with { Project = WithPermissions(result.Value.Project, user) } };
+                if (result.Value is not null) result = result with { Value = result.Value with { Project =
+                    await WithPermissionsAsync(result.Value.Project, user, connectionStringProvider, cancellationToken) } };
                 return ToResult(result);
             })
-            .RequireAuthorization(QmsPolicies.ManufacturingUpdate)
+            .RequireAuthorization()
             .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
             .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
             .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
@@ -211,18 +214,25 @@ public static class OsanProgressEndpointExtensions
         return app;
     }
 
-    private static OsanProgressResponse WithPermissions(OsanProgressResponse progress, ClaimsPrincipal user)
+    private static async Task<OsanProgressResponse> WithPermissionsAsync(OsanProgressResponse progress,
+        ClaimsPrincipal user,DatabaseConnectionStringProvider db,CancellationToken ct)
     {
         var canUpdate = ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ManufacturingUpdate);
+        var admin=user.IsInRole(QmsRoles.SystemAdministrator);
+        var actor=ProjectEndpointExtensions.GetCurrentUserId(user);
+        var allowed=actor is null ? new HashSet<int>() : await new OsanPolicyStore(db)
+            .AllowedGateStagesAsync(actor.Value,admin,ct);
         return progress with
         {
-            CanManageStages = user.IsInRole(QmsRoles.SystemAdministrator),
+            CanManageStages = admin,
             Targets = progress.Targets.Select(target => target with
             {
                 Steps = target.Steps.Select(step => step with
                 {
+                    CanCompleteIndividual = step.CanCompleteIndividual && allowed.Contains(step.SequenceNumber),
+                    CanCompleteBatch = step.CanCompleteBatch && allowed.Contains(step.SequenceNumber),
                     CanRegisterIssue = step.CanRegisterIssue && canUpdate,
-                    CanResolveIssue = step.CanResolveIssue && canUpdate
+                    CanResolveIssue = step.CanResolveIssue && allowed.Contains(step.SequenceNumber)
                 }).ToArray()
             }).ToArray()
         };

@@ -59,12 +59,27 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
-    public async Task<OsanManagementResult> RequestAsync(Guid project, OsanPhotoEditRequest request, Guid actor, CancellationToken ct)
+    private static async Task<bool> IsProjectDeliveredAsync(NpgsqlConnection c,NpgsqlTransaction tx,
+        Guid project,CancellationToken ct)
+    {
+        await using var command=c.CreateCommand();command.Transaction=tx;
+        command.CommandText="""
+            select status='Completed' and delivery_date < (now() at time zone 'Asia/Seoul')::date
+            from projects where id=@project
+            """;
+        command.Parameters.AddWithValue("project",project);
+        return await command.ExecuteScalarAsync(ct) is true;
+    }
+
+    public async Task<OsanManagementResult> RequestAsync(Guid project, OsanPhotoEditRequest request, Guid actor, CancellationToken ct,
+        bool isAdministrator=false)
     {
         if(request.RequestId==Guid.Empty || request.StageSequence is <1 or >7) return new(400);
         await using var source=Source(); await using var c=await source.OpenConnectionAsync(ct);
         await using var tx=await c.BeginTransactionAsync(ct);
         if(!await LockProject(c,tx,project,ct)) return new(404);
+        if(!isAdministrator && await IsProjectDeliveredAsync(c,tx,project,ct))
+            return new(403,Message:"납품 완료 프로젝트는 관리자만 변경할 수 있습니다.");
         await using var cmd=c.CreateCommand(); cmd.Transaction=tx;
         cmd.Parameters.AddWithValue("project",project); cmd.Parameters.AddWithValue("target",request.TargetId);
         cmd.Parameters.AddWithValue("stage",request.StageSequence);cmd.Parameters.AddWithValue("actor",actor);
@@ -131,6 +146,8 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         await using var source=Source();await using var c=await source.OpenConnectionAsync(ct);
         await using var tx=await c.BeginTransactionAsync(ct);
         if(!await LockProject(c,tx,project,ct))return new(404);
+        if(!isAdministrator && await IsProjectDeliveredAsync(c,tx,project,ct))
+            return new(403,Message:"납품 완료 프로젝트는 관리자만 변경할 수 있습니다.");
         await using var cmd=c.CreateCommand();cmd.Transaction=tx;
         cmd.Parameters.AddWithValue("project",project);cmd.Parameters.AddWithValue("id",requestId);
         cmd.Parameters.AddWithValue("actor",actor);cmd.Parameters.AddWithValue("target",input.Targets[0]!.TargetId);

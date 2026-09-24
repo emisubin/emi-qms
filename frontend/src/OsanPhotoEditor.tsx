@@ -1,3 +1,4 @@
+import { OsanStageAction } from './OsanStageActions';
 import { useEffect, useRef, useState } from 'react';
 import { OsanPhotoPreview } from './OsanPhotoPreview';
 import { SavedPhoto } from './OsanPhotoGallery';
@@ -45,13 +46,13 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
   finally{if(alive.current)setBusy(false);}
  }
  return <section className="osan-photo-editor" aria-label={`${target.displayName} ${step.stepName} 사진 수정`}>
-  {state?.canApprove&&mutationAllowed&&!editing&&<>{!step.openIssue&&!active?.approvedAt&&step.status==='Completed'&&<button type="button" disabled={busy} onClick={()=>{setAdminAction('reject');setReason('');adminOperation.current=crypto.randomUUID();}}>반려</button>}<button type="button" disabled={busy} onClick={()=>{setAdminAction('reset');setReason('');adminOperation.current=crypto.randomUUID();}}>초기화</button></>}
+  {state?.canApprove&&mutationAllowed&&!editing&&<>{!step.openIssue&&!active?.approvedAt&&step.status==='Completed'&&<OsanStageAction placement="management" type="button" disabled={busy} onClick={()=>{setAdminAction('reject');setReason('');adminOperation.current=crypto.randomUUID();}}>반려</OsanStageAction>}<OsanStageAction placement="management" className="osan-stage-reset" type="button" disabled={busy} onClick={()=>{setAdminAction('reset');setReason('');adminOperation.current=crypto.randomUUID();}}>초기화</OsanStageAction></>}
   {adminAction&&<div className="osan-stage-management"><label>{adminAction==='reject'?'반려 사유':'초기화 사유'}<textarea value={reason} maxLength={1000} disabled={busy} onChange={e=>setReason(e.target.value)}/></label><p>해당 단계만 미완료로 돌아갑니다. 이전 기록은 이력에 보존됩니다.</p><button type="button" disabled={busy||!reason.trim()} onClick={()=>void manage()}>{adminAction==='reject'?'반려 처리':'초기화 처리'}</button><button type="button" disabled={busy} onClick={()=>setAdminAction(null)}>취소</button></div>}
   {!step.openIssue&&<p>사진·코멘트 수정은 승인 또는 반려 후 1회 가능합니다.</p>}
-  {!step.openIssue&&state&&!active&&mutationAllowed&&step.status==='Completed'&&<button type="button" disabled={busy} onClick={()=>void action('request')}>사진 수정 승인 요청</button>}
+  {!step.openIssue&&state&&!active&&mutationAllowed&&step.status==='Completed'&&<OsanStageAction placement="secondary" type="button" disabled={busy} onClick={()=>void action('request')}>사진 수정 승인 요청</OsanStageAction>}
   {!step.openIssue&&active&&<p>{active.requestedByName} · {active.approvedAt?'수정 승인됨 · 저장 후 다시 잠깁니다.':'관리자 승인 대기'}</p>}
-  {!step.openIssue&&active&&!active.approvedAt&&state?.canApprove&&<button type="button" disabled={busy||!mutationAllowed} onClick={()=>void action('approve')}>사진 수정 1회 승인</button>}
-  {!step.openIssue&&active?.approvedAt&&mutationAllowed&&!editing&&<button type="button" disabled={busy} onClick={()=>{setComment(step.comment??'');setRetained(step.photos.map(p=>p.photoId));setEditing(true);}}>사진 수정</button>}
+  {!step.openIssue&&active&&!active.approvedAt&&state?.canApprove&&<OsanStageAction placement="primary" aria-label="사진 수정 1회 승인" type="button" disabled={busy||!mutationAllowed} onClick={()=>void action('approve')}>수정 승인</OsanStageAction>}
+  {!step.openIssue&&active?.approvedAt&&mutationAllowed&&!editing&&<OsanStageAction placement="primary" aria-label="사진 수정" type="button" disabled={busy} onClick={()=>{setComment(step.comment??'');setRetained(step.photos.map(p=>p.photoId));setEditing(true);}}>사진·코멘트 수정</OsanStageAction>}
   {editing&&<div><p>유지할 사진을 선택하고 새 사진을 추가해 주세요. 이전 사진과 코멘트는 이력에 보존됩니다.</p>
     <div className="osan-retained-photos">{step.photos.map(photo=><label key={photo.photoId}><input type="checkbox" checked={retained.includes(photo.photoId)} disabled={busy||submitted} onChange={e=>setRetained(ids=>e.target.checked?[...ids,photo.photoId]:ids.filter(id=>id!==photo.photoId))}/><span>사진 유지</span><SavedPhoto projectId={projectId} photo={photo} userKey={userKey}/></label>)}</div>
     <label>사진 선택<input type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple disabled={busy||submitted||!mutationAllowed} onChange={e=>setFiles(Array.from(e.target.files??[]))}/></label>

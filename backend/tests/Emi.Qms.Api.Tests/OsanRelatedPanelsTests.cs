@@ -15,6 +15,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(cancellationToken);
+        await SeedDefaultCustomerAsync(database, cancellationToken);
         await database.ExecuteAsync(
             "insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'related-panels','Related Panels',true);",
             cancellationToken,

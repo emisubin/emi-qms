@@ -184,3 +184,33 @@ describe('오산 단계 저장 이력', () => {
     expect(fetchJson).toHaveBeenCalledWith('/api/osan/projects/project-a/progress/steps/step-a/history', 'other-worker', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 });
+
+describe('Gate 더보기와 기존 승인 동작 연결', () => {
+  it('관리 기능은 더보기에 모으고 선택 후 메뉴를 닫아 사유 입력을 유지한다', async () => {
+    HTMLDialogElement.prototype.showModal = function() { this.open = true; };
+    HTMLDialogElement.prototype.close = function() { this.open = false; };
+    vi.mocked(fetchJson).mockResolvedValue(state([editRequest()], 'admin', true));
+    const { OsanStageActions } = await import('../src/OsanStageActions');
+    render(<OsanStageActions title="합성 대상 · 입고검사"><OsanPhotoEditor projectId="project-a" target={target} stage={1} userKey="admin" mutationAllowed onSaved={vi.fn()}/></OsanStageActions>);
+    expect(await screen.findByRole('button', { name: '사진 수정 1회 승인' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: '초기화' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '더보기' }));
+    expect(screen.getByRole('button', { name: '반려' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '초기화' }));
+    expect(screen.queryByRole('dialog', { name: /더보기/ })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: '초기화 사유' }), { target: { value: '합성 검증 사유' } });
+    fireEvent.click(screen.getByRole('button', { name: '초기화 처리' }));
+    await waitFor(() => expect(fetchJson).toHaveBeenCalledWith('/api/osan/projects/project-a/progress/steps/step-a/reset', 'admin', expect.objectContaining({method: 'POST', body: expect.stringContaining('합성 검증 사유')})));
+  });
+  it('수정 승인 후에는 반려를 메뉴에서도 노출하지 않는다', async () => {
+    HTMLDialogElement.prototype.showModal = function() { this.open = true; };
+    HTMLDialogElement.prototype.close = function() { this.open = false; };
+    vi.mocked(fetchJson).mockResolvedValue(state([{...editRequest(), approvedAt:'2026-09-24T00:00:00Z'}], 'admin', true));
+    const { OsanStageActions } = await import('../src/OsanStageActions');
+    render(<OsanStageActions title="합성 대상 · 입고검사"><OsanPhotoEditor projectId="project-a" target={target} stage={1} userKey="admin" mutationAllowed onSaved={vi.fn()}/></OsanStageActions>);
+    await screen.findByRole('button', {name:'사진 수정'});
+    fireEvent.click(screen.getByRole('button', {name:'더보기'}));
+    expect(screen.queryByRole('button', {name:'반려'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name:'초기화'})).toBeVisible();
+  });
+});

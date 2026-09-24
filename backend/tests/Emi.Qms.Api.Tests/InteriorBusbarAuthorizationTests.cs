@@ -35,12 +35,17 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.All(routes, route => Assert.NotEmpty(route.Metadata.GetOrderedMetadata<IAuthorizeData>()));
     }
 
-    [Theory]
+    [Theory(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
     [InlineData("printed")]
     [InlineData("attached")]
     public async Task UnprivilegedUserCannotConfirmLabels(string action)
     {
-        using var factory = new QmsWebApplicationFactory();
+        await using var fixture = await InteriorBusbarStoreTests.Fixture.Create();
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:QmsDatabase"] = fixture.Connection,
+            ["DevelopmentData:SeedEnabled"] = "false"
+        }, includeDefaultDevelopmentAuthentication: true);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-viewer");
         using var response = await client.PostAsJsonAsync("/api/interior-busbar/labels/" + action,
@@ -55,7 +60,23 @@ public sealed class InteriorBusbarAuthorizationTests
     [InlineData("dev-viewer")]
     public async Task ExistingDepartmentRolesCannotWriteBusbar(string key)
     {
-        using var factory = new QmsWebApplicationFactory();
+        await using var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(TestContext.Current.CancellationToken);
+        await new DatabaseMigrationRunner(provider,
+            Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(Path.Combine(databases.RepositoryRoot, "database", "migrations")),
+            new DatabaseRuntimePrivilegeManager(), databases.Configuration,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
+        {
+            ["DevAuthentication:Enabled"] = "true",
+            ["Database:ApplyMigrationsOnStartup"] = "false",
+            ["DevelopmentData:SeedEnabled"] = "false",
+            ["ConnectionStrings:QmsDatabase"] = provider.GetConnectionString(databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Cheongju))
+        });
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, key);
         var response = await client.PostAsJsonAsync("/api/interior-busbar/adjustments", new BusbarAdjustmentRequest(Guid.NewGuid(), "Finished", Guid.NewGuid(), 1, "Synthetic", true), TestContext.Current.CancellationToken);

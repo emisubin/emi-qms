@@ -33,15 +33,35 @@ on:
         default: false
         type: boolean
       database_prepare_only:
-        description: Stop after database jobs so restore rehearsal can run before public application replacement
+        description: Legacy database-only mode; migration releases require backend replacement and will be rejected
         required: true
         default: false
         type: boolean
       force_full_release:
-        description: Rebuild the exact current main after a successful database-only preparation run
+        description: Rebuild the exact current main for an approved full release retry
         required: true
         default: false
         type: boolean
+      maintenance_release_id:
+        description: UUID for this public deployment announcement (required when replacing an application)
+        required: false
+        type: string
+      maintenance_title:
+        description: Public deployment notice title
+        required: false
+        type: string
+      maintenance_body:
+        description: Public deployment notice body
+        required: false
+        type: string
+      maintenance_starts_at_utc:
+        description: Scheduled deployment start in UTC ISO 8601 format
+        required: false
+        type: string
+      maintenance_expected_ends_at_utc:
+        description: Expected deployment end in UTC ISO 8601 format
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -69,6 +89,7 @@ jobs:
       CONFIRM_IMAGE_PUSH: ${{ inputs.confirm_image_push }}
       CONFIRM_PRODUCTION_DEPLOY: ${{ inputs.confirm_production_deploy }}
       FORCE_FULL_RELEASE: ${{ inputs.force_full_release }}
+      DATABASE_PREPARE_ONLY: ${{ inputs.database_prepare_only }}
     steps:
       - name: Check out trusted main history
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -122,6 +143,11 @@ jobs:
           deploy_backend="$(sed -n 's/^deploy_backend=//p' "$scope_file")"
           deploy_frontend="$(sed -n 's/^deploy_frontend=//p' "$scope_file")"
           run_migration="$(sed -n 's/^run_migration=//p' "$scope_file")"
+          if [[ "$run_migration" == 'true' \
+            && ( "$deploy_backend" != 'true' || "$DATABASE_PREPARE_ONLY" == 'true' ) ]]; then
+            printf 'azurePilotRelease=MIGRATION_REQUIRES_BACKEND_RELEASE\n' >&2
+            exit 65
+          fi
           {
             printf "### Azure release scope\n\n"
             printf -- "- classification: \`%s\`\n" "$classification"
@@ -337,6 +363,13 @@ jobs:
       MIGRATION_JOB_NAME: ${{ vars.AZURE_MIGRATION_JOB_NAME }}
       DATABASE_BOOTSTRAP_JOB_NAME: database-role-bootstrap
       MEMBERSHIP_BACKFILL_JOB_NAME: business-unit-member-backfill
+      MAINTENANCE_JOB_NAME: ${{ vars.AZURE_MAINTENANCE_JOB_NAME }}
+      MAINTENANCE_ACTOR_USER_ID: ${{ vars.AZURE_MAINTENANCE_ACTOR_USER_ID }}
+      MAINTENANCE_RELEASE_ID: ${{ inputs.maintenance_release_id }}
+      MAINTENANCE_TITLE: ${{ inputs.maintenance_title }}
+      MAINTENANCE_BODY: ${{ inputs.maintenance_body }}
+      MAINTENANCE_STARTS_AT_UTC: ${{ inputs.maintenance_starts_at_utc }}
+      MAINTENANCE_EXPECTED_ENDS_AT_UTC: ${{ inputs.maintenance_expected_ends_at_utc }}
       DEPLOY_BACKEND: ${{ needs.scope.outputs.deploy_backend == 'true' && !inputs.database_prepare_only }}
       DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend == 'true' && !inputs.database_prepare_only }}
       RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}

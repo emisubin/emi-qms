@@ -263,6 +263,95 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(2, served);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("invalid")]
+    [InlineData("0")]
+    public async Task MaintenanceCliRejectsMalformedPublishNoticeBeforeAnyDatabaseAccess(string value)
+    {
+        var configuration=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>
+        {
+            ["Maintenance:ReleaseId"]=Guid.NewGuid().ToString(),
+            ["Maintenance:ActorUserId"]=UserId.ToString(),
+            ["Maintenance:PublishNotice"]=value
+        }).Build();
+        var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>DeploymentMaintenanceCli.RunAsync(
+            "--maintenance-prepare",configuration,new DatabaseConnectionStringProvider(configuration),null!,
+            NullLogger.Instance,TestContext.Current.CancellationToken));
+        Assert.Equal("Invalid Maintenance:PublishNotice.",error.Message);
+    }
+
+    [Fact]
+    public async Task MaintenancePopupOnlyPreservesAuthorValidationReceiptsAndTransitionsWithoutNoticeWrites()
+    {
+        var ct=TestContext.Current.CancellationToken;
+        await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
+        var configuration=database.CreateConfiguration();
+        var provider=new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot,provider,configuration).ApplyAndVerifyAsync(ct);
+        var store=new DeploymentMaintenanceStore(provider);
+        var release=Guid.NewGuid();
+        var start=DateTimeOffset.UtcNow.AddMinutes(5);
+        var end=start.AddMinutes(30);
+        var request=new PrepareDeploymentMaintenance(release,UserId,"버그 수정","잠시 저장을 중단합니다.",start,end,false);
+        Assert.Equal(409,(await store.PrepareAsync(request,ct)).Status);
+        Assert.Equal("Idle",(await store.ReadAsync(UserId,ct)).State);
+        await database.ExecuteAsync("""
+            insert into qms_users(id,development_user_key,display_name,is_active)
+            values ('89000000-0000-0000-0000-000000000001','popup-only-test','합성 관리자',false);
+            """,ct);
+        Assert.Equal(409,(await store.PrepareAsync(request,ct)).Status);
+        await database.ExecuteAsync("update qms_users set is_active=true where id=@actor",ct,("actor",UserId));
+        var prepared=await store.PrepareAsync(request,ct);
+        Assert.Equal(200,prepared.Status);
+        Assert.Null(prepared.Value!.NoticeId);
+        Assert.True(prepared.Value.PopupPending);
+        Assert.False(prepared.Value.WriteBlocked);
+
+        var values=new Dictionary<string,string?>
+        {
+            ["Maintenance:ReleaseId"]=release.ToString(),["Maintenance:ActorUserId"]=UserId.ToString(),
+            ["Maintenance:Title"]=request.Title,["Maintenance:Body"]=request.Body,
+            ["Maintenance:StartsAtUtc"]=start.ToString("O"),["Maintenance:ExpectedEndsAtUtc"]=end.ToString("O"),
+            ["Maintenance:PublishNotice"]="false"
+        };
+        async Task VerifyAsync(Dictionary<string,string?> settings)
+        {
+            var config=new ConfigurationBuilder().AddConfiguration(configuration).AddInMemoryCollection(settings).Build();
+            await DeploymentMaintenanceCli.RunAsync("--maintenance-verify-prepared",config,
+                new DatabaseConnectionStringProvider(config),null!,NullLogger.Instance,ct);
+        }
+        await VerifyAsync(values);
+        foreach(var entry in new Dictionary<string,string?>
+        {
+            ["Maintenance:ReleaseId"]=Guid.NewGuid().ToString(),["Maintenance:Title"]="다른 제목",
+            ["Maintenance:Body"]="다른 안내",["Maintenance:StartsAtUtc"]=start.AddMinutes(1).ToString("O"),
+            ["Maintenance:ExpectedEndsAtUtc"]=end.AddMinutes(1).ToString("O"),["Maintenance:PublishNotice"]="true"
+        })
+        {
+            var changed=new Dictionary<string,string?>(values) { [entry.Key]=entry.Value };
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>VerifyAsync(changed));
+            Assert.Equal(1,(await store.ReadAsync(UserId,ct)).Version);
+        }
+        Assert.True(await store.ClaimPopupAsync(release,1,UserId,ct));
+        Assert.False(await store.ClaimPopupAsync(release,1,UserId,ct));
+        Assert.False((await store.ReadAsync(UserId,ct)).PopupPending);
+        var active=await store.TransitionAsync(release,1,"activate",null,false,UserId,ct);
+        Assert.True(active.Value!.WriteBlocked);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>VerifyAsync(values));
+        var delayed=await store.TransitionAsync(release,2,"delay",end.AddMinutes(15),false,UserId,ct);
+        Assert.Equal(2,delayed.Value!.PopupVersion);
+        Assert.True(delayed.Value.PopupPending);
+        Assert.True(await store.ClaimPopupAsync(release,2,UserId,ct));
+        var completed=await store.TransitionAsync(release,3,"complete",null,true,UserId,ct);
+        Assert.Equal("Completed",completed.Value!.State);
+        Assert.False(completed.Value.WriteBlocked);
+        Assert.False(completed.Value.PopupPending);
+        Assert.Null(completed.Value.NoticeId);
+        Assert.Equal(0,await database.ReadScalarAsync<int>("select count(*)::integer from notice_posts",ct));
+        Assert.Equal(0,await database.ReadScalarAsync<int>("select count(*)::integer from notice_post_revisions",ct));
+    }
+
     [Fact]
     public void EndpointCatalog_ExposesAuthorizedProjectAndProgressRoutes()
     {

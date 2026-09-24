@@ -17,7 +17,7 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
  const [requesting,setRequesting]=useState(false);const [requestReason,setRequestReason]=useState('');
  const requestTitleId=useId();
  const requestDialog=useRef<HTMLDialogElement>(null);
- useEffect(()=>{if(requesting)requestDialog.current?.showModal();else requestDialog.current?.close();},[requesting]);
+ useEffect(()=>{if(requesting)requestDialog.current?.showModal();else if(requestDialog.current?.open)requestDialog.current.close();},[requesting]);
  function closeRequest(){if(!busy){setRequesting(false);setRequestReason('');setError('');}}
  const requestId=useRef(crypto.randomUUID()); const alive=useRef(true);
  const uncertainSave=useRef(false);

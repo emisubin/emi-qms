@@ -86,6 +86,21 @@ if [[ "${DEPLOY_BACKEND}" == 'true' || "${DEPLOY_FRONTEND}" == 'true' \
   done
 fi
 
+MAINTENANCE_PUBLISH_NOTICE="${MAINTENANCE_PUBLISH_NOTICE:-true}"
+MAINTENANCE_PREPARE_ONLY="${MAINTENANCE_PREPARE_ONLY:-false}"
+MAINTENANCE_PREPARED="${MAINTENANCE_PREPARED:-false}"
+for flag in "$MAINTENANCE_PUBLISH_NOTICE" "$MAINTENANCE_PREPARE_ONLY" "$MAINTENANCE_PREPARED"; do
+  if [[ "$flag" != true && "$flag" != false ]]; then
+    printf 'azurePilotRelease=INVALID_MAINTENANCE_MODE\n' >&2; exit 65
+  fi
+done
+if [[ "$MAINTENANCE_PREPARE_ONLY" == true && "$MAINTENANCE_PREPARED" == true ]]; then
+  printf 'azurePilotRelease=INVALID_MAINTENANCE_MODE\n' >&2; exit 65
+fi
+if [[ ( "$MAINTENANCE_PUBLISH_NOTICE" == false || "$MAINTENANCE_PREPARED" == true ) && -z "${MAINTENANCE_PREPARATION_IMAGE:-}" ]]; then
+  printf 'azurePilotRelease=MAINTENANCE_PREPARATION_IMAGE_REQUIRED\n' >&2; exit 65
+fi
+
 azure_cli_bin="${AZURE_RELEASE_AZ_BIN:-az}"
 http_client_bin="${AZURE_RELEASE_HTTP_BIN:-curl}"
 poll_attempts="${AZURE_RELEASE_POLL_ATTEMPTS:-60}"
@@ -134,6 +149,11 @@ cleanup() {
   rm -f "${task_tmp_dir}/command-output" "${task_tmp_dir}/command-error"
   rmdir "${task_tmp_dir}" 2>/dev/null || true
 }
+if [[ -n "${MAINTENANCE_PREPARATION_IMAGE:-}" && ( "$MAINTENANCE_PREPARATION_IMAGE" != "${ACR_LOGIN_SERVER}/pms-backend@"* || ! "$MAINTENANCE_PREPARATION_IMAGE" =~ @${digest_pattern}$ ) ]]; then
+  printf 'azurePilotRelease=INVALID_MAINTENANCE_PREPARATION_IMAGE\n' >&2; exit 66
+fi
+
+
 trap cleanup EXIT
 
 azure_read() {
@@ -343,8 +363,9 @@ wait_for_job() {
 
 run_maintenance_job() {
   local action="$1"
-  local execution_name='' verified='false' maintenance_image="${previous_backend_image}"
+  local execution_name='' verified='false' maintenance_image="${MAINTENANCE_PREPARATION_IMAGE:-${previous_backend_image}}"
   if [[ "${action}" == 'complete' ]]; then
+    maintenance_image="${previous_backend_image}"
     verified='true'
     if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
       maintenance_image="${BACKEND_RELEASE_IMAGE}"
@@ -365,6 +386,7 @@ run_maintenance_job() {
       "Maintenance__StartsAtUtc=${MAINTENANCE_STARTS_AT_UTC}" \
       "Maintenance__ExpectedEndsAtUtc=${MAINTENANCE_EXPECTED_ENDS_AT_UTC}" \
       "Maintenance__Verified=${verified}" \
+      "Maintenance__PublishNotice=${MAINTENANCE_PUBLISH_NOTICE}" \
     --args="--maintenance-${action}" \
     --query name)" || execution_name=''
   [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
@@ -539,9 +561,15 @@ if [[ "${maintenance_release}" == 'true' ]]; then
   done
   maintenance_job_cpu="${job_override_cpu}"
   maintenance_job_memory="${job_override_memory}"
-  if ! run_maintenance_job prepare; then
+  preparation_action=prepare
+  [[ "$MAINTENANCE_PREPARED" == true ]] && preparation_action=verify-prepared
+  if ! run_maintenance_job "$preparation_action"; then
     printf 'azurePilotRelease=MAINTENANCE_PREPARE_FAILED\n' >&2
     exit 79
+  fi
+  if [[ "$MAINTENANCE_PREPARE_ONLY" == true ]]; then
+    printf 'azurePilotRelease=ANNOUNCED\n'
+    exit 0
   fi
   if ! run_maintenance_job activate; then
     printf 'azurePilotRelease=MAINTENANCE_ACTIVATION_FAILED\n' >&2

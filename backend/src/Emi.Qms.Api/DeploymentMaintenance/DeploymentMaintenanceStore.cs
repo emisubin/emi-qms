@@ -9,7 +9,7 @@ public sealed record DeploymentMaintenanceStatus(Guid? ReleaseId,int Version,int
 public sealed record DeploymentMaintenanceCommandResult(int Status,string? ErrorCode = null,
     string? Message = null,DeploymentMaintenanceStatus? Value = null);
 public sealed record PrepareDeploymentMaintenance(Guid ReleaseId,Guid ActorUserId,string Title,string Body,
-    DateTimeOffset StartsAtUtc,DateTimeOffset ExpectedEndsAtUtc);
+    DateTimeOffset StartsAtUtc,DateTimeOffset ExpectedEndsAtUtc,bool PublishNotice = true);
 
 public sealed class DeploymentMaintenanceStore
 {
@@ -104,18 +104,30 @@ public sealed class DeploymentMaintenanceStore
         command.Parameters.AddWithValue("notice_body",body);
         command.Parameters.AddWithValue("start",input.StartsAtUtc);
         command.Parameters.AddWithValue("end",input.ExpectedEndsAtUtc);
-        command.CommandText="""
-            insert into notice_posts(title,body,body_format,author_user_id,author_display_name_snapshot,
-                author_department_name_snapshot,request_id,popup_enabled,popup_version)
-            select @title,@notice_body,'PlainTextV1',u.id,u.display_name,d.name,@release,false,0
-            from qms_users u left join departments d on d.id=u.department_id
-            where u.id=@actor and u.is_active=true
-            on conflict(author_user_id,request_id) do nothing returning id
-            """;
-        var notice=await command.ExecuteScalarAsync(ct);
-        if(notice is not Guid noticeId)
-            return new(409,"release_maintenance_notice_conflict","공지 작성자 또는 배포 식별자를 확인해 주세요.");
-        command.Parameters.AddWithValue("notice",noticeId);
+        Guid? noticeId=null;
+        if(input.PublishNotice)
+        {
+            command.CommandText="""
+                insert into notice_posts(title,body,body_format,author_user_id,author_display_name_snapshot,
+                    author_department_name_snapshot,request_id,popup_enabled,popup_version)
+                select @title,@notice_body,'PlainTextV1',u.id,u.display_name,d.name,@release,false,0
+                from qms_users u left join departments d on d.id=u.department_id
+                where u.id=@actor and u.is_active=true
+                on conflict(author_user_id,request_id) do nothing returning id
+                """;
+            var notice=await command.ExecuteScalarAsync(ct);
+            if(notice is not Guid createdNoticeId)
+                return new(409,"release_maintenance_notice_conflict","공지 작성자 또는 배포 식별자를 확인해 주세요.");
+            noticeId=createdNoticeId;
+        }
+        else
+        {
+            // Popup-only releases still require an active local author, just like published notices.
+            command.CommandText="select exists(select 1 from qms_users where id=@actor and is_active=true)";
+            if(await command.ExecuteScalarAsync(ct) is not true)
+                return new(409,"release_maintenance_notice_conflict","공지 작성자 또는 배포 식별자를 확인해 주세요.");
+        }
+        command.Parameters.AddWithValue("notice",NpgsqlTypes.NpgsqlDbType.Uuid,(object?)noticeId??DBNull.Value);
         command.CommandText="""
             update deployment_maintenance set release_id=@release,version=1,popup_version=1,state='Announced',
                 title=@title,body=@body,starts_at_utc=@start,expected_ends_at_utc=@end,

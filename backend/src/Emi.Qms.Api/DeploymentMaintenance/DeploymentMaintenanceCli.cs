@@ -9,7 +9,7 @@ public static class DeploymentMaintenanceCli
     public static readonly IReadOnlySet<string> Commands = new HashSet<string>(StringComparer.Ordinal)
     {
         "--maintenance-prepare", "--maintenance-activate", "--maintenance-delay",
-        "--maintenance-fail", "--maintenance-complete"
+        "--maintenance-fail", "--maintenance-complete", "--maintenance-verify-prepared"
     };
 
     public static async Task RunAsync(string command, IConfiguration configuration,
@@ -19,6 +19,7 @@ public static class DeploymentMaintenanceCli
         if (!Commands.Contains(command)) throw new ArgumentException("Unknown maintenance command.", nameof(command));
         var releaseId = RequiredGuid(configuration, "Maintenance:ReleaseId");
         var actor = RequiredGuid(configuration, "Maintenance:ActorUserId");
+        var publishNotice = OptionalBoolean(configuration, "Maintenance:PublishNotice", true);
         var targets = provider.BusinessUnits.Businesses;
         if (targets.Count == 0) throw new InvalidOperationException("No business database is configured.");
 
@@ -47,7 +48,22 @@ public static class DeploymentMaintenanceCli
                     Required(configuration, "Maintenance:Title"),
                     Required(configuration, "Maintenance:Body"),
                     RequiredUtc(configuration, "Maintenance:StartsAtUtc"),
-                    RequiredUtc(configuration, "Maintenance:ExpectedEndsAtUtc")), ct);
+                    RequiredUtc(configuration, "Maintenance:ExpectedEndsAtUtc"), publishNotice), ct);
+            }
+            else if (command == "--maintenance-verify-prepared")
+            {
+                var state = await store.ReadAsync(actor, ct);
+                var startsAt = RequiredUtc(configuration, "Maintenance:StartsAtUtc");
+                var endsAt = RequiredUtc(configuration, "Maintenance:ExpectedEndsAtUtc");
+                startsAt = startsAt.AddTicks(-(startsAt.Ticks % TimeSpan.TicksPerMicrosecond));
+                endsAt = endsAt.AddTicks(-(endsAt.Ticks % TimeSpan.TicksPerMicrosecond));
+                if (state.State != "Announced" || state.ReleaseId != releaseId
+                    || state.Title != Required(configuration, "Maintenance:Title").Trim()
+                    || state.Body != Required(configuration, "Maintenance:Body").Trim()
+                    || state.StartsAtUtc != startsAt || state.ExpectedEndsAtUtc != endsAt
+                    || state.NoticeId.HasValue != publishNotice)
+                    throw new InvalidOperationException($"Prepared maintenance does not match configured database {target.Code}.");
+                result = new(200, Value: state);
             }
             else
             {
@@ -67,6 +83,14 @@ public static class DeploymentMaintenanceCli
             logger.LogInformation("Maintenance command completed for {BusinessUnit}. State={State} Version={Version}.",
                 target.Code, result.Value?.State, result.Value?.Version);
         }
+    }
+
+    private static bool OptionalBoolean(IConfiguration configuration, string key, bool defaultValue)
+    {
+        var raw = configuration[key];
+        if (raw is null) return defaultValue;
+        return bool.TryParse(raw, out var value)
+            ? value : throw new InvalidOperationException($"Invalid {key}.");
     }
 
     private static string Required(IConfiguration configuration, string key) =>

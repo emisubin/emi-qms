@@ -1,3 +1,4 @@
+using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.InteriorBusbar;
 using Emi.Qms.Api;
 using Emi.Qms.Api.Admin;
@@ -140,6 +141,8 @@ builder.Services.AddSingleton<UserProfilePhotoStore>();
 builder.Services.AddSingleton<HomeMetricsStore>();
 builder.Services.AddSingleton<G2OperationsStore>();
 builder.Services.AddSingleton<NoticeStore>();
+builder.Services.AddSingleton<DeploymentMaintenanceStore>();
+builder.Services.AddSingleton<OsanPolicyStore>();
 builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
 builder.Services.AddSingleton<ProjectStore>();
@@ -262,6 +265,7 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
 DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     DevelopmentFeaturePolicy.EvaluateAdminUserSwitch(app.Environment, app.Configuration),
     app.Environment);
+var maintenanceCommand = args.SingleOrDefault(DeploymentMaintenanceCli.Commands.Contains);
 var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
 var bootstrapDatabaseRolesOnly = args.Contains("--bootstrap-database-roles", StringComparer.Ordinal);
 var backfillBusinessUnitMembershipsOnly = args.Contains("--backfill-business-unit-memberships", StringComparer.Ordinal);
@@ -275,7 +279,8 @@ if (new[]
         migrateOnly,
         bootstrapDatabaseRolesOnly,
         backfillBusinessUnitMembershipsOnly,
-        inspectBusinessUnitMembershipBackfillOnly
+        inspectBusinessUnitMembershipBackfillOnly,
+        maintenanceCommand is not null
     }.Count(selected => selected) > 1)
 {
     throw new InvalidOperationException("Only one database operation mode can be selected.");
@@ -363,6 +368,14 @@ if (backfillBusinessUnitMembershipsOnly || inspectBusinessUnitMembershipBackfill
     return;
 }
 
+if (maintenanceCommand is not null)
+{
+    await DeploymentMaintenanceCli.RunAsync(maintenanceCommand, app.Configuration,
+        app.Services.GetRequiredService<DatabaseConnectionStringProvider>(),
+        app.Services.GetRequiredService<DatabaseHealthChecker>(), app.Logger, CancellationToken.None);
+    return;
+}
+
 app.UseForwardedHeaders();
 app.UseMiddleware<HostFilteringMiddleware>();
 if (app.Environment.IsProduction())
@@ -417,6 +430,7 @@ if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
 }
 app.UseMiddleware<AdminUserSwitchGuardMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<DeploymentMaintenanceMiddleware>();
 app.UseMiddleware<AuditMutationMiddleware>();
 app.UseMiddleware<UploadSecurityMiddleware>();
 
@@ -464,11 +478,14 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
     var database = await databaseHealthChecker.CheckAsync(cancellationToken);
     var status = database.IsReady ? "ok" : "degraded";
 
-    return Results.Ok(new ReadyHealthResponse(
+    var readyResponse = new ReadyHealthResponse(
         "ready",
         status,
         new DatabaseHealthResult(database.IsReady, database.IsReady ? "ready" : "not_ready"),
-        timeProvider.GetUtcNow()));
+        timeProvider.GetUtcNow());
+    return database.IsReady
+        ? Results.Ok(readyResponse)
+        : Results.Json(readyResponse, statusCode: StatusCodes.Status503ServiceUnavailable);
 })
 .AllowAnonymous()
 .WithName("ReadyHealth");
@@ -486,6 +503,9 @@ app.MapAuditEndpoints();
 app.MapHomeMetricsEndpoints();
 app.MapG2OperationsEndpoints();
 app.MapNoticeEndpoints();
+app.MapOsanNoticeEndpoints();
+app.MapDeploymentMaintenanceEndpoints();
+app.MapOsanPolicyEndpoints();
 app.MapProjectEndpoints();
 app.MapOsanProjectEndpoints();
 app.MapOsanProgressEndpoints();

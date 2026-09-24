@@ -24,6 +24,9 @@ internal sealed class InteriorBusbarEcountWorker(
     {
         if (!options.Enabled) return false;
         var target = connections.BusinessUnits.Businesses.Single(t => t.Code == BusinessUnitCodes.Cheongju);
+        await using var maintenanceLease = await Emi.Qms.Api.DeploymentMaintenance.DeploymentMaintenanceLease.AcquireAsync(
+            connections, [target], cancellationToken);
+        if (maintenanceLease is null) return false;
         var connectionString = connections.GetConnectionString(target);
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);

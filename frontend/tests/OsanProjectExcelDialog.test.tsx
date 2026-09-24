@@ -8,7 +8,9 @@ vi.mock('../src/osanProjectExcel', () => ({ downloadOsanProjectTemplate: vi.fn()
 const preview: api.OsanProjectExcelPreview = {
   supportsRowEditing: true,
   fileSha256: 'file-hash', totalRowCount: 1, errorCount: 0, errors: [],
-  rows: [{ rowNumber: 2, title: '프로젝트', projectCode: 'AbC  001', customerName: '고객사', poNumber: '001-PO', workOrderNumber: null, deliveryDate: '2026-12-31', productName: '제품', errors: [] }]
+  rows: [{ rowNumber: 2, title: '프로젝트', projectCode: 'AbC  001', customerName: '고객사', customerId: 'customer-a',
+    customerCandidates: [{ customerId: 'customer-a', name: '고객사' }], poNumber: '001-PO', workOrderNumber: null,
+    deliveryDate: '2026-12-31', productName: '제품', errors: [] }]
 };
 const file = () => new File(['synthetic workbook'], 'projects.xlsx');
 function selectFile(value = file()) { fireEvent.change(screen.getByLabelText('작성한 엑셀 파일'), { target: { files: [value] } }); }
@@ -33,6 +35,9 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await waitFor(() => expect(applied).toHaveBeenCalledWith(1));
     expect(api.applyOsanProjectExcel).toHaveBeenCalledWith('dev-user', expect.any(File), 'file-hash', expect.stringMatching(/^[0-9a-f-]{36}$/), expect.any(AbortSignal), preview.rows, []);
+    expect(vi.mocked(api.applyOsanProjectExcel).mock.calls[0][5]?.[0]).toMatchObject({
+      customerName: '고객사', customerId: 'customer-a'
+    });
   });
 
   it('blocks rows with validation errors and resets preview on reselection', async () => {

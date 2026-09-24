@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { DsDialog } from './design-system';
 import { ApiError } from './api';
+import { OsanCustomerMatch } from './OsanCustomerMatch';
 import { applyOsanProjectExcel, downloadOsanProjectTemplate, previewOsanProjectExcel, type OsanProjectExcelPreview, type OsanProjectExcelRow } from './osanProjectExcel';
 import './osan-project-excel.css';
 
@@ -68,7 +69,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
     setConfirmation(null); setMessage('');
     setPreview(current => current && { ...current, rows: current.rows.map(row => {
       if (row.rowNumber !== rowNumber) return row;
-      const updated = { ...row, [key]: value, duplicateKind: null };
+      const updated = { ...row, [key]: value, ...(key === "customerName" ? {customerId:undefined} : {}), duplicateKind: null };
       return { ...updated, errors: inputErrors(updated) };
     }) });
   }
@@ -163,7 +164,7 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
               const complete = saved.includes(row.rowNumber);
               const errors = [...new Set([...row.errors, ...inputErrors(row)])];
               return <tr key={row.rowNumber} className={complete ? 'osan-excel-saved' : errors.length ? 'osan-excel-invalid' : undefined}>
-                <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}>{editingCell?.rowNumber === row.rowNumber && editingCell.key === key && !complete ? <input
+                <th scope="row">{row.rowNumber}</th>{fields.map(([key, label, max]) => <td key={key}>{key === 'customerName' && !complete ? <OsanCustomerMatch value={row.customerName} customerId={row.customerId} userKey={developmentUserKey} disabled={locked} onChange={(name,id)=>setPreview(current=>current&&({...current,rows:current.rows.map(item=>item.rowNumber===row.rowNumber?{...item,customerName:name,customerId:id,errors:inputErrors({...item,customerName:name,customerId:id})}:item)}))}/> : editingCell?.rowNumber === row.rowNumber && editingCell.key === key && !complete ? <input
                   ref={element => { element?.focus(); }}
                   onBlur={() => setEditingCell(null)}
                   onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dialog.current?.focus(); setEditingCell(null); } }}

@@ -350,6 +350,9 @@ public static class OsanProjectEndpointExtensions
                     {
                         [nameof(request.OperationId)] = ["새 요청으로 다시 시도해 주세요."]
                     })),
+                OsanProjectCreateStatus.CustomerInvalid => Results.BadRequest(new OsanProjectErrorResponse(
+                    "osan_customer_invalid", "등록된 고객사를 다시 선택해 주세요.",
+                    new Dictionary<string,string[]> { ["customerId"] = ["고객사 연결이 유효하지 않습니다."] })),
                 _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError)
             };
         })
@@ -363,26 +366,30 @@ public static class OsanProjectEndpointExtensions
         IQueryCollection values)
     {
         var errors = new Dictionary<string, string[]>();
-        var customer = values["customer"].ToString().Trim();
-        if (customer.Length > 200) errors["customer"] = ["고객사는 200자 이하여야 합니다."];
+        var customers = values["customer"].Select(v => (v ?? "").Trim()).Where(v => v.Length > 0).Distinct().ToArray();
+        if (customers.Length > 100 || customers.Any(v => v.Length > 200)) errors["customer"] = ["고객사 필터를 확인해 주세요."];
+        var customer = customers.FirstOrDefault() ?? "";
         var search = values["search"].ToString().Trim();
-        if (search.Length > 200)
+        if (search.Length > 200) errors["search"] = ["검색어는 200자 이하여야 합니다."];
+        var statuses = values["status"].Select(v => (v ?? "").Trim()).Where(v => v.Length > 0 && v != OsanDashboardStatuses.All).Distinct().ToArray();
+        if (statuses.Any(v => !OsanDashboardStatuses.IsValid(v))) errors["status"] = ["상태 필터가 올바르지 않습니다."];
+        var status = statuses.FirstOrDefault() ?? OsanDashboardStatuses.All;
+        DateOnly? ReadDate(string key)
         {
-            errors["search"] = ["검색어는 200자 이하여야 합니다."];
+            var raw = values[key].ToString();
+            if (raw.Length == 0) return null;
+            if (DateOnly.TryParseExact(raw, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)) return date;
+            errors[key] = ["납기일은 YYYY-MM-DD 형식이어야 합니다."];
+            return null;
         }
-
-        var status = values["status"].ToString().Trim();
-        if (status.Length == 0)
-        {
-            status = OsanDashboardStatuses.All;
-        }
-        else if (!OsanDashboardStatuses.IsValid(status))
-        {
-            errors["status"] = ["상태 필터가 올바르지 않습니다."];
-        }
+        var dueFrom = ReadDate("dueFrom");
+        var dueTo = ReadDate("dueTo");
+        if (dueFrom > dueTo) errors["dueTo"] = ["종료일은 시작일 이후여야 합니다."];
+        var kpi = values["kpi"].ToString();
+        if (kpi.Length > 0 && kpi != "OpenIssue" && !OsanDashboardStatuses.IsValid(kpi)) errors["kpi"] = ["현황 필터가 올바르지 않습니다."];
 
         var page = ParsePositiveInteger(values["page"].ToString(), 1, "page", errors);
-        var pageSize = ParsePositiveInteger(values["pageSize"].ToString(), 10, "pageSize", errors);
+        var pageSize = ParsePositiveInteger(values["pageSize"].ToString(), 50, "pageSize", errors);
         if (pageSize > 100)
         {
             errors["pageSize"] = ["페이지 크기는 100 이하여야 합니다."];
@@ -399,7 +406,7 @@ public static class OsanProjectEndpointExtensions
         }
 
         return errors.Count == 0
-            ? (new OsanDashboardQuery(search, status, page, pageSize, view, customer), errors)
+            ? (new OsanDashboardQuery(search, status, page, pageSize, view, customer, statuses, customers, dueFrom, dueTo, kpi), errors)
             : (null, errors);
     }
 

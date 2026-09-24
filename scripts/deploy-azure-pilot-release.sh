@@ -52,6 +52,13 @@ if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' \
   exit 65
 fi
 
+# Exact migration-ledger validation in the live backend requires the matching
+# backend image. Reject database-only migrations before any Azure mutation.
+if [[ "${RUN_MIGRATION}" == 'true' && "${DEPLOY_BACKEND}" != 'true' ]]; then
+  printf 'azurePilotRelease=MIGRATION_REQUIRES_BACKEND_RELEASE\n' >&2
+  exit 65
+fi
+
 if [[ "${DEPLOY_BACKEND}" == 'false' \
   && "${DEPLOY_FRONTEND}" == 'false' \
   && "${RUN_MIGRATION}" == 'false' \
@@ -60,6 +67,23 @@ if [[ "${DEPLOY_BACKEND}" == 'false' \
   && "${INSPECT_MEMBERSHIP_BACKFILL}" == 'false' ]]; then
   printf 'azurePilotRelease=NO_CHANGES\n'
   exit 0
+fi
+
+# Public releases require a pre-provisioned maintenance job. The previous backend
+# image must already contain its CLI; first-time bootstrap is a separate rollout.
+maintenance_release='false'
+if [[ "${DEPLOY_BACKEND}" == 'true' || "${DEPLOY_FRONTEND}" == 'true' \
+  || "${RUN_MIGRATION}" == 'true' || "${RUN_DATABASE_BOOTSTRAP}" == 'true' \
+  || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  maintenance_release='true'
+  for variable_name in MAINTENANCE_JOB_NAME MAINTENANCE_RELEASE_ID \
+    MAINTENANCE_ACTOR_USER_ID MAINTENANCE_TITLE MAINTENANCE_BODY \
+    MAINTENANCE_STARTS_AT_UTC MAINTENANCE_EXPECTED_ENDS_AT_UTC; do
+    if [[ -z "${!variable_name:-}" ]]; then
+      printf 'azurePilotRelease=MAINTENANCE_CONFIGURATION_MISSING\n' >&2
+      exit 63
+    fi
+  done
 fi
 
 azure_cli_bin="${AZURE_RELEASE_AZ_BIN:-az}"
@@ -101,6 +125,12 @@ fi
 
 task_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pms-azure-release.XXXXXX")"
 cleanup() {
+  local exit_status="$?"
+  if [[ "${maintenance_active:-false}" == 'true' && "${exit_status}" -ne 0 ]]; then
+    if ! run_maintenance_job fail; then
+      printf 'azurePilotReleaseMaintenance=FAILURE_STATE_UPDATE_FAILED\n' >&2
+    fi
+  fi
   rm -f "${task_tmp_dir}/command-output" "${task_tmp_dir}/command-error"
   rmdir "${task_tmp_dir}" 2>/dev/null || true
 }
@@ -121,6 +151,10 @@ job_override_environment=()
 job_override_cpu=''
 job_override_memory=''
 job_override_configuration_error='not-loaded'
+maintenance_job_environment=()
+maintenance_job_cpu=''
+maintenance_job_memory=''
+maintenance_active='false'
 
 load_job_execution_override() {
   local job_name="$1"
@@ -307,6 +341,36 @@ wait_for_job() {
   return 1
 }
 
+run_maintenance_job() {
+  local action="$1"
+  local execution_name='' verified='false' maintenance_image="${previous_backend_image}"
+  if [[ "${action}" == 'complete' ]]; then
+    verified='true'
+    if [[ "${DEPLOY_BACKEND}" == 'true' ]]; then
+      maintenance_image="${BACKEND_RELEASE_IMAGE}"
+    fi
+  fi
+  execution_name="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MAINTENANCE_JOB_NAME}" \
+    --container-name "${MAINTENANCE_JOB_NAME}" \
+    --image "${maintenance_image}" \
+    --cpu "${maintenance_job_cpu}" \
+    --memory "${maintenance_job_memory}" \
+    --env-vars "${maintenance_job_environment[@]}" \
+      "Maintenance__ReleaseId=${MAINTENANCE_RELEASE_ID}" \
+      "Maintenance__ActorUserId=${MAINTENANCE_ACTOR_USER_ID}" \
+      "Maintenance__Title=${MAINTENANCE_TITLE}" \
+      "Maintenance__Body=${MAINTENANCE_BODY}" \
+      "Maintenance__StartsAtUtc=${MAINTENANCE_STARTS_AT_UTC}" \
+      "Maintenance__ExpectedEndsAtUtc=${MAINTENANCE_EXPECTED_ENDS_AT_UTC}" \
+      "Maintenance__Verified=${verified}" \
+    --args="--maintenance-${action}" \
+    --query name)" || execution_name=''
+  [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
+    && wait_for_job "${MAINTENANCE_JOB_NAME}" "${execution_name}"
+}
+
 previous_backend_image=''
 previous_frontend_image=''
 backend_changed='false'
@@ -377,10 +441,18 @@ membership_backfill_trigger_type="$(azure_read containerapp job show \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
   --query properties.configuration.triggerType)" || membership_backfill_trigger_type=''
+maintenance_trigger_type=''
+if [[ "${maintenance_release}" == 'true' ]]; then
+  maintenance_trigger_type="$(azure_read containerapp job show \
+    --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${MAINTENANCE_JOB_NAME}" \
+    --query properties.configuration.triggerType)" || maintenance_trigger_type=''
+fi
 
 if [[ "${backend_revision_mode}" != 'Single' \
   || "${frontend_revision_mode}" != 'Single' \
   || "${migration_trigger_type}" != 'Manual' \
+  || ( "${maintenance_release}" == 'true' && "${maintenance_trigger_type}" != 'Manual' ) \
   || ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' && "${database_bootstrap_trigger_type}" != 'Manual' ) \
   || ( ( "${RUN_MEMBERSHIP_BACKFILL}" == 'true' || "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ) \
     && "${membership_backfill_trigger_type}" != 'Manual' ) ]]; then
@@ -437,6 +509,45 @@ if [[ "${baseline_live_status}" != '200' \
   || "${baseline_api_status}" != '401' ]]; then
   printf 'azurePilotRelease=BASELINE_PUBLIC_SECURITY_FAILED\n' >&2
   exit 71
+fi
+
+if [[ "${maintenance_release}" == 'true' ]]; then
+  if ! load_job_execution_override "${MAINTENANCE_JOB_NAME}"; then
+    printf 'azurePilotRelease=MAINTENANCE_JOB_CONFIGURATION_INVALID\n' >&2
+    exit 79
+  fi
+  for required_environment_name in \
+    ConnectionStrings__QmsCheongjuRuntime ConnectionStrings__QmsOsanRuntime; do
+    found='false'
+    for configured_environment_name in "${job_override_environment[@]}"; do
+      if [[ "${configured_environment_name%%=*}" == "${required_environment_name}" ]]; then
+        found='true'
+        break
+      fi
+    done
+    if [[ "${found}" != 'true' ]]; then
+      printf 'azurePilotRelease=MAINTENANCE_RUNTIME_CONNECTION_MISSING\n' >&2
+      exit 79
+    fi
+  done
+  maintenance_job_environment=("${job_override_environment[@]}")
+  for configured_environment_name in "${maintenance_job_environment[@]}"; do
+    if [[ "${configured_environment_name%%=*}" == Maintenance__* ]]; then
+      printf 'azurePilotRelease=MAINTENANCE_JOB_STALE_RELEASE_CONFIGURATION\n' >&2
+      exit 79
+    fi
+  done
+  maintenance_job_cpu="${job_override_cpu}"
+  maintenance_job_memory="${job_override_memory}"
+  if ! run_maintenance_job prepare; then
+    printf 'azurePilotRelease=MAINTENANCE_PREPARE_FAILED\n' >&2
+    exit 79
+  fi
+  if ! run_maintenance_job activate; then
+    printf 'azurePilotRelease=MAINTENANCE_ACTIVATION_FAILED\n' >&2
+    exit 79
+  fi
+  maintenance_active='true'
 fi
 
 if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
@@ -575,6 +686,17 @@ if [[ "${DEPLOY_FRONTEND}" == 'true' ]]; then
   fi
 fi
 
+# Migration-only releases keep the old app image. Recheck both running revisions
+# after every mutation, then let the completion CLI verify live database ledgers.
+final_backend_image="${previous_backend_image}"
+final_frontend_image="${previous_frontend_image}"
+[[ "${DEPLOY_BACKEND}" == 'true' ]] && final_backend_image="${BACKEND_RELEASE_IMAGE}"
+[[ "${DEPLOY_FRONTEND}" == 'true' ]] && final_frontend_image="${FRONTEND_RELEASE_IMAGE}"
+if ! wait_for_app "${BACKEND_APP_NAME}" "${final_backend_image}" \
+  || ! wait_for_app "${FRONTEND_APP_NAME}" "${final_frontend_image}"; then
+  fail_after_mutation 'FINAL_APP_NOT_READY'
+fi
+
 final_live_status="$(public_status '/health/live')" || final_live_status=''
 final_root_status="$(public_status '/')" || final_root_status=''
 final_api_status="$(public_status '/api/me')" || final_api_status=''
@@ -582,6 +704,14 @@ if [[ "${final_live_status}" != '200' \
   || "${final_root_status}" != '401' \
   || "${final_api_status}" != '401' ]]; then
   fail_after_mutation 'PUBLIC_SECURITY_SMOKE_FAILED'
+fi
+
+if [[ "${maintenance_release}" == 'true' ]]; then
+  if ! run_maintenance_job complete; then
+    printf 'azurePilotRelease=MAINTENANCE_RELEASE_FAILED\n' >&2
+    exit 80
+  fi
+  maintenance_active='false'
 fi
 
 if [[ "${RUN_MIGRATION}" == 'true' ]]; then

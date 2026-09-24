@@ -142,6 +142,7 @@ public static partial class AuditMutationRegistry
         POST /api/manufacturing/executions/{executionId:guid}/resume
         POST /api/manufacturing/executions/{executionId:guid}/stop
         POST /api/manufacturing/releases
+        POST /api/maintenance/{releaseId:guid}/popup/{version:int}/claim
         POST /api/materials/items/{itemId:guid}/close-arrivals
         POST /api/materials/items/{itemId:guid}/receipts
         POST /api/materials/kitting/complete
@@ -161,6 +162,9 @@ public static partial class AuditMutationRegistry
         POST /api/notifications/projects/{projectId:guid}/read-all
         POST /api/notifications/read-all
         POST /api/notifications/{notificationId:guid}/read
+        POST /api/osan/admin/customers
+        POST /api/osan/notices/{id:guid}/popups/{version:int}/claim
+        POST /api/osan/notices/{id:guid}/read
         POST /api/osan/projects/import/apply
         POST /api/osan/projects/import/preview
         POST /api/interior-busbar/products/{id:guid}/photo-preview
@@ -273,6 +277,10 @@ public static partial class AuditMutationRegistry
         PUT /api/projects/{projectId:guid}/settlement/draft
         PUT /api/quality/inspections/reports/{reportId:guid}/responses
         PUT /api/quality/iqc/reports/{reportId:guid}/responses
+        PUT /api/osan/admin/customer-assignments/{userId:guid}
+        PUT /api/osan/admin/customers/{customerId:guid}
+        PUT /api/osan/admin/gates
+        PUT /api/osan/notices/{id:guid}/settings
         PUT /api/sales/targets
         """);
 
@@ -300,6 +308,9 @@ public static partial class AuditMutationRegistry
         POST /api/notifications/projects/{projectId:guid}/read-all
         POST /api/notifications/read-all
         POST /api/notifications/{notificationId:guid}/read
+        POST /api/maintenance/{releaseId:guid}/popup/{version:int}/claim
+        POST /api/osan/notices/{id:guid}/popups/{version:int}/claim
+        POST /api/osan/notices/{id:guid}/read
         POST /api/osan/projects/import/preview
         POST /api/interior-busbar/products/{id:guid}/photo-preview
         POST /api/osan/projects/{projectId:guid}/progress/photo-preview

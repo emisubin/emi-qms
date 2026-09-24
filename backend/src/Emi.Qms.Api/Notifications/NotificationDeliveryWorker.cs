@@ -1,11 +1,13 @@
 using Microsoft.Extensions.Options;
+using Emi.Qms.Api.DeploymentMaintenance;
 
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class NotificationDeliveryWorker(
     NotificationDispatcher dispatcher,
     IOptionsMonitor<NotificationOptions> options,
-    ILogger<NotificationDeliveryWorker> logger)
+    ILogger<NotificationDeliveryWorker> logger,
+    DatabaseConnectionStringProvider? connections = null)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -17,7 +19,14 @@ public sealed class NotificationDeliveryWorker(
             {
                 try
                 {
-                    await dispatcher.DispatchAsync(stoppingToken);
+                    if (connections is null)
+                        await dispatcher.DispatchAsync(stoppingToken);
+                    else
+                    {
+                        await using var lease = await DeploymentMaintenanceLease.AcquireAsync(
+                            connections, connections.BusinessUnits.Businesses, stoppingToken);
+                        if (lease is not null) await dispatcher.DispatchAsync(stoppingToken);
+                    }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {

@@ -11,8 +11,9 @@ public sealed partial class OsanProjectRegistrationApiTests
         await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
         var config=database.CreateConfiguration();var provider=new DatabaseConnectionStringProvider(config);
         await CreateMigrationRunner(database.RepositoryRoot,provider,config).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         var other=Guid.NewGuid();
-        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'stage-admin','Admin',true),(@other,'stage-worker','Worker',true)",ct,("actor",UserId),("other",other));
+        await database.ExecuteAsync("insert into qms_users(id,development_user_key,display_name,is_active,department_id) values(@actor,'stage-admin','Admin',true,null),(@other,'stage-worker','Worker',true,(select id from departments where code='manufacturing'))",ct,("actor",UserId),("other",other));
         var projects=new OsanProjectStore(provider);var progress=new OsanProgressStore(provider);var edits=new OsanPhotoEditStore(provider);
         var created=await projects.CreateAsync(Normalize(ValidRequest(quantity:1)),UserId,ct);var id=created.Value!.Project.ProjectId;
         var detail=(await progress.GetAsync(id,ct))!;var target=detail.Targets[0];

@@ -11,19 +11,22 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         Guid actorUserId,
         int page,
         int pageSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false, string? search = null)
     {
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             select id,title,body,author_user_id,author_display_name_snapshot,
                    author_department_name_snapshot,created_at_utc,updated_at_utc,
-                   count(*) over ()::integer
+                   count(*) over ()::integer, pinned, exists(select 1 from notice_reads r where r.notice_id=notice_posts.id and r.user_id=@actor_user_id),
+                   (select count(*)::integer from notice_attachments a where a.notice_post_id=notice_posts.id and a.deleted_at_utc is null)
             from notice_posts
-            where deleted_at_utc is null
-            order by created_at_utc desc,id desc
+            where deleted_at_utc is null and (@search = '' or position(lower(@search) in lower(title)) > 0 or position(lower(@search) in lower(author_display_name_snapshot)) > 0)
+            order by pinned desc,created_at_utc desc,id desc
             limit @page_size offset @offset;
             """);
+        command.Parameters.AddWithValue("search", search?.Trim() ?? "");
         command.Parameters.AddWithValue("page_size", pageSize);
+        command.Parameters.AddWithValue("actor_user_id", actorUserId);
         command.Parameters.AddWithValue("offset", checked((long)(page - 1) * pageSize));
 
         var items = new List<NoticeListItemResponse>();
@@ -39,14 +42,15 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
                 reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),
                 reader.GetFieldValue<DateTimeOffset>(6),
-                reader.GetGuid(3) == actorUserId,
-                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7)));
+                reader.GetGuid(3) == actorUserId || canAdmin,
+                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7), reader.GetBoolean(9), reader.GetBoolean(10), reader.GetInt32(11)));
         }
 
         if (items.Count == 0 && page > 1)
         {
             await using var countCommand = dataSource.CreateCommand(
-                "select count(*)::integer from notice_posts where deleted_at_utc is null;");
+                "select count(*)::integer from notice_posts where deleted_at_utc is null and (@search = '' or position(lower(@search) in lower(title)) > 0 or position(lower(@search) in lower(author_display_name_snapshot)) > 0);");
+            countCommand.Parameters.AddWithValue("search", search?.Trim() ?? "");
             totalCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
         }
 
@@ -56,11 +60,11 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
     public async Task<NoticeMutationResult<NoticeDetailResponse>> GetAsync(
         Guid noticeId,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false)
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        var detail = await ReadActiveDetailAsync(connection, null, noticeId, actorUserId, cancellationToken);
+        var detail = await ReadActiveDetailAsync(connection, null, noticeId, actorUserId, cancellationToken, canAdmin);
         return detail is null
             ? NoticeMutationResult<NoticeDetailResponse>.NotFound()
             : NoticeMutationResult<NoticeDetailResponse>.Success(detail);
@@ -69,7 +73,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
     public async Task<NoticeMutationResult<NoticeDetailResponse>> CreateAsync(
         CreateNoticeRequest request,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false)
     {
         var bodyFormat = request.BodyFormat ?? NoticeBodyFormats.BoldMarkupV1;
         var errors = ValidateFields(request.Title, request.Body, bodyFormat);
@@ -145,7 +149,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
             }
         }
 
-        var detail = await ReadActiveDetailAsync(connection, transaction, noticeId.Value, actorUserId, cancellationToken);
+        var detail = await ReadActiveDetailAsync(connection, transaction, noticeId.Value, actorUserId, cancellationToken, canAdmin);
         await transaction.CommitAsync(cancellationToken);
         return detail is null
             ? NoticeMutationResult<NoticeDetailResponse>.Conflict("등록된 공지를 불러올 수 없습니다. 새로고침해 주세요.")
@@ -156,7 +160,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         Guid noticeId,
         UpdateNoticeRequest request,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false)
     {
         var errors = ValidateFields(request.Title, request.Body, request.BodyFormat);
         if (request.ExpectedVersion is null or < 1)
@@ -181,7 +185,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         {
             return NoticeMutationResult<NoticeDetailResponse>.NotFound();
         }
-        if (current.AuthorUserId != actorUserId)
+        if (current.AuthorUserId != actorUserId && !canAdmin)
         {
             return NoticeMutationResult<NoticeDetailResponse>.Forbidden();
         }
@@ -192,7 +196,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
 
         if (current.Title == title && current.Body == body && current.BodyFormat == bodyFormat)
         {
-            var unchanged = await ReadActiveDetailAsync(connection, transaction, noticeId, actorUserId, cancellationToken);
+            var unchanged = await ReadActiveDetailAsync(connection, transaction, noticeId, actorUserId, cancellationToken, canAdmin);
             await transaction.CommitAsync(cancellationToken);
             return unchanged is null
                 ? NoticeMutationResult<NoticeDetailResponse>.NotFound()
@@ -237,7 +241,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
             }
         }
 
-        var detail = await ReadActiveDetailAsync(connection, transaction, noticeId, actorUserId, cancellationToken);
+        var detail = await ReadActiveDetailAsync(connection, transaction, noticeId, actorUserId, cancellationToken, canAdmin);
         await transaction.CommitAsync(cancellationToken);
         return detail is null
             ? NoticeMutationResult<NoticeDetailResponse>.NotFound()
@@ -249,9 +253,9 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         string? fileName,
         byte[] content,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false, bool osan = false)
     {
-        var validated = NoticeAttachmentValidator.Validate(fileName, content);
+        var validated = NoticeAttachmentValidator.Validate(fileName, content, osan);
         if (!validated.IsValid)
         {
             return NoticeMutationResult<NoticeAttachmentResponse>.Validation(
@@ -267,7 +271,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         {
             return NoticeMutationResult<NoticeAttachmentResponse>.NotFound();
         }
-        if (current.AuthorUserId != actorUserId)
+        if (current.AuthorUserId != actorUserId && !canAdmin)
         {
             return NoticeMutationResult<NoticeAttachmentResponse>.Forbidden();
         }
@@ -276,15 +280,17 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         {
             count.Transaction = transaction;
             count.CommandText = """
-                select count(*)::integer
+                select count(*)::integer,coalesce(sum(byte_size),0)::bigint
                 from notice_attachments
                 where notice_post_id=@notice_id and deleted_at_utc is null;
                 """;
             count.Parameters.AddWithValue("notice_id", noticeId);
-            if (Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken)) >= NoticeAttachmentValidator.MaximumAttachments)
-            {
-                return NoticeMutationResult<NoticeAttachmentResponse>.Conflict("공지당 첨부파일은 최대 5개까지 등록할 수 있습니다.");
-            }
+            await using var sizes = await count.ExecuteReaderAsync(cancellationToken);
+            await sizes.ReadAsync(cancellationToken);
+            if (sizes.GetInt32(0) >= (osan ? 10 : NoticeAttachmentValidator.MaximumAttachments))
+                return NoticeMutationResult<NoticeAttachmentResponse>.Conflict(osan ? "공지당 첨부파일은 최대 10개입니다." : "공지당 첨부파일은 최대 5개입니다.");
+            if (osan && sizes.GetInt64(1) + content.Length > 100L * 1024 * 1024)
+                return NoticeMutationResult<NoticeAttachmentResponse>.Conflict("첨부파일 합계는 100MB 이하여야 합니다.");
         }
 
         Guid attachmentId;
@@ -326,7 +332,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         Guid noticeId,
         Guid attachmentId,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false)
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -337,7 +343,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         {
             return NoticeMutationResult<NoticeAttachmentDeleteResponse>.NotFound();
         }
-        if (current.AuthorUserId != actorUserId)
+        if (current.AuthorUserId != actorUserId && !canAdmin)
         {
             return NoticeMutationResult<NoticeAttachmentDeleteResponse>.Forbidden();
         }
@@ -391,7 +397,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
     public async Task<NoticeMutationResult<NoticeDeleteResponse>> DeleteAsync(
         Guid noticeId,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false)
     {
         await using var dataSource = CreateDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -403,10 +409,11 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
             update.CommandText = """
                 update notice_posts
                 set deleted_at_utc=now(),deleted_by_user_id=@actor_user_id
-                where id=@notice_id and author_user_id=@actor_user_id and deleted_at_utc is null;
+                where id=@notice_id and (author_user_id=@actor_user_id or @can_admin) and deleted_at_utc is null;
                 """;
             update.Parameters.AddWithValue("notice_id", noticeId);
             update.Parameters.AddWithValue("actor_user_id", actorUserId);
+            update.Parameters.AddWithValue("can_admin", canAdmin);
             if (await update.ExecuteNonQueryAsync(cancellationToken) == 1)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -432,7 +439,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         {
             return NoticeMutationResult<NoticeDeleteResponse>.NotFound();
         }
-        if (authorUserId != actorUserId)
+        if (authorUserId != actorUserId && !canAdmin)
         {
             return NoticeMutationResult<NoticeDeleteResponse>.Forbidden();
         }
@@ -446,7 +453,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         NpgsqlTransaction? transaction,
         Guid noticeId,
         Guid actorUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool canAdmin = false)
     {
         NoticeDetailRow? row;
         await using (var command = connection.CreateCommand())
@@ -477,7 +484,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
                 reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9));
         }
 
-        var canManage = row.AuthorUserId == actorUserId;
+        var canManage = row.AuthorUserId == actorUserId || canAdmin;
         var attachments = await ReadAttachmentsAsync(
             connection,
             transaction,

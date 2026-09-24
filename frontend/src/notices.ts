@@ -9,6 +9,9 @@ export type NoticeListItem = {
   noticeId: string;
   title: string;
   preview: string;
+  pinned?: boolean;
+  isRead?: boolean;
+  attachmentCount?: number;
   authorDisplayName: string;
   authorDepartmentName: string | null;
   createdAtUtc: string;

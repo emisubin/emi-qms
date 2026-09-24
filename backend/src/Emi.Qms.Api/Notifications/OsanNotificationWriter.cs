@@ -128,9 +128,13 @@ public static class OsanNotificationWriter
         write.Transaction = transaction;
         write.CommandText = """
             insert into notification_recipients(notification_id,user_id)
-            select @notification,id from qms_users
+            select @notification,u.id from qms_users u
             where is_active=true and (@all or id=any(@recipients))
-                and (auth_provider <> 'EntraId' or exists(select 1 from user_roles ur where ur.user_id=qms_users.id))
+                and (auth_provider <> 'EntraId' or exists(select 1 from user_roles ur where ur.user_id=u.id))
+                and (@personal or exists (
+                    select 1 from projects p join osan_customer_assignments a
+                      on a.customer_id=p.osan_customer_id and a.user_id=u.id
+                    where p.id=@project and p.project_profile='Osan'))
             on conflict(notification_id,user_id) do nothing;
             insert into notification_deliveries(notification_id,notification_recipient_id,recipient_user_id,project_id,
                 channel,delivery_type,status,suppressed_at_utc,error_code,error_message,
@@ -163,6 +167,8 @@ public static class OsanNotificationWriter
         write.Parameters.AddWithValue("notification", notificationId);
         write.Parameters.AddWithValue("project", projectId);
         write.Parameters.AddWithValue("all", recipientIds is null);
+        write.Parameters.AddWithValue("personal", kind is OsanNotificationKind.StepRejected
+            or OsanNotificationKind.StepWorkRequested);
         write.Parameters.AddWithValue("recipients", recipientIds?.Distinct().ToArray() ?? []);
         write.Parameters.AddWithValue("time", occurredAt);
         write.Parameters.AddWithValue("subject", content.Subject);

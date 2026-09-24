@@ -26,7 +26,9 @@ public sealed record OsanDashboardQuery(
     int Page,
     int PageSize,
     string View = OsanDashboardViews.Progress,
-    string Customer = "");
+    string Customer = "",
+    string[]? Statuses = null, string[]? SelectedCustomers = null,
+    DateOnly? DueFrom = null, DateOnly? DueTo = null, string Kpi = "");
 
 public sealed record OsanDashboardResponse(
     OsanDashboardSummaryResponse Summary,
@@ -41,7 +43,7 @@ public sealed record OsanDashboardSummaryResponse(
     long NotStartedCount,
     long InProgressCount,
     long CompletedCount,
-    long HoldCount = 0);
+    long HoldCount = 0, long OpenIssueProjectCount = 0);
 
 public sealed record OsanDashboardProjectResponse(
     Guid ProjectId,

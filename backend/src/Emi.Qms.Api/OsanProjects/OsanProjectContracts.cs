@@ -9,7 +9,8 @@ public sealed record CreateOsanProjectRequest(
     DateOnly? DeliveryDate,
     string? ProductName,
     int? Quantity,
-    Guid OperationId);
+    Guid OperationId,
+    Guid? CustomerId = null);
 
 public sealed record OsanProjectListResponse(IReadOnlyList<OsanProjectListItemResponse> Items);
 
@@ -27,7 +28,8 @@ public sealed record OsanProjectListItemResponse(
     int CompletedStepCount,
     int TotalStepCount,
     DateTimeOffset CreatedAtUtc,
-    bool DeliveryHold = false);
+    bool DeliveryHold = false,
+    Guid? CustomerId = null);
 
 public sealed record OsanProjectDetailResponse(
     Guid ProjectId,
@@ -44,7 +46,8 @@ public sealed record OsanProjectDetailResponse(
     int TotalStepCount,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<OsanProjectTargetResponse> Targets,
-    bool DeliveryHold = false)
+    bool DeliveryHold = false,
+    Guid? CustomerId = null)
 {
     public string EditToken => OsanProjectStore.EditToken(this);
 }
@@ -82,13 +85,15 @@ public sealed record NormalizedCreateOsanProjectInput(
     DateOnly DeliveryDate,
     string ProductName,
     int Quantity,
-    Guid OperationId);
+    Guid OperationId,
+    Guid? CustomerId = null);
 
 public enum OsanProjectCreateStatus
 {
     Success,
     ProjectCodeConflict,
-    OperationConflict
+    OperationConflict,
+    CustomerInvalid
 }
 
 public sealed record OsanProjectCreateResult(
@@ -116,7 +121,9 @@ public sealed record OsanProjectExcelPreviewRowResponse(
     string? ProductName,
     IReadOnlyList<string> Errors,
     string? DuplicateKind = null,
-    IReadOnlyDictionary<string, string[]>? FieldErrors = null);
+    IReadOnlyDictionary<string, string[]>? FieldErrors = null,
+    Guid? CustomerId = null,
+    IReadOnlyList<OsanCustomer>? CustomerCandidates = null);
 
 public sealed record OsanProjectExcelRowRequest(
     int RowNumber,
@@ -127,7 +134,8 @@ public sealed record OsanProjectExcelRowRequest(
     string? WorkOrderNumber,
     string? DeliveryDate,
     string? ProductName,
-    decimal? Quantity);
+    decimal? Quantity,
+    Guid? CustomerId = null);
 
 public sealed record OsanProjectExcelApplyResponse(
     Guid OperationId,

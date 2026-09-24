@@ -122,7 +122,7 @@ describe('AuditPage', () => {
     expect(screen.getByRole('option', { name: '입력값 확인' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '동시 수정·상태 충돌' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: '중복 요청' })).not.toBeInTheDocument();
-    expect(screen.getAllByText('감사 사용자').length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText('감사 사용자')).length).toBeGreaterThanOrEqual(2);
     const desktopTable = document.querySelector('.audit-desktop-table');
     expect(desktopTable).not.toBeNull();
     expect(within(desktopTable as HTMLElement).getByText('실제 사용자: 실제 관리자')).toBeInTheDocument();

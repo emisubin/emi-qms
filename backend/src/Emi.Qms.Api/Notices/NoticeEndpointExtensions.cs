@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,7 +12,7 @@ public static class NoticeEndpointExtensions
     {
         var api = app.MapGroup("/api/notices").RequireAuthorization();
 
-        api.MapGet("", async (int? page, int? pageSize, NoticeStore store, ClaimsPrincipal user, CancellationToken token) =>
+        api.MapGet("", async (int? page, int? pageSize, string? search, NoticeStore store, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             if (actorUserId is null)
@@ -24,23 +26,23 @@ public static class NoticeEndpointExtensions
                     [page is < 1 ? "page" : "pageSize"] = [page is < 1 ? "페이지는 1 이상이어야 합니다." : "페이지 크기는 1~100 사이여야 합니다."]
                 });
             }
-            return Results.Ok(await store.ListAsync(actorUserId.Value, page ?? 1, pageSize ?? 20, token));
+            return Results.Ok(await store.ListAsync(actorUserId.Value, page ?? 1, pageSize ?? 20, token, CanAdmin(context), search));
         }).WithName("ListNotices");
 
-        api.MapGet("/{noticeId:guid}", async (Guid noticeId, NoticeStore store, ClaimsPrincipal user, CancellationToken token) =>
+        api.MapGet("/{noticeId:guid}", async (Guid noticeId, NoticeStore store, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             return actorUserId is null
                 ? Results.Unauthorized()
-                : ToResult(await store.GetAsync(noticeId, actorUserId.Value, token), Results.Ok);
+                : ToResult(await store.GetAsync(noticeId, actorUserId.Value, token, CanAdmin(context)), Results.Ok);
         }).WithName("GetNotice");
 
-        api.MapPost("", async (CreateNoticeRequest request, NoticeStore store, ClaimsPrincipal user, CancellationToken token) =>
+        api.MapPost("", async (CreateNoticeRequest request, NoticeStore store, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             return actorUserId is null
                 ? Results.Unauthorized()
-                : ToResult(await store.CreateAsync(request, actorUserId.Value, token), Results.Ok);
+                : ToResult(await store.CreateAsync(request, actorUserId.Value, token, CanAdmin(context)), Results.Ok);
         }).WithName("CreateNotice");
 
         api.MapPut("/{noticeId:guid}", async (
@@ -48,12 +50,12 @@ public static class NoticeEndpointExtensions
             UpdateNoticeRequest request,
             NoticeStore store,
             ClaimsPrincipal user,
-            CancellationToken token) =>
+            HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             return actorUserId is null
                 ? Results.Unauthorized()
-                : ToResult(await store.UpdateAsync(noticeId, request, actorUserId.Value, token), Results.Ok);
+                : ToResult(await store.UpdateAsync(noticeId, request, actorUserId.Value, token, CanAdmin(context)), Results.Ok);
         }).WithName("UpdateNotice");
 
         api.MapPost("/{noticeId:guid}/attachments", async (
@@ -61,28 +63,28 @@ public static class NoticeEndpointExtensions
             [FromForm] IFormFile file,
             NoticeStore store,
             ClaimsPrincipal user,
-            CancellationToken token) =>
+            HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             if (actorUserId is null)
             {
                 return Results.Unauthorized();
             }
-            if (file.Length is < 1 or > NoticeAttachmentValidator.MaximumFileBytes)
+            if (file.Length < 1 || file.Length > (IsOsan(context) ? 20 * 1024 * 1024 : NoticeAttachmentValidator.MaximumFileBytes))
             {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["file"] = ["파일은 개별 10MB 이하여야 합니다."]
+                    ["file"] = [IsOsan(context) ? "파일은 개별 20MB 이하여야 합니다." : "파일은 개별 10MB 이하여야 합니다."]
                 });
             }
             await using var stream = file.OpenReadStream();
             using var memory = new MemoryStream();
             await stream.CopyToAsync(memory, token);
             return ToResult(
-                await store.AddAttachmentAsync(noticeId, file.FileName, memory.ToArray(), actorUserId.Value, token),
+                await store.AddAttachmentAsync(noticeId, file.FileName, memory.ToArray(), actorUserId.Value, token, CanAdmin(context), IsOsan(context)),
                 Results.Ok);
         })
-        .WithMetadata(new RequestSizeLimitAttribute(11 * 1024 * 1024))
+        .WithMetadata(new RequestSizeLimitAttribute(21 * 1024 * 1024))
         .DisableAntiforgery()
         .WithName("UploadNoticeAttachment");
 
@@ -91,13 +93,13 @@ public static class NoticeEndpointExtensions
             Guid attachmentId,
             NoticeStore store,
             ClaimsPrincipal user,
-            CancellationToken token) =>
+            HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             return actorUserId is null
                 ? Results.Unauthorized()
                 : ToResult(
-                    await store.DeleteAttachmentAsync(noticeId, attachmentId, actorUserId.Value, token),
+                    await store.DeleteAttachmentAsync(noticeId, attachmentId, actorUserId.Value, token, CanAdmin(context)),
                     Results.Ok);
         }).WithName("DeleteNoticeAttachment");
 
@@ -118,16 +120,22 @@ public static class NoticeEndpointExtensions
             return Results.File(result.Value.Content, result.Value.ContentType, result.Value.FileName);
         }).WithName("DownloadNoticeAttachment");
 
-        api.MapDelete("/{noticeId:guid}", async (Guid noticeId, NoticeStore store, ClaimsPrincipal user, CancellationToken token) =>
+        api.MapDelete("/{noticeId:guid}", async (Guid noticeId, NoticeStore store, ClaimsPrincipal user, HttpContext context, CancellationToken token) =>
         {
             var actorUserId = UserId(user);
             return actorUserId is null
                 ? Results.Unauthorized()
-                : ToResult(await store.DeleteAsync(noticeId, actorUserId.Value, token), Results.Ok);
+                : ToResult(await store.DeleteAsync(noticeId, actorUserId.Value, token, CanAdmin(context)), Results.Ok);
         }).WithName("DeleteNotice");
 
         return app;
     }
+
+    private static bool IsOsan(HttpContext context) => BusinessUnitRequestContextFeature.Get(context)?.Target?.Code == BusinessUnitCodes.Osan;
+
+    private static bool CanAdmin(HttpContext context) =>
+        BusinessUnitRequestContextFeature.Get(context)?.Target?.Code == BusinessUnitCodes.Osan
+        && context.User.IsInRole(QmsRoles.SystemAdministrator);
 
     private static Guid? UserId(ClaimsPrincipal user)
         => Guid.TryParse(user.FindFirst(QmsClaimTypes.UserId)?.Value, out var value) ? value : null;

@@ -18,6 +18,8 @@ import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
+import { emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
+import { fetchJson } from './api';
 import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
@@ -234,6 +236,12 @@ import authDesktopMicrosoft from './assets/auth-desktop-microsoft.png';
 import type { ReadyHealth } from './health';
 import { HomePage } from './HomePage';
 import { NoticeBoardPage } from './NoticeBoardPage';
+import { OsanNoticeBoard, OsanNoticePopups } from './OsanNoticeBoard';
+import { OsanCustomerMatch } from './OsanCustomerMatch';
+import { MaintenanceAnnouncement } from './MaintenanceAnnouncement';
+import { useMaintenanceStatus } from './useMaintenanceStatus';
+import { OsanCustomerAdminPage, OsanGateSettingsPage } from './OsanAdminPage';
+import { OsanGateApprovalsPage } from './OsanGateApprovalsPage';
 import { PrivacyNoticePage } from './PrivacyNoticePage';
 import { Ul891SetWorkspace } from './Ul891SetWorkspace';
 import type { CreateUl891SetSpecInput, Ul891SetStructure } from './ul891Sets';
@@ -345,6 +353,7 @@ import type {
 type View =
   | { kind: 'home' }
   | { kind: 'privacy-notice' }
+  | { kind: 'osan-customer-admin' | 'osan-gate-settings' | 'osan-gate-approvals' }
   | { kind: 'notice-board'; noticeId?: string; compose?: boolean }
   | { kind: 'qr-scan'; token: string }
   | { kind: 'osan-qr'; projectId: string; targetId?: string }
@@ -408,6 +417,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
     case 'interior-busbar': return 'InteriorBusbar';
     case 'home': return 'Home';
     case 'privacy-notice': return 'PrivacyNotice';
+    case 'osan-customer-admin': case 'osan-gate-settings': case 'osan-gate-approvals': return 'Administration';
     case 'notice-board': return 'NoticeBoard';
     case 'my-work': return 'MyWork';
     case 'teams-activity':
@@ -747,6 +757,9 @@ function initialViewFromLocation(): View {
     return { kind: 'privacy-notice' };
   }
 
+  if (window.location.pathname === '/osan/admin/customers') return {kind:'osan-customer-admin'};
+  if (window.location.pathname === '/osan/admin/gates') return {kind:'osan-gate-settings'};
+  if (window.location.pathname === '/osan/gate-approvals') return {kind:'osan-gate-approvals'};
   if (window.location.pathname === '/notices') {
     return { kind: 'notice-board', compose: new URLSearchParams(window.location.search).get('compose') === '1' };
   }
@@ -1321,6 +1334,9 @@ function pathForView(view: View) {
       return '/';
     case 'privacy-notice':
       return '/privacy-notice';
+    case 'osan-customer-admin': return '/osan/admin/customers';
+    case 'osan-gate-settings': return '/osan/admin/gates';
+    case 'osan-gate-approvals': return '/osan/gate-approvals';
     case 'notice-board':
       return view.noticeId ? `/notices/${view.noticeId}` : `/notices${view.compose ? '?compose=1' : ''}`;
     case 'qr-scan':
@@ -1780,9 +1796,10 @@ type EntraAuthGateState =
   | { kind: 'error'; message: string };
 
 const reviewSafeActionPattern = /(저장|수정|삭제|복구|발송|재시도|확인 처리|제외 처리|작업 시작|업무 시작|작업 완료|업무 완료|취소|반영|적용|업로드|등록|추가|신규|승인|비활성|활성화|동기화|일괄|가져오기|읽음 처리|retry|acknowledge|dismiss|import|upload)/i;
+const maintenanceDisabledReason = '업데이트 중에는 저장할 수 없습니다. 완료 후 다시 시도해 주세요.';
 const reviewSafeDisabledReason = '검수 전용 읽기 모드에서는 변경 작업을 수행할 수 없습니다.';
 
-function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean }) {
+function ReviewSafeControlGuard({ mutationAllowed, reason = reviewSafeDisabledReason }: { mutationAllowed: boolean; reason?: string }) {
   useEffect(() => {
     const apply = () => {
       const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input[type="submit"], input[type="file"]');
@@ -1799,13 +1816,16 @@ function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean 
         }
 
         if (!mutationAllowed) {
+          // React already owns disabled controls (permissions/loading/validation).
+          // Do not capture their transient value and restore it over React later.
+          if (control.disabled && !control.hasAttribute('data-review-safe-original-disabled')) return;
           if (!control.hasAttribute('data-review-safe-original-disabled')) {
             control.setAttribute('data-review-safe-original-disabled', control.disabled ? 'true' : 'false');
           }
           control.disabled = true;
           control.setAttribute('aria-disabled', 'true');
           control.setAttribute('data-review-safe-disabled', 'true');
-          control.title = reviewSafeDisabledReason;
+          control.title = reason;
           return;
         }
 
@@ -1815,7 +1835,7 @@ function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean 
           control.removeAttribute('data-review-safe-original-disabled');
           control.removeAttribute('data-review-safe-disabled');
           control.removeAttribute('aria-disabled');
-          if (control.title === reviewSafeDisabledReason) {
+          if (control.title === reason || control.title === reviewSafeDisabledReason || control.title === maintenanceDisabledReason) {
             control.removeAttribute('title');
           }
         }
@@ -1826,7 +1846,7 @@ function ReviewSafeControlGuard({ mutationAllowed }: { mutationAllowed: boolean 
     const observer = new MutationObserver(apply);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
-  }, [mutationAllowed]);
+  }, [mutationAllowed, reason]);
 
   return null;
 }
@@ -1905,7 +1925,10 @@ function QmsAppShellContent({
   const businessUnitAccess = resolveBusinessUnitAccess(user);
   const selectedBusinessUnit = businessUnitAccess.selectedBusinessUnit;
   const isOsan = selectedBusinessUnit === 'OSAN';
+  const maintenanceScope = `${selectedBusinessUnit}:${currentUser.kind === 'ready' ? currentUser.data.userId : ''}`;
   const hasSelectedBusinessUnit = businessUnitAccess.status === 'selected';
+  const maintenance = useMaintenanceStatus(developmentUserKey, maintenanceScope, currentUser.kind === 'ready' && hasSelectedBusinessUnit);
+
   const isAccessBlocked = isOperationalAccessBlocked(user);
   const canLoadBusinessData = hasSelectedBusinessUnit
     && (isDevMode || (currentUser.kind === 'ready' && !isAccessBlocked));
@@ -2260,7 +2283,7 @@ function QmsAppShellContent({
     );
   }
 
-  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed;
+  const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed && !maintenance.state?.writeBlocked;
   const membershipMutationDisabledReason = businessUnitMembershipMutationDisabledReason(runtimeMode);
   const switchDevelopmentUser = (nextUserKey: string) => {
     window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
@@ -2437,7 +2460,14 @@ function QmsAppShellContent({
         { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
         { label: '알림', view: { kind: 'notifications' }, active: ['notifications', 'teams-notification-detail', 'notification-preferences'].includes(view.kind), group: '내 업무', badge: displayedShellBadges.unreadNotificationCount },
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list', group: '공통 조회' },
-        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' }
+        { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress', group: '부서 업무' },
+        ...(isSystemAdministrator ? [
+          {label:'Gate 승인 대기',view:{kind:'osan-gate-approvals'} as View,active:view.kind==='osan-gate-approvals',group:'관리' as const},
+          {label:'관리자',view:{kind:'osan-customer-admin'} as View,active:['osan-customer-admin','osan-gate-settings'].includes(view.kind),group:'관리' as const,children:[
+            {key:'osan-customers',label:'고객사 관리',view:{kind:'osan-customer-admin'} as View,active:view.kind==='osan-customer-admin'},
+            {key:'osan-gates',label:'Gate 설정',view:{kind:'osan-gate-settings'} as View,active:view.kind==='osan-gate-settings'}]}
+        ] : []),
+        { label: '공지사항', view: { kind: 'notice-board' }, active: view.kind === 'notice-board', group: '공통 조회' }
       ]
     : cheongjuNavigationItems;
 
@@ -2458,8 +2488,9 @@ function QmsAppShellContent({
       {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
+        {isOsan && currentUser.kind === "ready" && !currentUser.data.approvalPending && <OsanNoticePopups key={`${currentUser.data.userId}:${developmentUserKey}`} scope={currentUser.data.userId} userKey={developmentUserKey} onOpen={noticeId=>setView({kind:"notice-board",noticeId})}/>}
         {currentUser.kind === "ready" && !currentUser.data.approvalPending && !isOsan && <BusbarLabelEntryPrompt key={busbarScopeKey} user={developmentUserKey} scope={busbarScopeKey} mobile={layout.isMobile || layout.touchOptimized} />}
-        <ReviewSafeControlGuard mutationAllowed={mutationEnabled} />
+        <ReviewSafeControlGuard mutationAllowed={mutationEnabled} reason={maintenance.state?.writeBlocked ? maintenanceDisabledReason : undefined} />
         {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
           <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
         ) : null}
@@ -2531,7 +2562,8 @@ function QmsAppShellContent({
             <StatusChip label="User" value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind} />
             </div>
           </details>
-          {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
+
+        {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
             <div className="mobile-status-note" data-tone="warning">
               <strong>검수 전용 읽기 모드</strong>
               <span>조회·검색·필터만 가능하며 변경 action은 차단됩니다.</span>
@@ -2579,6 +2611,8 @@ function QmsAppShellContent({
             ) : null}
           </div>
         </header>
+
+        {currentUser.kind === "ready" && <MaintenanceAnnouncement key={maintenanceScope} userKey={developmentUserKey} scope={maintenanceScope} status={maintenance.state} unavailable={maintenance.unavailable} onOpenNotice={noticeId=>setView({kind:"notice-board",noticeId})}/>}
 
         {osanNotificationSettingsOpen && isOsan && isSystemAdministrator && user ? (
           <OsanNotificationSettings
@@ -2670,7 +2704,7 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        isOsan ? <OsanDashboardPage view="home" developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'detail', projectId })} /> : <HomePage
+        isOsan ? <OsanDashboardPage view="home" stateScopeKey={currentUser.data.userId} developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'detail', projectId })} /> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
@@ -2693,8 +2727,13 @@ function QmsAppShellContent({
         <PrivacyNoticePage onBack={() => setView({ kind: 'home' })} />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && ['osan-customer-admin','osan-gate-settings','osan-gate-approvals'].includes(view.kind) && (isSystemAdministrator ?
+        view.kind === 'osan-customer-admin' ? <OsanCustomerAdminPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/> :
+        view.kind === 'osan-gate-settings' ? <OsanGateSettingsPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/> :
+        <OsanGateApprovalsPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled} onOpenProject={projectId=>setView({kind:'osan-progress',projectId})}/>
+        : <p role="alert">관리자만 접근할 수 있습니다.</p>)}
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notice-board' ? (
-        <NoticeBoardPage
+        isOsan ? <OsanNoticeBoard key={`${currentUser.data.userId}:${developmentUserKey}`} userKey={developmentUserKey} noticeId={view.noticeId} compose={view.compose} admin={isSystemAdministrator} enabled={mutationEnabled} onList={()=>setView({kind:'notice-board'})} onOpen={noticeId=>setView({kind:'notice-board',noticeId})} onCompose={()=>setView({kind:'notice-board',compose:true})}/> : <NoticeBoardPage
           developmentUserKey={developmentUserKey}
           selectedNoticeId={view.noticeId}
           compose={view.compose}
@@ -2769,6 +2808,7 @@ function QmsAppShellContent({
           onBack={() => setView({ kind: 'osan-progress' })}
           onOpenTarget={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })}
         /> : <OsanDashboardPage
+          stateScopeKey={currentUser.data.userId}
           developmentUserKey={developmentUserKey}
           onOpen={(projectId) => setView({ kind: 'osan-progress', projectId })}
         />
@@ -2794,6 +2834,8 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'list' ? (
         isOsan ? <OsanProjectListPage
+          canManage={isSystemAdministrator && mutationEnabled}
+          stateScopeKey={currentUser.data.userId}
           developmentUserKey={developmentUserKey}
           canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
           onCreate={() => setView({ kind: 'create' })}
@@ -3403,7 +3445,7 @@ function AppNavigation({
               {item.group && item.group !== items[index - 1]?.group ? <p className="app-nav-group-label">{item.group}</p> : null}
               <button
                 type="button"
-                className={item.active ? 'app-nav-button active' : 'app-nav-button'}
+                className={`${item.active ? 'app-nav-button active' : 'app-nav-button'}${isOsan && item.label === '공지사항' ? ' osan-notice-nav' : ''}`}
                 aria-current={item.active ? 'page' : undefined}
                 aria-expanded={item.children ? expanded : undefined}
                 aria-controls={item.children ? childListId : undefined}
@@ -4491,23 +4533,33 @@ function ProjectListPageComposition({
 
 function OsanProjectListPage({
   developmentUserKey,
+  stateScopeKey,
+  canManage,
   canCreate,
   onCreate,
   onOpen
 }: {
   developmentUserKey: string;
+  stateScopeKey?: string;
+  canManage: boolean;
   canCreate: boolean;
   onCreate: () => void;
   onOpen: (projectId: string) => void;
 }) {
   const today = useKoreaDate();
+  const snapshotKey = `${stateScopeKey ?? developmentUserKey}:projects`;
+  const [initialSnapshot] = useState(() => readOsanListSnapshot(snapshotKey));
+  const scrollRestored = useRef(false);
   const [qrIds, setQrIds] = useState<string[] | null>(null);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSnapshot?.draft ?? '');
   const [excelOpen, setExcelOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [importMessage, setImportMessage] = useState('');
-  const [customer, setCustomer] = useState('');
-  const [tab, setTab] = useState<'All' | 'NotStarted' | 'InProgress' | 'Completed' | 'Hold'>('All');
+  const [filters, setFilters] = useState(initialSnapshot?.filters ?? emptyOsanListFilters());
+  const [holdMode, setHoldMode] = useState<boolean | null>(null);
+  const [holdReason, setHoldReason] = useState('');
+  const [holdBusy, setHoldBusy] = useState(false);
+  const [holdMessage, setHoldMessage] = useState('');
   const [state, setState] = useState<LoadState<OsanProjectListItem[]>>({ kind: 'loading' });
 
   const load = useCallback(() => {
@@ -4526,35 +4578,82 @@ function OsanProjectListPage({
   }, [developmentUserKey]);
 
   useEffect(() => load(), [load, importRevision]);
+  useEffect(() => { saveOsanListSnapshot(snapshotKey, { filters, draft: search, scrollY: window.scrollY }); }, [snapshotKey, filters, search]);
+  useEffect(() => {
+    if (state.kind !== 'ready' || scrollRestored.current) return;
+    scrollRestored.current = true;
+    if (initialSnapshot?.scrollY) window.requestAnimationFrame(() => window.scrollTo(0, initialSnapshot.scrollY));
+  }, [state.kind, initialSnapshot]);
 
   const projects = state.kind === 'ready' ? state.data : [];
-  const normalizedSearch = search.trim().toLocaleLowerCase('ko-KR');
+  const normalizedSearch = filters.search.trim().toLocaleLowerCase('ko-KR');
   const filteredProjects = projects.filter((project) => {
     const matchesSearch = normalizedSearch.length === 0 || [project.title, project.projectCode, project.customerName, project.productName]
       .some((value) => value.toLocaleLowerCase('ko-KR').includes(normalizedSearch));
-    const matchesCustomer = !customer || project.customerName === customer;
-    const matchesStatus = tab === 'All' || (project.deliveryHold ? 'Hold' : project.status) === tab;
-    return matchesSearch && matchesCustomer && matchesStatus;
+    const status = project.deliveryHold ? 'Hold' : project.status;
+    const matchesCustomer = filters.customers.length === 0 || filters.customers.includes(project.customerName);
+    const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(status);
+    const matchesKpi = !filters.kpi || filters.kpi === 'All' || status === filters.kpi;
+    return matchesSearch && matchesCustomer && matchesStatus && matchesKpi
+      && osanDueDateMatches(project.deliveryDate, filters.dueFrom, filters.dueTo);
+  }).sort((a, b) => {
+    const group = (project: OsanProjectListItem) => project.deliveryHold ? 2 : project.status === 'Completed' ? 1 : 0;
+    return group(a) - group(b);
   });
   const selection = useSelectedRows(filteredProjects.map(project => project.projectId));
   const resetFilters = () => {
     setSearch('');
-    setCustomer('');
-    setTab('All');
+    setFilters(emptyOsanListFilters());
   };
+  const openProject = (projectId: string) => {
+    saveOsanListSnapshot(snapshotKey, { filters, draft: search, scrollY: window.scrollY });
+    onOpen(projectId);
+  };
+  async function applyHold() {
+    if (holdMode === null || holdBusy || !holdReason.trim() || !selection.selectedIds.size || !canManage) return;
+    setHoldBusy(true);
+    const failed: string[] = [];
+    let saved = 0;
+    for (const id of selection.selectedIds) {
+      try {
+        const project = await getOsanProject(developmentUserKey, id);
+        if (!!project.deliveryHold === holdMode) continue;
+        await fetchJson(`/api/osan/projects/${encodeURIComponent(id)}`, developmentUserKey, {
+          method: 'PUT',
+          body: JSON.stringify({
+            expectedToken: project.editToken, deliveryHold: holdMode, holdReason: holdReason.trim(),
+            fields: { title: project.title, projectCode: project.projectCode, customerName: project.customerName, customerId: project.customerId,
+              poNumber: project.poNumber, workOrderNumber: project.workOrderNumber, deliveryDate: project.deliveryDate,
+              productName: project.productName, operationId: crypto.randomUUID() }
+          })
+        });
+        saved += 1;
+      } catch (error) {
+        failed.push(`${projects.find(project => project.projectId === id)?.title ?? id}: ${error instanceof Error ? error.message : '저장 실패'}`);
+      }
+    }
+    setHoldBusy(false);
+    setHoldMessage(`${saved}개 변경했습니다.${failed.length ? ` ${failed.length}개 실패: ${failed.join(' / ')}` : ''}`);
+    if (!failed.length) { setHoldMode(null); setHoldReason(''); selection.clear(); }
+    setImportRevision(value => value + 1);
+  }
 
   return (
     <OsanListFrame
       title="프로젝트"
       description="프로젝트 정보를 확인하고 새 프로젝트를 등록합니다."
       counts={state.kind === 'loading' || state.kind === 'error' || state.kind === 'forbidden' ? null : [projects.length, projects.filter(p => p.status === 'NotStarted').length, projects.filter(p => p.status === 'InProgress').length, projects.filter(p => p.status === 'Completed').length]}
-      search={search} onSearchChange={setSearch} onSearch={() => setSearch(search.trim())}
-      status={tab} onStatusChange={value => setTab(value as typeof tab)} onReset={resetFilters}
-      customer={customer} onCustomerChange={setCustomer} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
+      search={search} onSearchChange={setSearch} onSearch={() => setFilters({ ...filters, search: search.trim(), page: 1 })}
+      statuses={filters.statuses} onStatusesChange={statuses => setFilters({ ...filters, statuses, page: 1 })} onReset={resetFilters}
+      selectedCustomers={filters.customers} onCustomersChange={customers => setFilters({ ...filters, customers, page: 1 })} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
+      dueFrom={filters.dueFrom} dueTo={filters.dueTo} onDueChange={(dueFrom, dueTo) => setFilters({ ...filters, dueFrom, dueTo, page: 1 })}
+      kpi={filters.kpi} onKpiChange={kpi => setFilters({ ...filters, kpi, page: 1 })}
       actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
     >
       {qrIds && <OsanQrPrintDialog projectIds={qrIds} userKey={developmentUserKey} onClose={() => setQrIds(null)} />}
-      {state.kind === 'ready' && <div className="osan-qr-selection"><label><SelectionCheckbox checked={selection.allSelected} indeterminate={selection.selectedIds.size > 0 && !selection.allSelected} label="현재 목록 전체 선택" onChange={selection.toggleAll} />현재 목록 전체 선택</label><span>{selection.selectedIds.size}개 선택</span><button disabled={!selection.selectedIds.size} onClick={() => setQrIds([...selection.selectedIds])}>선택 프로젝트 QR 출력</button>{selection.selectedIds.size > 0 && <button onClick={selection.clear}>선택 해제</button>}</div>}
+      {state.kind === 'ready' && <div className="osan-qr-selection"><label><SelectionCheckbox checked={selection.allSelected} indeterminate={selection.selectedIds.size > 0 && !selection.allSelected} label="현재 목록 전체 선택" onChange={selection.toggleAll} />현재 목록 전체 선택</label><span>{selection.selectedIds.size}개 선택</span><button disabled={!selection.selectedIds.size} onClick={() => setQrIds([...selection.selectedIds])}>선택 프로젝트 QR 출력</button>{canManage && <><button type="button" disabled={!selection.selectedIds.size || holdBusy} onClick={() => { setHoldMode(true); setHoldMessage(''); }}>선택 HOLD 지정</button><button type="button" disabled={!selection.selectedIds.size || holdBusy} onClick={() => { setHoldMode(false); setHoldMessage(''); }}>선택 HOLD 해제</button></>}{selection.selectedIds.size > 0 && <button onClick={selection.clear}>선택 해제</button>}</div>}
+      {holdMode !== null && <form className="osan-management" onSubmit={event => { event.preventDefault(); void applyHold(); }}><label>{holdMode ? 'HOLD 지정' : 'HOLD 해제'} 사유<textarea required maxLength={500} disabled={holdBusy} value={holdReason} onChange={event => setHoldReason(event.target.value)} /></label><button type="submit" disabled={holdBusy || !holdReason.trim()}>{holdBusy ? '처리 중…' : '선택 프로젝트 변경'}</button><button type="button" disabled={holdBusy} onClick={() => setHoldMode(null)}>취소</button></form>}
+      {holdMessage && <p role="status">{holdMessage}</p>}
       {importMessage && <p role="status">{importMessage}</p>}
       {excelOpen && canCreate && <OsanProjectExcelDialog developmentUserKey={developmentUserKey} onClose={() => setExcelOpen(false)} onApplied={count => {
         setImportMessage(`${count}개 프로젝트를 등록했습니다.`); setImportRevision(value => value + 1);
@@ -4609,7 +4708,7 @@ function OsanProjectListPage({
             key: project.projectId,
             title: project.title,
             openAriaLabel: `${project.title} 상세 열기`,
-            onOpen: () => onOpen(project.projectId),
+            onOpen: () => openProject(project.projectId),
             desktopLeading: <span role="cell"><SelectionCheckbox checked={selection.selectedIds.has(project.projectId)} label={project.title + " QR 선택"} onChange={checked => selection.toggle(project.projectId, checked)} /></span>,
             mobileTitleLeading: <SelectionCheckbox checked={selection.selectedIds.has(project.projectId)} label={project.title + " QR 선택"} onChange={checked => selection.toggle(project.projectId, checked)} />,
             desktopCells: [
@@ -4698,6 +4797,7 @@ function OsanProjectCreatePage({
   onCreated: (projectId: string) => void;
 }) {
   const [draft, setDraft] = useState<OsanProjectDraft>(emptyOsanProjectDraft);
+  const [customerId, setCustomerId] = useState<string>();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -4733,6 +4833,7 @@ function OsanProjectCreatePage({
     if (saving) return;
 
     const nextErrors: Record<string, string> = {};
+    if (!customerId) nextErrors.customerName = "등록된 고객사를 연결해 주세요.";
     for (const field of ['title', 'projectCode', 'customerName', 'deliveryDate', 'productName'] as const) {
       if (!draft[field].trim()) {
         nextErrors[field] = '필수 입력값입니다.';
@@ -4757,6 +4858,7 @@ function OsanProjectCreatePage({
         title: draft.title.trim(),
         projectCode: draft.projectCode.trim(),
         customerName: draft.customerName.trim(),
+        customerId,
         poNumber: draft.poNumber.trim() || null,
         workOrderNumber: draft.workOrderNumber.trim() || null,
         deliveryDate: draft.deliveryDate,
@@ -4804,7 +4906,7 @@ function OsanProjectCreatePage({
             <input aria-label="part 분류" value={draft.productName} maxLength={100} onChange={(event) => setField('productName', event.target.value)} aria-invalid={Boolean(fieldError('productName'))} />
           </OsanProjectField>
           <OsanProjectField number={4} label="고객사" required error={fieldError('customerName')}>
-            <input aria-label="고객사" value={draft.customerName} maxLength={200} onChange={(event) => setField('customerName', event.target.value)} aria-invalid={Boolean(fieldError('customerName'))} />
+            <OsanCustomerMatch value={draft.customerName} customerId={customerId} disabled={saving} userKey={developmentUserKey} onChange={(name,id)=>{setField("customerName",name);setCustomerId(id);}}/>
           </OsanProjectField>
           <OsanProjectField number={5} label="PO No" error={fieldError('poNumber')}>
             <input aria-label="PO No" value={draft.poNumber} maxLength={100} onChange={(event) => setField('poNumber', event.target.value)} aria-invalid={Boolean(fieldError('poNumber'))} />
@@ -5565,6 +5667,7 @@ function businessUnitMembershipMutationDisabledReason(runtimeMode: LoadState<Run
 }
 
 function isOsanViewAllowed(view: View) {
+  if (["notice-board","osan-customer-admin","osan-gate-settings","osan-gate-approvals"].includes(view.kind)) return true;
   if (view.kind === 'home'
     || view.kind === 'privacy-notice'
     || view.kind === 'list'

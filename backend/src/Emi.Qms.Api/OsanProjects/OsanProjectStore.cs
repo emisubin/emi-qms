@@ -36,7 +36,7 @@ public sealed partial class OsanProjectStore
         CancellationToken cancellationToken)
     {
         var parsed = await excelParser.ParseAsync(file, cancellationToken);
-        var built = BuildExcelPreview(ResolveExcelRows(parsed, rowOverrides));
+        var built = await BindExcelCustomersAsync(BuildExcelPreview(ResolveExcelRows(parsed, rowOverrides)), cancellationToken);
         if (built.NormalizedRows.Count > 0)
         {
             var existing = await ReadExistingProjectsAsync(
@@ -50,6 +50,42 @@ public sealed partial class OsanProjectStore
     public Task<OsanProjectExcelPreviewResponse> PreviewExcelAsync(
         UploadedExcelFile file,
         CancellationToken cancellationToken) => PreviewExcelAsync(file, null, cancellationToken);
+
+    private async Task<ExcelPreviewBuild> BindExcelCustomersAsync(ExcelPreviewBuild built, CancellationToken ct)
+    {
+        if (built.NormalizedRows.Count == 0) return built;
+        var customers = await new OsanPolicyStore(connectionStringProvider).CustomersAsync(null, ct);
+        var rows = built.Response.Rows.ToArray();
+        var normalized = new List<ExcelNormalizedRow>();
+        foreach (var entry in built.NormalizedRows)
+        {
+            var row = rows[entry.ResponseIndex];
+            var candidates = customers.Where(c => OsanPolicyStore.CustomerMatches(
+                entry.Input.CustomerName, c.Name)).ToArray();
+            OsanCustomer? selected = entry.Input.CustomerId is Guid id
+                ? candidates.SingleOrDefault(c => c.CustomerId == id)
+                : candidates.Length == 1 ? candidates[0] : null;
+            if (selected is null)
+            {
+                var message = candidates.Length == 0
+                    ? "등록된 고객사를 찾을 수 없습니다. 관리자에게 고객사 등록을 요청해 주세요."
+                    : "고객사 후보를 선택해 주세요.";
+                var errors = row.FieldErrors?.ToDictionary(kv => kv.Key, kv => kv.Value)
+                    ?? new Dictionary<string,string[]>();
+                errors["customerId"] = [message];
+                rows[entry.ResponseIndex] = row with {
+                    Errors = row.Errors.Append(message).ToArray(), FieldErrors = errors,
+                    CustomerCandidates = candidates };
+                continue;
+            }
+            rows[entry.ResponseIndex] = row with { CustomerId = selected.CustomerId,
+                CustomerCandidates = candidates };
+            normalized.Add(entry with { Input = entry.Input with {
+                CustomerId = selected.CustomerId, CustomerName = selected.Name } });
+        }
+        return new(CreateExcelPreviewResponse(built.Response.FileSha256,built.Response.TotalRowCount,
+            rows,built.Response.Errors),normalized);
+    }
 
     public async Task<OsanProjectExcelApplyResult> ApplyExcelAsync(
         UploadedExcelFile file,
@@ -68,7 +104,7 @@ public sealed partial class OsanProjectStore
         var parsed = ResolveExcelRows(
             await excelParser.ParseAsync(file, cancellationToken),
             rowOverrides);
-        var built = BuildExcelPreview(parsed);
+        var built = await BindExcelCustomersAsync(BuildExcelPreview(parsed), cancellationToken);
         if (built.Response.ErrorCount > 0)
         {
             return new OsanProjectExcelApplyResult(
@@ -174,6 +210,15 @@ public sealed partial class OsanProjectStore
                 }
 
                 var row = rows[index];
+                var boundCustomer = await OsanPolicyStore.BoundCustomerAsync(connection, transaction,
+                    row.Input.CustomerId, row.Input.CustomerName, cancellationToken);
+                if (boundCustomer is null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new OsanProjectExcelApplyResult(OsanProjectExcelApplyStatus.Validation,
+                        Errors: new Dictionary<string,string[]> { [$"rows[{row.RowNumber}].customerId"] =
+                            ["고객사 선택이 변경되었습니다. 다시 미리보기해 주세요."] });
+                }
                 var projectId = Guid.NewGuid();
                 await InsertProjectAsync(connection, transaction, projectId, row.Input, userId, cancellationToken);
                 await InsertCreatorAccessAsync(connection, transaction, projectId, userId, cancellationToken);
@@ -259,7 +304,7 @@ public sealed partial class OsanProjectStore
                 end,
                 progress.completed_step_count,
                 progress.total_step_count,
-                projects.created_at_utc, projects.osan_delivery_hold
+                projects.created_at_utc, projects.osan_delivery_hold, projects.osan_customer_id
             from projects
             cross join lateral (
                 select
@@ -398,6 +443,14 @@ public sealed partial class OsanProjectStore
             }
 
             var projectId = Guid.NewGuid();
+            var boundCustomer = await OsanPolicyStore.BoundCustomerAsync(connection, transaction,
+                input.CustomerId, input.CustomerName, cancellationToken);
+            if (boundCustomer is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new OsanProjectCreateResult(OsanProjectCreateStatus.CustomerInvalid);
+            }
+            input = input with { CustomerName = boundCustomer.Name };
             await InsertProjectAsync(connection, transaction, projectId, input, userId, cancellationToken);
             await InsertCreatorAccessAsync(connection, transaction, projectId, userId, cancellationToken);
             await InsertTargetsAndStepsAsync(connection, transaction, projectId, input, cancellationToken);
@@ -448,7 +501,8 @@ public sealed partial class OsanProjectStore
                     row.DeliveryDate,
                     row.ProductName,
                     row.Quantity,
-                    Guid.NewGuid()));
+                    Guid.NewGuid(),
+                    row.CustomerId));
             foreach (var (field, messages) in normalizationErrors)
             {
                 errors.AddRange(messages.Select(message => $"{GetExcelFieldName(field)}: {message}"));
@@ -676,7 +730,8 @@ public sealed partial class OsanProjectStore
             errors,
             row.DeliveryDate,
             1,
-            fieldErrors);
+            fieldErrors,
+            row.CustomerId);
     }
 
     private static IReadOnlyDictionary<int, string> FindDuplicateKinds(
@@ -874,6 +929,7 @@ public sealed partial class OsanProjectStore
             input.Title,
             input.ProjectCode,
             input.CustomerName,
+            input.CustomerId,
             input.PoNumber,
             input.WorkOrderNumber,
             DeliveryDate = input.DeliveryDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
@@ -971,7 +1027,8 @@ public sealed partial class OsanProjectStore
                 osan_po_number,
                 osan_work_order_number,
                 osan_product_name,
-                osan_quantity
+                osan_quantity,
+                osan_customer_id
             )
             values (
                 @project_id,
@@ -991,7 +1048,8 @@ public sealed partial class OsanProjectStore
                 @po_number,
                 @work_order_number,
                 @product_name,
-                @quantity
+                @quantity,
+                @customer_id
             );
             """;
         command.Parameters.AddWithValue("project_id", projectId);
@@ -999,6 +1057,7 @@ public sealed partial class OsanProjectStore
         command.Parameters.AddWithValue("project_code", input.ProjectCode);
         command.Parameters.AddWithValue("title", input.Title);
         command.Parameters.AddWithValue("customer_name", input.CustomerName);
+        command.Parameters.AddWithValue("customer_id", input.CustomerId!.Value);
         command.Parameters.AddWithValue("delivery_date", input.DeliveryDate);
         command.Parameters.Add(new NpgsqlParameter("po_number", NpgsqlDbType.Text)
         {
@@ -1160,7 +1219,7 @@ public sealed partial class OsanProjectStore
                     end,
                     progress.completed_step_count,
                     progress.total_step_count,
-                    projects.created_at_utc, projects.osan_delivery_hold
+                    projects.created_at_utc, projects.osan_delivery_hold, projects.osan_customer_id
                 from projects
                 cross join lateral (
                     select
@@ -1247,7 +1306,7 @@ public sealed partial class OsanProjectStore
             project.CompletedStepCount,
             project.TotalStepCount,
             project.CreatedAtUtc,
-            targets, project.DeliveryHold);
+            targets, project.DeliveryHold, project.CustomerId);
     }
 
     private static OsanProjectListItemResponse ReadListItem(NpgsqlDataReader reader)
@@ -1265,7 +1324,8 @@ public sealed partial class OsanProjectStore
             reader.GetString(9),
             reader.GetInt32(10),
             reader.GetInt32(11),
-            reader.GetFieldValue<DateTimeOffset>(12), reader.GetBoolean(13));
+            reader.GetFieldValue<DateTimeOffset>(12), reader.GetBoolean(13),
+            reader.IsDBNull(14) ? null : reader.GetGuid(14));
     }
 
     private static void AddAccessScope(
@@ -1295,6 +1355,7 @@ public sealed partial class OsanProjectStore
             input.Title,
             input.ProjectCode,
             input.CustomerName,
+            input.CustomerId,
             input.PoNumber,
             input.WorkOrderNumber,
             DeliveryDate = input.DeliveryDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),

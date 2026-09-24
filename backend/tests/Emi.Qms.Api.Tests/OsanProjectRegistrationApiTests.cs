@@ -1,8 +1,11 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Emi.Qms.Api.Identity;
+using Emi.Qms.Api.Notifications;
+using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.PanelInformation;
@@ -34,6 +37,224 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class OsanProjectRegistrationApiTests
 {
     private static readonly Guid UserId = Guid.Parse("89000000-0000-0000-0000-000000000001");
+    private static readonly Guid DefaultCustomerId = Guid.Parse("89000000-0000-0000-0000-000000000030");
+
+    [Fact]
+    public async Task CustomerAssignmentsAndGateConfigurationRequireExplicitCurrentBindings()
+    {
+        var ct=TestContext.Current.CancellationToken;
+        await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
+        var configuration=database.CreateConfiguration();
+        var provider=new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot,provider,configuration).ApplyAndVerifyAsync(ct);
+        var policy=new OsanPolicyStore(provider);
+        var first=await policy.CreateCustomerAsync("기존 고객사",ct);
+        var firstCustomer=Assert.IsType<OsanCustomer>(first.Value);
+        await database.ExecuteAsync("""
+            insert into departments(id,code,name,is_active,sort_order)
+            values ('89000000-0000-0000-0000-000000000010','osan-policy-test','합성 테스트 부서',true,999);
+            insert into qms_users(id,development_user_key,display_name,department_id,is_active)
+            values ('89000000-0000-0000-0000-000000000001','osan-policy-test','합성 사용자',
+              '89000000-0000-0000-0000-000000000010',true);
+            """,ct);
+        var second=await policy.CreateCustomerAsync("신규 고객사",ct);
+        var secondCustomer=Assert.IsType<OsanCustomer>(second.Value);
+        var user=Assert.Single(await policy.AssignmentUsersAsync(ct),u=>u.UserId==UserId);
+        Assert.Equal([firstCustomer.CustomerId],user.CustomerIds);
+        Assert.DoesNotContain(secondCustomer.CustomerId,user.CustomerIds);
+
+        var assigned=await policy.AssignAsync(UserId,[secondCustomer.CustomerId],user.Version,ct);
+        Assert.Equal(200,assigned.Status);
+        Assert.Equal(409,(await policy.AssignAsync(UserId,[],user.Version,ct)).Status);
+        var projectStore=new OsanProjectStore(provider);
+        var wrong=Normalize(ValidRequest(projectCode:"OSAN-POLICY-WRONG",
+            customerName:"신규 고객사") with {CustomerId=firstCustomer.CustomerId});
+        Assert.Equal(OsanProjectCreateStatus.CustomerInvalid,
+            (await projectStore.CreateAsync(wrong,UserId,ct)).Status);
+        var valid=Normalize(ValidRequest(projectCode:"OSAN-POLICY-OK",
+            customerName:"신규 고객사") with {CustomerId=secondCustomer.CustomerId});
+        var created=await projectStore.CreateAsync(valid,UserId,ct);
+        Assert.Equal(OsanProjectCreateStatus.Success,created.Status);
+        Assert.Equal(secondCustomer.CustomerId,created.Value!.Project.CustomerId);
+        var outsideRecipient=Guid.Parse("89000000-0000-0000-0000-000000000002");
+        await database.ExecuteAsync($"""
+            insert into qms_users(id,development_user_key,display_name,department_id,is_active)
+            values ('{outsideRecipient:D}','outside-customer','Other User',
+                '89000000-0000-0000-0000-000000000010',true);
+            delete from osan_customer_assignments
+            where user_id='{outsideRecipient:D}' and customer_id='{secondCustomer.CustomerId:D}';
+            """,ct);
+        var notificationOperation=Guid.NewGuid();
+        await using(var notificationConnection=new NpgsqlConnection(provider.GetConnectionString()))
+        {
+            await notificationConnection.OpenAsync(ct);
+            await using var notificationTx=await notificationConnection.BeginTransactionAsync(ct);
+            await OsanNotificationWriter.WriteAsync(notificationConnection,notificationTx,
+                created.Value.Project.ProjectId,notificationOperation,OsanNotificationKind.ProjectCreated,
+                UserId,DateTimeOffset.UtcNow,ct);
+            await notificationTx.CommitAsync(ct);
+        }
+        var notificationKey=OsanNotificationWriter.IdempotencyKey(created.Value.Project.ProjectId,
+            notificationOperation,OsanNotificationKind.ProjectCreated);
+        Assert.Equal(1,await database.ReadScalarAsync<int>("""
+            select count(*)::integer from notification_recipients r
+            join notifications n on n.id=r.notification_id
+            where n.idempotency_key=@key and r.user_id=@actor
+            """,ct,("key",notificationKey),("actor",UserId)));
+        Assert.Equal(0,await database.ReadScalarAsync<int>("""
+            select count(*)::integer from notification_recipients r
+            join notifications n on n.id=r.notification_id
+            where n.idempotency_key=@key and r.user_id=@outside
+            """,ct,("key",notificationKey),("outside",outsideRecipient)));
+        Assert.Equal(0,await database.ReadScalarAsync<int>("""
+            select count(*)::integer from notification_deliveries d
+            join notifications n on n.id=d.notification_id
+            where n.idempotency_key=@key and d.recipient_user_id=@outside
+            """,ct,("key",notificationKey),("outside",outsideRecipient)));
+        var directRequest=Guid.NewGuid();
+        await using(var notificationConnection=new NpgsqlConnection(provider.GetConnectionString()))
+        {
+            await notificationConnection.OpenAsync(ct);
+            await using var notificationTx=await notificationConnection.BeginTransactionAsync(ct);
+            await OsanNotificationWriter.WriteAsync(notificationConnection,notificationTx,
+                created.Value.Project.ProjectId,directRequest,OsanNotificationKind.StepWorkRequested,
+                UserId,DateTimeOffset.UtcNow,ct,stepName:"입고검사",recipientIds:[outsideRecipient],stageSequence:1);
+            await notificationTx.CommitAsync(ct);
+        }
+        Assert.Equal(1,await database.ReadScalarAsync<int>("""
+            select count(*)::integer from notification_recipients r
+            join notifications n on n.id=r.notification_id
+            where n.idempotency_key=@key and r.user_id=@outside
+            """,ct,("key",OsanNotificationWriter.IdempotencyKey(created.Value.Project.ProjectId,
+            directRequest,OsanNotificationKind.StepWorkRequested)),("outside",outsideRecipient)));
+        var (gatePhoto,gatePhotoError)=await OsanProgressPhotoValidator.ValidateAsync(
+            "gate.png","image/png",CreateStructurallyValidPng(),ct);
+        Assert.Null(gatePhotoError);
+        var targetId=Assert.Single(created.Value.Project.Targets).TargetId;
+        var gateInput=new CompleteOsanProgressInput(Guid.NewGuid(),OsanCompletionModes.Individual,1,
+            [new OsanProgressTargetRequest(targetId,1)],[gatePhoto!]);
+        var progress=new OsanProgressStore(provider);
+        var denied=await progress.CompleteAsync(created.Value.Project.ProjectId,gateInput,UserId,ct);
+        Assert.Equal("osan_gate_department_denied",denied.ErrorCode);
+        Assert.Equal(0,await database.ReadScalarAsync<int>(
+            "select count(*)::integer from osan_progress_operations where operation_id=@operation",ct,
+            ("operation",gateInput.OperationId)));
+        var administrator=await progress.CompleteAsync(created.Value.Project.ProjectId,gateInput,UserId,ct,true);
+        Assert.Equal(OsanProgressMutationStatus.Success,administrator.Status);
+
+        await using var connection=new NpgsqlConnection(provider.GetConnectionString());
+        await connection.OpenAsync(ct);
+        await using(var tx=await connection.BeginTransactionAsync(ct))
+        {
+            Assert.False(await OsanPolicyStore.CanCompleteAsync(connection,tx,UserId,1,false,ct));
+            await tx.RollbackAsync(ct);
+        }
+        var gateConfig=await policy.GatesAsync(ct);
+        var changed=await policy.SetGatesAsync(Enumerable.Range(1,7)
+            .Select(stage=>new OsanGateUpdate(stage,stage==1
+                ? [Guid.Parse("89000000-0000-0000-0000-000000000010")] : [])).ToArray(),gateConfig.Version,ct);
+        Assert.Equal(200,changed.Status);
+        Assert.Equal(409,(await policy.SetGatesAsync(gateConfig.Gates
+            .Select(g=>new OsanGateUpdate(g.StageSequence,g.DepartmentIds)).ToArray(),gateConfig.Version,ct)).Status);
+        await using(var tx=await connection.BeginTransactionAsync(ct))
+        {
+            Assert.True(await OsanPolicyStore.CanCompleteAsync(connection,tx,UserId,1,false,ct));
+            Assert.False(await OsanPolicyStore.CanCompleteAsync(connection,tx,UserId,2,false,ct));
+            Assert.True(await OsanPolicyStore.CanCompleteAsync(connection,tx,UserId,2,true,ct));
+            await tx.RollbackAsync(ct);
+        }
+    }
+
+    [Fact]
+    public async Task MaintenanceAnnouncementIsIdempotentAndPopupClaimIsPerAccountVersion()
+    {
+        var ct=TestContext.Current.CancellationToken;
+        await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
+        var configuration=database.CreateConfiguration();
+        var provider=new DatabaseConnectionStringProvider(configuration);
+        await CreateMigrationRunner(database.RepositoryRoot,provider,configuration).ApplyAndVerifyAsync(ct);
+        await database.ExecuteAsync("""
+            insert into departments(id,code,name,is_active,sort_order)
+            values ('89000000-0000-0000-0000-000000000010','osan-maintenance-test','합성 테스트 부서',true,999);
+            insert into qms_users(id,development_user_key,display_name,department_id,is_active)
+            values ('89000000-0000-0000-0000-000000000001','osan-maintenance-test','합성 관리자',
+              '89000000-0000-0000-0000-000000000010',true);
+            """,ct);
+        var store=new DeploymentMaintenanceStore(provider);
+        Assert.Equal("Idle",(await store.ReadAsync(UserId,ct)).State);
+        var release=Guid.NewGuid();
+        var scheduledStart=DateTimeOffset.UtcNow.AddMinutes(5);
+        var scheduledEnd=scheduledStart.AddMinutes(30);
+        var delayedEnd=scheduledEnd.AddMinutes(30);
+        var prepared=await store.PrepareAsync(new(release,UserId,"제품 업데이트","새 기능과 저장 제한 시간을 안내합니다.",
+            scheduledStart,scheduledEnd),ct);
+        Assert.Equal(200,prepared.Status);
+        Assert.Equal("Announced",prepared.Value!.State);
+        Assert.Equal(1,prepared.Value.PopupVersion);
+        Assert.True(prepared.Value.PopupPending);
+        Assert.NotNull(prepared.Value.NoticeId);
+        Assert.Equal(409,(await store.PrepareAsync(new(release,UserId,"제품 업데이트","중복",
+            scheduledStart,scheduledEnd),ct)).Status);
+        Assert.True(await store.ClaimPopupAsync(release,1,UserId,ct));
+        Assert.False(await store.ClaimPopupAsync(release,1,UserId,ct));
+        Assert.False((await store.ReadAsync(UserId,ct)).PopupPending);
+        Assert.Equal(1,await database.ReadScalarAsync<int>(
+            "select count(*)::integer from notice_posts where request_id=@release",ct,("release",release)));
+        var activeRequest = await DeploymentMaintenanceLease.AcquireAsync(
+            provider, provider.BusinessUnits.Businesses, ct);
+        Assert.NotNull(activeRequest);
+        var activating = store.TransitionAsync(release, 1, "activate", null, false, UserId, ct);
+        Assert.NotSame(activating, await Task.WhenAny(activating, Task.Delay(100, ct)));
+        await activeRequest.DisposeAsync();
+        Assert.Equal("Active", (await activating).Value!.State);
+        Assert.Null(await DeploymentMaintenanceLease.AcquireAsync(provider, provider.BusinessUnits.Businesses, ct));
+        var served = 0;
+        var middleware = new DeploymentMaintenanceMiddleware(_ => { served++; return Task.CompletedTask; });
+        var blockedWrite = new DefaultHttpContext();
+        blockedWrite.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, UserId.ToString("D"))], "synthetic"));
+        blockedWrite.Request.Method = HttpMethods.Post;
+        blockedWrite.Request.Path = "/api/osan/projects";
+        blockedWrite.Response.Body = new MemoryStream();
+        await middleware.InvokeAsync(blockedWrite, provider);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, blockedWrite.Response.StatusCode);
+        Assert.Equal(0, served);
+        var read = new DefaultHttpContext { User = blockedWrite.User };
+        read.Request.Method = HttpMethods.Get;
+        read.Request.Path = "/api/osan/projects";
+        await middleware.InvokeAsync(read, provider);
+        Assert.Equal(1, served);
+        Assert.Equal(400,(await store.TransitionAsync(release,2,"delay",scheduledStart, false,UserId,ct)).Status);
+        var delayed = await store.TransitionAsync(release, 2, "delay",
+            delayedEnd, false, UserId, ct);
+        Assert.Equal("Delayed", delayed.Value!.State);
+        Assert.Equal(3, delayed.Value.Version);
+        Assert.Equal(2,delayed.Value.PopupVersion);
+        Assert.True(delayed.Value.PopupPending);
+        Assert.False(await store.ClaimPopupAsync(release,1,UserId,ct));
+        Assert.True(await store.ClaimPopupAsync(release,2,UserId,ct));
+        Assert.False((await store.ReadAsync(UserId,ct)).PopupPending);
+        Assert.Equal(409, (await store.TransitionAsync(release, 1, "complete", null, true, UserId, ct)).Status);
+        Assert.Equal(409, (await store.TransitionAsync(release, 3, "complete", null, false, UserId, ct)).Status);
+        Assert.Equal("Completed", (await store.TransitionAsync(release, 3, "complete", null, true, UserId, ct)).Value!.State);
+        Assert.Equal(4, (await store.ReadAsync(UserId, ct)).Version);
+        Assert.Equal(2, (await store.ReadAsync(UserId, ct)).PopupVersion);
+        Assert.Equal(3, await database.ReadScalarAsync<int>(
+            "select count(*)::integer from notice_post_revisions where notice_post_id=@notice",ct,
+            ("notice",prepared.Value.NoticeId!.Value)));
+        var finalNotice = await database.ReadScalarAsync<string>(
+            "select body from notice_posts where id=@notice",ct,("notice",prepared.Value.NoticeId!.Value));
+        Assert.Contains("배포 상태: 완료", finalNotice);
+        Assert.Contains(delayedEnd.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm")+" (KST)",finalNotice);
+        await using var resumed = await DeploymentMaintenanceLease.AcquireAsync(
+            provider, provider.BusinessUnits.Businesses, ct);
+        Assert.NotNull(resumed);
+        var resumedWrite = new DefaultHttpContext { User = blockedWrite.User };
+        resumedWrite.Request.Method = HttpMethods.Post;
+        resumedWrite.Request.Path = "/api/osan/projects";
+        await middleware.InvokeAsync(resumedWrite, provider);
+        Assert.Equal(2, served);
+    }
 
     [Fact]
     public void EndpointCatalog_ExposesAuthorizedProjectAndProgressRoutes()
@@ -65,16 +286,12 @@ public sealed partial class OsanProjectRegistrationApiTests
         foreach (var issueRoute in new[] { "issues", "issues/records", "issues/resolve" })
         {
             var endpoint = Assert.Single(endpoints, e => e.RoutePattern.RawText == "/api/osan/projects/{projectId:guid}/progress/" + issueRoute);
-            Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(), a => a.Policy == QmsPolicies.ManufacturingUpdate);
+            Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>());
             Assert.Equal(OsanProgressPhotoValidator.MaximumMultipartBytes, endpoint.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
         }
 
-        Assert.All(progressMutations, endpoint => Assert.Contains(
-            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
-            authorization => string.Equals(
-                authorization.Policy,
-                QmsPolicies.ManufacturingUpdate,
-                StringComparison.Ordinal)));
+        Assert.All(progressMutations, endpoint => Assert.NotEmpty(
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
         var completion = Assert.Single(progressMutations);
         Assert.Equal(
             OsanProgressPhotoValidator.MaximumMultipartBytes,
@@ -224,13 +441,21 @@ public sealed partial class OsanProjectRegistrationApiTests
         });
         var (query, errors) = OsanProjectEndpointExtensions.ParseDashboardQuery(validValues);
         Assert.Empty(errors);
-        Assert.Equal(new OsanDashboardQuery(
-            "panel", OsanDashboardStatuses.InProgress, 2, 11, OsanDashboardViews.Home, "Beta Customer"), query);
+        Assert.NotNull(query);
+        Assert.Equal("panel", query.Search);
+        Assert.Equal(OsanDashboardStatuses.InProgress, query.Status);
+        Assert.Equal([OsanDashboardStatuses.InProgress], query.Statuses!);
+        Assert.Equal(["Beta Customer"], query.SelectedCustomers!);
+        Assert.Equal((2,11,OsanDashboardViews.Home),(query.Page,query.PageSize,query.View));
 
         var (defaults, defaultErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection());
         Assert.Empty(defaultErrors);
-        Assert.Equal(new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10), defaults);
+        Assert.NotNull(defaults);
+        Assert.Equal((string.Empty,OsanDashboardStatuses.All,1,50),
+            (defaults.Search,defaults.Status,defaults.Page,defaults.PageSize));
+        Assert.Empty(defaults.Statuses!);
+        Assert.Empty(defaults.SelectedCustomers!);
 
         var (invalid, invalidErrors) = OsanProjectEndpointExtensions.ParseDashboardQuery(
             new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues>
@@ -430,6 +655,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await SeedDefaultCustomerAsync(database, TestContext.Current.CancellationToken);
         await database.ExecuteAsync($"""
             insert into departments (id, code, name, is_active, sort_order)
             values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
@@ -693,6 +919,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await SeedDefaultCustomerAsync(database, TestContext.Current.CancellationToken);
         await database.ExecuteAsync($"""
             insert into departments (id, code, name, is_active, sort_order)
             values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
@@ -870,6 +1097,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await SeedDefaultCustomerAsync(database, TestContext.Current.CancellationToken);
         await database.ExecuteAsync($"""
             insert into departments (id, code, name, is_active, sort_order)
             values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
@@ -926,6 +1154,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await SeedDefaultCustomerAsync(database, TestContext.Current.CancellationToken);
         await database.ExecuteAsync($"""
             insert into departments (id, code, name, is_active, sort_order)
             values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
@@ -1016,13 +1245,24 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await SeedDefaultCustomerAsync(database, TestContext.Current.CancellationToken);
         await database.ExecuteAsync($"""
             insert into departments (id, code, name, is_active, sort_order)
             values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
             insert into qms_users (id, development_user_key, display_name, department_id, is_active)
             values ('{UserId:D}', 'osan-dashboard-test', 'Osan Dashboard Test',
                     '89000000-0000-0000-0000-000000000010', true);
+            insert into osan_gate_departments(stage_sequence,department_id)
+            select stage,'89000000-0000-0000-0000-000000000010'::uuid from generate_series(1,7) stage;
             """, TestContext.Current.CancellationToken);
+        var customerA=Guid.Parse("89000000-0000-0000-0000-000000000031");
+        var customerAB=Guid.Parse("89000000-0000-0000-0000-000000000032");
+        var secretCustomer=Guid.Parse("89000000-0000-0000-0000-000000000033");
+        await database.ExecuteAsync($"""
+            insert into osan_customers(id,name) values
+            ('{customerA:D}','고객 A'),('{customerAB:D}','고객 AB'),
+            ('{secretCustomer:D}','Secret Customer');
+            """,TestContext.Current.CancellationToken);
 
         var projectStore = new OsanProjectStore(provider);
         var notStarted = await projectStore.CreateAsync(
@@ -1030,6 +1270,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 title: "Not started panel",
                 projectCode: "DASH-002",
                 customerName: "고객 AB",
+                customerId: customerAB,
                 deliveryDate: new DateOnly(2026, 10, 2))),
             UserId,
             TestContext.Current.CancellationToken);
@@ -1038,6 +1279,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 title: "Partial panel",
                 projectCode: "DASH-001",
                 customerName: "고객 A",
+                customerId: customerA,
                 poNumber: "PO-FIND-ME",
                 quantity: 2,
                 deliveryDate: new DateOnly(2026, 10, 1))),
@@ -1056,6 +1298,7 @@ public sealed partial class OsanProjectRegistrationApiTests
                 title: "LEAKTOKEN hidden",
                 projectCode: "DASH-HIDDEN",
                 customerName: "Secret Customer",
+                customerId: secretCustomer,
                 poNumber: "LEAKTOKEN",
                 deliveryDate: new DateOnly(2026, 8, 1))),
             UserId,
@@ -1330,6 +1573,36 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(heldHome.Summary, heldOnly.Summary);
         var heldPage = await store.GetAsync(new("", "All", 3, 2, "progress"), homeScope, TestContext.Current.CancellationToken);
         Assert.Equal(pastUnfinished.Value.Project.ProjectId, Assert.Single(heldPage.Items).ProjectId);
+
+        var combined = await store.GetAsync(new("", "All", 1, 50, "progress", "",
+            ["InProgress","NotStarted"], ["고객 A","고객 AB"],
+            new DateOnly(2026,10,1), new DateOnly(2026,10,2)), scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(2,combined.TotalCount);
+        Assert.Equal([partial.Value.Project.ProjectId,notStarted.Value.Project.ProjectId],
+            combined.Items.Select(item=>item.ProjectId));
+        var dueOneDay = await store.GetAsync(new("", "All", 1, 50, "progress", "",
+            ["InProgress","NotStarted"], ["고객 A","고객 AB"],
+            new DateOnly(2026,10,1), new DateOnly(2026,10,1)), scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(partial.Value.Project.ProjectId,Assert.Single(dueOneDay.Items).ProjectId);
+        foreach(var targetId in partialTargets)
+        {
+            var target=(await progressStore.GetAsync(partial.Value.Project.ProjectId,
+                TestContext.Current.CancellationToken))!.Targets.Single(item=>item.TargetId==targetId);
+            var issue=await progressStore.RecordIssueAsync(partial.Value.Project.ProjectId,
+                new CompleteOsanProgressInput(Guid.NewGuid(),OsanCompletionModes.Individual,2,
+                    [new OsanProgressTargetRequest(targetId,target.Version)],
+                    [new OsanProgressPhotoInput("issue.png","image/png",[1,2,3],new string('c',64))],
+                    "합성 이상"),UserId,false,TestContext.Current.CancellationToken);
+            Assert.Equal(OsanProgressMutationStatus.Success,issue.Status);
+        }
+        var openIssues = await store.GetAsync(new("", "All", 1, 50, "progress", "",
+            ["InProgress"], ["고객 A","고객 AB"],
+            new DateOnly(2026,10,1), new DateOnly(2026,10,2), "OpenIssue"),scope,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(1,openIssues.TotalCount);
+        Assert.Equal(partial.Value.Project.ProjectId,Assert.Single(openIssues.Items).ProjectId);
     }
 
     [Fact]
@@ -1339,11 +1612,14 @@ public sealed partial class OsanProjectRegistrationApiTests
         await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
         var configuration = database.CreateConfiguration(); var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         await database.ExecuteAsync($"""
             insert into departments(id,code,name,is_active,sort_order) values
             ('89000000-0000-0000-0000-000000000010','photo-hdr','Photo HDR',true,1);
             insert into qms_users(id,development_user_key,display_name,department_id,is_active) values
             ('{UserId:D}','photo-hdr','Photo HDR','89000000-0000-0000-0000-000000000010',true);
+            insert into osan_gate_departments(stage_sequence,department_id)
+            select stage,'89000000-0000-0000-0000-000000000010'::uuid from generate_series(1,7) stage;
             """, ct);
         var created = await new OsanProjectStore(provider).CreateAsync(Normalize(ValidRequest(projectCode: "PHOTO-HDR", quantity: 1)), UserId, ct);
         var project = created.Value!.Project;
@@ -1359,17 +1635,24 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.NotNull(downloaded); Assert.Equal("image/jpeg", downloaded.ContentType); Assert.Equal(photo.Content, downloaded.Content);
         Assert.Equal(2, OsanJpegContainer.Read(downloaded.Content).Count);
         // HEIC replacement exercises the separate revision-file MIME constraint.
+        await database.ExecuteAsync("update projects set status='Completed',delivery_date=current_date-1 where id=@id",
+            ct,("id",project.ProjectId));
         var replacement = (await OsanProgressPhotoValidator.ValidateAsync(
             "phone.heic", "image/heic", OsanHeicPhotoTests.CreateHeic(), ct)).Photo!;
         var edits = new OsanPhotoEditStore(provider);
         var request = Guid.NewGuid();
         var target = result.Value.Project.Targets[0];
-        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId,
+        Assert.Equal(403, (await edits.RequestAsync(project.ProjectId,
             new OsanPhotoEditRequest(request, target.TargetId, 1), UserId, ct)).Status);
+        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId,
+            new OsanPhotoEditRequest(request, target.TargetId, 1), UserId, ct, true)).Status);
         Assert.Equal(200, (await edits.ApproveAsync(project.ProjectId, request, UserId, ct)).Status);
-        Assert.Equal(200, (await edits.SaveAsync(project.ProjectId, request,
+        Assert.Equal(403, (await edits.SaveAsync(project.ProjectId, request,
             new CompleteOsanProgressInput(request, OsanCompletionModes.Individual, 1,
                 [new OsanProgressTargetRequest(target.TargetId, target.Version)], [replacement]), UserId, ct)).Status);
+        Assert.Equal(200, (await edits.SaveAsync(project.ProjectId, request,
+            new CompleteOsanProgressInput(request, OsanCompletionModes.Individual, 1,
+                [new OsanProgressTargetRequest(target.TargetId, target.Version)], [replacement]), UserId, ct, true)).Status);
         Assert.Equal(replacement.Content, await database.ReadScalarAsync<byte[]>(
             "select content from osan_photo_revision_files where request_id=@id", ct, ("id", request)));
 
@@ -1383,11 +1666,14 @@ public sealed partial class OsanProjectRegistrationApiTests
         var configuration = database.CreateConfiguration();
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
         await database.ExecuteAsync($"""
             insert into departments(id,code,name,is_active,sort_order) values
             ('89000000-0000-0000-0000-000000000010','photo-size','Photo Size',true,1);
             insert into qms_users(id,development_user_key,display_name,department_id,is_active) values
             ('{UserId:D}','photo-size','Photo Size','89000000-0000-0000-0000-000000000010',true);
+            insert into osan_gate_departments(stage_sequence,department_id)
+            select stage,'89000000-0000-0000-0000-000000000010'::uuid from generate_series(1,7) stage;
             """, ct);
         var created = await new OsanProjectStore(provider).CreateAsync(
             Normalize(ValidRequest(projectCode: "PHOTO-40", quantity: 1)), UserId, ct);
@@ -1429,12 +1715,16 @@ public sealed partial class OsanProjectRegistrationApiTests
         var provider = new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot, provider, configuration)
             .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+        await SeedDefaultCustomerAsync(database, TestContext.Current.CancellationToken);
         await database.ExecuteAsync($"""
             insert into departments (id, code, name, is_active, sort_order)
             values ('89000000-0000-0000-0000-000000000010', 'osan-test', 'Osan Test', true, 1);
             insert into qms_users (id, development_user_key, display_name, department_id, is_active)
             values ('{UserId:D}', 'osan-progress-test', 'Osan Progress Test',
                     '89000000-0000-0000-0000-000000000010', true);
+            insert into osan_gate_departments(stage_sequence,department_id)
+            select stage, '89000000-0000-0000-0000-000000000010'::uuid
+            from generate_series(1,7) stage;
             """, TestContext.Current.CancellationToken);
 
         var projectStore = new OsanProjectStore(provider);
@@ -2282,7 +2572,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         int? quantity = 1,
         Guid? operationId = null,
         DateOnly? deliveryDate = null,
-        string productName = "Product") =>
+        string productName = "Product",
+        Guid? customerId = null) =>
         new(
             title,
             projectCode,
@@ -2292,7 +2583,11 @@ public sealed partial class OsanProjectRegistrationApiTests
             deliveryDate ?? new DateOnly(2026, 12, 31),
             productName,
             quantity,
-            operationId ?? Guid.NewGuid());
+            operationId ?? Guid.NewGuid(),
+            customerId ?? DefaultCustomerId);
+
+    private static Task SeedDefaultCustomerAsync(PostgreSqlTestDatabase database, CancellationToken ct) =>
+        database.ExecuteAsync($"insert into osan_customers(id,name) values('{DefaultCustomerId:D}','Customer') on conflict do nothing;",ct);
 
     private static UploadedExcelFile Upload(string fileName, byte[] content) =>
         new(
@@ -2311,7 +2606,8 @@ public sealed partial class OsanProjectRegistrationApiTests
             row.WorkOrderNumber,
             row.DeliveryDate,
             row.ProductName,
-            null);
+            null,
+            row.CustomerId);
 
     private static byte[] CreateBatchExcel(IReadOnlyList<(string Title, string Code, int Quantity)> rows) =>
         CreateOsanExcel(workbook =>

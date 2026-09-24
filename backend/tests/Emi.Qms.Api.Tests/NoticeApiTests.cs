@@ -7,12 +7,77 @@ using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Notices;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
 
 public sealed class NoticeApiTests
 {
+    [Fact]
+    public void OsanAttachments_ExtendedLimitAndZipValidation_DoNotWidenCheongju()
+    {
+        var pdf = new byte[11 * 1024 * 1024];
+        "%PDF-1.7"u8.CopyTo(pdf);
+        Assert.True(NoticeAttachmentValidator.Validate("reference.pdf",pdf,osan:true).IsValid);
+        Assert.False(NoticeAttachmentValidator.Validate("reference.pdf",pdf).IsValid);
+        Assert.False(NoticeAttachmentValidator.Validate("reference.jpg",pdf,osan:true).IsValid);
+        Assert.False(NoticeAttachmentValidator.Validate("too-large.pdf",new byte[20*1024*1024+1],osan:true).IsValid);
+        static byte[] Zip(string name)
+        {
+            using var bytes = new MemoryStream();
+            using(var zip = new ZipArchive(bytes,ZipArchiveMode.Create,true))
+            using(var writer = new StreamWriter(zip.CreateEntry(name).Open())) writer.Write("synthetic reference");
+            return bytes.ToArray();
+        }
+        var valid=Zip("reference.txt");
+        Assert.True(NoticeAttachmentValidator.Validate("reference.zip",valid,osan:true).IsValid);
+        Assert.False(NoticeAttachmentValidator.Validate("reference.zip",valid).IsValid);
+        Assert.False(NoticeAttachmentValidator.Validate("unsafe.zip",Zip("../outside.txt"),osan:true).IsValid);
+        Assert.False(NoticeAttachmentValidator.Validate("not-a-document.hwp",new byte[512],osan:true).IsValid);
+    }
+
+    [Fact]
+    public async Task OsanNotice_ReceiptsAreAtomic_SettingsVersioned_DeletedEvidenceUnavailable()
+    {
+        await using var context = await NoticeApiTestContext.CreateAsync();
+        using var sales = context.CreateClient("dev-sales");
+        using var quality = context.CreateClient("dev-quality");
+        var ct = TestContext.Current.CancellationToken;
+        var response = await sales.PostAsJsonAsync("/api/notices",new CreateNoticeRequest(Guid.NewGuid(),"합성 공지","합성 내용"),ct);
+        response.EnsureSuccessStatusCode();
+        var post=(await response.Content.ReadFromJsonAsync<NoticeDetailResponse>(ct))!;
+        var me=await quality.GetFromJsonAsync<JsonElement>("/api/me",ct);
+        var actor=me.GetProperty("userId").GetGuid();
+        var store=context.Store;
+        var denied=await store.UpdateAsync(post.NoticeId,new(1,"수정","본문",NoticeBodyFormats.BoldMarkupV1),actor,ct);
+        Assert.Equal(NoticeMutationStatus.Forbidden,denied.Status);
+        var updated=await store.UpdateAsync(post.NoticeId,new(1,"관리자 수정","본문",NoticeBodyFormats.BoldMarkupV1),actor,ct,canAdmin:true);
+        Assert.Equal(NoticeMutationStatus.Success,updated.Status);
+        var settings=await store.SettingsAsync(post.NoticeId,new(2,true,true),actor,ct);
+        Assert.Equal(3,settings!.Version);
+        Assert.Equal(1,settings.PopupVersion);
+        var stale=await store.SettingsAsync(post.NoticeId,new(2,false,false),actor,ct);
+        Assert.Equal(-1,stale!.Version);
+        var claims=await Task.WhenAll(Enumerable.Range(0,4).Select(_=>store.ClaimPopupAsync(post.NoticeId,1,actor,ct)));
+        Assert.Single(claims,value=>value);
+        Assert.Empty(await store.PendingPopupsAsync(actor,ct));
+        Assert.True(await store.MarkNoticeReadAsync(post.NoticeId,actor,ct));
+        var list=await store.ListAsync(actor,1,20,ct);
+        Assert.True(Assert.Single(list.Items).IsRead);
+        Assert.Empty((await store.ListAsync(actor,1,20,ct,search:"없는 제목")).Items);
+        Assert.Single((await store.ListAsync(actor,1,20,ct,search:"관리자 수정")).Items);
+        Assert.Equal(1,(await store.ListAsync(actor,2,20,ct,search:"관리자 수정")).TotalCount);
+        var again=await store.SettingsAsync(post.NoticeId,new(3,true,true,true),actor,ct);
+        Assert.Equal(2,again!.PopupVersion);
+        Assert.Single(await store.PendingPopupsAsync(actor,ct));
+        await store.DeleteAsync(post.NoticeId,actor,ct,canAdmin:true);
+        Assert.False(await store.ClaimPopupAsync(post.NoticeId,2,actor,ct));
+        Assert.Empty(await store.PendingPopupsAsync(actor,ct));
+        Assert.Equal(3,await context.ReadCountAsync("notice_post_revisions"));
+        Assert.Equal(HttpStatusCode.Forbidden,(await quality.GetAsync("/api/osan/notices/popups",ct)).StatusCode);
+    }
+
     [Fact]
     public async Task NoticeBoard_AllOperationalUsersCanCreateReadAndOnlyAuthorCanDelete()
     {
@@ -281,6 +346,7 @@ public sealed class NoticeApiTests
 
         private PostgreSqlTestDatabase Database { get; }
         private QmsWebApplicationFactory Factory { get; }
+        public NoticeStore Store => Factory.Services.GetRequiredService<NoticeStore>();
 
         public static async Task<NoticeApiTestContext> CreateAsync()
         {

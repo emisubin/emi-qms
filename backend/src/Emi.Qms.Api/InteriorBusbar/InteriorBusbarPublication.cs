@@ -213,6 +213,9 @@ public sealed class InteriorBusbarPublicationWorker(
     {
         if (!options.Enabled) return false;
         var target = connections.BusinessUnits.Businesses.Single(t => t.Code == BusinessUnitCodes.Cheongju);
+        await using var maintenanceLease = await Emi.Qms.Api.DeploymentMaintenance.DeploymentMaintenanceLease.AcquireAsync(
+            connections, [target], cancellationToken);
+        if (maintenanceLease is null) return false;
         await using var connection = new NpgsqlConnection(connections.GetConnectionString(target));
         await connection.OpenAsync(cancellationToken);
         if (connections.BusinessUnits.Enabled && !await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken))

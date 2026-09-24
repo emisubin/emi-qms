@@ -14,7 +14,7 @@ public sealed record NoticeListItemResponse(
     string? AuthorDepartmentName,
     DateTimeOffset CreatedAtUtc,
     bool CanDelete,
-    DateTimeOffset? UpdatedAtUtc = null);
+    DateTimeOffset? UpdatedAtUtc = null, bool Pinned = false, bool IsRead = false, int AttachmentCount = 0);
 
 public sealed record NoticeDetailResponse(
     Guid NoticeId,

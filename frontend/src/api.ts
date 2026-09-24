@@ -3591,10 +3591,11 @@ export async function exportOsanNotificationsExcel(
 export async function listNotices(
   developmentUserKey: string | undefined,
   page = 1,
-  pageSize = 20
+  pageSize = 20,
+  search = ''
 ): Promise<NoticeListResponse> {
   return fetchJson<NoticeListResponse>(
-    `/api/notices?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`,
+    `/api/notices?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     developmentUserKey
   );
 }

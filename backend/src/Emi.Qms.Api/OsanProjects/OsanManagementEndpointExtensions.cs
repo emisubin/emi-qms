@@ -60,7 +60,8 @@ public static class OsanManagementEndpointExtensions
         {
             var denied = await Guard(projectId, projects, db, user, false, ct);
             return denied ?? Result(await store.RequestAsync(projectId, request,
-                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct));
+                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct,
+                user.IsInRole(QmsRoles.SystemAdministrator)));
         }).RequireAuthorization(QmsPolicies.ManufacturingUpdate)
           .WithName("RequestOsanProgressPhotoEdit");
         api.MapPost("/progress/photo-edits/{requestId:guid}/approve", async (Guid projectId, Guid requestId,

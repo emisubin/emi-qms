@@ -30,7 +30,7 @@ public sealed class OsanDashboardStore(
 
         var today = DateOnly.FromDateTime(
             TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), SeoulTimeZone).DateTime);
-        var scope = BuildScope(query.Search, query.View, today, accessScope, query.Customer);
+        var scope = BuildScope(query.Search, query.View, today, accessScope, query.Customer, query.SelectedCustomers, query.DueFrom, query.DueTo);
         var summary = await ReadSummaryAsync(
             connection,
             transaction,
@@ -40,7 +40,7 @@ public sealed class OsanDashboardStore(
             connection,
             transaction,
             scope,
-            query.Status,
+            query,
             cancellationToken);
         var projects = await ReadPageAsync(
             connection,
@@ -93,7 +93,8 @@ public sealed class OsanDashboardStore(
                 count(*) filter (where progress_status = '{OsanDashboardStatuses.NotStarted}')::bigint,
                 count(*) filter (where progress_status = '{OsanDashboardStatuses.InProgress}')::bigint,
                 count(*) filter (where progress_status = '{OsanDashboardStatuses.Completed}')::bigint,
-                count(*) filter (where progress_status = '{OsanDashboardStatuses.Hold}')::bigint
+                count(*) filter (where progress_status = '{OsanDashboardStatuses.Hold}')::bigint,
+                count(*) filter (where has_open_issue)::bigint
             from scoped_projects;
             """);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -102,25 +103,23 @@ public sealed class OsanDashboardStore(
             reader.GetInt64(0),
             reader.GetInt64(1),
             reader.GetInt64(2),
-            reader.GetInt64(3), reader.GetInt64(4));
+            reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5));
     }
 
     private static async Task<long> ReadFilteredCountAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         QueryScope scope,
-        string status,
+        OsanDashboardQuery query,
         CancellationToken cancellationToken)
     {
-        var statusFilter = status == OsanDashboardStatuses.All
-            ? string.Empty
-            : "where progress_status = @status";
+        const string statusFilter = "where (@all_statuses or progress_status = any(@statuses)) and (@kpi = '' or (@kpi = 'OpenIssue' and has_open_issue) or progress_status = @kpi)";
         await using var command = CreateScopedCommand(connection, transaction, scope, $"""
             select count(*)::bigint
             from scoped_projects
             {statusFilter};
             """);
-        command.Parameters.AddWithValue("status", status);
+        AddFilters(command, query);
         return (long)(await command.ExecuteScalarAsync(cancellationToken) ?? 0L);
     }
 
@@ -131,9 +130,7 @@ public sealed class OsanDashboardStore(
         OsanDashboardQuery query,
         CancellationToken cancellationToken)
     {
-        var statusFilter = query.Status == OsanDashboardStatuses.All
-            ? string.Empty
-            : "where progress_status = @status";
+        const string statusFilter = "where (@all_statuses or progress_status = any(@statuses)) and (@kpi = '' or (@kpi = 'OpenIssue' and has_open_issue) or progress_status = @kpi)";
         const string ordering = "osan_delivery_hold, delivery_date, project_code, project_id";
         await using var command = CreateScopedCommand(connection, transaction, scope, $"""
             select project_id, title, project_code, customer_name, product_name,
@@ -144,7 +141,7 @@ public sealed class OsanDashboardStore(
             order by {ordering}
             limit @page_size offset @offset;
             """);
-        command.Parameters.AddWithValue("status", query.Status);
+        AddFilters(command, query);
         command.Parameters.AddWithValue("page_size", query.PageSize);
         command.Parameters.AddWithValue("offset", checked((long)(query.Page - 1) * query.PageSize));
         var result = new List<ProjectRow>();
@@ -255,6 +252,7 @@ public sealed class OsanDashboardStore(
                            when progress.completed_step_count > 0 or exists(select 1 from osan_stage_issues i join osan_active_project_targets t on t.id=i.target_id where i.project_id=projects.id and i.status='Open') then '{OsanDashboardStatuses.InProgress}'
                            else '{OsanDashboardStatuses.NotStarted}'
                        end as progress_status,
+                       exists(select 1 from osan_stage_issues i join osan_active_project_targets t on t.id=i.target_id where i.project_id=projects.id and i.status='Open') as has_open_issue,
                        progress.completed_step_count,
                        progress.total_step_count
                 from projects
@@ -277,7 +275,7 @@ public sealed class OsanDashboardStore(
         string view,
         DateOnly today,
         ProjectAccessScope accessScope,
-        string customer = "")
+        string customer = "", string[]? selectedCustomers = null, DateOnly? dueFrom = null, DateOnly? dueTo = null)
     {
         var where = new List<string>
         {
@@ -304,10 +302,21 @@ public sealed class OsanDashboardStore(
                     accessScope.ProjectKeys.ToArray()));
             }
         }
-        if (customer.Length > 0)
+        var customers = selectedCustomers ?? (customer.Length > 0 ? [customer] : Array.Empty<string>());
+        if (customers.Length > 0)
         {
-            where.Add("projects.customer_name = @customer");
-            parameters.Add(new NpgsqlParameter("customer", NpgsqlDbType.Text) { Value = customer });
+            where.Add("projects.customer_name = any(@selected_customers)");
+            parameters.Add(new NpgsqlParameter<string[]>("selected_customers", customers));
+        }
+        if (dueFrom is not null)
+        {
+            where.Add("projects.delivery_date >= @due_from");
+            parameters.Add(new NpgsqlParameter("due_from", NpgsqlDbType.Date) { Value = dueFrom.Value });
+        }
+        if (dueTo is not null)
+        {
+            where.Add("projects.delivery_date <= @due_to");
+            parameters.Add(new NpgsqlParameter("due_to", NpgsqlDbType.Date) { Value = dueTo.Value });
         }
         if (search.Length > 0)
         {
@@ -325,6 +334,14 @@ public sealed class OsanDashboardStore(
             });
         }
         return new QueryScope(string.Join(" and ", where), parameters);
+    }
+
+    private static void AddFilters(NpgsqlCommand command, OsanDashboardQuery query)
+    {
+        var statuses = query.Statuses ?? (query.Status == OsanDashboardStatuses.All ? [] : new[] { query.Status });
+        command.Parameters.AddWithValue("all_statuses", statuses.Length == 0 || statuses.Contains(OsanDashboardStatuses.All));
+        command.Parameters.Add(new NpgsqlParameter<string[]>("statuses", statuses));
+        command.Parameters.AddWithValue("kpi", query.Kpi == "All" ? "" : query.Kpi);
     }
 
     private static string EscapeLike(string value) =>

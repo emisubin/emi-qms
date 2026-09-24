@@ -5,6 +5,8 @@ export interface OsanProjectExcelRow {
   title: string;
   projectCode: string;
   customerName: string;
+  customerId?: string;
+  customerCandidates?: {customerId:string;name:string}[];
   poNumber: string | null;
   workOrderNumber: string | null;
   deliveryDate: string | null;

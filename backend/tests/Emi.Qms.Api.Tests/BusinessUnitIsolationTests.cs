@@ -8,6 +8,7 @@ using System.Text.Json;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.OsanProjects;
@@ -201,6 +202,47 @@ public sealed partial class BusinessUnitIsolationTests
     }
 
     [Fact]
+    public async Task MaintenanceCompletion_RejectsChangedOsanLedgerEvenWhenVerified()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var databases = await IsolationDatabaseSet.CreateAsync(ct);
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var environment = new TestEnvironment(databases.RepositoryRoot);
+        var catalog = new DatabaseMigrationCatalog(environment);
+        var inspector = new MigrationLedgerInspector(catalog);
+        var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(catalog);
+        await new DatabaseRoleBootstrapper(
+                databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+                NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(ct);
+        await ApplyExistingCheongjuSchemaAsync(databases, catalog, ct);
+        await ApplyPartialOsanSchemaAsync(databases, catalog, ct);
+        await new DatabaseMigrationRunner(
+                provider, catalog, new DatabaseRuntimePrivilegeManager(),
+                databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(ct);
+
+        var checker = new DatabaseHealthChecker(provider, inspector, directoryCatalog);
+        Assert.True((await checker.CheckAsync(ct)).IsReady);
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration,
+            "delete from schema_migrations where version = (select max(version) from schema_migrations);", ct);
+        Assert.False((await checker.CheckAsync(ct)).IsReady);
+
+        var values = new Dictionary<string, string?>(databases.ConfigurationValues)
+        {
+            ["Maintenance:ReleaseId"] = Guid.NewGuid().ToString("D"),
+            ["Maintenance:ActorUserId"] = Guid.NewGuid().ToString("D"),
+            ["Maintenance:Verified"] = "true"
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DeploymentMaintenanceCli.RunAsync("--maintenance-complete", configuration,
+                provider, checker, NullLogger.Instance, ct));
+        Assert.Contains("all business databases to be ready", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task OsanExcelImport_ActualHttpPipelineEnforcesGuardPermissionAndAtomicCreation()
     {
         await using var databases = await IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
@@ -306,7 +348,8 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(canCreate ? HttpStatusCode.OK : HttpStatusCode.Forbidden, createResponse.StatusCode);
             using var progressRequest = Request(HttpMethod.Post, $"/api/osan/projects/{Guid.NewGuid():D}/progress/completions", "dev-sales", BusinessUnitCodes.Osan);
             using var progressResponse = await client.SendAsync(progressRequest, TestContext.Current.CancellationToken);
-            Assert.Equal(canProgress ? HttpStatusCode.NotFound : HttpStatusCode.Forbidden, progressResponse.StatusCode);
+            // Completion now checks the configured Gate department after project lookup.
+            Assert.Equal(HttpStatusCode.NotFound, progressResponse.StatusCode);
         }
         await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
             $"update qms_users set department_id=(select id from departments where code='sales') where id='{SalesUserId:D}';",
@@ -329,6 +372,10 @@ public sealed partial class BusinessUnitIsolationTests
                 templateResponse.Content.Headers.ContentType?.MediaType);
         }
 
+        var customerId = Guid.NewGuid();
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
+            $"insert into osan_customers(id,name) values('{customerId:D}','Synthetic Customer');",
+            TestContext.Current.CancellationToken);
         var workbookBytes = CreateOsanImportWorkbook();
         string fileSha256;
         OsanProjectExcelRowRequest selectedRow;
@@ -350,6 +397,7 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(0, preview.ErrorCount);
             Assert.True(preview.SupportsRowEditing);
             Assert.Equal(2, preview.TotalRowCount);
+            Assert.All(preview.Rows, row => Assert.Equal(customerId, row.CustomerId));
             fileSha256 = preview.FileSha256;
             var sourceRow = preview.Rows[0];
             selectedRow = new OsanProjectExcelRowRequest(
@@ -361,7 +409,8 @@ public sealed partial class BusinessUnitIsolationTests
                 sourceRow.WorkOrderNumber,
                 sourceRow.DeliveryDate,
                 sourceRow.ProductName,
-                null);
+                null,
+                sourceRow.CustomerId);
             secondSourceRow = new OsanProjectExcelRowRequest(
                 preview.Rows[1].RowNumber,
                 preview.Rows[1].Title,
@@ -371,7 +420,8 @@ public sealed partial class BusinessUnitIsolationTests
                 preview.Rows[1].WorkOrderNumber,
                 preview.Rows[1].DeliveryDate,
                 preview.Rows[1].ProductName,
-                null);
+                null,
+                preview.Rows[1].CustomerId);
         }
 
         foreach (var (deliveryDate, quantity, expectedField) in new (string?, decimal?, string)[]

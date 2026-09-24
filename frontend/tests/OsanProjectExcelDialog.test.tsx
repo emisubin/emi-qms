@@ -24,7 +24,8 @@ beforeEach(() => {
 describe('오산 프로젝트 엑셀 업로드', () => {
   it('keeps text identifiers, previews before apply, and reports the created count', async () => {
     const applied = vi.fn();
-    render(<OsanProjectExcelDialog developmentUserKey="dev-user" onClose={vi.fn()} onApplied={applied} />);
+    const close = vi.fn();
+    render(<OsanProjectExcelDialog developmentUserKey="dev-user" onClose={close} onApplied={applied} />);
     expect(screen.queryByRole('button', { name: /프로젝트 등록/ })).not.toBeInTheDocument();
     await showPreview();
     expect(screen.getAllByRole('columnheader').map(header => header.textContent))
@@ -34,6 +35,7 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     expect(screen.getByLabelText('2행 PO No')).toHaveTextContent('001-PO');
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await waitFor(() => expect(applied).toHaveBeenCalledWith(1));
+    expect(close).toHaveBeenCalledOnce();
     expect(api.applyOsanProjectExcel).toHaveBeenCalledWith('dev-user', expect.any(File), 'file-hash', expect.stringMatching(/^[0-9a-f-]{36}$/), expect.any(AbortSignal), preview.rows, []);
     expect(vi.mocked(api.applyOsanProjectExcel).mock.calls[0][5]?.[0]).toMatchObject({
       customerName: '고객사', customerId: 'customer-a'
@@ -75,12 +77,14 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     expect(close).not.toHaveBeenCalled();
     await act(async () => rejectApply(new ApiError(0, '연결을 확인해 주세요.')));
     expect(await screen.findByRole('alert')).toHaveTextContent('등록 결과를 확인하지 못했습니다');
+    expect(close).not.toHaveBeenCalled();
     expect(screen.getByLabelText('2행 장비명')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '같은 요청으로 결과 확인' }));
     await waitFor(() => expect(api.applyOsanProjectExcel).toHaveBeenCalledTimes(2));
     const calls = vi.mocked(api.applyOsanProjectExcel).mock.calls;
     expect(calls[1][3]).toBe(calls[0][3]);
     expect(calls[1][5]).toEqual(calls[0][5]);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it('registers valid rows, keeps the missing row editable, and never resubmits saved rows', async () => {
@@ -90,15 +94,19 @@ describe('오산 프로젝트 엑셀 업로드', () => {
     }));
     vi.mocked(api.applyOsanProjectExcel).mockImplementation(async (_key, _file, _hash, operationId, _signal, rows) => ({ operationId, replayed: false, createdCount: rows!.length, projectIds: ['id'], createdRowNumbers: rows!.map(row => row.rowNumber) }));
     const applied = vi.fn();
-    render(<OsanProjectExcelDialog developmentUserKey="dev-user" onClose={vi.fn()} onApplied={applied} />);
+    const close = vi.fn();
+    render(<OsanProjectExcelDialog developmentUserKey="dev-user" onClose={close} onApplied={applied} />);
     await showPreview(); fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await waitFor(() => expect(applied).toHaveBeenCalledWith(1));
     expect(screen.getByLabelText('2행 장비명')).toBeDisabled();
     expect(screen.getByLabelText('3행 장비명')).toBeEnabled();
+    expect(close).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('1개 행이 등록되지 않았습니다');
     fireEvent.click(screen.getByLabelText('3행 장비명'));
     fireEvent.change(screen.getByLabelText('3행 장비명'), { target: { value: '추가 프로젝트' } });
     fireEvent.click(screen.getByRole('button', { name: '1개 프로젝트 등록' }));
     await waitFor(() => expect(applied).toHaveBeenCalledTimes(2));
+    expect(close).toHaveBeenCalledOnce();
     const calls = vi.mocked(api.applyOsanProjectExcel).mock.calls;
     expect(calls[0][5]?.map(row => row.rowNumber)).toEqual([2]);
     expect(calls[1][5]?.map(row => row.rowNumber)).toEqual([3]);

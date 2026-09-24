@@ -114,9 +114,11 @@ export function OsanProjectExcelDialog({ developmentUserKey, onClose, onApplied 
         if (!Array.isArray(result.createdRowNumbers) || result.createdRowNumbers.length !== result.createdCount) throw new Error('Incomplete registration response');
         const createdRows = result.createdRowNumbers;
         setSaved(current => [...new Set([...current, ...createdRows])]); setRetry(null); setConfirmation(null);
-        const hasRemaining = preview?.rows.some(row => !saved.includes(row.rowNumber) && !createdRows.includes(row.rowNumber));
-        setSuccess(`${result.createdCount}개 프로젝트를 등록했습니다. ${hasRemaining ? '미등록 행은 수정 후 추가 등록할 수 있습니다.' : '모든 행의 등록이 완료됐습니다.'}`);
+        const remainingCount = preview?.rows.filter(row => !saved.includes(row.rowNumber) && !createdRows.includes(row.rowNumber)).length ?? 0;
+        setSuccess(`${result.createdCount}개 프로젝트를 등록했습니다.`);
+        if (remainingCount > 0) setMessage(`${remainingCount}개 행이 등록되지 않았습니다. 각 행의 오류를 확인하고 수정한 뒤 다시 등록해 주세요.`);
         onApplied(result.createdCount);
+        if (remainingCount === 0) onClose();
       }
     } catch (error) {
       if (!controller.signal.aborted) {

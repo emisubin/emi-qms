@@ -112,9 +112,17 @@
   .app-shell .osan-gate-table-wrap tbody th { padding-left: 5px; }
   .app-shell .osan-gate-mark { font-size: 21px; }
   .app-shell .osan-admin-approval-head { display: none; }
-  .app-shell .osan-admin-approval-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; }
+  .app-shell .osan-admin-approval-row { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 7px 4px; min-height: 0; font-size: 12px; line-height: 16px; }
   .app-shell .osan-admin-approval-row > :first-child { grid-column: 1; }
   .app-shell .osan-admin-approval-row > :nth-child(2) { grid-column: 2; grid-row: 1; }
-  .app-shell .osan-admin-approval-row > :nth-child(4) { grid-column: 1 / -1; }
-  .app-shell .osan-admin-approval-row > :last-child { grid-column: 1 / -1; }
+  .app-shell .osan-admin-approval-row > :nth-child(3) { grid-column: 1; grid-row: 2; font-size: 11px; }
+  .app-shell .osan-admin-approval-row > :nth-child(4) { grid-column: 1; grid-row: 3; font-size: 11px; }
+  .app-shell .osan-admin-approval-row > :last-child { grid-column: 2; grid-row: 2 / 4; }
+  .app-shell .osan-admin-approval-row button { min-height: 0; line-height: 18px; font-size: 12px; }
+  .app-shell .osan-admin-approval-row .osan-admin-primary { min-height: 30px; padding: 4px 8px; }
+  .app-shell .osan-admin-approval-row small { font-size: 10px; line-height: 14px; }
+}
+
+@media(max-width:700px){
+ .app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-admin-primary){min-height:18px!important;height:auto!important;line-height:18px;padding:0!important;overflow-wrap:anywhere}
 }

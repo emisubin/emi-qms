@@ -16,3 +16,9 @@
 
 .app-shell .osan-board .title button.notice-title-read{font-weight:400!important}
 .app-shell .osan-board .title button.notice-title-unread{font-weight:700!important}
+
+@media(max-width:700px){
+ .app-shell .osan-board .board-table tr{min-height:48px;padding:5px 8px;row-gap:0}
+ .app-shell .osan-board .board-table td{font-size:11px;line-height:15px}
+ .app-shell .osan-board .title button{min-height:21px!important;height:auto!important;line-height:18px;padding:0 0 2px!important;font-size:13px}
+}

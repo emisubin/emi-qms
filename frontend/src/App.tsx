@@ -2730,7 +2730,7 @@ function QmsAppShellContent({
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && ['osan-customer-admin','osan-gate-settings','osan-gate-approvals'].includes(view.kind) && (isSystemAdministrator ?
         view.kind === 'osan-customer-admin' ? <OsanCustomerAdminPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/> :
         view.kind === 'osan-gate-settings' ? <OsanGateSettingsPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/> :
-        <OsanGateApprovalsPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled} onOpenProject={projectId=>setView({kind:'osan-progress',projectId})}/>
+        <OsanGateApprovalsPage developmentUserKey={developmentUserKey} onOpenStage={(projectId,targetId,stage)=>setView({kind:'osan-progress',projectId,targetId,stage:String(stage)})}/>
         : <p role="alert">관리자만 접근할 수 있습니다.</p>)}
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notice-board' ? (
         isOsan ? <OsanNoticeBoard key={`${currentUser.data.userId}:${developmentUserKey}`} userKey={developmentUserKey} noticeId={view.noticeId} compose={view.compose} admin={isSystemAdministrator} enabled={mutationEnabled} onList={()=>setView({kind:'notice-board'})} onOpen={noticeId=>setView({kind:'notice-board',noticeId})} onCompose={()=>setView({kind:'notice-board',compose:true})}/> : <NoticeBoardPage

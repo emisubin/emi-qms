@@ -57,10 +57,10 @@ it('Gate 표는 부서 세로·Gate 가로로 편집하고 버전과 일괄 저�
     expect.objectContaining({ method: 'PUT', body: expect.stringContaining('"departmentIds":["d1"]') })));
 });
 
-it('승인 대기 처리 후 해당 요청만 목록에서 제외한다', async () => {
-  render(<OsanGateApprovalsPage developmentUserKey="admin" onOpenProject={vi.fn()} />);
-  fireEvent.click(await screen.findByRole('button', { name: '사진 수정 1회 승인' }));
-  await waitFor(() => expect(api.fetchJson).toHaveBeenCalledWith(
-    '/api/osan/projects/p1/progress/photo-edits/r1/approve', 'admin', expect.objectContaining({ method: 'POST' })));
-  expect(await screen.findByText('현재 승인 대기 건이 없습니다.')).toBeInTheDocument();
+it('승인 대기는 바로 승인하지 않고 요청된 프로젝트·대상·단계로 이동한다', async () => {
+  const open = vi.fn();
+  render(<OsanGateApprovalsPage developmentUserKey="admin" onOpenStage={open} />);
+  fireEvent.click(await screen.findByRole('button', { name: '단계 확인' }));
+  expect(open).toHaveBeenCalledWith('p1', 't1', 1);
+  expect(api.fetchJson).not.toHaveBeenCalledWith(expect.stringContaining('/approve'), expect.anything(), expect.anything());
 });

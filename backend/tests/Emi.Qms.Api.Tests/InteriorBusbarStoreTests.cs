@@ -390,6 +390,11 @@ public sealed class InteriorBusbarStoreTests
                     await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0120_interior_busbar_qr_lifecycle.sql")), c).ExecuteNonQueryAsync();
                 if (applyLabelMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0121_interior_busbar_label_tracking.sql")), c).ExecuteNonQueryAsync();
                 if (applyInspectionMigration) await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations/0122_interior_busbar_quality_inspection.sql")), c).ExecuteNonQueryAsync();
+                // API writes and workers acquire the real deployment lease even in this focused schema.
+                // Notices are outside these tests; retain their referenced key while applying the maintenance contract.
+                await new NpgsqlCommand("create table notice_posts(id uuid primary key)", c).ExecuteNonQueryAsync();
+                foreach (var migration in new[] { "0125_deployment_maintenance.sql", "0126_deployment_maintenance_popup_once.sql", "0127_deployment_maintenance_popup_schedule.sql" })
+                    await new NpgsqlCommand(await File.ReadAllTextAsync(Path.Combine(root, "database/migrations", migration)), c).ExecuteNonQueryAsync();
                 await using var cmd = new NpgsqlCommand("insert into qms_users(id) values(@id)", c);
                 cmd.Parameters.AddWithValue("id", f.Actor);
                 await cmd.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);

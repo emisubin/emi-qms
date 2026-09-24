@@ -184,8 +184,11 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal("Idle",(await store.ReadAsync(UserId,ct)).State);
         var release=Guid.NewGuid();
         var scheduledStart=DateTimeOffset.UtcNow.AddMinutes(5);
+        scheduledStart=scheduledStart.AddTicks(-(scheduledStart.Ticks % TimeSpan.TicksPerMicrosecond)+7);
         var scheduledEnd=scheduledStart.AddMinutes(30);
         var delayedEnd=scheduledEnd.AddMinutes(30);
+        Assert.Equal(400,(await store.PrepareAsync(new(Guid.NewGuid(),UserId,"제품 업데이트","동일한 DB 저장 시각",
+            scheduledStart,scheduledStart.AddTicks(1)),ct)).Status);
         var prepared=await store.PrepareAsync(new(release,UserId,"제품 업데이트","새 기능과 저장 제한 시간을 안내합니다.",
             scheduledStart,scheduledEnd),ct);
         Assert.Equal(200,prepared.Status);

@@ -35,12 +35,17 @@ public sealed class InteriorBusbarAuthorizationTests
         Assert.All(routes, route => Assert.NotEmpty(route.Metadata.GetOrderedMetadata<IAuthorizeData>()));
     }
 
-    [Theory]
+    [Theory(SkipUnless = nameof(HasDatabase), Skip = "Requires disposable busbar database.")]
     [InlineData("printed")]
     [InlineData("attached")]
     public async Task UnprivilegedUserCannotConfirmLabels(string action)
     {
-        using var factory = new QmsWebApplicationFactory();
+        await using var fixture = await InteriorBusbarStoreTests.Fixture.Create();
+        using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:QmsDatabase"] = fixture.Connection,
+            ["DevelopmentData:SeedEnabled"] = "false"
+        }, includeDefaultDevelopmentAuthentication: true);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-viewer");
         using var response = await client.PostAsJsonAsync("/api/interior-busbar/labels/" + action,

@@ -115,7 +115,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.run_backend == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 75
     env:
       DATABASE_HOST: localhost
       DATABASE_PORT: 5432

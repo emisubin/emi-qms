@@ -76,6 +76,8 @@ public sealed class DeploymentMaintenanceStore
 
     public async Task<DeploymentMaintenanceCommandResult> PrepareAsync(PrepareDeploymentMaintenance input,CancellationToken ct)
     {
+        input=input with { StartsAtUtc=DatabasePrecision(input.StartsAtUtc),
+            ExpectedEndsAtUtc=DatabasePrecision(input.ExpectedEndsAtUtc) };
         var title=input.Title?.Trim();var body=input.Body?.Trim();
         if(input.ReleaseId==Guid.Empty || input.ActorUserId==Guid.Empty || string.IsNullOrEmpty(title)
             || title.Length>100 || string.IsNullOrEmpty(body) || body.Length>1800
@@ -127,6 +129,7 @@ public sealed class DeploymentMaintenanceStore
     public async Task<DeploymentMaintenanceCommandResult> TransitionAsync(Guid releaseId,int expectedVersion,
         string action,DateTimeOffset? revisedEnd,bool verified,Guid actor,CancellationToken ct)
     {
+        if(revisedEnd is { } end) revisedEnd=DatabasePrecision(end);
         if(releaseId==Guid.Empty || expectedVersion<1 || actor==Guid.Empty)
             return new(400,"release_maintenance_input_invalid","배포 식별자와 버전을 확인해 주세요.");
         await using var connection=new NpgsqlConnection(ConnectionString);
@@ -193,4 +196,7 @@ public sealed class DeploymentMaintenanceStore
         finally { await DeploymentMaintenanceLease.ReleaseExclusiveAsync(connection); }
     }
 
+    // PostgreSQL timestamps and Npgsql store microseconds, not .NET's 100ns ticks.
+    private static DateTimeOffset DatabasePrecision(DateTimeOffset value) =>
+        value.AddTicks(-(value.Ticks % TimeSpan.TicksPerMicrosecond));
 }

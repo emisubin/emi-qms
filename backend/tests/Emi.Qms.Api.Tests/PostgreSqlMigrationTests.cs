@@ -23,6 +23,74 @@ namespace Emi.Qms.Api.Tests;
 public sealed class PostgreSqlMigrationTests
 {
     [Fact]
+    public async Task Migration0130_PreservesExistingReasonlessPhotoEditRequestAndLedger()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var configuration = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(configuration);
+        var directory = Path.Combine(database.RepositoryRoot, "database", "migrations");
+        var previousCatalog = Directory.CreateTempSubdirectory("emi-qms-production-0129-");
+        try
+        {
+            foreach (var file in Directory.GetFiles(directory, "*.sql")
+                         .Where(file => string.CompareOrdinal(Path.GetFileName(file)[..4], "0130") < 0))
+                File.Copy(file, Path.Combine(previousCatalog.FullName, Path.GetFileName(file)));
+            await new DatabaseMigrationRunner(provider, DatabaseMigrationCatalog.FromPath(previousCatalog.FullName),
+                new DatabaseRuntimePrivilegeManager(), configuration,
+                NullLogger<DatabaseMigrationRunner>.Instance).ApplyAsync(ct);
+
+            await ExecuteSqlAsync(provider, """
+                insert into qms_users(id,development_user_key,display_name,is_active)
+                values('8c000000-0000-0000-0000-000000000001','migration-0130-user','Synthetic worker',true);
+                insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
+                    project_title_normalized,delivery_date,project_profile,osan_product_name,osan_quantity,created_by_user_id)
+                values('8c000000-0000-0000-0000-000000000002','migration-0130','MIG0130','Synthetic project','Customer','',
+                    'MIG0130','Synthetic project','SYNTHETIC PROJECT','2026-12-31','Osan','Product',1,
+                    '8c000000-0000-0000-0000-000000000001');
+                insert into osan_project_targets(id,project_id,sequence_number,display_name)
+                values('8c000000-0000-0000-0000-000000000003','8c000000-0000-0000-0000-000000000002',1,'Synthetic target');
+                insert into osan_project_target_steps(id,project_id,target_id,sequence_number,step_code,step_name,status,
+                    completed_at_utc,completed_by_user_id,comment)
+                values('8c000000-0000-0000-0000-000000000004','8c000000-0000-0000-0000-000000000002',
+                    '8c000000-0000-0000-0000-000000000003',1,'INCOMING_INSPECTION','입고검사','Completed',
+                    '2026-09-24T00:00:00Z','8c000000-0000-0000-0000-000000000001','Original');
+                insert into osan_photo_edit_requests(id,project_id,target_id,step_id,requested_by,requested_at)
+                values('8c000000-0000-0000-0000-000000000005','8c000000-0000-0000-0000-000000000002',
+                    '8c000000-0000-0000-0000-000000000003','8c000000-0000-0000-0000-000000000004',
+                    '8c000000-0000-0000-0000-000000000001','2026-09-24T01:02:03Z');
+                """, ct);
+            var before = await ReadScalarAsync<string>(provider, """
+                select concat_ws('|',id,project_id,target_id,step_id,requested_by,requested_at)
+                from osan_photo_edit_requests where id='8c000000-0000-0000-0000-000000000005';
+                """, ct);
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(provider,
+                "select max(version) from schema_migrations;", ct));
+
+            await CreateMigrationRunner(database.RepositoryRoot, provider, configuration).ApplyAsync(ct);
+
+            Assert.Equal(before, await ReadScalarAsync<string>(provider, """
+                select concat_ws('|',id,project_id,target_id,step_id,requested_by,requested_at)
+                from osan_photo_edit_requests where id='8c000000-0000-0000-0000-000000000005';
+                """, ct));
+            Assert.True(await ReadScalarAsync<bool>(provider, """
+                select reason is null from osan_photo_edit_requests
+                where id='8c000000-0000-0000-0000-000000000005';
+                """, ct));
+            Assert.Equal(2L, await ReadScalarAsync<long>(provider, """
+                select count(*) from schema_migrations
+                where version in ('0129_osan_management_audit','0130_osan_photo_edit_request_reason');
+                """, ct));
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(provider,
+                "select max(version) from schema_migrations;", ct));
+        }
+        finally
+        {
+            previousCatalog.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CombinedRelease_UpgradesProduction0103PreservingExistingRowsAndAuditsBusbarChanges()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -1267,7 +1335,7 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -1494,7 +1562,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2333,7 +2401,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2401,7 +2469,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2531,7 +2599,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3219,7 +3287,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3485,7 +3553,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3589,7 +3657,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3655,7 +3723,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3719,7 +3787,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3842,7 +3910,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4008,7 +4076,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4535,7 +4603,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4578,7 +4646,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4759,7 +4827,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4836,7 +4904,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4901,7 +4969,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+            Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4951,7 +5019,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
+        Assert.Equal("0130_osan_photo_edit_request_reason", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

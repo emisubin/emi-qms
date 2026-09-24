@@ -24,7 +24,7 @@ import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
-import { formatOsanDday, useKoreaDate } from './osanDday';
+import { formatOsanDday, useKoreaDate, isOsanOverdue } from './osanDday';
 import './osan-project-detail.css';
 import { OsanProjectManagement } from './OsanProjectManagement';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
@@ -2359,11 +2359,13 @@ function QmsAppShellContent({
     );
   }
 
+  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
+
   if (view.kind === 'osan-qr') {
     if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
     if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
     return <><OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />
-      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
+      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
   }
 
   const permissions = user?.permissions ?? [];
@@ -2389,7 +2391,6 @@ function QmsAppShellContent({
   const canManagePending = permissions.includes('Pending.Manage');
   const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
-  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canViewSalesProjectTab = user?.effectiveUser.department === 'sales' || isSystemAdministrator;
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const canReadG2 = permissions.includes('G2.Read');
@@ -2485,7 +2486,7 @@ function QmsAppShellContent({
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
-      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
+      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
         {isOsan && currentUser.kind === "ready" && !currentUser.data.approvalPending && <OsanNoticePopups key={`${currentUser.data.userId}:${developmentUserKey}`} scope={currentUser.data.userId} userKey={developmentUserKey} onOpen={noticeId=>setView({kind:"notice-board",noticeId})}/>}
@@ -4710,6 +4711,7 @@ function OsanProjectListPage({
           ]}
           rows={filteredProjects.map((project) => ({
             key: project.projectId,
+            className: isOsanOverdue(project, today) ? 'is-overdue' : undefined,
             title: project.title,
             openAriaLabel: `${project.title} 상세 열기`,
             onOpen: () => openProject(project.projectId),
@@ -10836,6 +10838,7 @@ type ProjectListPresentationField = {
 
 type ProjectListPresentationRow = {
   key: string;
+  className?: string;
   title: ReactNode;
   openAriaLabel?: string;
   openDisabled?: boolean;
@@ -10875,7 +10878,7 @@ function ProjectListPresentation({
       {isMobile ? (
         <div className="project-list-cards project-list-mobile" data-testid={`${testIdPrefix}-mobile`}>
           {rows.map((row) => (
-            <article key={row.key} className="project-list-card" data-testid={`${testIdPrefix}-card`} data-presentation-row="project">
+            <article key={row.key} className={['project-list-card', row.className].filter(Boolean).join(' ')} data-testid={`${testIdPrefix}-card`} data-presentation-row="project">
               <div className="subsection-header">
                 <div className="project-card-title-row">
                   {row.mobileTitleLeading}
@@ -10908,7 +10911,7 @@ function ProjectListPresentation({
           {rows.map((row) => (
             <Fragment key={row.key}>
               <div
-                className="project-list-row"
+                className={['project-list-row', row.className].filter(Boolean).join(' ')}
                 role="row"
                 tabIndex={0}
                 aria-label={row.openAriaLabel}

@@ -6,6 +6,44 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class OsanProjectRegistrationApiTests
 {
     [Fact]
+    public async Task PhotoEditRequest_RequiresTrimsAndReturnsReasonWhilePreservingLegacyNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var config = database.CreateConfiguration();
+        var provider = new DatabaseConnectionStringProvider(config);
+        await CreateMigrationRunner(database.RepositoryRoot, provider, config).ApplyAndVerifyAsync(ct);
+        await SeedDefaultCustomerAsync(database, ct);
+        await database.ExecuteAsync(
+            "insert into qms_users(id,development_user_key,display_name,is_active) values(@actor,'photo-reason','Worker',true)",
+            ct,
+            ("actor", UserId));
+        var projects = new OsanProjectStore(provider);
+        var progress = new OsanProgressStore(provider);
+        var edits = new OsanPhotoEditStore(provider);
+        var project = (await projects.CreateAsync(Normalize(ValidRequest(quantity: 1)), UserId, ct)).Value!.Project;
+        var target = project.Targets[0];
+        Assert.Equal(OsanProgressMutationStatus.Success, (await progress.CompleteAsync(project.ProjectId,
+            new(Guid.NewGuid(), "individual", 1, [new(target.TargetId, 1)], [], "최초 완료"), UserId, ct, true)).Status);
+
+        Assert.Equal(400, (await edits.RequestAsync(project.ProjectId,
+            new(Guid.NewGuid(), target.TargetId, 1, "   "), UserId, ct)).Status);
+        Assert.Equal(0L, await database.ReadScalarAsync<long>("select count(*) from osan_photo_edit_requests", ct));
+
+        var requestId = Guid.NewGuid();
+        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId,
+            new(requestId, target.TargetId, 1, "  흐린 사진을 선명한 사진으로 교체합니다.  "), UserId, ct)).Status);
+        const string expected = "흐린 사진을 선명한 사진으로 교체합니다.";
+        Assert.Equal(expected, await database.ReadScalarAsync<string>(
+            "select reason from osan_photo_edit_requests where id=@id", ct, ("id", requestId)));
+        Assert.Equal(expected, Assert.Single(await edits.ListAsync(project.ProjectId, ct)).Reason);
+        Assert.Equal(expected, Assert.Single(await new OsanPolicyStore(provider).PendingApprovalsAsync(ct)).Reason);
+
+        await database.ExecuteAsync("update osan_photo_edit_requests set reason=null where id=@id", ct, ("id", requestId));
+        Assert.Null(Assert.Single(await new OsanPolicyStore(provider).PendingApprovalsAsync(ct)).Reason);
+    }
+
+    [Fact]
     public async Task DeliveryHold_PreservesWorkAndDateIncludesHomeAndUsesConcurrentEditToken()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -76,7 +114,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var completed=await progress.CompleteAsync(id,new(Guid.NewGuid(),"individual",1,[new(target.TargetId,target.Version)],[],"admin checked"),UserId,ct,true);
         Assert.Equal(OsanProgressMutationStatus.Success,completed.Status);
         Assert.Equal(400,(await projects.ManageAsync(id,OsanProjectStore.EditToken(p),Normalize(ValidRequest(quantity:4)),null,UserId,ct)).Status);
-        var request=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1);
+        var request=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1,"  흐린 사진을 선명한 사진으로 교체합니다.  ");
         Assert.Equal(200,(await edits.RequestAsync(id,request,other,ct)).Status);
         var photo=new OsanProgressPhotoInput("color.png","image/png",[1,2,3],new string('a',64));
         var input=new CompleteOsanProgressInput(Guid.NewGuid(),"individual",1,[new(target.TargetId,2)],[photo]);
@@ -92,7 +130,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(photo.Content,(await progress.GetPhotoAsync(id,saved.PhotoId,ct))!.Content);
         Assert.Equal("Completed",detail.Targets.Single(t=>t.TargetId==target.TargetId).Steps[0].Status);
         Assert.Equal(1,detail.CompletedStepCount);
-        var next=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1);
+        var next=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1,"코멘트를 바로잡습니다.");
         Assert.Equal(200,(await edits.RequestAsync(id,next,other,ct)).Status);
         await edits.ApproveAsync(id,next.RequestId,UserId,ct);
         Assert.Equal(200,(await edits.SaveAsync(id,next.RequestId,input with{Photos=[],Comment="admin checked"},UserId,ct,true)).Status);
@@ -104,6 +142,6 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Null(await projects.GetAsync(id,ct));Assert.Null(await projects.GetAccessRecordAsync(id,ct));
         Assert.Equal(1L,await database.ReadScalarAsync<long>("select count(*) from osan_photo_revision_files",ct));
         Assert.Equal(2L,await database.ReadScalarAsync<long>("select count(*) from osan_project_management_history",ct));
-        Assert.Equal(404,(await edits.RequestAsync(id,new(Guid.NewGuid(),target.TargetId,1),other,ct)).Status);
+        Assert.Equal(404,(await edits.RequestAsync(id,new(Guid.NewGuid(),target.TargetId,1,"삭제 프로젝트 정정"),other,ct)).Status);
     }
 }

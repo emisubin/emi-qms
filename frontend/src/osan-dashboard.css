@@ -219,3 +219,8 @@
 .app-shell .app-brand-lockup .osan-sidebar-logo { width: 80px; height: 29px; object-fit: contain; }
 
 .app-shell .osan-dashboard-summary[data-count="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+/* Selection and overdue use the approved EMI pastel, never black fills. */
+.app-shell .osan-dashboard .osan-dashboard-summary > button.is-selected:not(:disabled) { background: #fcebed !important; color: #a61920 !important; border-color: #efb8bc !important; box-shadow: none !important; }
+.app-shell .osan-dashboard .osan-dashboard-summary > button.is-selected :is(span, strong) { color: #a61920 !important; }
+.app-shell .osan-dashboard button.osan-dashboard-project.is-overdue { background: #fff1f2 !important; border-color: #f2cdd0 !important; }

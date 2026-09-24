@@ -118,6 +118,22 @@ public sealed partial class BusinessUnitIsolationTests
         }
 
         var requestId = Guid.NewGuid();
+        using (var blankReasonRequest = Request(
+                   HttpMethod.Post,
+                   $"/api/osan/projects/{projectId:D}/progress/photo-edits",
+                   "dev-manufacturing",
+                   BusinessUnitCodes.Osan))
+        {
+            blankReasonRequest.Content = JsonContent.Create(new
+            {
+                requestId = Guid.NewGuid(),
+                targetId = completedTargetId,
+                stageSequence = 1,
+                reason = "   "
+            });
+            using var response = await client.SendAsync(blankReasonRequest, cancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
         for (var replay = 0; replay < 2; replay++)
         {
             using var requestEdit = Request(
@@ -129,7 +145,8 @@ public sealed partial class BusinessUnitIsolationTests
             {
                 requestId,
                 targetId = completedTargetId,
-                stageSequence = 1
+                stageSequence = 1,
+                reason = "배선 상태가 잘 보이는 사진으로 교체합니다."
             });
             using var response = await client.SendAsync(requestEdit, cancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -138,6 +155,19 @@ public sealed partial class BusinessUnitIsolationTests
             databases,
             "RequestOsanProgressPhotoEdit",
             cancellationToken));
+        using (var pendingApprovals = Request(
+                   HttpMethod.Get,
+                   "/api/osan/gate-approvals",
+                   "dev-admin",
+                   BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(pendingApprovals, cancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var pending = Assert.Single(body.RootElement.GetProperty("items").EnumerateArray(),
+                item => item.GetProperty("requestId").GetGuid() == requestId);
+            Assert.Equal("배선 상태가 잘 보이는 사진으로 교체합니다.", pending.GetProperty("reason").GetString());
+        }
 
         var replacementBytes = CreateValidPng();
         var operationId = Guid.NewGuid();

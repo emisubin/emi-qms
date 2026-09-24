@@ -11,7 +11,7 @@ public sealed record OsanGateConfiguration(long Version, IReadOnlyList<OsanGateD
     IReadOnlyList<OsanGate> Gates);
 public sealed record OsanGateUpdate(int StageSequence, IReadOnlyList<Guid> DepartmentIds);
 public sealed record OsanPendingGateApproval(Guid ProjectId, string ProjectCode, string ProjectTitle,
-    Guid RequestId, Guid TargetId, int StageSequence, string RequestedByName, DateTimeOffset RequestedAt);
+    Guid RequestId, Guid TargetId, int StageSequence, string RequestedByName, DateTimeOffset RequestedAt, string? Reason);
 public sealed record OsanPolicyWriteResult(int Status, string? Code = null, string? Message = null, object? Value = null);
 
 public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
@@ -290,7 +290,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
         await using var source=Source();
         await using var command=source.CreateCommand("""
             select p.id,p.project_code,p.project_title,r.id,r.target_id,s.sequence_number,
-              u.display_name,r.requested_at
+              u.display_name,r.requested_at,r.reason
             from osan_photo_edit_requests r join projects p on p.id=r.project_id
             join osan_project_target_steps s on s.id=r.step_id
             join qms_users u on u.id=r.requested_by
@@ -302,7 +302,8 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
         var rows=new List<OsanPendingGateApproval>();
         await using var reader=await command.ExecuteReaderAsync(ct);
         while(await reader.ReadAsync(ct)) rows.Add(new(reader.GetGuid(0),reader.GetString(1),reader.GetString(2),
-            reader.GetGuid(3),reader.GetGuid(4),reader.GetInt32(5),reader.GetString(6),reader.GetFieldValue<DateTimeOffset>(7)));
+            reader.GetGuid(3),reader.GetGuid(4),reader.GetInt32(5),reader.GetString(6),reader.GetFieldValue<DateTimeOffset>(7),
+            reader.IsDBNull(8)?null:reader.GetString(8)));
         return rows;
     }
 }

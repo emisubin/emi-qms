@@ -4,7 +4,7 @@ import { ApiError } from './api';
 import { getOsanDashboard, type OsanDashboardResponse } from './osanDashboard';
 import { emptyOsanListFilters, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
 import { OsanListFrame } from './OsanListFrame';
-import { formatOsanDday, useKoreaDate } from './osanDday';
+import { formatOsanDday, useKoreaDate, isOsanOverdue } from './osanDday';
 import backIcon from './assets/osan-dashboard-back.png';
 import forwardIcon from './assets/osan-dashboard-forward.png';
 import './osan-dashboard.css';
@@ -87,7 +87,7 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
         {!!(query.customers.length || query.search || query.statuses.length || query.dueFrom || query.dueTo || query.kpi) && <button type="button" onClick={reset}>검색 조건 초기화</button>}
       </div>}
       {data && <ul className="osan-dashboard-list" aria-label="프로젝트 진행 목록">{data.items.map(project => <li key={project.projectId}>
-        <button type="button" className="osan-dashboard-project" onClick={() => open(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
+        <button type="button" className={`osan-dashboard-project${isOsanOverdue(project, today) ? ' is-overdue' : ''}`} onClick={() => open(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
           <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className={`osan-dashboard-dday${project.deliveryHold ? ' is-hold' : ''}`}>{project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today, project.status)}</span></span>
           {isHome && <span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
           <OsanStepper stages={project.stages}/>

@@ -186,14 +186,20 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(osanMobilePage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
   await expect(osanMobilePage.getByLabel('프로젝트 요약').getByRole('button')).toHaveText(['전체1', '시작 전1', '진행 중0', '완료0']);
   await osanMobilePage.getByRole('button', { name: '필터', exact: true }).click();
-  await expect(osanMobilePage.getByRole('group', { name: '상태별' }).getByRole('checkbox')).toHaveCount(4);
-  await expect(osanMobilePage.getByRole('group', { name: '상태별' }).locator('input:checked')).toHaveCount(0);
+  await osanMobilePage.getByRole('button', { name: '상태 필터: 전체' }).click();
+  await expect(osanMobilePage.getByRole('group', { name: '상태 목록' }).getByRole('checkbox')).toHaveCount(4);
+  await expect(osanMobilePage.getByRole('group', { name: '상태 목록' }).locator('input:checked')).toHaveCount(0);
+  await osanMobilePage.getByRole('button', { name: '취소', exact: true }).click();
   await expect(osanMobilePage.getByLabel('납기 시작일', { exact: true })).toHaveValue('');
   await expect(osanMobilePage.getByLabel('납기 종료일', { exact: true })).toHaveValue('');
-  await osanMobilePage.getByRole('group', { name: '고객사별' }).getByRole('checkbox', { name: '고객사', exact: true }).check();
+  await osanMobilePage.getByRole('button', { name: '고객사 필터: 전체' }).click();
+  await osanMobilePage.getByRole('checkbox', { name: '고객사', exact: true }).check();
+  await osanMobilePage.getByRole('button', { name: '적용', exact: true }).click();
   await expect(mobileList).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
-  await osanMobilePage.getByRole('group', { name: '상태별' }).getByRole('checkbox', { name: '포장완료', exact: true }).check();
+  await osanMobilePage.getByRole('button', { name: '상태 필터: 전체' }).click();
+  await osanMobilePage.getByRole('checkbox', { name: '포장완료', exact: true }).check();
+  await osanMobilePage.getByRole('button', { name: '적용', exact: true }).click();
   await expect(page.getByText('조건에 맞는 프로젝트가 없습니다.')).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
   await expect(mobileList).toBeVisible();
@@ -230,7 +236,8 @@ test('Osan shares its page frame and preserves registration and target navigatio
   const osanDesktopPageContract = await osanListFrameContract(page);
   expect(osanDesktopPageContract.order).toEqual(osanMobilePageContract.order);
   const osanDesktopListContract = await projectListContract(page);
-  expect(osanDesktopListContract.geometry.rowHeight).toBeGreaterThanOrEqual(60);
+  expect(osanDesktopListContract.geometry.rowHeight).toBeGreaterThanOrEqual(42);
+  expect(osanDesktopListContract.geometry.rowHeight).toBeLessThan(60);
   expect(osanDesktopListContract.geometry.headerBodyAligned).toBe(true);
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-desktop-1440.png'), fullPage: true });
@@ -431,7 +438,7 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
 
 async function installBackend(page: Page, postedBodies: Array<Record<string, unknown>>, unexpectedRequests: string[]) {
   let projectCreated = false;
-  await page.route('http://localhost:5080/**', async (route) => {
+  await page.route(url => url.pathname.startsWith('/api/') || url.pathname === '/health/ready', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const businessUnit = request.headers()['x-qms-business-unit'] === 'CHEONGJU' ? 'CHEONGJU' : 'OSAN';

@@ -1650,9 +1650,9 @@ public sealed partial class OsanProjectRegistrationApiTests
         var request = Guid.NewGuid();
         var target = result.Value.Project.Targets[0];
         Assert.Equal(403, (await edits.RequestAsync(project.ProjectId,
-            new OsanPhotoEditRequest(request, target.TargetId, 1), UserId, ct)).Status);
+            new OsanPhotoEditRequest(request, target.TargetId, 1, "납품 후 사진 교체"), UserId, ct)).Status);
         Assert.Equal(200, (await edits.RequestAsync(project.ProjectId,
-            new OsanPhotoEditRequest(request, target.TargetId, 1), UserId, ct, true)).Status);
+            new OsanPhotoEditRequest(request, target.TargetId, 1, "납품 후 사진 교체"), UserId, ct, true)).Status);
         Assert.Equal(200, (await edits.ApproveAsync(project.ProjectId, request, UserId, ct)).Status);
         Assert.Equal(403, (await edits.SaveAsync(project.ProjectId, request,
             new CompleteOsanProgressInput(request, OsanCompletionModes.Individual, 1,
@@ -1698,7 +1698,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(originalBytes, await database.ReadScalarAsync<byte[]>("select content from osan_progress_photos where id=@id", ct, ("id", photoId)));
         var edits = new OsanPhotoEditStore(provider);
         var request = Guid.NewGuid();
-        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId, new OsanPhotoEditRequest(request, target, 1), UserId, ct)).Status);
+        Assert.Equal(200, (await edits.RequestAsync(project.ProjectId,
+            new OsanPhotoEditRequest(request, target, 1, "원본 사진 교체"), UserId, ct)).Status);
         Assert.Equal(200, (await edits.ApproveAsync(project.ProjectId, request, UserId, ct)).Status);
         var extraBytes = OsanPhotoSizeTests.PngOfSize(20 * 1024 * 1024 + 1);
         var extra = (await OsanProgressPhotoValidator.ValidateAsync("extra.png", "image/png", extraBytes, ct)).Photo!;

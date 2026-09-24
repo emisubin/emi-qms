@@ -48,7 +48,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         detail=(await progress.GetAsync(id,ct))!;step=detail.Targets[0].Steps[0];Assert.Equal("updated",step.Comment);Assert.False(step.EditOpen);Assert.False(step.Rejected);
         Assert.NotNull(await progress.GetPhotoAsync(id,original,ct));Assert.Single(step.Photos);
         Assert.Contains((await progress.HistoryAsync(id,step.StepId,ct))!,r=>r.EventType=="Reject" && r.Reason=="fix");
-        var req=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1);await edits.RequestAsync(id,req,other,ct);await edits.ApproveAsync(id,req.RequestId,UserId,ct);
+        var req=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1,"사진 기록 정정");await edits.RequestAsync(id,req,other,ct);await edits.ApproveAsync(id,req.RequestId,UserId,ct);
         Assert.Equal(400,(await edits.SaveAsync(id,req.RequestId,edit with{RetainedPhotoIds=[Guid.NewGuid()]},other,ct)).Status);
         Assert.Equal(400,(await edits.SaveAsync(id,req.RequestId,edit with{RetainedPhotoIds=[]},other,ct)).Status);
         Assert.Equal(200,(await edits.SaveAsync(id,req.RequestId,edit with{RetainedPhotoIds=[],Comment="admin only"},UserId,ct,true)).Status);

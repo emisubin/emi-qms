@@ -45,3 +45,7 @@ export function useKoreaDate(): string {
   }, []);
   return today;
 }
+
+export function isOsanOverdue(project: { deliveryDate: string; deliveryHold?: boolean; status: string }, today: string): boolean {
+  return !project.deliveryHold && project.status !== 'Completed' && formatOsanDday(project.deliveryDate, today).startsWith('D+');
+}

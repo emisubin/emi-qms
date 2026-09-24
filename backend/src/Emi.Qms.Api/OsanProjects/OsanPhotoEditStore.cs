@@ -5,10 +5,11 @@ using Npgsql;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed record OsanPhotoEditRequest(Guid RequestId, Guid TargetId, int StageSequence);
+public sealed record OsanPhotoEditRequest(Guid RequestId, Guid TargetId, int StageSequence, string? Reason);
 public sealed record OsanPhotoEditItem(Guid RequestId, Guid TargetId, Guid StepId, Guid RequestedBy,
     string RequestedByName, DateTimeOffset RequestedAt, DateTimeOffset? ApprovedAt,
-    string? ApprovedByName, DateTimeOffset? UsedAt, IReadOnlyList<Guid> PhotoIds, IReadOnlyList<Guid> OriginalPhotoIds, DateTimeOffset? InvalidatedAt = null);
+    string? ApprovedByName, DateTimeOffset? UsedAt, IReadOnlyList<Guid> PhotoIds, IReadOnlyList<Guid> OriginalPhotoIds,
+    string? Reason, DateTimeOffset? InvalidatedAt = null);
 
 public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
 {
@@ -37,7 +38,7 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
               r.approved_at,a.display_name,r.used_at,
               array(select f.id from osan_photo_revision_files f where f.request_id=r.id order by f.display_order),
               array(select l.photo_id from osan_progress_step_photos l join osan_progress_photos p on p.id=l.photo_id
-                where l.step_id=r.step_id order by p.display_order),r.invalidated_at
+                where l.step_id=r.step_id order by p.display_order),r.reason,r.invalidated_at
             from osan_photo_edit_requests r join qms_users u on u.id=r.requested_by
             left join qms_users a on a.id=r.approved_by where r.project_id=@id order by r.requested_at desc;
             """);
@@ -47,7 +48,8 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         while(await reader.ReadAsync(ct)) items.Add(new(reader.GetGuid(0),reader.GetGuid(1),reader.GetGuid(2),
             reader.GetGuid(3),reader.GetString(4),reader.GetFieldValue<DateTimeOffset>(5),
             reader.IsDBNull(6)?null:reader.GetFieldValue<DateTimeOffset>(6),reader.IsDBNull(7)?null:reader.GetString(7),
-            reader.IsDBNull(8)?null:reader.GetFieldValue<DateTimeOffset>(8),reader.GetFieldValue<Guid[]>(9),reader.GetFieldValue<Guid[]>(10),reader.IsDBNull(11)?null:reader.GetFieldValue<DateTimeOffset>(11)));
+            reader.IsDBNull(8)?null:reader.GetFieldValue<DateTimeOffset>(8),reader.GetFieldValue<Guid[]>(9),reader.GetFieldValue<Guid[]>(10),
+            reader.IsDBNull(11)?null:reader.GetString(11),reader.IsDBNull(12)?null:reader.GetFieldValue<DateTimeOffset>(12)));
         return items;
     }
 
@@ -74,7 +76,9 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
     public async Task<OsanManagementResult> RequestAsync(Guid project, OsanPhotoEditRequest request, Guid actor, CancellationToken ct,
         bool isAdministrator=false)
     {
-        if(request.RequestId==Guid.Empty || request.StageSequence is <1 or >7) return new(400);
+        var reason=request.Reason?.Trim();
+        if(request.RequestId==Guid.Empty || request.StageSequence is <1 or >7 || string.IsNullOrWhiteSpace(reason) || reason.Length>1000)
+            return new(400,Message:"사진 수정 승인 요청 사유를 1~1000자로 입력해 주세요.");
         await using var source=Source(); await using var c=await source.OpenConnectionAsync(ct);
         await using var tx=await c.BeginTransactionAsync(ct);
         if(!await LockProject(c,tx,project,ct)) return new(404);
@@ -83,15 +87,15 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
         await using var cmd=c.CreateCommand(); cmd.Transaction=tx;
         cmd.Parameters.AddWithValue("project",project); cmd.Parameters.AddWithValue("target",request.TargetId);
         cmd.Parameters.AddWithValue("stage",request.StageSequence);cmd.Parameters.AddWithValue("actor",actor);
-        cmd.Parameters.AddWithValue("id",request.RequestId);
+        cmd.Parameters.AddWithValue("id",request.RequestId);cmd.Parameters.AddWithValue("reason",reason);
         cmd.CommandText = """
             select 1 from osan_stage_issues i join osan_project_target_steps s on s.id=i.step_id
             where i.project_id=@project and i.target_id=@target and s.sequence_number=@stage and i.status='Open';
             """;
         if (await cmd.ExecuteScalarAsync(ct) is not null) return OpenIssueConflict();
         cmd.CommandText="""
-            insert into osan_photo_edit_requests(id,project_id,target_id,step_id,requested_by)
-            select @id,@project,@target,id,@actor from osan_active_project_target_steps
+            insert into osan_photo_edit_requests(id,project_id,target_id,step_id,requested_by,reason)
+            select @id,@project,@target,id,@actor,@reason from osan_active_project_target_steps
             where project_id=@project and target_id=@target and sequence_number=@stage and status='Completed'
               and not exists(select 1 from osan_stage_issues i where i.step_id=osan_active_project_target_steps.id and i.status='Open')
             on conflict do nothing;

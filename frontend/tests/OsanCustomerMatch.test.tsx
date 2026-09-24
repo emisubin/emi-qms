@@ -42,3 +42,19 @@ it('복수 후보는 임의 연결하지 않고 명시 선택하며, 다시 입�
   expect(screen.getByLabelText('연결 ID')).toHaveTextContent('미연결');
   expect(screen.getByText('등록된 고객사와 연결해야 저장할 수 있습니다.')).toBeInTheDocument();
 });
+
+
+it('삭제된 기존 고객사는 유지하며 이름을 편집했다 되돌려도 기존 연결을 복구한다', async () => {
+  vi.mocked(fetchJson).mockResolvedValue({ items: [] });
+  function Existing() {
+    const [name, setName] = useState(first.name);
+    const [id, setId] = useState<string | undefined>(first.customerId);
+    return <OsanCustomerMatch value={name} customerId={id} retainedCustomer={first} onChange={(value, next) => { setName(value); setId(next); }} />;
+  }
+  render(<Existing />);
+  expect(await screen.findByText('기존 고객사 유지: 한빛전자')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('고객사'), { target: { value: '다른 고객사' } });
+  expect(screen.getByText('등록된 고객사와 연결해야 저장할 수 있습니다.')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('고객사'), { target: { value: first.name } });
+  expect(screen.getByText('기존 고객사 유지: 한빛전자')).toBeInTheDocument();
+});

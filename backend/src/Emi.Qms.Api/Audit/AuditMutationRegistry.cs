@@ -64,6 +64,7 @@ public static partial class AuditMutationRegistry
         POST /api/interior-busbar/purchases/import/preview
         POST /api/interior-busbar/projects/import/apply
         POST /api/interior-busbar/purchases/import/apply
+        DELETE /api/osan/admin/customers/{customerId:guid}
         DELETE /api/admin/calendar/holidays/{holidayId:guid}
         DELETE /api/admin/calendar/holidays/{holidayId:guid}/purge
         DELETE /api/admin/departments/{departmentId:guid}/purge

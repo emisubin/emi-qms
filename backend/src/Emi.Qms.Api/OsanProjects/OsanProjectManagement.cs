@@ -32,7 +32,10 @@ public sealed partial class OsanProjectStore
         if (current is null) return new(404);
         if (!string.Equals(expectedToken, EditToken(current), StringComparison.Ordinal))
             return new(409, Message: "다른 사용자가 정보를 변경했습니다. 새로고침 후 다시 확인해 주세요.");
-        if (input is not null)
+        // Existing archived associations remain editable; changing the customer still
+        // requires an active catalog entry validated under a row lock.
+        if (input is not null && (input.CustomerId != current.CustomerId
+            || !string.Equals(input.CustomerName, current.CustomerName, StringComparison.Ordinal)))
         {
             var customer = await OsanPolicyStore.BoundCustomerAsync(connection, tx,
                 input.CustomerId, input.CustomerName, ct);

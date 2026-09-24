@@ -23,6 +23,12 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
   const [registerOpen, setRegisterOpen] = useState(false);
   const [name, setName] = useState('');
   const [renaming, setRenaming] = useState<Customer | null>(null);
+  const [actionItem, setActionItem] = useState<Customer | User | null>(null);
+  const [actionPosition, setActionPosition] = useState({ top: 0, left: 0 });
+  const [deleting, setDeleting] = useState<Customer | null>(null);
+  const actionDialog = useRef<HTMLDialogElement>(null);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
+  const actionTrigger = useRef<HTMLButtonElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [formError, setFormError] = useState('');
@@ -49,6 +55,28 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     if (registerOpen && !dialog.open) dialog.showModal();
     if (!registerOpen && dialog.open) dialog.close();
   }, [registerOpen]);
+  useEffect(() => {
+    const dialog = actionDialog.current;
+    if (actionItem && dialog && !dialog.open) dialog.showModal();
+    if (!actionItem && dialog?.open) dialog.close();
+  }, [actionItem]);
+  useEffect(() => {
+    const dialog = deleteDialog.current;
+    if (deleting && dialog && !dialog.open) dialog.showModal();
+    if (!deleting && dialog?.open) dialog.close();
+  }, [deleting]);
+  const closeActions = () => { actionDialog.current?.close(); setActionItem(null); actionTrigger.current?.focus(); };
+  const closeDelete = () => { setDeleting(null); actionTrigger.current?.focus(); };
+  async function deleteCustomer() {
+    if (!deleting || busy || !mutationAllowed) return;
+    setBusy(true); setFormError('');
+    try {
+      await fetchJson(`/api/osan/admin/customers/${encodeURIComponent(deleting.customerId)}?expectedVersion=${deleting.version}`, developmentUserKey, { method: 'DELETE' });
+      setFeedback(`${deleting.name} 고객사를 삭제했습니다. 기존 프로젝트와 이력은 보존됩니다.`);
+      closeDelete(); setRevision(value => value + 1);
+    } catch (error) { setFormError(errorMessage(error)); }
+    finally { setBusy(false); }
+  }
   const data = state.kind === 'ready' ? state.data : null;
   const customers = data?.customers ?? [];
   const users = data?.users ?? [];
@@ -150,12 +178,17 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
         const related = isCustomer ? users.filter(user => user.customerIds.includes(item.customerId)) : customers.filter(customer => item.customerIds.includes(customer.customerId));
         const title = isCustomer ? item.name : item.displayName;
         const id = isCustomer ? item.customerId : item.userId;
-        const summary = related.slice(0, 3).map(value => 'name' in value ? value.name : value.displayName).join(', ');
+        const summary = related.slice(0, 1).map(value => 'name' in value ? value.name : value.displayName).join(', ');
         return <div role="row" className="osan-admin-record" key={id}>
           <div role="cell"><strong>{title}</strong>{!isCustomer && <small>{item.departmentName}</small>}</div>
-          <div role="cell" className="osan-admin-related" title={related.map(value => 'name' in value ? value.name : value.displayName).join(', ')}>{related.length ? summary + (related.length > 3 ? ` 외 ${related.length - 3}${isCustomer ? '명' : '개'}` : '') : <span className="osan-admin-empty-tag">미배정</span>}</div>
+          <div role="cell" className="osan-admin-related" title={related.map(value => 'name' in value ? value.name : value.displayName).join(', ')}>{related.length ? summary + (related.length > 1 ? ` 외 ${related.length - 1}${isCustomer ? '명' : '개'}` : '') : <span className="osan-admin-empty-tag">미배정</span>}</div>
           <span role="cell" className="osan-admin-count">{related.length}{isCustomer ? '명' : '개'}</span>
-          <div role="cell" className="osan-admin-record-actions"><button type="button" disabled={!mutationAllowed} onClick={event => openAssignment(isCustomer ? 'customer' : 'person', id, event.currentTarget)} aria-label={`${title} ${isCustomer ? '담당자' : '고객사'} 설정`}>{isCustomer ? '담당자 설정' : '고객사 설정'}</button>{isCustomer && <button type="button" disabled={!mutationAllowed} onClick={event => openRegistration(item, event.currentTarget)} aria-label={`${title} 이름 변경`}>이름 변경</button>}</div>
+          <div role="cell" className="osan-admin-record-actions"><button type="button" className="osan-admin-more" disabled={!mutationAllowed} aria-label={`${title} 더보기`} aria-haspopup="dialog" aria-expanded={actionItem === item} onClick={event => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            actionTrigger.current = event.currentTarget;
+            setActionPosition({ top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 240)), left: Math.max(8, Math.min(rect.right - 210, window.innerWidth - 218)) });
+            setActionItem(item);
+          }}><span aria-hidden="true">⋮</span></button></div>
         </div>;
       })}
       {!records.length && <p className="osan-admin-empty-list">검색 결과가 없습니다.</p>}
@@ -163,6 +196,18 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     <p className="osan-admin-policy">담당 고객사 설정은 메일·푸시·인앱 알림에 동일하게 적용됩니다. 프로젝트 조회 권한은 바뀌지 않습니다.</p>
     <details className="osan-admin-policy"><summary>배정 기준 확인</summary><ul><li>관리자도 담당 고객사를 지정해야 해당 고객사 알림을 받습니다.</li><li>새 고객사는 모두에게 미배정 상태로 등록됩니다.</li><li>신규 가입자는 가입 시점의 고객사를 모두 배정받습니다.</li></ul></details>
     {feedback && <p role="status">{feedback}</p>}
+    <dialog ref={actionDialog} className="osan-admin-action-menu" style={{ top: actionPosition.top, left: actionPosition.left }} aria-labelledby="osan-action-title"
+      onCancel={event => { event.preventDefault(); closeActions(); }} onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeActions(); } }}>
+      {actionItem && <><header><strong id="osan-action-title">{'name' in actionItem ? actionItem.name : actionItem.displayName}</strong><button type="button" aria-label="메뉴 닫기" onClick={closeActions}>×</button></header>
+        <button type="button" onClick={() => { const item = actionItem; closeActions(); openAssignment('name' in item ? 'customer' : 'person', 'name' in item ? item.customerId : item.userId, actionTrigger.current!); }}>{'name' in actionItem ? '담당자 설정' : '고객사 설정'}</button>
+        {'name' in actionItem && <><button type="button" onClick={() => { const item = actionItem; closeActions(); openRegistration(item, actionTrigger.current!); }}>이름 변경</button>
+          <button type="button" className="osan-admin-delete" onClick={() => { const item = actionItem; closeActions(); setFormError(''); setDeleting(item); }}>고객사 삭제</button></>}
+      </>}
+    </dialog>
+    <dialog ref={deleteDialog} className="osan-admin-dialog" aria-labelledby="osan-delete-title" onCancel={event => { event.preventDefault(); if (!busy) closeDelete(); }}>
+      {deleting && <><header><h2 id="osan-delete-title">고객사 삭제</h2></header><p><strong>{deleting.name}</strong> 고객사를 삭제하시겠습니까?</p><p>목록과 새 프로젝트의 고객사 선택에서 제외됩니다. 기존 프로젝트와 이력의 고객사 정보는 그대로 보존됩니다.</p>
+        {formError && <p role="alert">{formError}</p>}<footer><span>기존 프로젝트는 삭제되지 않습니다.</span><div><button type="button" disabled={busy} onClick={closeDelete}>취소</button><button type="button" className="osan-admin-primary" disabled={busy || !mutationAllowed} onClick={() => void deleteCustomer()}>{busy ? '삭제 중…' : '삭제'}</button></div></footer></>}
+    </dialog>
     <dialog ref={assignmentDialog} className="osan-admin-dialog" onCancel={event => { event.preventDefault(); if (!busy) closeAssignment(); }} aria-labelledby="osan-assignment-title">
       {editing && current && <><header><div><small>{editing.kind === 'customer' ? '알림 담당자 설정' : '담당 고객사 설정'}</small><h2 id="osan-assignment-title">{'name' in current ? current.name : current.displayName}</h2></div><button type="button" disabled={busy} onClick={closeAssignment} aria-label="배정 팝업 닫기">×</button></header>
         <p>{editing.kind === 'customer' ? '이 고객사의 알림을 받을 담당자를 선택해 주세요.' : '이 사용자가 알림을 받을 고객사를 선택해 주세요.'}</p>
@@ -188,7 +233,7 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     <dialog ref={registrationDialog} className="osan-admin-dialog" onCancel={event => { event.preventDefault(); if (!busy) closeRegistration(); }} aria-labelledby="osan-registration-title">
       <form onSubmit={event => { event.preventDefault(); void saveCustomer(); }}><header><h2 id="osan-registration-title">{renaming ? '고객사 이름 변경' : '고객사 등록'}</h2><button type="button" disabled={busy} onClick={closeRegistration} aria-label="등록 팝업 닫기">×</button></header>
         <label>고객사명 *<input autoFocus required maxLength={200} value={name} onChange={event => setName(event.target.value)} placeholder="정식 고객사명을 입력해 주세요" /></label>
-        {formError && <p role="alert">{formError}</p>}<p>새 고객사는 담당자가 없는 상태로 등록됩니다. 등록 후 담당자를 배정해 주세요.</p>
+        {formError && <p role="alert">{formError}</p>}<p>{renaming ? '고객사 이름을 변경해도 기존 담당자 배정은 유지됩니다.' : '새 고객사는 담당자가 없는 상태로 등록됩니다. 등록 후 담당자를 배정해 주세요.'}</p>
         <footer><span>오산 프로젝트에서 사용합니다.</span><div><button type="button" disabled={busy} onClick={closeRegistration}>취소</button><button type="submit" className="osan-admin-primary" disabled={busy}>{busy ? '저장 중…' : renaming ? '변경 저장' : '등록'}</button></div></footer>
       </form>
     </dialog>

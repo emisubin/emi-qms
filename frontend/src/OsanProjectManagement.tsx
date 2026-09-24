@@ -42,7 +42,7 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
       :<form onSubmit={e=>{e.preventDefault();void save();}} aria-label={mode==='edit'?'프로젝트 정보 수정':'프로젝트 삭제'}>
         <h3>{mode==='edit'?'프로젝트 정보 수정':'프로젝트 삭제'}</h3>
         {mode==='edit'?<><div className="osan-management-fields">{fields.map(([key,label])=><label key={key}>{label}
-          <>{key==='customerName'?<OsanCustomerMatch value={draft.customerName??''} customerId={customerId} disabled={busy} userKey={userKey} onChange={(name,id)=>{setDraft({...draft,customerName:name});setCustomerId(id);}}/>:<input aria-label={`${label} 수정`} type={key==='deliveryDate'?'date':'text'}
+          <>{key==='customerName'?<OsanCustomerMatch retainedCustomer={project.customerId ? {customerId:project.customerId,name:project.customerName} : undefined} value={draft.customerName??''} customerId={customerId} disabled={busy} userKey={userKey} onChange={(name,id)=>{setDraft({...draft,customerName:name});setCustomerId(id);}}/>:<input aria-label={`${label} 수정`} type={key==='deliveryDate'?'date':'text'}
             required={!['poNumber','workOrderNumber'].includes(key)} disabled={busy}
             maxLength={key==='title'?200:key==='projectCode'?80:100}
             value={draft[key]??''} onChange={e=>setDraft({...draft,[key]:e.target.value})}/>}</></label>)}</div>

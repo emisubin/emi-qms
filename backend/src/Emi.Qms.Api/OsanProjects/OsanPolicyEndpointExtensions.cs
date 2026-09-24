@@ -38,6 +38,12 @@ public static class OsanPolicyEndpointExtensions
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.RenameCustomerAsync(customerId,request.Name,request.ExpectedVersion,ct));
         }).WithName("RenameOsanCustomer");
+        api.MapDelete("/admin/customers/{customerId:guid}",async(Guid customerId,long expectedVersion,
+            OsanPolicyStore store,DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+        {
+            var denied=Guard(db,user,true);
+            return denied ?? Result(await store.ArchiveCustomerAsync(customerId,expectedVersion,ct));
+        }).WithName("ArchiveOsanCustomer");
         api.MapGet("/admin/customer-assignments",async(OsanPolicyStore store,
             DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
         {

@@ -22,7 +22,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
     public async Task<IReadOnlyList<OsanCustomer>> CustomersAsync(string? query, CancellationToken ct)
     {
         await using var source = Source();
-        await using var command = source.CreateCommand("select id,name,version from osan_customers order by name,id");
+        await using var command = source.CreateCommand("select id,name,version from osan_customers where archived_at_utc is null order by name,id");
         var rows = new List<OsanCustomer>();
         await using var reader = await command.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
@@ -47,7 +47,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
         if (customerId is null || customerId == Guid.Empty) return null;
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "select id,name,version from osan_customers where id=@id for share";
+        command.CommandText = "select id,name,version from osan_customers where id=@id and archived_at_utc is null for share";
         command.Parameters.AddWithValue("id", customerId.Value);
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -88,7 +88,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
             while (await reader.ReadAsync(ct)) { }
         command.CommandText = """
             update osan_customers set name=@name,version=version+1,updated_at_utc=now()
-            where id=@id and version=@version returning id,name,version
+            where id=@id and version=@version and archived_at_utc is null returning id,name,version
             """;
         command.Parameters.AddWithValue("name",name);
         command.Parameters.AddWithValue("version",expectedVersion);
@@ -110,16 +110,38 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
         }
     }
 
+    public async Task<OsanPolicyWriteResult> ArchiveCustomerAsync(Guid id, long expectedVersion, CancellationToken ct)
+    {
+        if (expectedVersion < 1)
+            return new(400,"osan_customer_input_invalid","고객사 버전을 확인해 주세요.");
+        await using var source = Source();
+        // A single conditional update serializes against bindings holding FOR SHARE and
+        // competing rename/archive requests without changing existing project/assignment rows.
+        await using var command = source.CreateCommand("""
+            update osan_customers
+            set archived_at_utc=now(),updated_at_utc=now(),version=version+1
+            where id=@id and version=@version and archived_at_utc is null
+            returning id,name,version
+            """);
+        command.Parameters.AddWithValue("id",id);
+        command.Parameters.AddWithValue("version",expectedVersion);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct)
+            ? new(200,Value:new OsanCustomer(reader.GetGuid(0),reader.GetString(1),reader.GetInt64(2)))
+            : new(409,"osan_customer_stale","고객사 정보가 변경되었습니다. 다시 조회해 주세요.");
+    }
+
     public async Task<IReadOnlyList<OsanCustomerUser>> AssignmentUsersAsync(CancellationToken ct)
     {
         await using var source = Source();
         await using var command = source.CreateCommand("""
             select u.id,u.display_name,d.name,v.version,
               coalesce(array_agg(a.customer_id order by a.customer_id)
-                filter(where a.customer_id is not null),array[]::uuid[])
+                filter(where c.id is not null),array[]::uuid[])
             from qms_users u left join departments d on d.id=u.department_id
             join osan_customer_assignment_versions v on v.user_id=u.id
             left join osan_customer_assignments a on a.user_id=u.id
+            left join osan_customers c on c.id=a.customer_id and c.archived_at_utc is null
             where u.is_active=true
             group by u.id,u.display_name,d.name,v.version
             order by u.display_name,u.id
@@ -153,10 +175,18 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
         var version = await command.ExecuteScalarAsync(ct);
         if (version is null) return new(404,"osan_user_not_found","사용자를 찾을 수 없습니다.");
         if ((long)version != expectedVersion) return new(409,"osan_assignment_stale","담당 고객사 설정이 변경되었습니다. 다시 조회해 주세요.");
-        command.CommandText = "select count(*) from osan_customers where id=any(@ids)";
-        if ((long)(await command.ExecuteScalarAsync(ct))! != distinct.Length)
+        // Lock every currently active customer, in stable order, through assignment replacement.
+        // This also keeps an archive from changing which old assignments are preserved midway.
+        command.CommandText = "select id from osan_customers where archived_at_utc is null order by id for share";
+        var activeIds = new HashSet<Guid>();
+        await using (var reader = await command.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct)) activeIds.Add(reader.GetGuid(0));
+        if (distinct.Any(id => !activeIds.Contains(id)))
             return new(400,"osan_customer_not_found","등록된 고객사만 선택할 수 있습니다.");
-        command.CommandText = "delete from osan_customer_assignments where user_id=@user";
+        command.CommandText = """
+            delete from osan_customer_assignments a using osan_customers c
+            where a.user_id=@user and c.id=a.customer_id and c.archived_at_utc is null
+            """;
         await command.ExecuteNonQueryAsync(ct);
         command.CommandText = "insert into osan_customer_assignments(user_id,customer_id) select @user,unnest(@ids)";
         await command.ExecuteNonQueryAsync(ct);

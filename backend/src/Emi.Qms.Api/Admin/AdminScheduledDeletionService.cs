@@ -245,7 +245,10 @@ public sealed class AdminScheduledDeletionService(
                 "user_profile_photos",
                 "user_profile_photo_audit_events",
                 "web_push_subscriptions",
-                "web_push_subscription_events"
+                "web_push_subscription_events",
+                // Current customer access and its concurrency token are account-owned state, not history.
+                "osan_customer_assignments",
+                "osan_customer_assignment_versions"
             ],
             UserReferenceColumns,
             cancellationToken))

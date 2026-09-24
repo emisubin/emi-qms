@@ -68,3 +68,31 @@ it('일정 변경 때만 새 팝업 버전을 청구하고 상태 전환만으�
     '/api/maintenance/release-a/popup/2/claim'
   ]);
 });
+
+
+it('업데이트 팝업은 공지 전문 대신 시간·대상을 안내하고 공지 상세로 연결한다', async () => {
+  vi.mocked(fetchJson).mockResolvedValue({ claimed: true });
+  const onOpenNotice = vi.fn();
+  render(<MaintenanceAnnouncement status={active} unavailable={false}
+    userKey="user-a" scope="OSAN:user-a" onOpenNotice={onOpenNotice} />);
+  await act(async () => {});
+  expect(screen.getByText('오산')).toBeInTheDocument();
+  expect(screen.getByText('저장 제한 시간')).toBeInTheDocument();
+  expect(screen.queryByText(active.body)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '업데이트 내용 보기' }));
+  expect(onOpenNotice).toHaveBeenCalledWith('notice-a');
+  expect(screen.queryByRole('region', { name: '업데이트 안내' })).not.toBeInTheDocument();
+});
+
+
+it('완료 후 새 접속자에게 팝업을 자동 표시하지 않고 수동 조회는 저장 재개를 안내한다', async () => {
+  vi.mocked(fetchJson).mockResolvedValue({ claimed: true });
+  render(<MaintenanceAnnouncement status={{ ...complete, popupPending: true }} unavailable={false}
+    userKey="user-new" scope="OSAN:user-new" onOpenNotice={vi.fn()} />);
+  await act(async () => {});
+  expect(fetchJson).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region', { name: '업데이트 안내' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '자세히 보기' }));
+  expect(screen.getByText('저장 제한 해제')).toBeInTheDocument();
+  expect(screen.queryByText(/시작 전에 저장/)).not.toBeInTheDocument();
+});

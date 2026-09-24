@@ -244,8 +244,12 @@ public sealed partial class OsanProjectRegistrationApiTests
             ("notice",prepared.Value.NoticeId!.Value)));
         var finalNotice = await database.ReadScalarAsync<string>(
             "select body from notice_posts where id=@notice",ct,("notice",prepared.Value.NoticeId!.Value));
-        Assert.Contains("배포 상태: 완료", finalNotice);
-        Assert.Contains(delayedEnd.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm")+" (KST)",finalNotice);
+        Assert.Equal("새 기능과 저장 제한 시간을 안내합니다.", finalNotice);
+        await database.ExecuteAsync("delete from deployment_maintenance_popup_receipts where user_id=@actor",ct,("actor",UserId));
+        Assert.False((await store.ReadAsync(UserId,ct)).PopupPending);
+        Assert.False(await store.ClaimPopupAsync(release,2,UserId,ct));
+        Assert.False(await database.ReadScalarAsync<bool>(
+            "select popup_enabled from notice_posts where id=@notice",ct,("notice",prepared.Value.NoticeId!.Value)));
         await using var resumed = await DeploymentMaintenanceLease.AcquireAsync(
             provider, provider.BusinessUnits.Businesses, ct);
         Assert.NotNull(resumed);

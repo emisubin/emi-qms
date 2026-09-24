@@ -1,5 +1,4 @@
 using Emi.Qms.Api.BusinessUnits;
-using System.Globalization;
 using Npgsql;
 
 namespace Emi.Qms.Api.DeploymentMaintenance;
@@ -39,7 +38,7 @@ public sealed class DeploymentMaintenanceStore
         command.CommandText="""
             select m.release_id,m.version,m.popup_version,m.title,m.body,m.starts_at_utc,m.expected_ends_at_utc,
                 m.state,m.notice_id,
-                m.release_id is not null and @actor is not null and not exists(
+                m.release_id is not null and m.state <> 'Completed' and @actor is not null and not exists(
                     select 1 from deployment_maintenance_popup_receipts r
                     where r.release_id=m.release_id and r.version=m.popup_version and r.user_id=@actor)
             from deployment_maintenance m where m.id=1
@@ -66,7 +65,7 @@ public sealed class DeploymentMaintenanceStore
             insert into deployment_maintenance_popup_receipts(release_id,version,user_id)
             select m.release_id,m.popup_version,@actor from deployment_maintenance m
             join qms_users u on u.id=@actor and u.is_active=true
-            where m.id=1 and m.release_id=@release and m.popup_version=@version
+            where m.id=1 and m.release_id=@release and m.popup_version=@version and m.state <> 'Completed'
             on conflict do nothing
             """;
         command.Parameters.AddWithValue("release",releaseId);
@@ -100,7 +99,7 @@ public sealed class DeploymentMaintenanceStore
         command.Parameters.AddWithValue("actor",input.ActorUserId);
         command.Parameters.AddWithValue("title",title);
         command.Parameters.AddWithValue("body",body);
-        command.Parameters.AddWithValue("notice_body",NoticeBody(body,"Announced",input.ExpectedEndsAtUtc));
+        command.Parameters.AddWithValue("notice_body",body);
         command.Parameters.AddWithValue("start",input.StartsAtUtc);
         command.Parameters.AddWithValue("end",input.ExpectedEndsAtUtc);
         command.CommandText="""
@@ -179,7 +178,7 @@ public sealed class DeploymentMaintenanceStore
             {
                 command.Parameters.AddWithValue("notice",id);
                 command.Parameters.AddWithValue("actor",actor);
-                command.Parameters.AddWithValue("notice_body",NoticeBody(body!,nextState,revisedEnd??currentEnd!.Value));
+                command.Parameters.AddWithValue("notice_body",body!);
                 command.CommandText="""
                     insert into notice_post_revisions(notice_post_id,version,title,body,body_format,changed_by_user_id)
                     select id,version,title,body,body_format,@actor from notice_posts where id=@notice;
@@ -194,12 +193,4 @@ public sealed class DeploymentMaintenanceStore
         finally { await DeploymentMaintenanceLease.ReleaseExclusiveAsync(connection); }
     }
 
-    private static string NoticeBody(string body,string state,DateTimeOffset expectedEnd)
-    {
-        var label=state switch {
-            "Announced"=>"예정", "Active"=>"진행 중", "Delayed"=>"지연",
-            "Failed"=>"실패", "Completed"=>"완료", _=>"확인 필요"};
-        var end=expectedEnd.ToOffset(TimeSpan.FromHours(9)).ToString("yyyy-MM-dd HH:mm",CultureInfo.InvariantCulture);
-        return $"{body}\n\n배포 상태: {label}\n예상 종료: {end} (KST)";
-    }
 }

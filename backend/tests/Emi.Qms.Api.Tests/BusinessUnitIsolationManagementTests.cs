@@ -13,6 +13,7 @@ public sealed partial class BusinessUnitIsolationTests
         IsolationDatabaseSet databases,
         HttpClient client,
         Guid projectId,
+        Guid customerId,
         Guid completedTargetId,
         CapturingCleanUploadMalwareScanner uploadScanner)
     {
@@ -39,6 +40,7 @@ public sealed partial class BusinessUnitIsolationTests
                 title = "Osan managed project",
                 projectCode = "OSAN-ROUTED-001",
                 customerName = "Routed customer",
+                customerId,
                 poNumber = "001-PO",
                 workOrderNumber = "WO/001",
                 deliveryDate = new DateOnly(2026, 12, 31),
@@ -281,7 +283,8 @@ public sealed partial class BusinessUnitIsolationTests
             {
                 title = "Delete through HTTP",
                 projectCode = $"DELETE-{Guid.NewGuid():N}",
-                customerName = "Synthetic customer",
+                customerName = "Routed customer",
+                customerId,
                 deliveryDate = new DateOnly(2026, 12, 31),
                 productName = "Synthetic product",
                 quantity = 1,

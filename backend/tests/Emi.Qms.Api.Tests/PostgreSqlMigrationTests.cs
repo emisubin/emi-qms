@@ -78,6 +78,69 @@ public sealed class PostgreSqlMigrationTests
     }
 
     [Fact]
+    public async Task OsanManagementAudit_RecordsPolicyChangesWithDistinctKeysAndPreservesPrivateText()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await PostgreSqlTestDatabase.CreateAsync(ct);
+        var provider = new DatabaseConnectionStringProvider(database.CreateConfiguration());
+        await CreateMigrationRunner(database.RepositoryRoot, provider).ApplyAsync(ct);
+        var actor = Guid.NewGuid();
+        var firstCustomer = Guid.NewGuid();
+        var secondCustomer = Guid.NewGuid();
+        var notice = Guid.NewGuid();
+        await ExecuteSqlAsync(provider, $"""
+            insert into qms_users(id,development_user_key,display_name,is_active)
+            values('{actor}','audit-management','Synthetic audit actor',true);
+            insert into notice_posts(id,title,body,author_user_id,author_display_name_snapshot,
+                author_department_name_snapshot,request_id)
+            values('{notice}','Synthetic notice','Private notice body','{actor}','Synthetic actor','Synthetic department',gen_random_uuid());
+            insert into notice_setting_events(notice_id,actor_user_id,pinned,popup_enabled,popup_version)
+            values('{notice}','{actor}',false,false,0);
+            """, ct);
+        var request = Guid.NewGuid();
+        using (AuditRequestContext.Push(new AuditMutationContext(actor,null,request,null,"Osan","UpdatePolicy","UpdatePolicy")))
+        {
+            await ExecuteSqlAsync(provider, $"""
+                insert into osan_customers(id,name) values('{firstCustomer}','Private customer one'),('{secondCustomer}','Private customer two');
+                insert into osan_customer_assignments(user_id,customer_id)
+                values('{actor}','{firstCustomer}'),('{actor}','{secondCustomer}');
+                update osan_gate_configuration set version=version+1 where id=1;
+                delete from osan_gate_departments where stage_sequence in (1,2);
+                update deployment_maintenance set version=version+1 where id=1;
+                """, ct);
+        }
+        Assert.Equal(5L, await ReadScalarAsync<long>(provider, $"""
+            select count(distinct c.target_type) from audit_event_changes c
+            join audit_events e on e.id=c.audit_event_id where e.request_correlation_id='{request}'
+              and c.target_type in ('osan_customers','osan_customer_assignments','osan_gate_configuration','osan_gate_departments','deployment_maintenance');
+            """, ct));
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, $"""
+            select count(distinct c.target_key) from audit_event_changes c join audit_events e on e.id=c.audit_event_id
+            where e.request_correlation_id='{request}' and c.target_type='osan_customer_assignments';
+            """, ct));
+        Assert.Equal(4L, await ReadScalarAsync<long>(provider, $"""
+            select count(distinct c.target_key) from audit_event_changes c join audit_events e on e.id=c.audit_event_id
+            where e.request_correlation_id='{request}' and c.target_type='osan_gate_departments';
+            """, ct));
+        Assert.Equal(2L, await ReadScalarAsync<long>(provider, $"""
+            select count(*) from audit_event_changes c join audit_events e on e.id=c.audit_event_id
+            where e.request_correlation_id='{request}' and c.field_code='osan_customers.name'
+              and c.projection_kind='MetadataOnly' and c.after_value is null and c.after_length>0;
+            """, ct));
+        foreach (var sql in new[] { $"update notice_setting_events set pinned=true where notice_id='{notice}'", $"delete from notice_setting_events where notice_id='{notice}'" })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteSqlAsync(provider, sql, ct));
+            Assert.Equal(PostgresErrorCodes.RaiseException, error.SqlState);
+        }
+        Assert.Equal(1L, await ReadScalarAsync<long>(provider, $"select count(*) from notice_setting_events where notice_id='{notice}'", ct));
+        var rollbackRequest = Guid.NewGuid();
+        using (AuditRequestContext.Push(new AuditMutationContext(actor,null,rollbackRequest,null,"Osan","UpdatePolicy","UpdatePolicy")))
+            await ExecuteSqlAsync(provider, $"begin; update osan_customers set name='Rolled back' where id='{firstCustomer}'; rollback;", ct);
+        Assert.Equal(0L, await ReadScalarAsync<long>(provider, $"select count(*) from audit_events where request_correlation_id='{rollbackRequest}'", ct));
+        Assert.Equal("Private customer one", await ReadScalarAsync<string>(provider, $"select name from osan_customers where id='{firstCustomer}'", ct));
+    }
+
+    [Fact]
     public async Task Migration0103_BackfillsEveryLegacyOsanNotificationKindWithoutChangingQueuedDeliveries()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -1204,11 +1267,11 @@ public sealed class PostgreSqlMigrationTests
             TestContext.Current.CancellationToken));
         Assert.Equal(PostgresErrorCodes.RaiseException, exception.SqlState);
 
-        Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+        Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
-        Assert.Equal(120L, await ReadScalarAsync<long>(
+        Assert.Equal(125L, await ReadScalarAsync<long>(
             provider,
             "select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_qms_global_audit_%';",
             TestContext.Current.CancellationToken));
@@ -1431,7 +1494,7 @@ public sealed class PostgreSqlMigrationTests
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
             await runner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2270,7 +2333,7 @@ public sealed class PostgreSqlMigrationTests
                 provider,
                 "select count(*) from panel_placeholders where id='96000000-0000-0000-0000-000000000076' and drawing_number is null and panel_group_number is null;",
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2338,7 +2401,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -2468,7 +2531,7 @@ public sealed class PostgreSqlMigrationTests
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
             await currentRunner.ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3156,7 +3219,7 @@ public sealed class PostgreSqlMigrationTests
                 where issue.id='85000000-0000-0000-0000-000000000045';
                 """,
                 TestContext.Current.CancellationToken));
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3422,7 +3485,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3526,7 +3589,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3592,7 +3655,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+        Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -3656,7 +3719,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3779,7 +3842,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -3945,7 +4008,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4472,7 +4535,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4515,7 +4578,7 @@ public sealed class PostgreSqlMigrationTests
         await CreateMigrationRunner(database.RepositoryRoot, provider)
             .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
             provider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));
@@ -4696,7 +4759,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4773,7 +4836,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4838,7 +4901,7 @@ public sealed class PostgreSqlMigrationTests
             await CreateMigrationRunner(database.RepositoryRoot, provider)
                 .ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+            Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
                 provider,
                 "select max(version) from schema_migrations;",
                 TestContext.Current.CancellationToken));
@@ -4888,7 +4951,7 @@ public sealed class PostgreSqlMigrationTests
                 connectionStringProvider,
                 "select count(*) from schema_migrations;",
                 TestContext.Current.CancellationToken));
-        Assert.Equal("0128_osan_customer_archive", await ReadScalarAsync<string>(
+        Assert.Equal("0129_osan_management_audit", await ReadScalarAsync<string>(
             connectionStringProvider,
             "select max(version) from schema_migrations;",
             TestContext.Current.CancellationToken));

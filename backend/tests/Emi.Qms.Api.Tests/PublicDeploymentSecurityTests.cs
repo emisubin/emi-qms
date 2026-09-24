@@ -470,8 +470,19 @@ public sealed class PublicDeploymentSecurityTests
     [InlineData("/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-preview")]
     public async Task UploadSecurity_OsanMultipart40MiBReachesScanner(string path)
     {
+        await using var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
+        var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(TestContext.Current.CancellationToken);
+        await new DatabaseMigrationRunner(provider,
+            Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(Path.Combine(databases.RepositoryRoot, "database", "migrations")),
+            new DatabaseRuntimePrivilegeManager(), databases.Configuration,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
         var scanner = new FixedUploadMalwareScanner(UploadMalwareScanStatus.Infected);
-        using var factory = UploadFactory(scanner);
+        using var factory = UploadFactory(scanner, provider.GetConnectionString(
+            databases.BusinessUnits.GetBusiness(Emi.Qms.Api.BusinessUnits.BusinessUnitCodes.Cheongju)));
         using var client = CreateUploadClient(factory);
         using var body = new MultipartFormDataContent();
         body.Add(new ByteArrayContent(new byte[40 * 1024 * 1024]), "photos", "large.png");
@@ -658,12 +669,13 @@ public sealed class PublicDeploymentSecurityTests
         return UploadFactory(new FixedUploadMalwareScanner(status));
     }
 
-    private static QmsWebApplicationFactory UploadFactory(IUploadMalwareScanner scanner)
+    private static QmsWebApplicationFactory UploadFactory(IUploadMalwareScanner scanner, string? connectionString = null)
     {
         return QmsWebApplicationFactory.Create(
             "Testing",
             new Dictionary<string, string?>
             {
+                ["ConnectionStrings:QmsDatabase"] = connectionString,
                 ["UploadSecurity:Enabled"] = "true",
                 ["UploadSecurity:FailClosed"] = "true",
                 ["UploadSecurity:RejectImageMetadata"] = "true"

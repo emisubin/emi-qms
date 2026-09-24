@@ -9,11 +9,11 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed partial class BusinessUnitIsolationTests
 {
-    private static async Task AssertMobilePhotoHttpAsync(HttpClient client)
+    private static async Task AssertMobilePhotoHttpAsync(HttpClient client, Guid customerId)
     {
         var ct = TestContext.Current.CancellationToken;
         using var create = Request(HttpMethod.Post, "/api/osan/projects", "dev-admin", BusinessUnitCodes.Osan);
-        create.Content = JsonContent.Create(new { title = "Mobile Photo", projectCode = "MOBILE-PHOTO", customerName = "Synthetic", productName = "Panel", quantity = 1, deliveryDate = new DateOnly(2026, 12, 31), operationId = Guid.NewGuid() });
+        create.Content = JsonContent.Create(new { title = "Mobile Photo", projectCode = "MOBILE-PHOTO", customerName = "Routed customer", customerId, productName = "Panel", quantity = 1, deliveryDate = new DateOnly(2026, 12, 31), operationId = Guid.NewGuid() });
         using var created = await client.SendAsync(create, ct);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         using var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync(ct));

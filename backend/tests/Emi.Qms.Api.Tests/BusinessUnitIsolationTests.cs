@@ -3130,6 +3130,14 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal("Osan Admin", body?.DisplayName);
         }
 
+        var routedCustomerId = Guid.NewGuid();
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
+            $"""
+            insert into osan_customers(id,name) values('{routedCustomerId:D}','Routed customer');
+            insert into osan_customer_assignments(user_id,customer_id)
+            values ('{SalesUserId:D}','{routedCustomerId:D}'),
+                   ('{ManufacturingUserId:D}','{routedCustomerId:D}');
+            """, TestContext.Current.CancellationToken);
         Guid osanProjectId;
         Guid[] osanTargetIds;
         var osanCreateOperationId = Guid.NewGuid();
@@ -3138,6 +3146,7 @@ public sealed partial class BusinessUnitIsolationTests
             title = "  Osan routed project  ",
             projectCode = " OSAN-ROUTED-001 ",
             customerName = " Routed customer ",
+            customerId = routedCustomerId,
             poNumber = " 001-PO ",
             workOrderNumber = " WO/001 ",
             deliveryDate = new DateOnly(2026, 12, 31),
@@ -3627,11 +3636,15 @@ public sealed partial class BusinessUnitIsolationTests
                 1,
                 JsonSerializer.Serialize(
                     progressTargetIds.Select(targetId => new { targetId, expectedVersion = 1 })),
-                null);
+                CreateJpegWithSensitiveExif(),
+                "image/jpeg",
+                "evidence.jpg");
             var response = await client.SendAsync(
                 unauthorizedCompletion,
                 TestContext.Current.CancellationToken);
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            using var denied = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.Equal("osan_gate_department_denied", denied.RootElement.GetProperty("errorCode").GetString());
         }
         using (var nullTargetCompletion = Request(
                    HttpMethod.Post,
@@ -3765,12 +3778,13 @@ public sealed partial class BusinessUnitIsolationTests
                 StringComparison.Ordinal);
         }
 
-        await AssertMobilePhotoHttpAsync(client);
+        await AssertMobilePhotoHttpAsync(client, routedCustomerId);
 
         await AssertOsanManagementHttpAsync(
             databases,
             client,
             osanProjectId,
+            routedCustomerId,
             progressTargetIds[0],
             uploadScanner);
 
@@ -3947,7 +3961,8 @@ public sealed partial class BusinessUnitIsolationTests
             {
                 title = "Invalid quantity",
                 projectCode = "OSAN-INVALID-DECIMAL",
-                customerName = "Customer",
+                customerName = "Routed customer",
+                customerId = routedCustomerId,
                 deliveryDate = new DateOnly(2026, 12, 31),
                 productName = "Product",
                 quantity = 1.5,
@@ -3967,7 +3982,8 @@ public sealed partial class BusinessUnitIsolationTests
             {
                 title = "Invalid multiple quantity",
                 projectCode = "OSAN-INVALID-MULTIPLE",
-                customerName = "Customer",
+                customerName = "Routed customer",
+                customerId = routedCustomerId,
                 deliveryDate = new DateOnly(2026, 12, 31),
                 productName = "Product",
                 quantity = 2,
@@ -4276,7 +4292,10 @@ public sealed partial class BusinessUnitIsolationTests
             var response = await client.SendAsync(
                 downloadOsan,
                 TestContext.Current.CancellationToken);
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(
+                expectedOsanBytes,
+                await response.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
         }
 
         Assert.Equal(
@@ -5408,7 +5427,7 @@ public sealed partial class BusinessUnitIsolationTests
         public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 
-    private sealed class IsolationDatabaseSet : IAsyncDisposable
+    internal sealed class IsolationDatabaseSet : IAsyncDisposable
     {
         private readonly NpgsqlConnectionStringBuilder admin;
         private readonly IReadOnlyDictionary<(string Code, BusinessUnitConnectionPurpose Purpose), string> connections;

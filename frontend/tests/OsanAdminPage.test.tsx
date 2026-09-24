@@ -61,7 +61,12 @@ it('Gate 표는 부서 세로·Gate 가로로 편집하고 버전과 일괄 저�
 it('승인 대기는 바로 승인하지 않고 요청된 프로젝트·대상·단계로 이동한다', async () => {
   const open = vi.fn();
   render(<OsanGateApprovalsPage developmentUserKey="admin" onOpenStage={open} />);
-  fireEvent.click(await screen.findByRole('button', { name: '단계 확인' }));
+  const row = await screen.findByRole('row', { name: '프로젝트 · 입고검사 단계 상세 열기' });
+  expect(screen.queryByRole('button', { name: '단계 확인' })).not.toBeInTheDocument();
+  fireEvent.click(row);
+  fireEvent.keyDown(row, { key: 'Enter' });
+  fireEvent.keyDown(row, { key: ' ' });
+  expect(open).toHaveBeenCalledTimes(3);
   expect(open).toHaveBeenCalledWith('p1', 't1', 1);
   expect(api.fetchJson).not.toHaveBeenCalledWith(expect.stringContaining('/approve'), expect.anything(), expect.anything());
 });

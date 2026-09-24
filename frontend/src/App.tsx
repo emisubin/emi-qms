@@ -18,7 +18,7 @@ import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
-import { emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
+import { createOsanListNavigation, emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
 import { fetchJson } from './api';
 import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
@@ -2007,7 +2007,9 @@ function QmsAppShellContent({
     }
   }, [layout.isMobile]);
 
+  const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
+    listNavigation.current(nextView);
     setViewState(nextView);
     if (typeof window === 'undefined') {
       return;
@@ -2023,6 +2025,7 @@ function QmsAppShellContent({
   // the legacy department-root URL. Declared beside setView, before any
   // conditional return, to keep the hook order stable.
   const replaceView = useCallback((nextView: View) => {
+    listNavigation.current(nextView);
     setViewState(nextView);
     if (typeof window === 'undefined') {
       return;
@@ -2163,7 +2166,9 @@ function QmsAppShellContent({
 
   useEffect(() => {
     const handlePopState = () => {
-      setViewState(initialViewFromLocation());
+      const nextView = initialViewFromLocation();
+      listNavigation.current(nextView);
+      setViewState(nextView);
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -2754,7 +2759,9 @@ function QmsAppShellContent({
           token={view.token}
           onOpenPath={(path) => {
             window.history.pushState(null, '', path);
-            setViewState(initialViewFromLocation());
+            const nextView = initialViewFromLocation();
+            listNavigation.current(nextView);
+            setViewState(nextView);
           }}
         />
       ) : null}

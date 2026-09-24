@@ -1,5 +1,6 @@
+import { dismissOnBackdrop } from './dialogBackdrop';
 import { OsanStageAction } from './OsanStageActions';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { OsanPhotoPreview } from './OsanPhotoPreview';
 import { SavedPhoto } from './OsanPhotoGallery';
 import { ApiError, fetchJson } from './api';
@@ -14,6 +15,10 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
  const [busy,setBusy]=useState(false);const [editing,setEditing]=useState(false);const [files,setFiles]=useState<File[]>([]);
  const [comment,setComment]=useState(''); const [retained,setRetained]=useState<string[]>([]); const [adminAction,setAdminAction]=useState<'reject'|'reset'|null>(null);const [reason,setReason]=useState(''); const adminOperation=useRef(crypto.randomUUID()); const [submitted,setSubmitted]=useState(false);
  const [requesting,setRequesting]=useState(false);const [requestReason,setRequestReason]=useState('');
+ const requestTitleId=useId();
+ const requestDialog=useRef<HTMLDialogElement>(null);
+ useEffect(()=>{if(requesting)requestDialog.current?.showModal();else requestDialog.current?.close();},[requesting]);
+ function closeRequest(){if(!busy){setRequesting(false);setRequestReason('');setError('');}}
  const requestId=useRef(crypto.randomUUID()); const alive=useRef(true);
  const uncertainSave=useRef(false);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -51,7 +56,12 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
   {adminAction&&<div className="osan-stage-management"><label>{adminAction==='reject'?'반려 사유':'초기화 사유'}<textarea value={reason} maxLength={1000} disabled={busy} onChange={e=>setReason(e.target.value)}/></label><p>해당 단계만 미완료로 돌아갑니다. 이전 기록은 이력에 보존됩니다.</p><button type="button" disabled={busy||!reason.trim()} onClick={()=>void manage()}>{adminAction==='reject'?'반려 처리':'초기화 처리'}</button><button type="button" disabled={busy} onClick={()=>setAdminAction(null)}>취소</button></div>}
   {!step.openIssue&&<p>사진·코멘트 수정은 승인 또는 반려 후 1회 가능합니다.</p>}
   {!step.openIssue&&state&&!active&&mutationAllowed&&step.status==='Completed'&&!requesting&&<OsanStageAction placement="secondary" type="button" disabled={busy} onClick={()=>setRequesting(true)}>사진 수정 승인 요청</OsanStageAction>}
-  {requesting&&!active&&<div className="osan-stage-management"><label>수정 요청 사유<textarea value={requestReason} maxLength={1000} disabled={busy} onChange={e=>setRequestReason(e.target.value)}/></label><button type="button" disabled={busy||!requestReason.trim()} onClick={()=>void action('request')}>승인 요청 보내기</button><button type="button" disabled={busy} onClick={()=>{setRequesting(false);setRequestReason('');}}>취소</button></div>}
+  <dialog ref={requestDialog} className="osan-progress-completion-modal osan-photo-request-dialog" aria-labelledby={requestTitleId} onCancel={e=>{e.preventDefault();closeRequest();}} onClick={e=>dismissOnBackdrop(e,closeRequest)}>
+    <h2 id={requestTitleId}>사진 수정 승인 요청</h2><p>{target.displayName} · {step.stepName}</p>
+    <div className="osan-stage-management"><label>수정 요청 사유<textarea autoFocus value={requestReason} maxLength={1000} disabled={busy} placeholder="사진·코멘트를 수정해야 하는 사유를 입력해 주세요." onChange={e=>setRequestReason(e.target.value)}/></label></div>
+    {requesting&&error&&<p role="alert">{error}</p>}
+    <footer><button type="button" disabled={busy} onClick={closeRequest}>취소</button><button className="primary" type="button" disabled={busy||!requestReason.trim()} onClick={()=>void action('request')}>{busy?'요청 중…':'승인 요청 보내기'}</button></footer>
+  </dialog>
   {!step.openIssue&&active&&<><p>{active.requestedByName} · {active.approvedAt?'수정 승인됨 · 저장 후 다시 잠깁니다.':'관리자 승인 대기'}</p><p>요청 사유: {active.reason?.trim()||'—'}</p></>}
   {!step.openIssue&&active&&!active.approvedAt&&state?.canApprove&&<OsanStageAction placement="primary" aria-label="사진 수정 1회 승인" type="button" disabled={busy||!mutationAllowed} onClick={()=>void action('approve')}>수정 승인</OsanStageAction>}
   {!step.openIssue&&active?.approvedAt&&mutationAllowed&&!editing&&<OsanStageAction placement="primary" aria-label="사진 수정" type="button" disabled={busy} onClick={()=>{setComment(step.comment??'');setRetained(step.photos.map(p=>p.photoId));setEditing(true);}}>사진·코멘트 수정</OsanStageAction>}
@@ -67,7 +77,7 @@ export function OsanPhotoEditor({projectId,target,stage,userKey,mutationAllowed,
     {validateOsanRecord(files,comment,!!state?.canApprove,step.photos.filter(p=>retained.includes(p.photoId)))&&<p role="alert">{validateOsanRecord(files,comment,!!state?.canApprove,step.photos.filter(p=>retained.includes(p.photoId)))}</p>}
   </div>}
   {editing&&submitted&&state&&!active&&<p>승인이 사용되었거나 상태가 변경되었습니다. <button type="button" onClick={onSaved}>최신 사진 확인</button></p>}
-  {error&&<p role="alert">{error} <button type="button" disabled={busy} onClick={()=>setEpoch(e=>e+1)}>승인 상태 새로고침</button></p>}
+  {error&&!requesting&&<p role="alert">{error} <button type="button" disabled={busy} onClick={()=>setEpoch(e=>e+1)}>승인 상태 새로고침</button></p>}
 
  </section>;
 }

@@ -35,6 +35,8 @@ function show(userKey = 'worker', mutationAllowed = true) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; };
   URL.createObjectURL = vi.fn(() => 'blob:synthetic-photo');
   URL.revokeObjectURL = vi.fn();
   vi.mocked(getOsanProgressPhoto).mockResolvedValue(new Blob(['old photo'], { type: 'image/jpeg' }));
@@ -80,12 +82,14 @@ describe('오산 사진 수정 승인', () => {
     });
     const requester = show();
     fireEvent.click(await screen.findByRole('button', { name: '사진 수정 승인 요청' }));
+    expect(screen.getByRole('dialog', { name: '사진 수정 승인 요청' })).toBeVisible();
     const submitRequest = screen.getByRole('button', { name: '승인 요청 보내기' });
     expect(submitRequest).toBeDisabled();
     fireEvent.change(screen.getByRole('textbox', { name: '수정 요청 사유' }), { target: { value: '  흐린 사진을 교체합니다.  ' } });
     fireEvent.click(submitRequest);
     await screen.findByText('합성 작업자 · 관리자 승인 대기');
     expect(screen.getByText('요청 사유: 흐린 사진을 교체합니다.')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: '사진 수정 승인 요청' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('사진 선택')).not.toBeInTheDocument();
     requester.unmount();
     const admin = show('admin');

@@ -343,8 +343,8 @@ it('이상 패널과 정상 패널을 함께 선택해도 각 완료 동선을 �
  fireEvent.click(screen.getByLabelText('전체 선택'));
  const issueArea=screen.getByLabelText('제품 1 완료 기록');
  const normalArea=screen.getByLabelText('제품 2 완료 기록');
- expect(within(issueArea).getByRole('button',{name:'조치 완료'}).closest('.osan-progress-actions')).not.toBeNull();
- expect(issueArea.querySelector('.osan-record-actions')?.textContent).not.toContain('조치 완료');
+ expect(within(issueArea).getByRole('button',{name:'조치 완료'}).closest('.osan-stage-actionbar')).not.toBeNull();
+ expect(within(issueArea).getAllByRole('button', { name: '조치 완료' })).toHaveLength(1);
  fireEvent.click(within(normalArea).getByRole('button',{name:'Gate 완료'}));
  fireEvent.change(screen.getByRole('textbox'),{target:{value:'정상 패널 확인'}});
  fireEvent.click(screen.getByRole('button',{name:'사진 저장 및 Gate 완료'}));

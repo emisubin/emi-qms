@@ -1,3 +1,4 @@
+import { OsanStageAction } from './OsanStageActions';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, fetchJson } from './api';
@@ -53,7 +54,7 @@ export function OsanWorkRequest({ projectId, targetId, targetName, stage, stageN
       }
     } finally { sending.current = false; if (!controller.signal.aborted) setBusy(false); }
   }
-  return <><button type="button" disabled={disabled || busy} onClick={() => { setSelected([]); setSearch(''); setSuccess(''); setSubmitted(false); pending.current = null; setOpen(true); }}>공정 진행 요청</button>
+  return <><OsanStageAction placement="secondary" type="button" disabled={disabled || busy} onClick={() => { setSelected([]); setSearch(''); setSuccess(''); setSubmitted(false); pending.current = null; setOpen(true); }}>공정 진행 요청</OsanStageAction>
     {success && <p role="status">{success}</p>}
     {createPortal(<dialog ref={dialog} className="osan-notification-dialog osan-work-request" aria-labelledby={`work-request-${targetId}`} onCancel={e => { if (busy) e.preventDefault(); else close(); }} onClick={e => dismissOnBackdrop(e, close)}>
       <header><div className="osan-notification-heading"><h2 id={`work-request-${targetId}`}>공정 진행 요청</h2><button type="button" className="osan-notification-close" aria-label="공정 진행 요청 닫기" disabled={busy} onClick={close}>×</button></div><p>진행을 요청할 오산 담당자를 선택해 주세요.</p></header>

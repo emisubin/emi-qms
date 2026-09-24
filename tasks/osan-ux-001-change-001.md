@@ -539,3 +539,16 @@
 - 실패3개는 G2 operations의 필드별 권한 거부 테스트가 DB 없는 factory를 사용해 새 maintenance lease 선행 조회에서500이 발생한 것이다. 실제 격리DB/전체migration/runtime 연결로 보정하고 기존 사용자·요청·403 기대를 유지하며 g2_daily_metrics에 저장된 행0개를 추가 확인한다. 제품 권한이나 저장 제한을 우회하지 않는다. parent가 작성자와 별도로 실제 middleware/endpoint와 diff를 검토했다.
 - 실행 로그 지연으로 정체가 의심됐던 기존 제조 일괄처리·서로 다른 프로젝트 수량 동시 변경2개는 별도 일회용DB에서2/2 통과했고 자원을 정리했다. 전체 CI 순서/누적 상태까지 입증한 것으로 표현하지 않는다.
 - G2OperationsTests 전체17개 통과/0skip, diff검사 및 소유tmpfs자원 정리 완료. 최종 후보 required CI는 아직 남아 있다. main 병합·운영 중단·migration·공개배포는 아직 실행하지 않았다.
+
+
+### 20-20. 원격 병합·최초 공개배포 완료 (2026-09-25 KST)
+
+- 최종 후보3b0c06b required CI36028735308 전체 성공: Backend970/970(실패0·skip0), Frontend526, UI71, 실제DB통합64·캠퍼스격리1·오산등록1. CI Gate 통과 후 PR153을 정상 병합했다. 보호 규칙 예외/CI 생략 없이 main6c3f5d5c5523d6dfd74b2ac4ccb6bfa1fd1acfe7을 배포했다.
+- 승인된 최초1회 예외에 따라 대화로02:51–03:21 점검을 안내하고 조회·로그인을 포함한 두 앱을 중단했다. 기존 provider처리/열린 transaction 종료와 과거 불확정 알림1건의 동일 집합 보존을 읽기 전용으로 확인했다. DB 삭제·초기화·과거 전표/알림 상태 reset은 하지 않았다.
+- 최초 이미지 패키징에서 private umask가 git archive 파일 권한을0600으로 바꿔 runtime 비관리자 계정이 appsettings.json을 읽지 못했다. migration-jybdncu는 DB migration 진입 전에 실패했다. 세 DB ledger가 구 main 그대로(Directory4/청주122/오산122)임을 별도 읽기 전용 진단으로 확인했다.
+- 같은 exact main archive의 원래 권한을 복원하여 linux/amd64 image를 재생성했다. 소스 내용은 변경하지 않았다. backend app/front101 계정에 설정 파일0664와 상위 경로 접근 권한을 확인했다. 별도 reviewer가 재개 script의 preflight 실패 무변경, drain 선행, migration 이후 forward fix 경계 및 재실행 방지를 검토했고 지적1건 보정 후 차단 사항 없음.
+- 보정 digest: backend e2864b7c6ac01d5297473740129c60c31384360b01ece038c1a62f7530660e60, frontend97607f6e61568e46fe3ccd73a2e45248e0b9ac16e2e93b067e252ce5c67e1c33. migration-iy5bf5z 성공 후 prepare/activate, 두 앱 ready, 공개200/401/401 보안 smoke, complete 순서 성공. maintenance-gk8uqsh에서 청주·오산 Completed Version3를03:12:28 KST에 확인하여 저장 재개했다. 최초 안내부터 약21분이며 실제 개별 앱 중단 시각은 Azure 실행 증거를 따른다.
+- 배포 후 읽기 전용 ledger 대조는 Directory4/청주129/오산129 모두 exact main과 일치했다. 실제 공개 로그인·기존 오산 홈256건 조회·50개 페이지·공정 이상 KPI·고객사15개/초기 담당자34명·기존 Gate승인대기 조회·업데이트 공지 상세/완료 안내를 확인했다. 운영 업무 데이터를 생성·수정하는 시험과 실물 모바일/QR 재검증은 하지 않았다.
+- `2026.09.25 업데이트 공지`가03:09:47 KST에 게시됐고 확정된 기능 제목/설명·이용 안내·박수빈 올림을 확인했다. 일반 공지 팝업 중복 지정 없이 별도 업데이트 안내를 사용했다. 이후 배포는 공지·팝업 우선 정상 절차를 따른다.
+- 남은 운영 준비: 향후 GitHub 자동배포 계정의 maintenance job 한 개 실행/갱신 권한 추가는 별도 명시승인 부족으로 자동 승인 검토가 거부하여 아직 부여하지 않았다. 이번 기존 Azure 계정의 승인된 수동 배포는 완료했다. 과거 불확정 알림1건은 이번 배포가 생성/해결한 것으로 취급하지 않는다.
+- 증거는 private 최초전환/보정전환 events, image source/권한 검증, 세DB ledger, Completed 로그에 보존하며 secret·실데이터를 저장소에 추가하지 않는다. 최종 이 문서와 Roadmap 상태 보정은 배포 후 기록용 로컬 commit이며 제품 배포 source는 위 main SHA다.

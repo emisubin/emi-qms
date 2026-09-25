@@ -48,7 +48,6 @@
 .app-shell .osan-admin-dialog footer > span { color: #777; font-size: 11px; }
 .app-shell .osan-admin-dialog footer > div { display: flex; gap: 6px; }
 .app-shell .osan-admin-dialog footer button:not(.osan-button) { min-height: 34px; padding: 6px 12px; }
-.app-shell .osan-gate-exception { padding: 10px 0 16px; border-bottom: 1px solid #eee; color: #666; font-size: 12px; }
 .app-shell .osan-gate-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; color: #666; font-size: 12px; }
 .app-shell .osan-gate-toolbar > div { display: flex; gap: 6px; }
 .app-shell .osan-gate-toolbar .unsaved { color: #bc1c22; }

@@ -127,3 +127,8 @@
  .app-shell .osan-personal-home .mobile-overdue>button:not(.osan-button) {display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;min-height:65px;border-bottom:1px solid #eaebee;border-radius:0;padding:15px 0;}
  .app-shell .osan-personal-home .mobile-overdue small {display:block;font-size:12px;margin-top:6px;color:#747981;}
 }
+
+/* Compact markers distinguish home list entries without increasing row height. */
+.app-shell .osan-personal-home :is(.recent-row,.notices .simple-row) {padding-left:12px}
+.app-shell .osan-personal-home :is(.recent-row>b,.notices .simple-row>span) {position:relative}
+.app-shell .osan-personal-home :is(.recent-row>b,.notices .simple-row>span)::before {content:'';position:absolute;left:-11px;top:.55em;width:4px;height:4px;border-radius:50%;background:#898989;pointer-events:none}

@@ -35,7 +35,7 @@ it('배포 안내를 계정·버전당 한 번 청구하고, 닫은 뒤 상태�
   fireEvent.click(screen.getByRole('button', { name: '업데이트 안내 닫기' }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
   expect(screen.queryByRole('region', { name: '업데이트 안내' })).not.toBeInTheDocument();
-  expect(screen.getByRole('status')).toHaveTextContent('업데이트가 완료되었습니다. 입력 내용을 확인하고 다시 저장해 주세요.');
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
   expect(screen.getByLabelText('작성 중인 내용')).toHaveValue('복구할 작업 내용');
   expect(vi.mocked(fetchJson).mock.calls.filter(([url]) => url.includes('/popup/'))).toHaveLength(1);
 });
@@ -85,14 +85,22 @@ it('업데이트 팝업은 공지 전문 대신 시간·대상을 안내하고 �
 });
 
 
-it('완료 후 새 접속자에게 팝업을 자동 표시하지 않고 수동 조회는 저장 재개를 안내한다', async () => {
+it('완료 후 새 접속자에게 배너와 팝업을 표시하지 않는다', async () => {
   vi.mocked(fetchJson).mockResolvedValue({ claimed: true });
   render(<MaintenanceAnnouncement status={{ ...complete, popupPending: true }} unavailable={false}
     userKey="user-new" scope="OSAN:user-new" onOpenNotice={vi.fn()} />);
   await act(async () => {});
   expect(fetchJson).not.toHaveBeenCalled();
   expect(screen.queryByRole('region', { name: '업데이트 안내' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: '자세히 보기' }));
-  expect(screen.getByText('저장 제한 해제')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '자세히 보기' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
   expect(screen.queryByText(/시작 전에 저장/)).not.toBeInTheDocument();
+});
+
+it('예고 팝업은 유지하지만 저장 제한 시작 전 배너는 표시하지 않는다', async () => {
+ vi.mocked(fetchJson).mockResolvedValue({ claimed: true });
+ render(<MaintenanceAnnouncement status={{...active, state:'Announced',writeBlocked:false}} unavailable={false} userKey="user-a" scope="OSAN:user-a" onOpenNotice={vi.fn()}/>);
+ await act(async () => {});
+ expect(screen.queryByRole('status')).not.toBeInTheDocument();
+ expect(screen.getByRole('region', {name:'업데이트 안내'})).toBeInTheDocument();
 });

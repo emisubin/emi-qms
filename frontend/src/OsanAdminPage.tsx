@@ -17,6 +17,8 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
   const [tab, setTab] = useState<'customer' | 'person'>('customer');
   const [search, setSearch] = useState('');
   const [unassigned, setUnassigned] = useState(false);
+  const [department, setDepartment] = useState('');
+  const [assignment, setAssignment] = useState('all');
   const [editing, setEditing] = useState<{ kind: 'customer' | 'person'; id: string } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [choiceSearch, setChoiceSearch] = useState('');
@@ -80,6 +82,7 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
   const data = state.kind === 'ready' ? state.data : null;
   const customers = data?.customers ?? [];
   const users = data?.users ?? [];
+  const departments = [...new Set(users.map(user => user.departmentName ?? '소속 없음'))].sort((a,b) => a.localeCompare(b, 'ko'));
   const current = editing?.kind === 'customer'
     ? customers.find(customer => customer.customerId === editing.id)
     : users.find(user => user.userId === editing?.id);
@@ -90,7 +93,8 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     const text = 'name' in item ? item.name : `${item.displayName} ${item.departmentName ?? ''}`;
     if (!normalized(text).includes(normalized(search))) return false;
     const related = 'name' in item ? users.filter(user => user.customerIds.includes(item.customerId)) : item.customerIds;
-    return !unassigned || related.length === 0;
+    if ('name' in item) return !unassigned || related.length === 0;
+    return (!department || (item.departmentName ?? '소속 없음') === department) && (assignment === 'all' || (assignment === 'assigned' ? related.length > 0 : related.length === 0));
   });
   const openAssignment = (kind: 'customer' | 'person', id: string, element: HTMLElement) => {
     trigger.current = element;
@@ -167,12 +171,15 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
       <button type="button" role="tab" aria-selected={tab === 'person'} onClick={() => { setTab('person'); setSearch(''); setUnassigned(false); }}>사용자별 고객사</button>
     </div>
     <div className="osan-admin-toolbar"><input type="search" aria-label="목록 검색" placeholder={tab === 'customer' ? '고객사명 검색' : '이름 또는 부서 검색'} value={search} onChange={event => setSearch(event.target.value)} />
-      <label><input type="checkbox" checked={unassigned} onChange={event => setUnassigned(event.target.checked)} />미배정만</label>
+      {tab === 'customer' ? <label><input type="checkbox" checked={unassigned} onChange={event => setUnassigned(event.target.checked)} />미배정만</label> : <>
+        <label>부서<select aria-label="부서 필터" value={department} onChange={event => setDepartment(event.target.value)}><option value="">전체 부서</option>{departments.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
+        <label>배정 여부<select aria-label="배정 여부 필터" value={assignment} onChange={event => setAssignment(event.target.value)}><option value="all">전체</option><option value="assigned">배정</option><option value="unassigned">미배정</option></select></label>
+      </>}
       <span aria-live="polite">{records.length}{tab === 'customer' ? '개 고객사' : '명'}</span></div>
     {state.kind === 'loading' && <p role="status">고객사와 담당자를 불러오는 중입니다.</p>}
     {state.kind === 'error' && <p role="alert">{state.message} <button type="button" onClick={() => setRevision(value => value + 1)}>다시 시도</button></p>}
-    {data && <div className="osan-admin-records" role="table" aria-label={tab === 'customer' ? '고객사별 담당자' : '사용자별 고객사'}>
-      <div className="osan-admin-record-head" role="row"><span role="columnheader">{tab === 'customer' ? '고객사명' : '사용자'}</span><span role="columnheader">{tab === 'customer' ? '알림 담당자' : '담당 고객사'}</span><span role="columnheader">{tab === 'customer' ? '인원' : '고객사 수'}</span><span role="columnheader">설정</span></div>
+    {data && <div className={`osan-admin-records${tab === 'customer' ? ' osan-customer-counts' : ''}`} role="table" aria-label={tab === 'customer' ? '고객사별 담당자' : '사용자별 고객사'}>
+      <div className="osan-admin-record-head" role="row"><span role="columnheader">{tab === 'customer' ? '고객사명' : '사용자'}</span><span role="columnheader">{tab === 'customer' ? '품질 담당자' : '담당 고객사'}</span><span role="columnheader">{tab === 'customer' ? '제조 담당자' : '고객사 수'}</span><span role="columnheader">설정</span></div>
       {records.map(item => {
         const isCustomer = 'name' in item;
         const related = isCustomer ? users.filter(user => user.customerIds.includes(item.customerId)) : customers.filter(customer => item.customerIds.includes(customer.customerId));
@@ -181,8 +188,9 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
         const summary = related.slice(0, 1).map(value => 'name' in value ? value.name : value.displayName).join(', ');
         return <div role="row" className="osan-admin-record" key={id}>
           <div role="cell"><strong>{title}</strong>{!isCustomer && <small>{item.departmentName}</small>}</div>
-          <div role="cell" className="osan-admin-related" title={related.map(value => 'name' in value ? value.name : value.displayName).join(', ')}>{related.length ? summary + (related.length > 1 ? ` 외 ${related.length - 1}${isCustomer ? '명' : '개'}` : '') : <span className="osan-admin-empty-tag">미배정</span>}</div>
-          <span role="cell" className="osan-admin-count">{related.length}{isCustomer ? '명' : '개'}</span>
+          {isCustomer ? <>{['품질', '제조'].map(departmentName => <span role="cell" className="osan-admin-department-count" key={departmentName}><small>{departmentName}</small>{users.filter(user => user.customerIds.includes(item.customerId) && user.departmentName === departmentName).length}명</span>)}</> : <>
+          <div role="cell" className="osan-admin-related" title={related.map(value => 'name' in value ? value.name : value.displayName).join(', ')}>{related.length ? summary + (related.length > 1 ? ` 외 ${related.length - 1}개` : '') : <span className="osan-admin-empty-tag">미배정</span>}</div>
+          <span role="cell" className="osan-admin-count">{related.length}개</span></>}
           <div role="cell" className="osan-admin-record-actions"><button type="button" className="osan-admin-more" disabled={!mutationAllowed} aria-label={`${title} 더보기`} aria-haspopup="dialog" aria-expanded={actionItem === item} onClick={event => {
             const rect = event.currentTarget.getBoundingClientRect();
             actionTrigger.current = event.currentTarget;

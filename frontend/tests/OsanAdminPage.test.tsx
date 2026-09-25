@@ -18,7 +18,7 @@ beforeEach(() => {
     if (path === '/api/osan/admin/gates') return { version: 3, departments: [{ departmentId: 'd1', name: '제조' }], gates };
     if (path === '/api/osan/gate-approvals') return { items: [{
       projectId: 'p1', projectCode: 'OS-1', projectTitle: '프로젝트', requestId: 'r1', targetId: 't1',
-      stageSequence: 1, requestedByName: '김담당', requestedAt: '2026-09-24T00:00:00Z'
+      stageSequence: 1, requestedByName: '김담당', requestedAt: '2026-09-24T00:00:00Z', reason: '흐린 사진 교체'
     }] };
     return {};
   });
@@ -62,6 +62,8 @@ it('승인 대기는 바로 승인하지 않고 요청된 프로젝트·대상·
   const open = vi.fn();
   render(<OsanGateApprovalsPage developmentUserKey="admin" onOpenStage={open} />);
   const row = await screen.findByRole('row', { name: '프로젝트 · 입고검사 단계 상세 열기' });
+  expect(screen.getByRole('columnheader', { name: '요청 사유' })).toBeInTheDocument();
+  expect(row).toHaveTextContent('흐린 사진 교체');
   expect(screen.queryByRole('button', { name: '단계 확인' })).not.toBeInTheDocument();
   fireEvent.click(row);
   fireEvent.keyDown(row, { key: 'Enter' });
@@ -69,6 +71,15 @@ it('승인 대기는 바로 승인하지 않고 요청된 프로젝트·대상·
   expect(open).toHaveBeenCalledTimes(3);
   expect(open).toHaveBeenCalledWith('p1', 't1', 1);
   expect(api.fetchJson).not.toHaveBeenCalledWith(expect.stringContaining('/approve'), expect.anything(), expect.anything());
+});
+
+it('기존 사유 없는 승인 요청은 대시로 표시한다', async () => {
+  vi.mocked(api.fetchJson).mockResolvedValueOnce({ items: [{
+    projectId: 'p1', projectCode: 'OS-1', projectTitle: '기존 프로젝트', requestId: 'legacy-r1', targetId: 't1',
+    stageSequence: 1, requestedByName: '김담당', requestedAt: '2026-09-24T00:00:00Z', reason: null
+  }] });
+  render(<OsanGateApprovalsPage developmentUserKey="admin" onOpenStage={vi.fn()} />);
+  expect(await screen.findByRole('row', { name: '기존 프로젝트 · 입고검사 단계 상세 열기' })).toHaveTextContent('—');
 });
 
 

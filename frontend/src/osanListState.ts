@@ -33,3 +33,13 @@ export function toggleOsanListValue(values: string[], value: string) {
 export function osanDueDateMatches(deliveryDate: string, dueFrom: string, dueTo: string) {
   return (!dueFrom || deliveryDate >= dueFrom) && (!dueTo || deliveryDate <= dueTo);
 }
+
+/** Detail visits retain the originating menu; crossing a menu boundary resets its list state. */
+export function createOsanListNavigation(initial: { kind: string; projectId?: string }) {
+  let menu = initial.kind === 'detail' || initial.kind === 'create' ? 'list' : initial.kind;
+  return (next: { kind: string; projectId?: string }) => {
+    if (next.kind === 'detail' || next.kind === 'create' || next.kind === 'osan-progress' && next.projectId) return;
+    if (next.kind !== menu) clearOsanListSnapshots();
+    menu = next.kind;
+  };
+}

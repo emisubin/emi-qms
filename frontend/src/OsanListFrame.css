@@ -1,0 +1,192 @@
+.app-shell .osan-list-frame {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.app-shell .osan-list-frame .osan-dashboard-filter-options {
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 0 14px;
+}
+
+.app-shell .osan-filter-select {
+  position: relative;
+  min-width: 158px;
+}
+
+.app-shell .osan-filter-select-trigger {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px !important;
+  padding: 7px 10px !important;
+  border: 1px solid #d6d6d6 !important;
+  border-radius: 6px !important;
+  background: #fff !important;
+  font-size: 12px !important;
+  line-height: 18px;
+  text-align: left;
+}
+
+.app-shell .osan-filter-select-trigger > span:first-child { font-weight: 600; }
+.app-shell .osan-filter-select-trigger strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #6b6b6b;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-shell .osan-filter-select-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #575757;
+  border-bottom: 1.5px solid #575757;
+  transform: translateY(-2px) rotate(45deg);
+}
+.app-shell .osan-filter-select-trigger[aria-expanded='true'] .osan-filter-select-chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.app-shell .osan-filter-select-popup {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  box-sizing: border-box;
+  width: 292px;
+  max-width: calc(100vw - 48px);
+  padding: 12px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.app-shell .osan-filter-select.is-end .osan-filter-select-popup { right: 0; left: auto; }
+
+.app-shell .osan-dashboard-filter-options .osan-filter-select-search {
+  display: block;
+  white-space: normal;
+}
+.app-shell .osan-filter-select-search > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #575757;
+  font-size: 11px;
+  font-weight: 600;
+}
+.app-shell .osan-filter-select-search input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid #cfcfcf;
+  border-radius: 5px;
+  background: #fff;
+  color: #282828;
+  font: inherit;
+  font-size: 13px;
+}
+
+.app-shell .osan-filter-select-bulk {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ededed;
+}
+.app-shell .osan-filter-select-bulk button {
+  min-height: 28px !important;
+  padding: 4px 2px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #a4171c;
+  font-size: 11px !important;
+  font-weight: 600;
+}
+
+.app-shell .osan-filter-select-list {
+  max-height: 192px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 0;
+}
+.app-shell .osan-dashboard-filter-options .osan-filter-select-list label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  white-space: normal;
+  cursor: pointer;
+}
+.app-shell .osan-dashboard-filter-options .osan-filter-select-list label:hover,
+.app-shell .osan-dashboard-filter-options .osan-filter-select-list label.is-selected { background: #fff1f2; }
+.app-shell .osan-filter-select-list input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  accent-color: #da2127;
+}
+.app-shell .osan-filter-select-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.app-shell .osan-filter-select-list p {
+  padding: 14px 8px;
+  color: #737373;
+  font-size: 12px;
+  text-align: center;
+}
+.app-shell .osan-filter-select-all-note {
+  padding: 7px 2px 0;
+  color: #737373;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.app-shell .osan-filter-select-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid #ededed;
+}
+.app-shell .osan-filter-select-actions button,
+.app-shell .osan-dashboard-filter-options > button {
+  min-height: 34px !important;
+  padding: 6px 12px !important;
+  border: 1px solid #d6d6d6 !important;
+  border-radius: 5px !important;
+  background: #fff !important;
+  font-size: 12px !important;
+}
+.app-shell .osan-filter-select-actions button.is-primary {
+  border-color: #da2127 !important;
+  background: #da2127 !important;
+  color: #fff !important;
+}
+
+@media (max-width: 520px) {
+  .app-shell .osan-list-frame .osan-dashboard-filter-options { align-items: stretch; }
+  .app-shell .osan-filter-select { min-width: 0; flex: 1 1 calc(50% - 5px); }
+  .app-shell .osan-filter-select-trigger { min-height: 44px !important; }
+  .app-shell .osan-filter-select-popup { width: min(292px, calc(100vw - 48px)); }
+  .app-shell .osan-filter-select-search input { min-height: 44px; font-size: 16px; }
+  .app-shell .osan-filter-select-bulk button,
+  .app-shell .osan-filter-select-actions button,
+  .app-shell .osan-dashboard-filter-options .osan-filter-select-list label { min-height: 44px !important; }
+  .app-shell .osan-dashboard-filter-options > label {
+    box-sizing: border-box;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .app-shell .osan-dashboard-filter-options input[type='date'] { width: min(190px, 56vw); }
+  .app-shell .osan-dashboard-filter-options > button { flex: 1 1 calc(50% - 5px); min-height: 44px !important; }
+}

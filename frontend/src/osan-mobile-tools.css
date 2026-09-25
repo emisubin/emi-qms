@@ -44,3 +44,8 @@
 .osan-scan-camera video { object-fit: cover; }
 .osan-scan-zoom { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
 .osan-scan-zoom input { flex: 1; min-width: 0; }
+
+.osan-mobile-tools nav { width: 174px; max-height: calc(100dvh - 130px - env(safe-area-inset-bottom, 0px)); overflow-y: auto; overscroll-behavior: contain; }
+.osan-mobile-admin-group { border-top: 1px solid #eee; margin-top: 4px; padding-top: 4px; }
+.osan-mobile-admin-group > span { display: block; padding: 4px 11px; font-size: 10px; color: #777; }
+.osan-mobile-admin-group button { width: 100%; }

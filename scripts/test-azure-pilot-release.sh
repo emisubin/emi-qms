@@ -217,10 +217,14 @@ case "${command_group}" in
         ;;
       "${MIGRATION_JOB_NAME}") printf 'migration-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls" ;;
       "${MAINTENANCE_JOB_NAME}")
-        [[ "${maintenance_action}" =~ ^(prepare|activate|delay|fail|complete)$ \
+        [[ "${maintenance_action}" =~ ^(prepare|verify-prepared|activate|delay|fail|complete)$ \
           && "${cpu}" == '0.5' && "${memory}" == '1Gi' ]] || exit 2
         if [[ "${maintenance_action}" == 'complete' && "${DEPLOY_BACKEND}" == 'true' ]]; then
           [[ "${image}" == "${BACKEND_RELEASE_IMAGE}" ]] || exit 2
+        elif [[ "${maintenance_action}" == complete ]]; then
+          [[ "${image}" == 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' ]] || exit 2
+        elif [[ -n "${MAINTENANCE_PREPARATION_IMAGE:-}" ]]; then
+          [[ "${image}" == "$MAINTENANCE_PREPARATION_IMAGE" ]] || exit 2
         else
           [[ "${image}" == 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' ]] || exit 2
         fi
@@ -316,6 +320,12 @@ run_case() {
   local run_database_bootstrap="${8:-false}"
   local run_membership_backfill="${9:-false}"
   local inspect_membership_backfill="${10:-false}"
+  local publish=true prepared=false prepare_only=false preparation_image=''
+  case "$scenario" in
+    popup-only-prepare) publish=false; prepare_only=true; preparation_image="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" ;;
+    popup-only-prepared) publish=false; prepared=true; preparation_image="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" ;;
+    popup-only-missing-image) publish=false ;;
+  esac
   case_number=$((case_number + 1))
 
   printf '%s\n' 'pilotacr123.azurecr.io/pms-backend:cccccccccccccccccccccccccccccccccccccccc' \
@@ -344,6 +354,10 @@ run_case() {
     MAINTENANCE_JOB_NAME='pms-synthetic-maintenance' \
     MAINTENANCE_RELEASE_ID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' \
     MAINTENANCE_ACTOR_USER_ID='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' \
+    MAINTENANCE_PUBLISH_NOTICE="$publish" \
+    MAINTENANCE_PREPARE_ONLY="$prepare_only" \
+    MAINTENANCE_PREPARED="$prepared" \
+    MAINTENANCE_PREPARATION_IMAGE="$preparation_image" \
     MAINTENANCE_TITLE='Synthetic release' \
     MAINTENANCE_BODY='Synthetic deployment notice' \
     MAINTENANCE_STARTS_AT_UTC='2026-09-24T07:00:00Z' \
@@ -380,7 +394,11 @@ run_case() {
     printf 'azurePilotReleaseTests=UNEXPECTED_FAILURE_CODE_%s\n' "${case_number}" >&2
     exit 1
   fi
-  if [[ "${scenario}" == 'maintenance-prepare-failed' ]]; then
+  if [[ "$scenario" == popup-only-prepare ]]; then
+    expected_calls=maintenance-prepare
+  elif [[ "$scenario" == popup-only-missing-image ]]; then
+    expected_calls=''
+  elif [[ "${scenario}" == 'maintenance-prepare-failed' ]]; then
     expected_calls='maintenance-prepare'
   elif [[ "${scenario}" == 'maintenance-activate-failed' ]]; then
     expected_calls='maintenance-prepare,maintenance-activate'
@@ -400,6 +418,7 @@ run_case() {
       expected_calls="${expected_calls},maintenance-fail"
     fi
   fi
+  if [[ "$scenario" == popup-only-prepared ]]; then expected_calls="${expected_calls/maintenance-prepare,/maintenance-verify-prepared,}"; fi
   if [[ "$(paste -sd, "${temporary_directory}/calls")" != "${expected_calls}" ]]; then
     printf 'expected=%s\nactual=%s\n' "${expected_calls}" "$(paste -sd, "${temporary_directory}/calls")" >&2
     printf 'azurePilotReleaseTests=UNEXPECTED_CALL_ORDER_%s\n' "${case_number}" >&2
@@ -407,6 +426,10 @@ run_case() {
   fi
 }
 
+run_case 'popup-only-prepare' 0 '' ''
+run_case 'popup-only-prepared' 0 '' 'migration-update,migration-start,backend-update,frontend-update'
+run_case 'popup-only-prepared' 0 '' 'frontend-update' false true false
+run_case 'popup-only-missing-image' 65 MAINTENANCE_PREPARATION_IMAGE_REQUIRED ''
 run_case 'success' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
 run_case 'success-running-at-max-scale' 0 '' \

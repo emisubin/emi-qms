@@ -59,7 +59,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(1L, await database.ReadScalarAsync<long>("select count(*) from osan_notification_events where event_kind='StepIssueRegistered'", ct));
         Assert.Equal(OsanProgressMutationStatus.Conflict, (await store.CompleteAsync(id, await Input(1), UserId, ct, true)).Status);
         var target = (await store.GetAsync(id, ct))!.Targets[0];
-        Assert.Equal(409, (await edits.RequestAsync(id, new(Guid.NewGuid(), target.TargetId, 1), UserId, ct)).Status);
+        Assert.Equal(409, (await edits.RequestAsync(id,
+            new(Guid.NewGuid(), target.TargetId, 1, "미해결 이상 단계 사진 정정"), UserId, ct)).Status);
         Assert.Equal(409, (await store.StageActionAsync(id, target.Steps[0].StepId, new(Guid.NewGuid(), "reject", target.Version), "Reject", UserId, ct)).Status);
         for (var stage = 2; stage <= 4; stage++)
             Assert.Equal(OsanProgressMutationStatus.Success, (await store.CompleteAsync(id, await Input(stage), UserId, ct, true)).Status);
@@ -109,7 +110,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         }
         for (var stage = 1; stage <= 3; stage++) await store.CompleteAsync(id, await Input(stage), UserId, ct, true);
         var before = (await store.GetAsync(id, ct))!.Targets[0];
-        var request = new OsanPhotoEditRequest(Guid.NewGuid(), before.TargetId, 1);
+        var request = new OsanPhotoEditRequest(Guid.NewGuid(), before.TargetId, 1, "이상 등록 전 사진 정정");
         Assert.Equal(200, (await edits.RequestAsync(id, request, UserId, ct)).Status);
         Assert.Equal(200, (await edits.ApproveAsync(id, request.RequestId, UserId, ct)).Status);
         var input = await Input(1);

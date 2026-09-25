@@ -1,3 +1,4 @@
+import { NavigationIcon } from './NavigationIcon';
 import { BusbarLabelEntryPrompt } from "./BusbarLabelTracking";
 import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
@@ -18,13 +19,13 @@ import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
-import { emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
+import { createOsanListNavigation, emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
 import { fetchJson } from './api';
 import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
 import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
-import { formatOsanDday, useKoreaDate } from './osanDday';
+import { formatOsanDday, useKoreaDate, isOsanOverdue } from './osanDday';
 import './osan-project-detail.css';
 import { OsanProjectManagement } from './OsanProjectManagement';
 import type { ManufacturingReleaseQueueResponse } from './manufacturing';
@@ -2007,7 +2008,9 @@ function QmsAppShellContent({
     }
   }, [layout.isMobile]);
 
+  const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
+    listNavigation.current(nextView);
     setViewState(nextView);
     if (typeof window === 'undefined') {
       return;
@@ -2023,6 +2026,7 @@ function QmsAppShellContent({
   // the legacy department-root URL. Declared beside setView, before any
   // conditional return, to keep the hook order stable.
   const replaceView = useCallback((nextView: View) => {
+    listNavigation.current(nextView);
     setViewState(nextView);
     if (typeof window === 'undefined') {
       return;
@@ -2163,7 +2167,9 @@ function QmsAppShellContent({
 
   useEffect(() => {
     const handlePopState = () => {
-      setViewState(initialViewFromLocation());
+      const nextView = initialViewFromLocation();
+      listNavigation.current(nextView);
+      setViewState(nextView);
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -2359,11 +2365,13 @@ function QmsAppShellContent({
     );
   }
 
+  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
+
   if (view.kind === 'osan-qr') {
     if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
     if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
     return <><OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />
-      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
+      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
   }
 
   const permissions = user?.permissions ?? [];
@@ -2389,7 +2397,6 @@ function QmsAppShellContent({
   const canManagePending = permissions.includes('Pending.Manage');
   const canManagePendingTypes = permissions.includes('PendingType.Manage');
   const canSettleSales = permissions.includes('sales.settle');
-  const isSystemAdministrator = user?.roles.includes('system-administrator') ?? false;
   const canViewSalesProjectTab = user?.effectiveUser.department === 'sales' || isSystemAdministrator;
   const canManageSalesTargets = permissions.includes('Sales.Target.Manage');
   const canReadG2 = permissions.includes('G2.Read');
@@ -2485,7 +2492,7 @@ function QmsAppShellContent({
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
-      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
+      {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
         {isOsan && currentUser.kind === "ready" && !currentUser.data.approvalPending && <OsanNoticePopups key={`${currentUser.data.userId}:${developmentUserKey}`} scope={currentUser.data.userId} userKey={developmentUserKey} onOpen={noticeId=>setView({kind:"notice-board",noticeId})}/>}
@@ -2753,7 +2760,9 @@ function QmsAppShellContent({
           token={view.token}
           onOpenPath={(path) => {
             window.history.pushState(null, '', path);
-            setViewState(initialViewFromLocation());
+            const nextView = initialViewFromLocation();
+            listNavigation.current(nextView);
+            setViewState(nextView);
           }}
         />
       ) : null}
@@ -3470,7 +3479,7 @@ function AppNavigation({
                       aria-current={child.active ? 'page' : undefined}
                       onClick={() => onNavigate(child.view)}
                     >
-                      {child.label}
+                      {isOsan ? <span className="app-nav-label"><NavigationIcon label={child.label}/><span>{child.label}</span></span> : child.label}
                     </button>
                   ))}
                 </div>
@@ -3691,50 +3700,6 @@ function AppMobileNavigation({
   );
 }
 
-function NavigationIcon({ label }: { label: string }) {
-  const common = {
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.8,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    'aria-hidden': true
-  };
-
-  switch (label) {
-    case '홈':
-      return <svg {...common}><path d="m3.5 10 8.5-7 8.5 7" /><path d="M5.5 9.5V21h13V9.5" /><path d="M9.5 21v-6h5v6" /></svg>;
-    case '공지사항':
-      return <svg {...common}><path d="m3 11 18-5v12L3 14v-3ZM7 15l1 6h3l-2-5M21 3v18" /></svg>;
-    case '진행 현황':
-      return <svg {...common}><path d="M5 20v-5M12 20V9M19 20V3" /></svg>;
-    case '내 업무':
-      return <svg {...common}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3.5h6v3H9zM9 11h6M9 15h4" /></svg>;
-    case '프로젝트':
-      return <svg {...common}><path d="M3 7.5h7l2 2h9v10.5H3z" /><path d="M3 7.5V5h7l2 2h7" /></svg>;
-    case 'Pending':
-      return <svg {...common}><path d="M12 3 2.8 20h18.4z" /><path d="M12 9v5M12 17.5h.01" /></svg>;
-    case '생산관리':
-      return <svg {...common}><path d="M4 19V8l5 3V8l5 3V5h6v14z" /><path d="M7 15h2M12 15h2M17 15h1" /></svg>;
-    case '구매':
-      return <svg {...common}><path d="M3 5h2l2 11h10l2-8H6" /><circle cx="9" cy="20" r="1" /><circle cx="17" cy="20" r="1" /></svg>;
-    case '자재':
-      return <svg {...common}><path d="m4 7 8-4 8 4-8 4z" /><path d="m4 7 8 4 8-4v10l-8 4-8-4zM12 11v10" /></svg>;
-    case '제조':
-      return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" /></svg>;
-    case '품질':
-      return <svg {...common}><path d="m12 3 7 3v5c0 4.6-2.8 8-7 10-4.2-2-7-5.4-7-10V6z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></svg>;
-    case '물류':
-      return <svg {...common}><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></svg>;
-    case '알림':
-      return <svg {...common}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></svg>;
-    case '관리자':
-      return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4.2 3.4-6.5 8-6.5s7.2 2.3 8 6.5" /><path d="m17.5 4.5 1 1 2-2" /></svg>;
-    default:
-      return <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
-  }
-}
 
 function ShellSwitchControls({
   isDevMode,
@@ -4710,6 +4675,7 @@ function OsanProjectListPage({
           ]}
           rows={filteredProjects.map((project) => ({
             key: project.projectId,
+            className: isOsanOverdue(project, today) ? 'is-overdue' : undefined,
             title: project.title,
             openAriaLabel: `${project.title} 상세 열기`,
             onOpen: () => openProject(project.projectId),
@@ -10836,6 +10802,7 @@ type ProjectListPresentationField = {
 
 type ProjectListPresentationRow = {
   key: string;
+  className?: string;
   title: ReactNode;
   openAriaLabel?: string;
   openDisabled?: boolean;
@@ -10875,7 +10842,7 @@ function ProjectListPresentation({
       {isMobile ? (
         <div className="project-list-cards project-list-mobile" data-testid={`${testIdPrefix}-mobile`}>
           {rows.map((row) => (
-            <article key={row.key} className="project-list-card" data-testid={`${testIdPrefix}-card`} data-presentation-row="project">
+            <article key={row.key} className={['project-list-card', row.className].filter(Boolean).join(' ')} data-testid={`${testIdPrefix}-card`} data-presentation-row="project">
               <div className="subsection-header">
                 <div className="project-card-title-row">
                   {row.mobileTitleLeading}
@@ -10908,7 +10875,7 @@ function ProjectListPresentation({
           {rows.map((row) => (
             <Fragment key={row.key}>
               <div
-                className="project-list-row"
+                className={['project-list-row', row.className].filter(Boolean).join(' ')}
                 role="row"
                 tabIndex={0}
                 aria-label={row.openAriaLabel}

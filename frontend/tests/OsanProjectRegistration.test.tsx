@@ -284,7 +284,9 @@ describe('Osan project registration', () => {
     expect(Array.from(summary.children).map(item => item.textContent)).toEqual(['전체3', '시작 전2', '진행 중0', '완료1']);
     const pageQueries = within(page as HTMLElement);
     fireEvent.click(pageQueries.getByRole('button', { name: '필터' }));
+    fireEvent.click(pageQueries.getByRole('button', { name: /상태 필터/ }));
     expect(pageQueries.getByRole('checkbox', { name: '포장완료' })).not.toBeChecked();
+    fireEvent.click(pageQueries.getByRole('button', { name: '취소' }));
     expect(pageQueries.getByRole('checkbox', { name: '현재 목록 전체 선택' })).toBeInTheDocument();
     expect(pageQueries.queryByRole('checkbox', { name: '완료 프로젝트 제외' })).not.toBeInTheDocument();
     expect(page).not.toHaveTextContent('Excel');
@@ -302,12 +304,16 @@ describe('Osan project registration', () => {
     fireEvent.change(searchInput, { target: { value: '' } });
     fireEvent.click(pageQueries.getByRole('button', { name: '검색' }));
     expect(pageQueries.getByLabelText('납기 시작일')).toBeInTheDocument();
+    fireEvent.click(pageQueries.getByRole('button', { name: /고객사 필터/ }));
     fireEvent.click(pageQueries.getByRole('checkbox', { name: '두번째 고객사' }));
+    fireEvent.click(pageQueries.getByRole('button', { name: '적용' }));
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(within(table).getByText('완료 검색명')).toBeInTheDocument();
 
     fireEvent.click(pageQueries.getByRole('button', { name: '초기화' }));
+    fireEvent.click(pageQueries.getByRole('button', { name: /상태 필터/ }));
     fireEvent.click(pageQueries.getByRole('checkbox', { name: '공정 시작 전' }));
+    fireEvent.click(pageQueries.getByRole('button', { name: '적용' }));
     expect(within(table).getAllByRole('row')).toHaveLength(3);
     expect(within(table).queryByText('완료 검색명')).not.toBeInTheDocument();
 
@@ -316,7 +322,9 @@ describe('Osan project registration', () => {
     expect(await screen.findByText('조건에 맞는 프로젝트가 없습니다.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '검색 조건 초기화' }));
     expect(await screen.findByRole('table', { name: '오산 프로젝트 목록' })).toBeInTheDocument();
+    fireEvent.click(pageQueries.getByRole('button', { name: /상태 필터/ }));
     expect(pageQueries.getByRole('checkbox', { name: '공정 시작 전' })).not.toBeChecked();
+    fireEvent.click(pageQueries.getByRole('button', { name: '취소' }));
     expect(within(screen.getByRole('table', { name: '오산 프로젝트 목록' })).getAllByRole('row')).toHaveLength(4);
 
     expect(fetchMock.mock.calls.filter(([input, init]) => (

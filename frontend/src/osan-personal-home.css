@@ -38,3 +38,23 @@
 .app-shell .osan-personal-home .customer-progress-label strong {font-size:12px;color:#292d34;}
 .app-shell .osan-personal-home .customer-row .bar {margin-top:5px;}
 .app-shell .osan-personal-home .customer-alerts {display:flex;gap:12px;margin-top:9px;font-size:10px;color:#747981;}
+
+@media(min-width:761px) {
+  .app-shell .osan-personal-home .quick-grid button {
+    display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;
+    justify-content:stretch;gap:7px;height:40px;padding:8px 7px;
+    text-align:left;
+  }
+  .app-shell .osan-personal-home .quick-grid button span {
+    display:block;text-align:left;white-space:nowrap;line-height:16px;
+  }
+}
+@media(min-width:761px) and (max-width:1180px) {
+  .app-shell .osan-personal-home .quick-grid {grid-template-columns:minmax(0,1fr);}
+  .app-shell .osan-personal-home .widget-column:last-child {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .app-shell .osan-personal-home .widget-column:last-child>.deadlines {grid-column:1/-1;}
+}
+.app-shell .osan-personal-home .date-strip>span {white-space:nowrap;flex-shrink:0;}
+@media(min-width:1181px) {
+  .app-shell .osan-personal-home .quick-grid {grid-template-columns:repeat(auto-fit,minmax(min(100%,96px),1fr));}
+}

@@ -483,3 +483,12 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 독립 코드 검토의 P2 2건(복구 저장과 사용자 해제 경쟁, 계정 전환 중 브라우저 변경)을 보정하고 재검토에서 모두 해소했다. 실제 아이폰에서 재연결 후 업무 푸시가 표시되는지는 배포 이후 사용자 기기에서 확인해야 한다. 운영 복구 완료로 기록하지 않는다.
 
 배포 후속 승인(2026-09-25): 사용자 원격 병합·공개배포 승인, 버그 수정 공지 게시글 생략. 별도 업데이트 팝업 준비 완료. PR156 첫 CI의 통합 테스트는 새 configuration 응답 필드의 기대값 누락으로 1건 실패/63건 통과하여 `hasUserDisabledSubscription: false`를 명시하도록 보정했다. 제품 동작 변경은 없으며 필수 CI 재검증 후 병합한다.
+
+#### PR156 병합 및 배포 준비 (2026-09-25 23:00 KST)
+- 사용자 원격 병합·공개배포 승인, 이번 버그 수정 공지 게시글 생략. 별도 팝업은 준비 성공(`ANNOUNCED`), 최초 안내 21:33~23:03 KST. 실제 저장 제한은 아직 시작하지 않았다.
+- 보정 후보 `97259af` PR CI36138269057 모두 PASS: Backend978, Frontend565, browser71, full-stack64+사업부1+오산1. 기존 exact-response 기대값 누락을 보정했으며 제품 코드 추가 변경 없음. 독립 reviewer GO.
+- PR156 정상 squash 병합: main `9d04c44747728f46b9cd3ad0c3195450b46a5a76`. 보호 규칙 예외 없음. main CI36144090362 PASS. main tree와 검증된 PR head tree 동일 확인 후 정확한 main archive로 두 이미지를 빌드했다.
+- Backend `sha256:a7e0cbd0f7610068c6ae412c3103411f047c86c0f0480d7a08269e41c9fc70cf`, Frontend `sha256:53adfce144f302d780f1112f6e7e5a10955b2b69d83275fdf6f511e7276c426b`. 레지스트리 digest 일치 확인. 빌드 중 만료된 기존 ACR 로그인 세션만 갱신, 권한 변경 없음.
+- 공개배포 미실행: 검증/빌드 소요시간 때문에 안내 종료23:03 내 안전 완료가 어려워 23:30으로 연장 요청. 자동 승인 검토가 새 시간의 명시 승인 부족으로 운영 시간 변경 명령을 실행 전에 차단했다. 사용자에게 정식 승인 질문 전달, 대기 중. 우회 실행 없음. 앱은 기존 backend66/frontend56, 저장 제한 미적용 상태.
+- 이어갈 범위: 시간 변경 승인 후 `/private/tmp/emi-push-reschedule.py`의 subscription pin 보정을 적용(거부된 명령 전체가 미실행이므로 아직 미반영), 검토된 schedule-only job 실행·양쪽 DB 성공 확인, maintenance.json 종료 시각 동기화. 이후 exact-main 검증을 유지해 `/private/tmp/emi-push-release.py deploy` 1회 실행, health·image·환경 보존·저장 재개 및 인증된 오산 화면 확인. migration/bootstrap/backfill은 모두 false. 배포 증거 `/private/tmp/emi-push-release-20260925`.
+- 실제 아이폰은 새 버전 설치 앱 실행 후 사용자가 재연결 버튼을 눌러야 한다. 단말 수신 성공은 아직 미확인이다. `UserRequest` 연결 해제는 보존한다.

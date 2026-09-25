@@ -492,3 +492,10 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 - 공개배포 미실행: 검증/빌드 소요시간 때문에 안내 종료23:03 내 안전 완료가 어려워 23:30으로 연장 요청. 자동 승인 검토가 새 시간의 명시 승인 부족으로 운영 시간 변경 명령을 실행 전에 차단했다. 사용자에게 정식 승인 질문 전달, 대기 중. 우회 실행 없음. 앱은 기존 backend66/frontend56, 저장 제한 미적용 상태.
 - 이어갈 범위: 시간 변경 승인 후 `/private/tmp/emi-push-reschedule.py`의 subscription pin 보정을 적용(거부된 명령 전체가 미실행이므로 아직 미반영), 검토된 schedule-only job 실행·양쪽 DB 성공 확인, maintenance.json 종료 시각 동기화. 이후 exact-main 검증을 유지해 `/private/tmp/emi-push-release.py deploy` 1회 실행, health·image·환경 보존·저장 재개 및 인증된 오산 화면 확인. migration/bootstrap/backfill은 모두 false. 배포 증거 `/private/tmp/emi-push-release-20260925`.
 - 실제 아이폰은 새 버전 설치 앱 실행 후 사용자가 재연결 버튼을 눌러야 한다. 단말 수신 성공은 아직 미확인이다. `UserRequest` 연결 해제는 보존한다.
+
+#### 공개배포 완료 (2026-09-25 23:28 KST)
+- 사용자 후속 승인: 팝업 시간은 기본 안내이며 실제 배포 시각과 일치할 필요 없이 바로 공개배포. 시간 변경 작업은 실행하지 않고 기존 준비 상태를 사용했다. 공지 게시글 생략 유지.
+- 검증된 main `9d04c44747728f46b9cd3ad0c3195450b46a5a76`의 위 digest 이미지로 배포 완료. Backend `backend--0000067`, Frontend `frontend--0000057` 모두 latest=ready/Healthy, 이미지 일치. 환경 변수와 secret reference 배포 전후 동일 확인.
+- 실제 배포 전 저장 보호 및 진행 요청 종료 대기, 앱 교체 후 public security PASS. maintenance 완료 job `maintenance-qemh08y`에서 CHEONGJU/OSAN 모두 `Completed Version=3`(23:27:56 KST), 저장 제한 해제 확인. DB migration/bootstrap/backfill 미실행, 업무 데이터 조작 없음.
+- public health200, 익명 root/api401 기존 접근 게이트 유지. 보조 검증기의 root200 기대값은 기존 runner의 root401 계약에 맞게 수정 후 PASS(제품 수정 아님). 공개 브라우저 새로고침 후 로그인 세션 확인·오산 홈·알림 설정 조회 정상, 설정 저장/시험 발송은 하지 않았다.
+- 배포 증거 `/private/tmp/emi-push-release-20260925/deploy-release.log`, `final-verification.json`. 실제 아이폰에서 재연결 버튼 클릭 이후 푸시 표시 여부는 사용자 단말 확인이 남는다. 만료 복구 기능 배포 완료와 실제 기기 복구를 구분한다.

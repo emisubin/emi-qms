@@ -1,3 +1,4 @@
+import { OsanInlineState } from './OsanUiPrimitives';
 import { OsanMenuHeading } from './OsanMenuHeading';
 import { useEffect, useState } from 'react';
 import { fetchJson } from './api';
@@ -26,8 +27,8 @@ export function OsanGateApprovalsPage({ developmentUserKey, onOpenStage }: {
   return <section className="osan-admin-page osan-gate-approvals-page" aria-label="Gate 승인 대기">
     <OsanMenuHeading title="Gate 승인 대기" description="사진·코멘트 수정 승인 요청 중 대기 건만 표시합니다." actions={
       <button type="button" onClick={() => setRevision(value => value + 1)}>새로고침</button>} />
-    {state.kind === 'loading' && <p role="status">승인 대기를 불러오는 중입니다.</p>}
-    {state.kind === 'error' && <p role="alert">{state.message} <button type="button" onClick={() => setRevision(value => value + 1)}>다시 시도</button></p>}
+    {state.kind === 'loading' && <OsanInlineState kind="loading">승인 대기를 불러오는 중입니다.</OsanInlineState>}
+    {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {state.kind === 'ready' && (state.items.length ? <div className="osan-admin-approvals" role="table" aria-label="Gate 승인 요청 목록">
       <div role="row" className="osan-admin-approval-head"><span role="columnheader">프로젝트</span><span role="columnheader">Gate</span><span role="columnheader">요청자</span><span role="columnheader">요청일</span><span className="osan-approval-reason" role="columnheader">요청 사유</span></div>
       {state.items.map(item => <div role="row" className="osan-admin-approval-row" key={item.requestId} tabIndex={0}

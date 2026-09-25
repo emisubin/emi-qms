@@ -132,7 +132,7 @@
   flex: 0 0 auto;
   margin: 0;
   padding: 0;
-  accent-color: #da2127;
+  accent-color: var(--osan-brand,#da2127);
 }
 .app-shell .osan-filter-select-list span {
   min-width: 0;
@@ -168,8 +168,8 @@
   font-size: 12px !important;
 }
 .app-shell .osan-filter-select-actions button.is-primary {
-  border-color: #da2127 !important;
-  background: #da2127 !important;
+  border-color: var(--osan-brand,#da2127) !important;
+  background: var(--osan-brand,#da2127) !important;
   color: #fff !important;
 }
 

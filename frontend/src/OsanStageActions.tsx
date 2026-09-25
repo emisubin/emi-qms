@@ -1,3 +1,4 @@
+import { OsanButton } from './OsanButton';
 import { createContext, useContext, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { dismissOnBackdrop } from './dialogBackdrop';
@@ -9,7 +10,10 @@ const Slots = createContext<{ slots: Record<Placement, HTMLDivElement | null>; c
 /** Only the trigger moves; forms, requests and permission checks stay in their owning component. */
 export function OsanStageAction({ placement = 'secondary', onClick, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { placement?: Placement }) {
   const context = useContext(Slots);
-  const button = <button {...props} onClick={event => { context?.close(); onClick?.(event); }} />;
+  const handleClick: ButtonHTMLAttributes<HTMLButtonElement>['onClick'] = event => { context?.close(); onClick?.(event); };
+  const button = placement === 'primary' || placement === 'visible'
+    ? <OsanButton {...props} size="stage" tone={placement === 'primary' ? 'primary' : 'neutral'} onClick={handleClick} />
+    : <button {...props} onClick={handleClick} />;
   return context ? (context.slots[placement] ? createPortal(button, context.slots[placement]) : null) : button;
 }
 
@@ -36,7 +40,7 @@ export function OsanStageActions({ title, children }: { title: string; children:
     <div className="osan-record-actions osan-stage-actions">
       <div className="osan-stage-actionbar">
         <div className="osan-stage-primary" ref={setPrimary}/><div className="osan-stage-visible" ref={setVisible}/>
-        <button ref={trigger} className="osan-stage-more" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>더보기 <span aria-hidden="true">⋯</span></button>
+        <OsanButton size="stage" ref={trigger} className="osan-stage-more" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>더보기 <span aria-hidden="true">⋯</span></OsanButton>
       </div>
       <div className="osan-stage-action-details">{children}</div>
       <dialog ref={dialog} className="osan-stage-more-dialog" aria-label={`${title} 더보기`} onCancel={close} onClose={() => setOpen(false)} onClick={event => dismissOnBackdrop(event, close)}>

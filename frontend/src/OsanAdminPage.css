@@ -1,18 +1,15 @@
-.app-shell .osan-admin-page { max-width: 1400px; min-width: 0; padding: 24px; background: #fff; color: #282828; font-size: 13px; }
-.app-shell .osan-admin-page button { cursor: pointer; }
-.app-shell .osan-admin-page button:disabled { cursor: default; opacity: .55; }
-.app-shell .osan-admin-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.app-shell .osan-admin-heading h1 { margin: 0 0 8px; font-size: 22px; }
-.app-shell .osan-admin-heading p { margin: 0; color: #737373; line-height: 1.6; }
-.app-shell .osan-admin-primary { min-height: 32px; padding: 6px 12px; border: 1px solid #da2127; border-radius: 4px; background: #da2127; color: #fff; font-size: 12px; white-space: nowrap; }
+
+.app-shell .osan-admin-page button:not(.osan-button) { cursor: pointer; }
+.app-shell .osan-admin-page button:not(.osan-button):disabled { cursor: default; opacity: .55; }
+.app-shell .osan-admin-primary { min-height: 32px; padding: 6px 12px; border: 1px solid var(--osan-brand,#da2127); border-radius: 4px; background: var(--osan-brand,#da2127); color: #fff; font-size: 12px; white-space: nowrap; }
 .app-shell .osan-admin-tabs { display: flex; gap: 24px; border-bottom: 1px solid #ddd; }
-.app-shell .osan-admin-tabs button { min-height: 38px; padding: 9px 0; border: 0; border-radius: 0; background: transparent; color: #888; font-size: 13px; }
-.app-shell .osan-admin-tabs button[aria-selected='true'] { border-bottom: 2px solid #282828; color: #282828; font-weight: 700; }
+.app-shell .osan-admin-tabs button:not(.osan-button) { min-height: 38px; padding: 9px 0; border: 0; border-radius: 0; background: transparent; color: #888; font-size: 13px; }
+.app-shell .osan-admin-tabs button:not(.osan-button)[aria-selected='true'] { border-bottom: 2px solid #282828; color: #282828; font-weight: 700; }
 .app-shell .osan-admin-toolbar { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
 .app-shell .osan-admin-toolbar > input { width: min(280px, 100%); min-height: 32px; padding: 6px 10px; border: 1px solid #c7c7c7; border-radius: 4px; font-size: 13px; }
 .app-shell .osan-admin-toolbar label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .app-shell .osan-admin-toolbar > span { margin-left: auto; color: #777; font-size: 12px; }
-.app-shell .osan-admin-page input[type='checkbox'] { width: 17px; height: 17px; accent-color: #da2127; }
+.app-shell .osan-admin-page input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--osan-brand,#da2127); }
 .app-shell .osan-admin-record-head, .app-shell .osan-admin-record { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(200px, 2fr) 75px 44px; align-items: center; gap: 16px; padding: 0 12px; }
 .app-shell .osan-admin-record-head { height: 36px; border-top: 1px solid #777; border-bottom: 1px solid #ddd; background: #fafafa; color: #777; font-size: 12px; }
 .app-shell .osan-admin-record { min-height: 44px; border-bottom: 1px solid #eee; }
@@ -23,7 +20,7 @@
 .app-shell .osan-admin-empty-tag { color: #b62027; }
 .app-shell .osan-admin-count { color: #777; font-size: 12px; }
 .app-shell .osan-admin-record-actions { display: flex; justify-content: center; gap: 5px; }
-.app-shell .osan-admin-record-actions button { min-height: 28px; padding: 3px 7px; border: 1px solid #da2127; border-radius: 4px; background: #fff; color: #da2127; font-size: 12px; white-space: nowrap; }
+.app-shell .osan-admin-record-actions button:not(.osan-button) { min-height: 28px; padding: 3px 7px; border: 1px solid var(--osan-brand,#da2127); border-radius: 4px; background: #fff; color: var(--osan-brand,#da2127); font-size: 12px; white-space: nowrap; }
 .app-shell .osan-admin-empty-list { padding: 35px; text-align: center; color: #777; }
 .app-shell .osan-admin-policy { margin-top: 14px; color: #777; font-size: 12px; line-height: 1.8; }
 .app-shell .osan-admin-policy summary { cursor: pointer; }
@@ -32,7 +29,7 @@
 .app-shell .osan-admin-dialog header, .app-shell .osan-admin-dialog footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .app-shell .osan-admin-dialog header h2 { margin: 3px 0 0; font-size: 18px; }
 .app-shell .osan-admin-dialog header small { color: #777; }
-.app-shell .osan-admin-dialog header button { border: 0; background: transparent; font-size: 22px; }
+.app-shell .osan-admin-dialog header button:not(.osan-button) { border: 0; background: transparent; font-size: 22px; }
 .app-shell .osan-admin-dialog p { color: #666; font-size: 12px; line-height: 1.6; }
 .app-shell .osan-admin-dialog > label, .app-shell .osan-admin-dialog form > label { display: grid; gap: 6px; margin: 12px 0 8px; }
 .app-shell .osan-admin-dialog input[type='search'], .app-shell .osan-admin-dialog input:not([type]) { min-height: 36px; padding: 7px 10px; border: 1px solid #c7c7c7; border-radius: 4px; font-size: 14px; }
@@ -46,16 +43,15 @@
 .app-shell .osan-admin-chosen { margin: 12px 0; padding: 10px; background: #fafafa; }
 .app-shell .osan-admin-chosen > strong { font-size: 12px; }
 .app-shell .osan-admin-chosen > div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.app-shell .osan-admin-chosen button { min-height: 28px; padding: 3px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; font-size: 12px; }
+.app-shell .osan-admin-chosen button:not(.osan-button) { min-height: 28px; padding: 3px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; font-size: 12px; }
 .app-shell .osan-admin-dialog footer { padding-top: 12px; border-top: 1px solid #eee; }
 .app-shell .osan-admin-dialog footer > span { color: #777; font-size: 11px; }
 .app-shell .osan-admin-dialog footer > div { display: flex; gap: 6px; }
-.app-shell .osan-admin-dialog footer button { min-height: 34px; padding: 6px 12px; }
-.app-shell .osan-gate-exception { padding: 10px 0 16px; border-bottom: 1px solid #eee; color: #666; font-size: 12px; }
+.app-shell .osan-admin-dialog footer button:not(.osan-button) { min-height: 34px; padding: 6px 12px; }
 .app-shell .osan-gate-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; color: #666; font-size: 12px; }
 .app-shell .osan-gate-toolbar > div { display: flex; gap: 6px; }
 .app-shell .osan-gate-toolbar .unsaved { color: #bc1c22; }
-.app-shell .osan-gate-toolbar button { min-height: 32px; padding: 5px 12px; font-size: 12px; }
+.app-shell .osan-gate-toolbar button:not(.osan-button) { min-height: 32px; padding: 5px 12px; font-size: 12px; }
 .app-shell .osan-gate-table-wrap { max-width: 100%; overflow-x: auto; }
 .app-shell .osan-gate-table-wrap table { width: 100%; min-width: 600px; border-collapse: collapse; table-layout: fixed; border-top: 1px solid #777; font-size: 13px; }
 .app-shell .osan-gate-table-wrap caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
@@ -65,34 +61,31 @@
 .app-shell .osan-gate-table-wrap tbody th { border-bottom: 1px solid #eee; background: #fff; }
 .app-shell .osan-gate-table-wrap tbody tr:hover td, .app-shell .osan-gate-table-wrap tbody tr:hover th { background: #fafafa; }
 .app-shell .osan-gate-table-wrap td label { display: grid; min-height: 43px; place-items: center; cursor: pointer; }
-.app-shell .osan-gate-mark { color: #da2127; font-size: 23px; font-weight: 700; }
-.app-shell .osan-admin-page :is(button, input):focus-visible { outline: 2px solid #282828; outline-offset: 2px; }
+.app-shell .osan-gate-mark { color: var(--osan-brand,#da2127); font-size: 23px; font-weight: 700; }
+.app-shell .osan-admin-page :is(button:not(.osan-button), input):focus-visible { outline: 2px solid #282828; outline-offset: 2px; }
 .app-shell .osan-admin-approval-head, .app-shell .osan-admin-approval-row { display: grid; grid-template-columns: minmax(180px, 2fr) 100px 110px minmax(140px, 1fr) 160px; align-items: center; gap: 12px; padding: 10px 12px; }
 .app-shell .osan-admin-approval-head { border-top: 1px solid #777; border-bottom: 1px solid #ddd; background: #fafafa; color: #777; font-size: 12px; }
 .app-shell .osan-admin-approval-row { min-height: 52px; border-bottom: 1px solid #eee; }
 .app-shell .osan-admin-approval-row small { display: block; color: #777; }
-.app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-admin-primary) { border: 0; background: transparent; padding: 0; text-align: left; text-decoration: underline; }
-/* The shared wireframe loads after this page and uses important selected-button colors. */
-.app-shell .osan-admin-page .osan-admin-tabs > button:not(:disabled) { border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; background: transparent !important; color: #888 !important; box-shadow: none !important; }
-.app-shell .osan-admin-page .osan-admin-tabs > button[aria-selected='true']:not(:disabled) { border-bottom-color: #282828 !important; background: transparent !important; color: #282828 !important; }
+.app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-button):not(.osan-admin-primary) { border: 0; background: transparent; padding: 0; text-align: left; text-decoration: underline; }
+/* The shared wireframe loads after this page and uses important selected-button:not(.osan-button) colors. */
+.app-shell .osan-admin-page .osan-admin-tabs > button:not(.osan-button):not(:disabled) { border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; background: transparent !important; color: #888 !important; box-shadow: none !important; }
+.app-shell .osan-admin-page .osan-admin-tabs > button:not(.osan-button)[aria-selected='true']:not(:disabled) { border-bottom-color: #282828 !important; background: transparent !important; color: #282828 !important; }
 .app-shell .osan-admin-page .osan-admin-tabs { border-bottom-color: #ddd !important; }
-.app-shell .osan-admin-page button.osan-admin-primary:not(:disabled) { border-color: #da2127 !important; background: #da2127 !important; color: #fff !important; box-shadow: none !important; }
-.app-shell .osan-admin-page button.osan-admin-primary { border-radius: 4px !important; }
-.app-shell .osan-admin-page button.osan-admin-primary:hover:not(:disabled) { border-color: #bd1c22 !important; background: #bd1c22 !important; }
+.app-shell .osan-admin-page button:not(.osan-button).osan-admin-primary:not(:disabled) { border-color: var(--osan-brand,#da2127) !important; background: var(--osan-brand,#da2127) !important; color: #fff !important; box-shadow: none !important; }
+.app-shell .osan-admin-page button:not(.osan-button).osan-admin-primary { border-radius: 4px !important; }
+.app-shell .osan-admin-page button:not(.osan-button).osan-admin-primary:hover:not(:disabled) { border-color: #bd1c22 !important; background: #bd1c22 !important; }
 .app-shell .osan-admin-page .osan-admin-record-head { border-top-color: #777 !important; border-bottom-color: #ddd !important; color: #777 !important; }
 .app-shell .osan-admin-page .osan-admin-record-head [role='columnheader'] { color: #777 !important; }
 .app-shell .osan-admin-page .osan-admin-record { border-bottom: 1px solid #eee !important; background: #fff !important; }
 .app-shell .osan-admin-page .osan-admin-record:hover { background: #fafafa !important; }
 .app-shell .osan-admin-page .osan-admin-related { color: #555 !important; }
 .app-shell .osan-admin-page .osan-admin-count { color: #777 !important; }
-.app-shell .osan-admin-page .osan-admin-record-actions button:not(:disabled) { border-color: #da2127 !important; background: #fff !important; color: #da2127 !important; box-shadow: none !important; }
-.app-shell .osan-admin-page .osan-admin-record-actions button { border-radius: 4px !important; }
-.app-shell .osan-admin-page .osan-admin-record-actions button:hover:not(:disabled) { background: #fff4f4 !important; }
-.app-shell .osan-admin-page .osan-gate-mark { color: #da2127 !important; }
+.app-shell .osan-admin-page .osan-admin-record-actions button:not(.osan-button):not(:disabled) { border-color: var(--osan-brand,#da2127) !important; background: #fff !important; color: var(--osan-brand,#da2127) !important; box-shadow: none !important; }
+.app-shell .osan-admin-page .osan-admin-record-actions button:not(.osan-button) { border-radius: 4px !important; }
+.app-shell .osan-admin-page .osan-admin-record-actions button:not(.osan-button):hover:not(:disabled) { background: #fff4f4 !important; }
+.app-shell .osan-admin-page .osan-gate-mark { color: var(--osan-brand,#da2127) !important; }
 @media (max-width: 700px) {
-  .app-shell .osan-admin-page { padding: 12px; }
-  .app-shell .osan-admin-heading h1 { font-size: 20px; }
-  .app-shell .osan-admin-heading p { font-size: 12px; }
   .app-shell .osan-admin-toolbar { flex-wrap: wrap; gap: 8px; }
   .app-shell .osan-admin-toolbar > input { flex: 1; min-width: 0; width: auto; font-size: 16px; }
   .app-shell .osan-admin-toolbar > span { flex-basis: 100%; margin-left: 0; }
@@ -101,7 +94,7 @@
   .app-shell .osan-admin-related { grid-column: 1; grid-row: 2; white-space: normal; }
   .app-shell .osan-admin-count { display: none; }
   .app-shell .osan-admin-record-actions { grid-column: 2; grid-row: 1 / 3; flex-direction: column; }
-  .app-shell .osan-admin-record-actions button { min-height: 28px; }
+  .app-shell .osan-admin-record-actions button:not(.osan-button) { min-height: 28px; }
   .app-shell .osan-admin-dialog { padding: 16px; }
   .app-shell .osan-gate-toolbar { align-items: flex-start; }
   .app-shell .osan-gate-toolbar > span { max-width: 130px; line-height: 1.5; }
@@ -118,28 +111,28 @@
   .app-shell .osan-admin-approval-row > :nth-child(3) { grid-column: 1; grid-row: 2; font-size: 11px; }
   .app-shell .osan-admin-approval-row > :nth-child(4) { grid-column: 1; grid-row: 3; font-size: 11px; }
   .app-shell .osan-admin-approval-row > :last-child { grid-column: 2; grid-row: 2 / 4; }
-  .app-shell .osan-admin-approval-row button { min-height: 0; line-height: 18px; font-size: 12px; }
+  .app-shell .osan-admin-approval-row button:not(.osan-button) { min-height: 0; line-height: 18px; font-size: 12px; }
   .app-shell .osan-admin-approval-row .osan-admin-primary { min-height: 30px; padding: 4px 8px; }
   .app-shell .osan-admin-approval-row small { font-size: 10px; line-height: 14px; }
 }
 
 @media(max-width:700px){
- .app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-admin-primary){min-height:18px!important;height:auto!important;line-height:18px;padding:0!important;overflow-wrap:anywhere}
+ .app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-button):not(.osan-admin-primary){min-height:18px!important;height:auto!important;line-height:18px;padding:0!important;overflow-wrap:anywhere}
 }
 
 /* MYBOX: compact rows, one overflow control; mobile actions live outside the row. */
 .app-shell .osan-admin-record-head > :last-child { text-align: center; }
 .app-shell .osan-admin-record > :first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.app-shell .osan-admin-page .osan-admin-record-actions button.osan-admin-more { width: 44px; min-height: 44px; padding: 0; border: 0!important; background: transparent!important; color: #555!important; font-size: 24px; }
+.app-shell .osan-admin-page .osan-admin-record-actions button:not(.osan-button).osan-admin-more { width: 44px; min-height: 44px; padding: 0; border: 0!important; background: transparent!important; color: #555!important; font-size: 24px; }
 .app-shell .osan-admin-action-menu { position: fixed; margin: 0; width: 210px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 6px; border: 1px solid #ddd; border-radius: 6px; background: #fff; color: #282828; box-shadow: 0 6px 22px #0002; overflow-y: auto; }
 .app-shell .osan-admin-action-menu::backdrop { background: transparent; }
 .app-shell .osan-admin-action-menu header { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 4px 8px; border-bottom: 1px solid #eee; }
 .app-shell .osan-admin-action-menu header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.app-shell .osan-admin-page .osan-admin-action-menu button { border: 0!important; border-radius: 3px!important; box-shadow: none!important; background: #fff!important; color: #282828!important; min-height: 36px; padding: 7px 10px; text-align: left; font-size: 13px; }
-.app-shell .osan-admin-action-menu > button { display: block; width: 100%; }
-.app-shell .osan-admin-action-menu header button { font-size: 20px!important; }
-.app-shell .osan-admin-page .osan-admin-action-menu button:hover { background: #f5f5f5!important; }
-.app-shell .osan-admin-page .osan-admin-action-menu button.osan-admin-delete { color: #da2127!important; border-top: 1px solid #eee!important; }
+.app-shell .osan-admin-page .osan-admin-action-menu button:not(.osan-button) { border: 0!important; border-radius: 3px!important; box-shadow: none!important; background: #fff!important; color: #282828!important; min-height: 36px; padding: 7px 10px; text-align: left; font-size: 13px; }
+.app-shell .osan-admin-action-menu > button:not(.osan-button) { display: block; width: 100%; }
+.app-shell .osan-admin-action-menu header button:not(.osan-button) { font-size: 20px!important; }
+.app-shell .osan-admin-page .osan-admin-action-menu button:not(.osan-button):hover { background: #f5f5f5!important; }
+.app-shell .osan-admin-page .osan-admin-action-menu button:not(.osan-button).osan-admin-delete { color: var(--osan-brand,#da2127)!important; border-top: 1px solid #eee!important; }
 @media(max-width:700px) {
  .app-shell .osan-admin-record { grid-template-columns: minmax(0,1fr) 44px; min-height: 56px; padding: 4px; gap: 0 8px; }
  .app-shell .osan-admin-record > :first-child { align-self: end; line-height: 20px; }
@@ -148,7 +141,7 @@
  .app-shell .osan-admin-action-menu { top: auto!important; left: 0!important; bottom: 0; width: 100%; max-width: none; box-sizing: border-box; border: 0; border-radius: 14px 14px 0 0; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); }
  .app-shell .osan-admin-action-menu::backdrop { background: #0006; }
  .app-shell .osan-admin-action-menu header { padding: 4px 8px 8px; }
- .app-shell .osan-admin-page .osan-admin-action-menu button { min-height: 44px; font-size: 14px; }
+ .app-shell .osan-admin-page .osan-admin-action-menu button:not(.osan-button) { min-height: 44px; font-size: 14px; }
 }
 
 /* Approval requests navigate as compact whole rows, without a separate action column. */
@@ -156,7 +149,7 @@
 .app-shell .osan-gate-approvals-page .osan-admin-approval-row { grid-template-columns: minmax(180px,2fr) 100px 110px minmax(150px,1fr); padding: 5px 12px; }
 .app-shell .osan-gate-approvals-page .osan-admin-approval-row { min-height:40px; cursor:pointer; font-size:13px; line-height:16px; }
 .app-shell .osan-gate-approvals-page .osan-admin-approval-row:hover { background:#f7f7f7; }
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row:focus-visible { outline:2px solid #da2127; outline-offset:-2px; }
+.app-shell .osan-gate-approvals-page .osan-admin-approval-row:focus-visible { outline:2px solid var(--osan-brand,#da2127); outline-offset:-2px; }
 .app-shell .osan-gate-approvals-page .osan-admin-approval-row small { font-size:10px; line-height:13px; }
 @media(max-width:700px){
  .app-shell .osan-gate-approvals-page .osan-admin-approval-row { grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding:6px 4px; min-height:44px; font-size:12px; }

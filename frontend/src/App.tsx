@@ -1,10 +1,13 @@
+import { OsanButton } from './OsanButton';
+import { OsanMenuHeading } from './OsanMenuHeading';
+import { SelectionActionBar } from './SelectionActionBar';
 import { NavigationIcon } from './NavigationIcon';
 import { BusbarLabelEntryPrompt } from "./BusbarLabelTracking";
 import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
 import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
-import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
@@ -19,11 +22,13 @@ import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
+import { OsanPersonalHome } from './OsanPersonalHomePage';
+import { rememberOsanProject } from './osanPersonalHome';
 import { createOsanListNavigation, emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
 import { fetchJson } from './api';
 import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
-import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
+import { OsanListFrame } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
 import { formatOsanDday, useKoreaDate, isOsanOverdue } from './osanDday';
 import './osan-project-detail.css';
@@ -208,6 +213,8 @@ import {
   acquireAccessToken,
   beginInteractiveLoginAudit,
   beginLoginRedirect,
+  beginServerSessionRecovery,
+  completeServerSessionRecovery,
   completeLoginRedirect,
   isExplicitlyLoggedOut,
   markExplicitLogout,
@@ -2008,6 +2015,19 @@ function QmsAppShellContent({
     }
   }, [layout.isMobile]);
 
+  useEffect(() => {
+    if (isOsan && currentUser.kind === 'ready' && !currentUser.data.approvalPending
+      && (view.kind === 'detail' || view.kind === 'osan-progress' || view.kind === 'osan-qr') && view.projectId) {
+      rememberOsanProject(currentUser.data.effectiveUser?.userId ?? currentUser.data.userId, view.projectId);
+    }
+  }, [isOsan, currentUser, view]);
+
+  // Enter Osan routes at the top; list pages restore their saved position
+  // after loading when returning from a detail in the same menu.
+  useLayoutEffect(() => {
+    if (isOsan) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [isOsan, view]);
+
   const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
     listNavigation.current(nextView);
@@ -2063,6 +2083,7 @@ function QmsAppShellContent({
 
     getCurrentUser(developmentUserKey)
       .then((data) => {
+        if (!isDevMode) completeServerSessionRecovery();
         setCurrentUser({ kind: 'ready', data });
         const resolvedAccess = resolveBusinessUnitAccess(data);
         if (resolvedAccess.status === 'selected' || resolvedAccess.isOverallAdministrator) {
@@ -2277,7 +2298,7 @@ function QmsAppShellContent({
   if (!isDevMode && currentUser.kind !== 'ready') {
     if (isAuthenticationExpiredState(currentUser)) {
       return (
-        <AuthStatusScreen state="reauth" onAction={onReauthenticate} />
+        <ServerSessionRecovery onReauthenticate={onReauthenticate} />
       );
     }
 
@@ -2481,6 +2502,26 @@ function QmsAppShellContent({
   const activeNavigationLabel = view.kind === 'privacy-notice'
     ? '개인정보·이용 안내'
     : navigationItems.find((item) => item.active)?.label ?? '업무';
+  const systemStatusDisclosure = (
+<details className="system-status-disclosure">
+          <summary>
+            <span aria-hidden="true" />
+            개발 연결 상태
+          </summary>
+          <section className="system-strip" aria-label="시스템 상태">
+            <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
+            <StatusChip
+              label="Database"
+              value={health.kind === 'ready' ? health.data.database.reason : '-'}
+            />
+            <StatusChip
+              label="User"
+              value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind}
+            />
+          </section>
+        </details>
+  );
+
   return (
     <main
       className="app-shell"
@@ -2489,9 +2530,10 @@ function QmsAppShellContent({
       data-touch-optimized={layout.touchOptimized}
       data-osan-project-theme={(isOsan && (view.kind === 'list' || view.kind === 'detail')) || view.kind === 'interior-busbar' ? 'true' : undefined}
       data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
+      data-osan-shell={isOsan ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
-      <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
+      <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={<>{shellSwitchControls}{isOsan && isSystemAdministrator && systemStatusDisclosure}</>} />
       {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
@@ -2561,14 +2603,14 @@ function QmsAppShellContent({
               mobile
             />
           ) : null}
-          <details className="mobile-system-details">
+          {!isOsan && <details className="mobile-system-details">
             <summary>연결 상태</summary>
             <div className="mobile-status-grid" aria-label="모바일 시스템 상태">
             <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
             <StatusChip label="Database" value={health.kind === 'ready' ? health.data.database.reason : '-'} />
             <StatusChip label="User" value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind} />
             </div>
-          </details>
+          </details>}
 
         {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
             <div className="mobile-status-note" data-tone="warning">
@@ -2676,23 +2718,7 @@ function QmsAppShellContent({
           </div>
         ) : null}
 
-        <details className="system-status-disclosure">
-          <summary>
-            <span aria-hidden="true" />
-            개발 연결 상태
-          </summary>
-          <section className="system-strip" aria-label="시스템 상태">
-            <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
-            <StatusChip
-              label="Database"
-              value={health.kind === 'ready' ? health.data.database.reason : '-'}
-            />
-            <StatusChip
-              label="User"
-              value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind}
-            />
-          </section>
-        </details>
+        {!isOsan && systemStatusDisclosure}
 
       {currentUser.kind === 'forbidden' || currentUser.kind === 'not-found' || currentUser.kind === 'error' ? (
         <StateMessage state={currentUser} />
@@ -2711,7 +2737,19 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        isOsan ? <OsanDashboardPage view="home" stateScopeKey={currentUser.data.userId} developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'detail', projectId })} /> : <HomePage
+        isOsan ? <OsanPersonalHome scope={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId} userKey={developmentUserKey}
+          name={currentUser.data.effectiveUser.displayName} department={currentUser.data.effectiveUser.departmentName ?? ''}
+          canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
+          onProject={projectId => setView({ kind: 'detail', projectId })}
+          onStage={(projectId, targetId, stage) => setView({ kind: 'osan-progress', projectId, targetId, stage: String(stage) })}
+          onProgress={filters => {
+            setView({ kind: 'osan-progress' });
+            if (filters) saveOsanListSnapshot(`${currentUser.data.userId}:dashboard:progress`, { filters: { ...emptyOsanListFilters(), ...filters }, draft: '', scrollY: 0 });
+          }}
+          onNotice={noticeId => setView({ kind: 'notice-board', ...(noticeId ? { noticeId } : {}) })}
+          onNotifications={() => setView({ kind: 'notifications' })}
+          onCreate={() => setView({ kind: 'create' })}
+          onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })}/> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}
@@ -3512,7 +3550,7 @@ function AppMobileNavigation({
   const closeMenu = useCallback((restoreFocus = true) => {
     setMenuOpen(false);
     if (restoreFocus) {
-      window.setTimeout(() => menuTriggerRef.current?.focus(), 0);
+      window.setTimeout(() => menuTriggerRef.current?.focus({ preventScroll: true }), 0);
     }
   }, []);
 
@@ -3529,7 +3567,7 @@ function AppMobileNavigation({
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const focusTimer = window.setTimeout(() => firstMenuItemRef.current?.focus(), 0);
+    const focusTimer = window.setTimeout(() => firstMenuItemRef.current?.focus({ preventScroll: true }), 0);
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -4075,6 +4113,27 @@ export function AuthLoginScreen({
   );
 }
 
+export function ServerSessionRecovery({ onReauthenticate }: { onReauthenticate?: () => void }) {
+  const attempted = useRef(false);
+  const [recovering, setRecovering] = useState(true);
+  useEffect(() => {
+    if (attempted.current) return;
+    attempted.current = true;
+    if (beginServerSessionRecovery()) {
+      // A document GET passes through the Azure authentication gate again.
+      // Keep the current route; never replay the failed API/mutation request.
+      try {
+        window.location.reload();
+        return;
+      } catch { /* Fall back to the existing manual login action. */ }
+    }
+    setRecovering(false);
+  }, []);
+  return recovering
+    ? <AuthLoginScreen loading rememberSession={getRememberSessionPreference()} />
+    : <AuthStatusScreen state="reauth" onAction={onReauthenticate} />;
+}
+
 export function AuthStatusScreen({ state, message, onAction }: {
   state: 'reauth' | 'error' | 'pending';
   message?: string;
@@ -4617,10 +4676,20 @@ function OsanProjectListPage({
       selectedCustomers={filters.customers} onCustomersChange={customers => setFilters({ ...filters, customers, page: 1 })} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
       dueFrom={filters.dueFrom} dueTo={filters.dueTo} onDueChange={(dueFrom, dueTo) => setFilters({ ...filters, dueFrom, dueTo, page: 1 })}
       kpi={filters.kpi} onKpiChange={kpi => setFilters({ ...filters, kpi, page: 1 })}
-      actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
+      actions={canCreate ? <><OsanButton onClick={() => setExcelOpen(true)}>엑셀 업로드</OsanButton><OsanButton tone="primary" onClick={onCreate}>신규 프로젝트</OsanButton></> : undefined}
     >
       {qrIds && <OsanQrPrintDialog projectIds={qrIds} userKey={developmentUserKey} onClose={() => setQrIds(null)} />}
-      {state.kind === 'ready' && <div className="osan-qr-selection"><label><SelectionCheckbox checked={selection.allSelected} indeterminate={selection.selectedIds.size > 0 && !selection.allSelected} label="현재 목록 전체 선택" onChange={selection.toggleAll} />현재 목록 전체 선택</label><span>{selection.selectedIds.size}개 선택</span><button disabled={!selection.selectedIds.size} onClick={() => setQrIds([...selection.selectedIds])}>선택 프로젝트 QR 출력</button>{canManage && <><button type="button" disabled={!selection.selectedIds.size || holdBusy} onClick={() => { setHoldMode(true); setHoldMessage(''); }}>선택 HOLD 지정</button><button type="button" disabled={!selection.selectedIds.size || holdBusy} onClick={() => { setHoldMode(false); setHoldMessage(''); }}>선택 HOLD 해제</button></>}{selection.selectedIds.size > 0 && <button onClick={selection.clear}>선택 해제</button>}</div>}
+      {state.kind === 'ready' && <SelectionActionBar
+        count={selection.selectedIds.size} allSelected={selection.allSelected} onToggleAll={selection.toggleAll} onClear={selection.clear}
+        mobilePrimary={canManage ? { label: 'HOLD', actionIds: ['hold', 'unhold'] } : undefined}
+        actions={[
+          { id: 'qr', label: '선택 프로젝트 QR 출력', onClick: () => setQrIds([...selection.selectedIds]) },
+          ...(canManage ? [
+            { id: 'hold', label: 'HOLD 지정', disabled: holdBusy, onClick: () => { setHoldMode(true); setHoldMessage(''); } },
+            { id: 'unhold', label: 'HOLD 해제', disabled: holdBusy, onClick: () => { setHoldMode(false); setHoldMessage(''); } }
+          ] : [])
+        ]}
+      />}
       {holdMode !== null && <form className="osan-management" onSubmit={event => { event.preventDefault(); void applyHold(); }}><label>{holdMode ? 'HOLD 지정' : 'HOLD 해제'} 사유<textarea required maxLength={500} disabled={holdBusy} value={holdReason} onChange={event => setHoldReason(event.target.value)} /></label><button type="submit" disabled={holdBusy || !holdReason.trim()}>{holdBusy ? '처리 중…' : '선택 프로젝트 변경'}</button><button type="button" disabled={holdBusy} onClick={() => setHoldMode(null)}>취소</button></form>}
       {holdMessage && <p role="status">{holdMessage}</p>}
       {importMessage && <p role="status">{importMessage}</p>}
@@ -4660,6 +4729,7 @@ function OsanProjectListPage({
         <ProjectListPresentation
           ariaLabel="오산 프로젝트 목록"
           testIdPrefix="osan-project-list"
+          mobileCompact
           selectable
           desktopLeadingHeader={<span role="columnheader">선택</span>}
           columns={[
@@ -4696,11 +4766,7 @@ function OsanProjectListPage({
               { label: 'part 분류', value: project.productName },
               { label: '고객사', value: project.customerName },
               { label: 'W/O', value: project.workOrderNumber || '—' },
-              { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
-              { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> },
-              { label: '상태', value: project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status) },
-              { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> }
             ]
           }))}
         />
@@ -4940,6 +5006,7 @@ function OsanProjectDetailPage({
   const [qrOpen, setQrOpen] = useState(false);
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
   const [managementActions, setManagementActions] = useState<HTMLDivElement | null>(null);
+  const [mobileDeleteActions, setMobileDeleteActions] = useState<HTMLDivElement | null>(null);
 
   const load = useCallback(() => {
     const controller = new AbortController();
@@ -4957,12 +5024,12 @@ function OsanProjectDetailPage({
   useEffect(() => load(), [load]);
 
   return (
-    <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
+    <section className="osan-page osan-detail-page" aria-labelledby="osan-dashboard-title">
       {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
-      <header className="osan-detail-header">
-        <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
-          actions={<>{state.kind === 'ready' && <button type="button" className="osan-detail-back" onClick={() => setQrOpen(true)}>QR 코드</button>}<div className="osan-detail-management-actions" ref={setManagementActions} /><button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button></>} />
-      </header>
+      <div className="osan-detail-header">
+        <OsanMenuHeading id="osan-dashboard-title" title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
+          actions={<><div className="osan-detail-management-actions" ref={setManagementActions} />{state.kind === 'ready' && <><OsanButton className="osan-detail-back osan-detail-desktop-qr" onClick={() => setQrOpen(true)}>QR 코드</OsanButton><details className="osan-detail-more"><summary aria-label="프로젝트 더보기">더보기 ⋯</summary><div className="osan-detail-menu"><button type="button" onClick={e => {e.currentTarget.closest('details')?.removeAttribute('open');setQrOpen(true);}}>QR 코드</button><div ref={setMobileDeleteActions}/></div></details></>}<OsanButton className="osan-detail-back osan-detail-list" onClick={onBack}>목록</OsanButton></>} />
+      </div>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
       {state.kind === 'not-found' ? <DsStatePanel kind="not-found" title="프로젝트를 찾을 수 없습니다." description={state.message} /> : null}
@@ -4974,12 +5041,13 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <><OsanProjectManagement actionsContainer={managementActions} mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
+      {state.kind === 'ready' ? <><OsanProjectManagement actionsContainer={managementActions} mobileDeleteContainer={mobileDeleteActions} mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
     </section>
   );
 }
 
 function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProjectDetail; onOpenTarget: (targetId: string) => void }) {
+  const today = useKoreaDate();
   const targetRows = project.targets.map((target) => {
     const completedSteps = target.steps.filter((step) => step.status === 'Completed').length;
     const inProgress = completedSteps > 0;
@@ -5003,28 +5071,21 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
     <>
       <section className="osan-detail-overview" aria-label="프로젝트 기본 정보">
         <div className="osan-detail-identity">
-          <span className="osan-detail-status">{project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status)}</span>
-          <h2>{project.title}</h2>
-          <p className="project-code-value">{project.projectCode}</p>
+          <div className="osan-detail-titleline"><h2>{project.title}</h2><span className="osan-detail-status">{project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status)}</span></div>
+          <p className="project-code-value">{project.productName} · {project.projectCode}</p>
         </div>
-        <div className="osan-detail-facts">
-          <section aria-label="프로젝트 정보">
-            <h3>프로젝트 정보</h3>
-            <p><span>고객사</span><strong>{project.customerName}</strong></p>
-            <p><span>part 분류</span><strong>{project.productName}</strong></p>
-            <p><span>수량</span><strong>{project.quantity.toLocaleString()}개</strong></p>
-          </section>
-          <section aria-label="문서 정보">
-            <h3>문서 정보</h3>
-            <p><span>PO No</span><strong>{project.poNumber ?? '없음'}</strong></p>
-            <p><span>W/O No</span><strong>{project.workOrderNumber ?? '없음'}</strong></p>
-          </section>
-          <section className="osan-detail-deadline" aria-label="납기일">
-            <h3>납기일</h3>
-            <time dateTime={project.deliveryDate}>{project.deliveryDate}</time>
-            {project.deliveryHold && <strong>HOLD · 납기 보류</strong>}
-          </section>
-        </div>
+        <section className="osan-detail-information" aria-label="프로젝트 정보">
+          <h3>프로젝트 정보</h3>
+          <dl>
+            <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
+            <div><dt>Part 분류</dt><dd>{project.productName}</dd></div>
+            <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
+            <div><dt>W/O No</dt><dd><strong>{project.workOrderNumber || '없음'}</strong></dd></div>
+            <div><dt>PO No</dt><dd>{project.poNumber || '없음'}</dd></div>
+            <div><dt>수량</dt><dd>{project.quantity.toLocaleString()}개</dd></div>
+            <div><dt>납기일</dt><dd><time dateTime={project.deliveryDate}>{formatDate(project.deliveryDate)}</time><span className="osan-detail-dday">{project.deliveryHold ? 'HOLD · 납기 보류' : formatOsanDday(project.deliveryDate, today, project.status)}</span></dd></div>
+          </dl>
+        </section>
       </section>
 
       <div
@@ -9686,18 +9747,17 @@ function TeamsActivityNotificationDetailPage({
     }
   };
 
-  if (osan) return <section className="osan-notifications">
-    <button className="on-back" type="button" onClick={onBack}>‹ 알림 목록</button>
-    <h1>알림 상세</h1><p className="on-description">알림 내용과 연결된 프로젝트를 확인합니다.</p>
+  if (osan) return <section className="osan-page osan-notifications">
+    <OsanMenuHeading title="알림 상세" description="알림 내용과 연결된 프로젝트를 확인합니다." actions={<OsanButton onClick={onBack}>알림 목록</OsanButton>} />
     {state.kind === 'loading' ? <p role="status" className="on-empty">알림 상세를 불러오는 중입니다.</p> : null}
     {message && <ActionFeedback message={message} tone={message.includes('실패') ? 'error' : 'success'} />}
-    {state.kind !== 'ready' && state.kind !== 'loading' && <div className="on-empty" role="alert"><p>{loadStateMessage(state) ?? '알림을 표시할 수 없습니다.'}</p><button type="button" onClick={load}>다시 불러오기</button></div>}
+    {state.kind !== 'ready' && state.kind !== 'loading' && <div className="on-empty" role="alert"><p>{loadStateMessage(state) ?? '알림을 표시할 수 없습니다.'}</p><OsanButton onClick={load}>다시 불러오기</OsanButton></div>}
     {state.kind === 'ready' && <article className="on-detail" aria-label="인앱 알림 상세">
       <span className="on-badge">{osanNotificationLabel(state.data)}</span><span className="on-meta">{state.data.readAtUtc ? '읽음' : '읽지 않음'} · {formatDateTime(state.data.createdAtUtc)}</span>
       <h2>{state.data.title}</h2>
       <div className="on-facts"><strong>{state.data.projectTitle}</strong><br/>{state.data.projectCode}{osanNotificationActor(state.data) && <><br/>처리자 · {osanNotificationActor(state.data)}</>}</div>
       <p className="on-detail-body">{osanNotificationBody(state.data)}</p>
-      <div className="on-actions">{state.data.projectId && <button type="button" className="on-primary" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>관련 화면으로 이동</button>}{!state.data.readAtUtc && <button type="button" onClick={() => void markRead()}>읽음 처리</button>}<button type="button" onClick={onBack}>목록으로</button></div>
+      <div className="on-actions">{state.data.projectId && <OsanButton type="button" tone="primary" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>관련 화면으로 이동</OsanButton>}{!state.data.readAtUtc && <OsanButton type="button" onClick={() => void markRead()}>읽음 처리</OsanButton>}<OsanButton type="button" onClick={onBack}>목록으로</OsanButton></div>
     </article>}
   </section>;
 
@@ -10004,10 +10064,10 @@ function NotificationsPage({
       ? actions.latestFeedback : null
   );
 
-  if (osan) return <section className="osan-notifications">
-    <header className="on-heading"><div><h1>알림</h1><p className="on-description">프로젝트와 진행 단계에 대한 알림을 확인합니다.</p></div><div className="on-actions">
-      <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</button><button type="button" onClick={refresh}>새로고침</button>
-    </div></header>
+  if (osan) return <section className="osan-page osan-notifications">
+    <OsanMenuHeading title="알림" description="프로젝트와 진행 단계에 대한 알림을 확인합니다." actions={<>
+      <OsanButton type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</OsanButton><OsanButton type="button" onClick={refresh}>새로고침</OsanButton>
+    </>} />
     <div className="on-summary" aria-label="알림 요약"><div><span>읽지 않음</span><strong>{summary?.unreadCount ?? '-'}</strong></div><div><span>긴급/차단</span><strong>{summary?.blockingCount ?? '-'}</strong></div></div>
     <div className="on-filters" role="tablist" aria-label="알림 읽음 상태">{(['unread','All','read'] as NotificationTab[]).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : undefined} onClick={() => selectTab(tab)}>{tab === 'unread' ? '읽지 않음' : tab === 'All' ? '전체' : '읽음'}</button>)}</div>
     {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && <StateMessage state={summaryState}/>}
@@ -10021,21 +10081,21 @@ function NotificationsPage({
       const projectFeedback = actions.feedbackFor(`notifications:project:${group.projectId}`);
       return <section className="on-group" key={group.groupKey} aria-label={`${group.projectTitle} 알림`}>
         <header className="on-grouphead"><div><strong>{group.projectTitle}</strong><div className="on-meta">{group.projectCode} · 알림 {group.items.length}건 · 읽지 않음 {group.unreadCount}건</div></div><div className="on-actions">
-          {group.projectId && group.unreadCount > 0 && <button type="button" disabled={actions.isBusy(`notifications:project:${group.projectId}`)} onClick={() => void readProject(group)}>{actions.isBusy(`notifications:project:${group.projectId}`) ? '정리 중' : '이 프로젝트 모두 읽음'}</button>}
-          {group.projectId && <button type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</button>}
+          {group.projectId && group.unreadCount > 0 && <OsanButton type="button" disabled={actions.isBusy(`notifications:project:${group.projectId}`)} onClick={() => void readProject(group)}>{actions.isBusy(`notifications:project:${group.projectId}`) ? '정리 중' : '이 프로젝트 모두 읽음'}</OsanButton>}
+          {group.projectId && <OsanButton type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</OsanButton>}
         </div></header>
         {projectFeedback && <div className="on-group-feedback"><ActionFeedback message={projectFeedback.message} tone={projectFeedback.tone} focusOnAttention/></div>}
         {(expanded ? group.items : group.items.slice(0,3)).map(item => <article className="on-row" key={item.notificationId}>
           <SelectionCheckbox label={`${item.title} 선택`} checked={notificationSelection.selectedIds.has(item.notificationId)} disabled={notificationSelection.busy} onChange={checked => notificationSelection.toggle(item.notificationId,checked)}/>
           <div><button type="button" className="on-title" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>{!item.readAtUtc && <span className="on-dot"/>}{item.title}</button><div className="on-bodycopy"><span className="on-badge">{osanNotificationLabel(item)}</span>{osanNotificationBody(item)}</div></div>
           <div className="on-time">{formatDateTime(item.createdAtUtc)}<br/>{item.readAtUtc ? '읽음' : '읽지 않음'}</div>
-          <div className="on-actions"><button type="button" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>상세</button>{item.projectId && <button type="button" onClick={() => void openNotification(item, () => onOpenProject(item.projectId!,item.linkUrl))}>이동</button>}{!item.readAtUtc && <button type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>{actions.isBusy(`notification:${item.notificationId}`) ? '처리 중' : '읽음'}</button>}</div>
+          <div className="on-actions"><OsanButton type="button" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>상세</OsanButton>{item.projectId && <OsanButton type="button" onClick={() => void openNotification(item, () => onOpenProject(item.projectId!,item.linkUrl))}>이동</OsanButton>}{!item.readAtUtc && <OsanButton type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>{actions.isBusy(`notification:${item.notificationId}`) ? '처리 중' : '읽음'}</OsanButton>}</div>
           {(() => { const feedback=actions.feedbackFor(`notification:${item.notificationId}`);return feedback && (feedback.tone === 'loading' || feedback.tone === 'error') ? <div className="on-row-feedback"><ActionFeedback message={feedback.message} tone={feedback.tone}/></div> : null; })()}
         </article>)}
         {group.items.length > 3 && <button type="button" className="on-more" aria-expanded={expanded} onClick={() => setExpandedGroups(current => {const next=new Set(current);if(next.has(group.groupKey))next.delete(group.groupKey);else next.add(group.groupKey);return next;})}>{expanded ? '접기' : '알림 더 보기'}</button>}
       </section>;
     })}
-    {itemsState.kind === 'ready' && <nav className="on-pagination" aria-label="알림 페이지"><button type="button" aria-label="이전 페이지" disabled>‹</button><span>1 / 1</span><button type="button" aria-label="다음 페이지" disabled>›</button></nav>}
+    {itemsState.kind === 'ready' && <nav className="on-pagination" aria-label="알림 페이지"><OsanButton type="button" aria-label="이전 페이지" disabled>‹</OsanButton><span>1 / 1</span><OsanButton type="button" aria-label="다음 페이지" disabled>›</OsanButton></nav>}
   </section>;
 
   return (
@@ -10821,6 +10881,7 @@ function ProjectListPresentation({
   columns,
   rows,
   selectable = false,
+  mobileCompact = false,
   desktopLeadingHeader
 }: {
   ariaLabel: string;
@@ -10828,6 +10889,7 @@ function ProjectListPresentation({
   columns: ProjectListPresentationColumn[];
   rows: ProjectListPresentationRow[];
   selectable?: boolean;
+  mobileCompact?: boolean;
   desktopLeadingHeader?: ReactNode;
 }) {
   const isMobile = useIsMobileViewport();
@@ -10839,7 +10901,24 @@ function ProjectListPresentation({
       data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
       data-presentation-column-count={columns.length}
     >
-      {isMobile ? (
+      {isMobile && mobileCompact ? (
+        <ul className="osan-project-mobile-list" aria-label={ariaLabel} data-testid={`${testIdPrefix}-mobile`}>
+          {rows.map(row => (
+            <li key={row.key} className={row.className} data-presentation-row="project">
+              {row.mobileTitleLeading}
+              <button type="button" className="osan-project-mobile-open" aria-label={row.openAriaLabel} disabled={row.openDisabled} onClick={row.onOpen}>
+                <span className="osan-project-mobile-heading">
+                  <strong className="osan-project-mobile-title">{row.title}</strong>
+                  <span className="osan-project-mobile-part"><span className="osan-project-mobile-label">Part 분류 </span>{row.mobileFields.find(field => field.label === 'part 분류')?.value}</span>
+                </span>
+                <span className="osan-project-mobile-fields">
+                  {row.mobileFields.filter(field => field.label !== 'part 분류').map(field => <span key={field.label} data-field={field.label} className={field.valueClassName}><span className="osan-project-mobile-label">{field.label} </span>{field.value}</span>)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : isMobile ? (
         <div className="project-list-cards project-list-mobile" data-testid={`${testIdPrefix}-mobile`}>
           {rows.map((row) => (
             <article key={row.key} className={['project-list-card', row.className].filter(Boolean).join(' ')} data-testid={`${testIdPrefix}-card`} data-presentation-row="project">

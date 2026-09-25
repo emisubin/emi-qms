@@ -805,6 +805,49 @@ describe('authentication modes', () => {
     expect(beginLoginRedirect(false)).toBe(true);
   });
 
+  it('automatically recovers a server 401 once even when the MSAL token is valid', async () => {
+    const instance = await mockAutomaticLogin([testAccount('server-expiry')]);
+    instance.acquireTokenSilent.mockResolvedValue({ accessToken: 'synthetic-token' });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) =>
+      new URL(String(input)).pathname === '/api/me'
+        ? json({ title: 'Unauthorized' }, 401) : approvedEntraFetch(input)));
+    const { App } = await import('../src/App');
+    const firstVisit = render(<StrictMode><App /></StrictMode>);
+    await waitFor(() => expect(window.sessionStorage.getItem('emi-auth-server-recovery')).toBe('attempted'));
+    expect(screen.getByText('Microsoft 365 로그인 정보를 확인하고 있습니다.')).toBeInTheDocument();
+    expect(instance.loginRedirect).not.toHaveBeenCalled();
+    firstVisit.unmount();
+    render(<App />);
+    expect(await screen.findByText('인증이 필요합니다.')).toBeInTheDocument();
+    expect(instance.loginRedirect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '로그인' }));
+    await waitFor(() => expect(instance.loginRedirect).toHaveBeenCalledTimes(1));
+  });
+
+  it('clears the server recovery guard only after successful user lookup', async () => {
+    window.sessionStorage.setItem('emi-auth-server-recovery', 'attempted');
+    const instance = await mockAutomaticLogin([testAccount('recovered')]);
+    instance.acquireTokenSilent.mockResolvedValue({ accessToken: 'synthetic-token' });
+    vi.stubGlobal('fetch', vi.fn(approvedEntraFetch));
+    const { App } = await import('../src/App');
+    render(<App />);
+    await waitFor(() => expect(window.sessionStorage.getItem('emi-auth-server-recovery')).toBeNull());
+    expect(instance.loginRedirect).not.toHaveBeenCalled();
+  });
+
+  it('does not automatically recover after logout or when session storage is unavailable', async () => {
+    const { beginServerSessionRecovery, completeServerSessionRecovery, markExplicitLogout } = await import('../src/auth');
+    expect(beginServerSessionRecovery()).toBe(true);
+    expect(beginServerSessionRecovery()).toBe(false);
+    completeServerSessionRecovery();
+    markExplicitLogout();
+    expect(beginServerSessionRecovery()).toBe(false);
+    window.sessionStorage.clear();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('unavailable'); });
+    expect(beginServerSessionRecovery()).toBe(false);
+  });
+
+
 });
 
 function json(body: unknown, status = 200): Response {

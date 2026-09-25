@@ -1,0 +1,34 @@
+/* Page controls share geometry. Custom dialogs, cards and Gate controls retain their own layouts. */
+.app-shell[data-osan-shell='true'] {
+  --osan-page-control-height:30px;
+  --osan-page-control-font:12px;
+  --osan-page-input-font:13px;
+  --osan-page-control-radius:4px;
+}
+.app-shell[data-osan-shell='true'] .osan-dashboard-search {
+  display:flex;align-items:center;gap:6px;width:320px;max-width:calc(100% - 76px);height:auto;position:static;
+}
+.app-shell[data-osan-shell='true'] .osan-dashboard-search input {flex:1;min-width:0;width:100%;padding:4px 10px!important}
+.app-shell[data-osan-shell='true'] .osan-dashboard-search .osan-button {position:static;flex-shrink:0}
+.app-shell[data-osan-shell='true'] .osan-dashboard-toolbar {align-items:center;gap:8px}
+.app-shell[data-osan-shell='true'] :is(.osan-dashboard-search input,.board-search input,.osan-admin-toolbar>input,.osan-admin-toolbar select,.osan-dashboard-filter-options>label input) {
+  box-sizing:border-box;min-height:var(--osan-page-control-height)!important;height:var(--osan-page-control-height)!important;
+  padding:4px 10px!important;border:1px solid var(--osan-control-border)!important;border-radius:var(--osan-page-control-radius)!important;
+  font-size:var(--osan-page-input-font)!important;line-height:20px!important;background:#fff!important;color:var(--osan-control-text)!important;
+}
+.app-shell[data-osan-shell='true'] .osan-filter-select-trigger {
+  min-height:var(--osan-page-control-height)!important;border-radius:var(--osan-page-control-radius)!important;padding:4px 10px!important;font-size:12px!important;line-height:20px;
+}
+.app-shell[data-osan-shell='true'] :is(.osan-dashboard-pagination,.board-pages,.on-pagination) {
+  display:flex;align-items:center;justify-content:center;gap:12px!important;font-size:12px!important;line-height:20px;
+}
+.app-shell[data-osan-shell='true'] :is(.osan-dashboard-pagination,.board-pages,.on-pagination) .osan-button {min-width:32px!important;display:inline-flex;align-items:center;justify-content:center}
+.app-shell[data-osan-shell='true'] :is(.osan-admin-toolbar,.board-toolbar,.osan-dashboard-filter-options>label) {font-size:12px;line-height:20px}
+.app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.osan-admin-approval-head,.board-table th,.project-list-head) {font-size:12px!important;line-height:18px!important;font-weight:600}
+.app-shell[data-osan-shell='true'] :is(.osan-admin-record,.osan-admin-approval-row,.board-table td) {font-size:12px;line-height:18px}
+.app-shell[data-osan-shell='true'] :is(.osan-admin-tabs,.on-filters,.osan-personal-home .tabs) button {font-size:12px!important;line-height:20px!important}
+@media(max-width:760px){
+  .app-shell[data-osan-shell='true'] {--osan-page-control-height:32px;--osan-page-input-font:16px}
+      .app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.osan-admin-approval-head,.board-table th,.project-list-head){font-size:11px!important}
+  .app-shell[data-osan-shell='true'] :is(.osan-admin-record,.osan-admin-approval-row,.board-table td){font-size:11px;line-height:17px}
+}

@@ -27,3 +27,12 @@
 - Panel Excel: 저장 전부터 배경에 보이는 업로드 버튼으로 완료를 판단해 DB를 너무 일찍 읽었다. 정확한 프로젝트 apply POST 성공, dialog 닫힘 및 설계 상세 table 복귀를 기다린 후 기존 DB/audit 값을 검사한다. 제품 구현은 변경하지 않는다.
 - 독립 reviewer가 두 보정의 원인과 diff 확인, 차단 Finding 없음. 첫 local 실행은 Release executable 부재로 assertion 미실행 후 전용 자원 정리. 서버 build(오류/경고0) 후 G2 focused PASS, Excel은 obsolete 업로드 버튼 대신 실제 상세 table로 보정 후 단독 PASS(13.4s). 모두 임시 DB/container, 종료 후 소유 자원만 정리. 제품 hash는 이전 검토와 동일하다.
 - 테스트 보정을 PR에 추가하고 required CI를 다시 검증한다. 첫 실패 run을 성공으로 처리하거나 검증을 생략하지 않는다.
+
+
+## 세션 만료 후 서버 인증 자동 복구 보정 (2026-09-25)
+
+- 사용자 증상 정정: 일반 로그아웃/로그인은 정상. 오래 사용 후 인증 화면이 다시 나타나면 로그인 버튼을 추가로 눌러야 진입. 사용자 ‘오케이 해결해’로 수정 승인. 기준선 local c893a67, 운영 main 8d8ad05. 원격 반영·운영 설정 변경·배포는 이번 실행에서 하지 않는다.
+- 확인: 운영 EasyAuth 세션 FixedTime 8시간. 기존 자동 복구는 MSAL 계정/토큰 실패만 처리하고, 토큰 확보 후 `/api/me` 401은 수동 로그인 UI에서 멈춘다. 실제 운영의 개별 만료 요청 전체 왕복은 미재현이며 IDX10214 집계는 이 증상의 직접 원인으로 확정하지 않는다.
+- 변경: `/api/me` 인증 만료 UI에서 현재 문서를 자동으로 1회 reload하여 사전 인증 관문을 다시 거친다. query/hash를 포함한 현재 주소 보존. 서버 복구 가드는 MSAL 토큰 성공으로 지우지 않고 `/api/me` 성공 후에만 해제. 실패 후 복귀/저장소 장애/명시적 로그아웃은 자동 반복 없이 기존 수동 로그인 사용. 실패한 저장 API 재전송 없음. 서버 권한·인증 설정·DB 변경 없음.
+- 검증: auth/app unit 128 PASS. reload 최종 보정 후 auth38 재실행. TypeScript·대상 ESLint·Vite build PASS(기존 bundle 크기 안내 유지). PC1440·모바일390 실제 Chrome 합성 E2E2 PASS: query/hash 보존, document GET 최초+복구 총2회, 실패시 수동 화면, mutation0. 전용 Playwright binary 부재로 기존 설치 Chrome 임시 설정을 사용하고 삭제했다. 운영 Microsoft 인증 왕복/실제8시간 만료 검수는 미실행.
+- 독립 reviewer `/root/auth_expiry_review` GO. 최초 location.replace의 fragment same-document 가능성 P2는 reload로 보정하고 위 E2E로 검증. 리뷰 범위 App.tsx/auth.ts/auth.test.tsx 및 auth-shell fixture·회귀검사. 기존 UI 그대로 재사용하며 디자인 변경 없음.

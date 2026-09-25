@@ -1,3 +1,6 @@
+import { OsanButton } from './OsanButton';
+import { OsanTabs, OsanInlineState } from './OsanUiPrimitives';
+import { OsanMenuHeading } from './OsanMenuHeading';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchJson } from './api';
 import './OsanAdminPage.css';
@@ -163,21 +166,20 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     } catch (error) { setFormError(errorMessage(error)); }
     finally { setBusy(false); }
   }
-  return <section className="osan-admin-page" aria-label="오산 고객사 관리">
-    <header className="osan-admin-heading"><div><h1>고객사 관리</h1><p>프로젝트에 사용할 고객사와 알림을 받을 담당자를 관리합니다.</p></div>
-      <button type="button" className="osan-admin-primary" disabled={!mutationAllowed} onClick={event => openRegistration(undefined, event.currentTarget)}>고객사 등록</button></header>
-    <div className="osan-admin-tabs" role="tablist" aria-label="배정 조회 방식">
-      <button type="button" role="tab" aria-selected={tab === 'customer'} onClick={() => { setTab('customer'); setSearch(''); setUnassigned(false); }}>고객사별 담당자</button>
-      <button type="button" role="tab" aria-selected={tab === 'person'} onClick={() => { setTab('person'); setSearch(''); setUnassigned(false); }}>사용자별 고객사</button>
-    </div>
+  return <section className="osan-page osan-admin-page" aria-label="오산 고객사 관리">
+    <OsanMenuHeading title="고객사 관리" description="프로젝트에 사용할 고객사와 알림을 받을 담당자를 관리합니다." actions={
+      <OsanButton tone="primary" disabled={!mutationAllowed} onClick={event => openRegistration(undefined, event.currentTarget)}>고객사 등록</OsanButton>} />
+    <OsanTabs className="osan-admin-tabs" label="배정 조회 방식" value={tab}
+      items={[{ value: 'customer', label: '고객사별 담당자' }, { value: 'person', label: '사용자별 고객사' }]}
+      onChange={value => { setTab(value); setSearch(''); setUnassigned(false); }} />
     <div className="osan-admin-toolbar"><input type="search" aria-label="목록 검색" placeholder={tab === 'customer' ? '고객사명 검색' : '이름 또는 부서 검색'} value={search} onChange={event => setSearch(event.target.value)} />
       {tab === 'customer' ? <label><input type="checkbox" checked={unassigned} onChange={event => setUnassigned(event.target.checked)} />미배정만</label> : <>
         <label>부서<select aria-label="부서 필터" value={department} onChange={event => setDepartment(event.target.value)}><option value="">전체 부서</option>{departments.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
         <label>배정 여부<select aria-label="배정 여부 필터" value={assignment} onChange={event => setAssignment(event.target.value)}><option value="all">전체</option><option value="assigned">배정</option><option value="unassigned">미배정</option></select></label>
       </>}
       <span aria-live="polite">{records.length}{tab === 'customer' ? '개 고객사' : '명'}</span></div>
-    {state.kind === 'loading' && <p role="status">고객사와 담당자를 불러오는 중입니다.</p>}
-    {state.kind === 'error' && <p role="alert">{state.message} <button type="button" onClick={() => setRevision(value => value + 1)}>다시 시도</button></p>}
+    {state.kind === 'loading' && <OsanInlineState kind="loading">고객사와 담당자를 불러오는 중입니다.</OsanInlineState>}
+    {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {data && <div className={`osan-admin-records${tab === 'customer' ? ' osan-customer-counts' : ''}`} role="table" aria-label={tab === 'customer' ? '고객사별 담당자' : '사용자별 고객사'}>
       <div className="osan-admin-record-head" role="row"><span role="columnheader">{tab === 'customer' ? '고객사명' : '사용자'}</span><span role="columnheader">{tab === 'customer' ? '품질 담당자' : '담당 고객사'}</span><span role="columnheader">{tab === 'customer' ? '제조 담당자' : '고객사 수'}</span><span role="columnheader">설정</span></div>
       {records.map(item => {
@@ -280,14 +282,13 @@ export function OsanGateSettingsPage({ developmentUserKey, mutationAllowed = tru
     } catch (error) { setFeedback(errorMessage(error)); }
     finally { setBusy(false); }
   }
-  return <section className="osan-admin-page osan-gate-page" aria-label="Gate 설정">
-    <header className="osan-admin-heading"><div><h1>Gate 설정</h1><p>각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다.</p></div></header>
-    <p className="osan-gate-exception">관리자는 부서 지정과 관계없이 모든 단계를 완료할 수 있습니다.</p>
-    {state.kind === 'loading' && <p role="status">Gate 설정을 불러오는 중입니다.</p>}
-    {state.kind === 'error' && <p role="alert">{state.message} <button type="button" onClick={() => setRevision(value => value + 1)}>다시 시도</button></p>}
+  return <section className="osan-page osan-admin-page osan-gate-page" aria-label="Gate 설정">
+    <OsanMenuHeading title="Gate 설정" description="각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다." />
+    {state.kind === 'loading' && <OsanInlineState kind="loading">Gate 설정을 불러오는 중입니다.</OsanInlineState>}
+    {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {data && <><div className="osan-gate-toolbar"><span className={changed ? 'unsaved' : ''}>{draft ? changed ? '변경 사항 있음 · 저장 필요' : '완료 가능한 Gate를 체크하세요' : '부서별 완료 권한 · 7개 Gate'}</span><div>
-      {draft ? <><button type="button" disabled={busy} onClick={() => { setDraft(null); setFeedback('변경을 취소했습니다.'); }}>취소</button><button type="button" className="osan-admin-primary" disabled={!changed || busy} onClick={() => void save()}>{busy ? '저장 중…' : '변경 저장'}</button></>
-        : <button type="button" className="osan-admin-primary" disabled={!mutationAllowed} onClick={() => { setDraft(data.gates.map(gate => ({ ...gate, departmentIds: [...gate.departmentIds] }))); setFeedback(''); }}>설정 변경</button>}</div></div>
+      {draft ? <><OsanButton type="button" disabled={busy} onClick={() => { setDraft(null); setFeedback('변경을 취소했습니다.'); }}>취소</OsanButton><OsanButton type="button" tone="primary" disabled={!changed || busy} onClick={() => void save()}>{busy ? '저장 중…' : '변경 저장'}</OsanButton></>
+        : <OsanButton type="button" tone="primary" disabled={!mutationAllowed} onClick={() => { setDraft(data.gates.map(gate => ({ ...gate, departmentIds: [...gate.departmentIds] }))); setFeedback(''); }}>설정 변경</OsanButton>}</div></div>
       <div className="osan-gate-table-wrap"><table><caption>부서별 Gate 완료 가능 여부</caption><thead><tr><th scope="col">부서</th>{gates.map(gate => <th scope="col" key={gate.stageSequence} className={gate.name.endsWith('검사') ? 'split-stage' : undefined}>{gate.name.endsWith('검사') ? <><span>{gate.name.slice(0, -2)}</span><span>검사</span></> : gate.name}</th>)}</tr></thead>
         <tbody>{data.departments.map(department => <tr key={department.departmentId}><th scope="row">{department.name}</th>{gates.map(gate => {
           const allowed = gate.departmentIds.includes(department.departmentId);

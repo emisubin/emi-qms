@@ -115,7 +115,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(overview.getByText('1개', { exact: true })).toBeVisible();
   await expect(overview.getByText('2026-12-31', { exact: true })).toBeVisible();
   const detailCode = overview.locator('.project-code-value');
-  expect(await detailCode.textContent()).toBe('AbC  001');
+  expect(await detailCode.textContent()).toBe('제품  이름 · AbC  001');
   expect(await detailCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
   expect(await detailCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(overview.locator('.osan-detail-status')).toHaveText('시작 전');
@@ -132,9 +132,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: '저장된 Title' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '목록으로' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '목록', exact: true })).toBeVisible();
   const mobileDetailCode = overview.locator('.project-code-value');
-  await expect(mobileDetailCode).toHaveText('AbC  001');
+  await expect(mobileDetailCode).toHaveText('제품 이름 · AbC 001');
   expect(await mobileDetailCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
   expect(await mobileDetailCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
   await expect(overview.locator('.osan-detail-status')).toHaveText('시작 전');
@@ -164,22 +164,18 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(page).toHaveURL(`/progress?projectId=${projectId}&targetId=${projectDetail().targets[0].targetId}`);
   await expect(page.locator('.osan-progress-target-trigger')).toHaveText('제품 이름 1');
   await page.goto(`/projects/${projectId}`);
-  await page.getByRole('button', { name: '목록으로' }).click();
+  await page.getByRole('button', { name: '목록', exact: true }).click();
   const mobileList = page.getByTestId('osan-project-list-mobile');
   await expect(mobileList).toBeVisible();
-  await expect(mobileList).toHaveClass(/project-list-cards/);
-  await expect(mobileList).toHaveClass(/project-list-mobile/);
+  await expect(mobileList).toHaveClass(/osan-project-mobile-list/);
   await expect(page.getByTestId('osan-project-list-desktop')).toBeHidden();
-  await expect(mobileList.getByRole('article')).toHaveCount(1);
-  await expect(mobileList.getByRole('article')).toHaveClass(/project-list-card/);
-  const listCode = mobileList.locator('.project-code-value');
-  await expect(listCode).toBeVisible();
-  expect(await listCode.textContent()).toBe('AbC  001');
-  expect(await listCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
-  expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
-  await expect(mobileList.getByText('시작 전')).toBeVisible();
-  await expect(mobileList.getByText('0%')).toBeVisible();
-  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['part 분류', '고객사', 'W/O', 'Code', '수량', '납기일', '상태', '진행률']);
+  await expect(mobileList.getByRole('listitem')).toHaveCount(1);
+  await expect(mobileList.getByRole('article')).toHaveCount(0);
+  await expect(mobileList.getByRole('button', { name: '저장된 Title 상세 열기' })).toBeVisible();
+  await expect(mobileList.locator('.project-code-value')).toHaveCount(0);
+  await expect(mobileList.getByText('시작 전')).toHaveCount(0);
+  await expect(mobileList.getByText('0%')).toHaveCount(0);
+  await expect(mobileList.locator('.osan-project-mobile-label')).toHaveText(['Part 분류 ', '고객사 ', 'W/O ', '납기일 ']);
   const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
@@ -207,8 +203,8 @@ test('Osan shares its page frame and preserves registration and target navigatio
   for (const forbiddenText of ['Excel', 'Pending', '병목']) await expect(osanMobilePage.getByText(forbiddenText)).toHaveCount(0);
   await expect(osanMobilePage.getByRole('checkbox', { name: '저장된 Title QR 선택' })).toBeVisible();
   const osanMobilePageContract = await osanListFrameContract(page);
-  expect(osanMobilePageContract.order).toEqual(['title', 'description', 'kpi', 'filter', 'listHeading']);
-  const osanMobileListContract = await projectListContract(page);
+  expect(osanMobilePageContract.order).toEqual(['header', 'kpi', 'filter', 'listHeading']);
+
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-mobile-390.png'), fullPage: true });
 
@@ -242,7 +238,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-desktop-1440.png'), fullPage: true });
 
-  for (const [path, title] of [['/', '오산 홈'], ['/progress', '진행 현황']] as const) {
+  for (const [path, title] of [['/progress', '진행 현황']] as const) {
     await page.goto(path);
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page.getByRole('list', { name: '프로젝트 진행 목록' })).toBeVisible();
@@ -320,7 +316,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
   const cheongjuMobilePageContract = await projectListPageContract(page);
   expect(cheongjuMobilePageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
   expect(cheongjuMobilePageContract.structure.commonOrderValid).toBe(true);
-  expect((await projectListContract(page)).structure).toEqual(osanMobileListContract.structure);
+  await expect(cheongjuMobileList).toHaveClass(/project-list-cards/);
+  await expect(cheongjuMobileList.getByRole('article')).toHaveClass(/project-list-card/);
+  await expect(cheongjuMobileList.locator('.mobile-detail-list')).toBeVisible();
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-mobile-390.png'), fullPage: true });
 
@@ -329,14 +327,14 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(requestFailures).toEqual([]);
 });
 
-test('Osan home and progress keep D-day beside the equipment name across widths and Korean midnight', async ({ page }, testInfo) => {
+test('Osan progress retains the former home cards and keeps D-day beside the equipment name across widths and Korean midnight', async ({ page }, testInfo) => {
   const unexpected: string[] = [], errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await installBackend(page, [], unexpected);
   await page.addInitScript(() => window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN'));
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const route of ['/', '/progress']) {
+    for (const route of ['/progress']) {
       await page.clock.setFixedTime(new Date('2026-12-30T14:59:59Z'));
       await page.goto(route);
       const title = page.locator('.osan-dashboard-project-title');
@@ -859,7 +857,7 @@ function projectListContract(page: Page) {
 function osanListFrameContract(page: Page) {
   return page.locator('[data-presentation-contract="osan-list-frame"]').evaluate(root => {
     const sections = new Map<string, string>([
-      ['h1', 'title'], ['.osan-dashboard-description', 'description'],
+      ['.osan-menu-heading', 'header'],
       ['.osan-dashboard-summary', 'kpi'], ['.osan-dashboard-toolbar', 'filter'],
       ['.osan-list-heading', 'listHeading']
     ]);

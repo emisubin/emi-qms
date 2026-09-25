@@ -1,0 +1,10 @@
+import { fetchJson } from './api';
+export interface HomeCustomer { customerId:string; customerName:string; totalCount:number; inProgressCount:number; holdCount:number; overdueCount:number; openIssueCount:number; progressPercent:number; notStartedCount:number; completedCount:number }
+export interface HomeTask { id:string; kind:'request'|'rejection'; projectId:string; targetId:string; stageSequence:number; projectTitle:string; productName:string; stageName:string; comment:string|null; actorName:string; occurredAtUtc:string }
+export interface HomeNews { id:string; projectId:string; targetId:string; stageSequence:number; projectTitle:string; stageName:string; kind:string; actorName:string; occurredAtUtc:string }
+export interface PersonalHomeData { taskTotalCount:number; deadlineTotalCount:number; customers:HomeCustomer[]; summary:{totalCount:number;inProgressCount:number;holdCount:number;overdueCount:number;openIssueCount:number}; tasks:HomeTask[]; deadlines:{projectId:string;title:string;projectCode:string;customerName:string;productName:string;deliveryDate:string;status:string;progressPercent:number}[]; news:HomeNews[] }
+export const getOsanPersonalHome=(userKey:string|undefined,signal:AbortSignal)=>fetchJson<PersonalHomeData>('/api/osan/my/home',userKey,{signal});
+type Visit={projectId:string;visitedAt:string};
+const key=(scope:string)=>`emi:osan:recent-projects:${scope}`;
+export function recentOsanProjects(scope:string):Visit[]{try{const value:unknown=JSON.parse(localStorage.getItem(key(scope))??'[]');return Array.isArray(value)?value.filter((v):v is Visit=>v&&typeof v.projectId==='string'&&/^[a-f0-9-]{36}$/i.test(v.projectId)&&typeof v.visitedAt==='string'&&Number.isFinite(Date.parse(v.visitedAt))).slice(0,5):[];}catch{return [];}}
+export function rememberOsanProject(scope:string,projectId:string){if(!scope||!/^[a-f0-9-]{36}$/i.test(projectId))return;try{localStorage.setItem(key(scope),JSON.stringify([{projectId,visitedAt:new Date().toISOString()},...recentOsanProjects(scope).filter(v=>v.projectId!==projectId)].slice(0,5)));}catch{/* Storage restrictions must not prevent navigation. */}}

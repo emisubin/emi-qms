@@ -1,0 +1,31 @@
+/* Osan-only values: other campuses retain their own approved theme. */
+.app-shell[data-osan-shell='true'] {
+  --osan-brand:#da2127;
+  --osan-selection-bg:#fcebed;
+  --osan-selection-border:#efb8bc;
+  --osan-selection-text:#a61920;
+  --osan-surface:#fff;
+  --osan-control-border:#d8d8d8;
+  --osan-control-text:#333;
+  --osan-heading:#282828;
+  --osan-description:#898989;
+  --ds-color-primary:var(--osan-brand);
+  --ds-color-primary-hover:#bd1c22;
+  --ds-color-primary-strong:#a61920;
+  --ds-color-primary-soft:var(--osan-selection-bg);
+  --brand-red:var(--osan-brand);
+  --brand-red-soft:var(--osan-selection-bg);
+}
+/* Supersede the legacy monochrome selection rule only within Osan. */
+.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],.osan-dashboard-summary button[aria-pressed='true'],.osan-personal-home .date-strip button[aria-pressed='true']) {
+  border-color:var(--osan-selection-border)!important;
+  background-color:var(--osan-selection-bg)!important;
+  color:var(--osan-selection-text)!important;
+}
+.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],.osan-dashboard-summary button[aria-pressed='true'],.osan-personal-home .date-strip button[aria-pressed='true']) * {color:inherit!important}
+.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],.osan-dashboard-summary button[aria-pressed='true'],.osan-personal-home .date-strip button[aria-pressed='true']):hover:not(:disabled) {
+  border-color:var(--osan-selection-border)!important;
+  background-color:var(--osan-selection-bg)!important;
+  color:var(--osan-selection-text)!important;
+}
+.app-shell[data-osan-shell='true'] input[type='checkbox']{accent-color:var(--osan-brand)}

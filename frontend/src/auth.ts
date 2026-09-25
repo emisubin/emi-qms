@@ -305,3 +305,22 @@ export function markExplicitLogout(): void {
 export function completeLoginRedirect(): void {
   try { window.sessionStorage.removeItem(automaticLoginKey); } catch { /* No persistent guard to clear. */ }
 }
+
+// Server/Easy Auth expiry is independent of MSAL's token cache. Do not clear
+// this guard on token acquisition: only a successful /api/me proves recovery.
+const serverRecoveryKey = 'emi-auth-server-recovery';
+
+export function beginServerSessionRecovery(): boolean {
+  if (isExplicitlyLoggedOut()) return false;
+  try {
+    if (window.sessionStorage.getItem(serverRecoveryKey)) return false;
+    window.sessionStorage.setItem(serverRecoveryKey, 'attempted');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function completeServerSessionRecovery(): void {
+  try { window.sessionStorage.removeItem(serverRecoveryKey); } catch { /* Storage may be unavailable. */ }
+}

@@ -1,0 +1,17 @@
+/* Existing approved compact and Gate geometries, shared without changing dialog layouts. */
+.app-shell[data-osan-shell='true'] .osan-button.osan-button {
+  width:auto!important;min-width:0!important;margin:0!important;
+  min-height:30px!important;height:auto!important;padding:4px 9px!important;
+  border:1px solid var(--osan-control-border,#d8d8d8)!important;border-radius:4px!important;
+  background:var(--osan-surface,#fff)!important;color:var(--osan-control-text,#333)!important;
+  font:inherit;font-size:12px!important;line-height:20px!important;
+  white-space:nowrap;box-shadow:none!important;
+}
+.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-size='stage'] {min-height:36px!important;padding:7px 12px!important;border-radius:6px!important;font-size:13px!important}
+.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-tone='primary'] {background:var(--osan-brand,#da2127)!important;border-color:var(--osan-brand,#da2127)!important;color:#fff!important;font-weight:600}
+.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-tone='soft'] {background:var(--osan-selection-bg,#fcebed)!important;border-color:var(--osan-selection-border,#efb8bc)!important;color:var(--osan-selection-text,#a61920)!important;font-weight:600}
+.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-tone='danger'] {color:var(--osan-brand,#da2127)!important}
+.app-shell[data-osan-shell='true'] .osan-button.osan-button:disabled {opacity:.5;cursor:not-allowed}
+.app-shell[data-osan-shell='true'] .osan-button.osan-button:focus-visible {outline:2px solid var(--osan-brand,#da2127)!important;outline-offset:2px}
+@media(max-width:760px){.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-size='compact']{min-height:32px!important;padding:5px 9px!important}}
+@media(max-width:860px){.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-size='stage']{min-height:44px!important;padding:10px 12px!important}}

@@ -1,4 +1,5 @@
-import { useRef, useState, useEffect } from 'react';
+import { useNativeDialog } from './useNativeDialog';
+import { useState } from 'react';
 import { dismissOnBackdrop } from './dialogBackdrop';
 import incomingRack from './assets/osan-guidance/incoming-rack.jpg';
 import incomingBox from './assets/osan-guidance/incoming-box.jpg';
@@ -19,8 +20,7 @@ const examples = [
 ];
 function GuidanceExample({ src, label }: { src: string; label: string }) {
   const [open, setOpen] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close(); }, [open]);
+  const dialog = useNativeDialog(open, setOpen);
   return <figure><button type="button" className="osan-guidance-image" aria-label={`${label} 크게 보기`} onClick={() => setOpen(true)}><img src={src} alt={label} loading="lazy" /></button><figcaption>{label}</figcaption>
     <dialog ref={dialog} className="osan-guidance-zoom" aria-label={`${label} 확대`} onCancel={() => setOpen(false)} onClick={event => dismissOnBackdrop(event, () => setOpen(false))}>
       {open && <><header><strong>{label}</strong><button type="button" onClick={() => setOpen(false)}>닫기</button></header><img src={src} alt={`${label} 원본`} /></>}

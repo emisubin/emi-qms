@@ -58,3 +58,6 @@
 @media(min-width:1181px) {
   .app-shell .osan-personal-home .quick-grid {grid-template-columns:repeat(auto-fit,minmax(min(100%,96px),1fr));}
 }
+
+.app-shell .osan-personal-home .deadline-project-title {display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 6px;overflow-wrap:anywhere;}
+.app-shell .osan-personal-home .deadline-part {font-weight:400;font-size:11px;color:#747981;}

@@ -62,7 +62,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect(rejectedCheongjuCreate.status()).toBe(403);
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '오산 홈' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '홈', exact: true })).toBeVisible();
 
   await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '프로젝트' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();

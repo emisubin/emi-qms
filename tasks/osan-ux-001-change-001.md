@@ -580,3 +580,14 @@
 - 기존 준비 CLI는 공지 생성을 필수로 했으므로 PublishNotice 기본 true를 유지하며 명시 false일 때만 게시글 없이 준비하는 경로를 추가한다. 활성 작성자 확인·감사·영수증·저장 제한은 보존한다. 사전 준비만 실행/정확한 기존 준비 상태를 읽기 검증한 뒤 배포하는 경로를 분리하여 팝업 확인 전에 병합·배포하지 않는다.
 - 독립 검토에서 frontend 단독 배포 complete가 준비용 image를 사용할 수 있는 P2를 발견하여 실제 serving backend image 기준으로 수정하고 해당 모의실행을 추가했다. 준비 image는 지정 ACR의 immutable backend digest만 허용한다. 운영 데이터 삭제/초기화·GitHub 보호 예외·OIDC 권한 확대는 이번 범위에 포함하지 않는다.
 - 최종 준비 검증: 프런트 전체538개 실행에서535개 성공 후 UI 변경에 뒤처진 fixture와 닫힌 dialog 방어를 보정하고 영향20개 재실행 성공. 서버 popup-only/준비 일치 검증5개와 Release build, 배포 script 정상/실패/프런트 단독 모의실행 통과. 독립 재검토 남은 P1/P2 없음. PC 및390px 모바일 공통 아이콘 직접 확인. required CI·운영 팝업·병합·배포는 아직 실행 전이다.
+
+
+### 20-24. 후속 버그 수정 병합·공개배포 완료 (2026-09-25 KST)
+
+- 제20-21/22/23절과 PC·모바일 공통 메뉴 아이콘을 PR154로 정상 병합했다. 사용자 검수·명시 승인 및 CI Gate 통과 후 main `8d8ad05c0846eec45a2b46fc6ffa46649cd06b05`를 배포했다. 후보726834e와 병합 main의 tree 일치를 확인했다. 보호 규칙 예외·CI 생략·새 권한 부여 없음.
+- Required CI36073395323: Backend976/976, Frontend538, UI71, 실제DB 통합64·캠퍼스 격리1·오산 등록1 통과. 첫 통합 실행은 일반64개 통과 후 격리 서버 시작에서 exit134로 종료됐다. 예외 로그가 정리돼 원인은 확정하지 못했다. 동일 후보의 로컬 격리 시작 진단은 정상이며 실패 작업 재실행에서 통합 전체가 통과했다. 이미 성공한 서버/프런트 작업은 반복하지 않았다.
+- 이번 배포 예외대로 영구 공지 게시글 없이 업데이트 팝업만 사전 안내했다. CI 소요에 맞춰 Announced 안내를09:40–10:10 KST로 수정했으며, 해당 release·Announced·기존시간·version·notice없음 조건을 확인한 제한 갱신만 수행했다. 안내 시간 자체로 저장을 차단하지 않고 검증 성공 후 명시 activate를 실행했다.
+- 준비 상태 검증maintenance-4ugvk5u, 저장 차단/drain maintenance-0unr1hv, additive0130 migration-q87rig8, 앱 교체/보안 smoke, 완료maintenance-6haizlh 모두 성공. 09:54:00 KST에 청주·오산 Completed Version4로 저장 재개 확인. 조회·로그인 유지, DB 삭제/초기화·업무 데이터 시험 입력 없음. 완료 CLI가 실제 배포 이미지 기준 DB ledger를 검증했다.
+- 배포 이미지: backend `83b156cd016c8bf6647bf9231bf2510cb2dee330dd68eba0ba3788eb44ff966d`, frontend `15f06a6d0bd914bcd8c5943b63b1a57fce4fbed0cd0222c9658e6f314786871c`. backend--0000065, frontend--0000055 정상 준비. 정확한 main archive 권한을 보존했다. 로컬 Python tar API 차이로 첫 준비가 중단되어 기존 후보 이미지가 한 차례 재생성됐으나 운영에는 적용하지 않았고, 이후 main source 검증·build·registry digest 검증을 마친 위 이미지만 적용했다.
+- 공개 확인: health200/비인증 root401/api401, 로그인된 오산 기존 프로젝트302건 조회, PC 및390px 모바일 실제 메뉴 아이콘 통일, 신규 메뉴 표시, 업데이트 배너 종료를 확인했다. 모바일 viewport는 확인 후 원복했다. 실물 단말/PWA 재설치·QR 및 운영 업무 저장은 이번 검증에서 수행하지 않았다.
+- GitHub 자동배포 계정의 기존 maintenance 권한 미부여는 이전 기록대로 유지한다. 기존 Azure 계정의 승인된 수동배포는 완료했다. 이 배포 기록은 제품 source와 구분하여 문서만 로컬 commit한다.

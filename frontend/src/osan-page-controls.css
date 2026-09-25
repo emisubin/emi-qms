@@ -42,3 +42,16 @@
   .app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.osan-admin-approval-head,.board-table th,.project-list-head){font-size:11px!important}
   .app-shell[data-osan-shell='true'] :is(.osan-admin-record,.osan-admin-approval-row,.board-table td){font-size:11px;line-height:17px}
 }
+
+/* Use the content width once: shell gutters must not duplicate page padding. */
+.app-shell[data-osan-shell='true'],
+.app-shell[data-osan-shell='true'] .app-content {background:#fff!important}
+.app-shell[data-osan-shell='true'] .app-content {padding-left:0!important;padding-right:0!important;gap:0!important}
+.app-shell[data-osan-shell='true'] .topbar {margin:0!important}
+.app-shell[data-osan-shell='true'] .app-content>section {margin-left:0!important;margin-right:0!important}
+.app-shell[data-osan-shell='true'] .app-sidebar-footer .system-status-disclosure {width:100%;margin:8px 0 0}
+.app-shell[data-osan-shell='true'] .app-sidebar-footer .system-strip {display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:0}
+.app-shell[data-osan-shell='true'] .app-sidebar-footer .status-chip {min-width:0;overflow-wrap:anywhere}
+@media(min-width:861px){.app-shell[data-osan-shell='true'] .app-content{padding-bottom:0!important}}
+.app-shell[data-osan-shell='true'] .app-sidebar-footer .status-chip {display:grid!important;grid-template-columns:64px minmax(0,1fr)!important;gap:6px!important;min-height:0!important;height:auto!important;padding:6px 0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important}
+.app-shell[data-osan-shell='true'] .app-sidebar-footer .status-chip :is(span,strong) {font-size:11px!important;line-height:16px!important;white-space:normal!important;overflow:visible!important;word-break:normal!important;min-width:0!important}

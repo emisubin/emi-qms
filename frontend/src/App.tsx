@@ -2499,6 +2499,26 @@ function QmsAppShellContent({
   const activeNavigationLabel = view.kind === 'privacy-notice'
     ? '개인정보·이용 안내'
     : navigationItems.find((item) => item.active)?.label ?? '업무';
+  const systemStatusDisclosure = (
+<details className="system-status-disclosure">
+          <summary>
+            <span aria-hidden="true" />
+            개발 연결 상태
+          </summary>
+          <section className="system-strip" aria-label="시스템 상태">
+            <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
+            <StatusChip
+              label="Database"
+              value={health.kind === 'ready' ? health.data.database.reason : '-'}
+            />
+            <StatusChip
+              label="User"
+              value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind}
+            />
+          </section>
+        </details>
+  );
+
   return (
     <main
       className="app-shell"
@@ -2510,7 +2530,7 @@ function QmsAppShellContent({
       data-osan-shell={isOsan ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
-      <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
+      <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={<>{shellSwitchControls}{isOsan && isSystemAdministrator && systemStatusDisclosure}</>} />
       {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
 
       <div className="app-content">
@@ -2580,14 +2600,14 @@ function QmsAppShellContent({
               mobile
             />
           ) : null}
-          <details className="mobile-system-details">
+          {!isOsan && <details className="mobile-system-details">
             <summary>연결 상태</summary>
             <div className="mobile-status-grid" aria-label="모바일 시스템 상태">
             <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
             <StatusChip label="Database" value={health.kind === 'ready' ? health.data.database.reason : '-'} />
             <StatusChip label="User" value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind} />
             </div>
-          </details>
+          </details>}
 
         {runtimeMode.kind === 'ready' && runtimeMode.data.reviewSafe ? (
             <div className="mobile-status-note" data-tone="warning">
@@ -2695,23 +2715,7 @@ function QmsAppShellContent({
           </div>
         ) : null}
 
-        <details className="system-status-disclosure">
-          <summary>
-            <span aria-hidden="true" />
-            개발 연결 상태
-          </summary>
-          <section className="system-strip" aria-label="시스템 상태">
-            <StatusChip label="API" value={health.kind === 'ready' ? health.data.status : health.kind} />
-            <StatusChip
-              label="Database"
-              value={health.kind === 'ready' ? health.data.database.reason : '-'}
-            />
-            <StatusChip
-              label="User"
-              value={currentUser.kind === 'ready' ? currentUser.data.displayName : currentUser.kind}
-            />
-          </section>
-        </details>
+        {!isOsan && systemStatusDisclosure}
 
       {currentUser.kind === 'forbidden' || currentUser.kind === 'not-found' || currentUser.kind === 'error' ? (
         <StateMessage state={currentUser} />

@@ -167,19 +167,15 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await page.getByRole('button', { name: '목록으로' }).click();
   const mobileList = page.getByTestId('osan-project-list-mobile');
   await expect(mobileList).toBeVisible();
-  await expect(mobileList).toHaveClass(/project-list-cards/);
-  await expect(mobileList).toHaveClass(/project-list-mobile/);
+  await expect(mobileList).toHaveClass(/osan-project-mobile-list/);
   await expect(page.getByTestId('osan-project-list-desktop')).toBeHidden();
-  await expect(mobileList.getByRole('article')).toHaveCount(1);
-  await expect(mobileList.getByRole('article')).toHaveClass(/project-list-card/);
-  const listCode = mobileList.locator('.project-code-value');
-  await expect(listCode).toBeVisible();
-  expect(await listCode.textContent()).toBe('AbC  001');
-  expect(await listCode.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('break-spaces');
-  expect(await listCode.evaluate((element) => getComputedStyle(element).textTransform)).toBe('none');
-  await expect(mobileList.getByText('시작 전')).toBeVisible();
-  await expect(mobileList.getByText('0%')).toBeVisible();
-  await expect(mobileList.locator('.mobile-detail-list dt')).toHaveText(['part 분류', '고객사', 'W/O', 'Code', '수량', '납기일', '상태', '진행률']);
+  await expect(mobileList.getByRole('listitem')).toHaveCount(1);
+  await expect(mobileList.getByRole('article')).toHaveCount(0);
+  await expect(mobileList.getByRole('button', { name: '저장된 Title 상세 열기' })).toBeVisible();
+  await expect(mobileList.locator('.project-code-value')).toHaveCount(0);
+  await expect(mobileList.getByText('시작 전')).toHaveCount(0);
+  await expect(mobileList.getByText('0%')).toHaveCount(0);
+  await expect(mobileList.locator('.osan-project-mobile-label')).toHaveText(['part 분류 ', '고객사 ', 'W/O ', '납기일 ']);
   const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
@@ -208,7 +204,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(osanMobilePage.getByRole('checkbox', { name: '저장된 Title QR 선택' })).toBeVisible();
   const osanMobilePageContract = await osanListFrameContract(page);
   expect(osanMobilePageContract.order).toEqual(['title', 'description', 'kpi', 'filter', 'listHeading']);
-  const osanMobileListContract = await projectListContract(page);
+
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-mobile-390.png'), fullPage: true });
 
@@ -320,7 +316,9 @@ test('Osan shares its page frame and preserves registration and target navigatio
   const cheongjuMobilePageContract = await projectListPageContract(page);
   expect(cheongjuMobilePageContract.structure.commonOrder).toEqual(['header', 'filter', 'kpi', 'tabs', 'list']);
   expect(cheongjuMobilePageContract.structure.commonOrderValid).toBe(true);
-  expect((await projectListContract(page)).structure).toEqual(osanMobileListContract.structure);
+  await expect(cheongjuMobileList).toHaveClass(/project-list-cards/);
+  await expect(cheongjuMobileList.getByRole('article')).toHaveClass(/project-list-card/);
+  await expect(cheongjuMobileList.locator('.mobile-detail-list')).toBeVisible();
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('cheongju-project-list-mobile-390.png'), fullPage: true });
 

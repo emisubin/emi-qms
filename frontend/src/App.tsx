@@ -2489,6 +2489,7 @@ function QmsAppShellContent({
       data-touch-optimized={layout.touchOptimized}
       data-osan-project-theme={(isOsan && (view.kind === 'list' || view.kind === 'detail')) || view.kind === 'interior-busbar' ? 'true' : undefined}
       data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
+      data-osan-shell={isOsan ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />
@@ -4660,6 +4661,7 @@ function OsanProjectListPage({
         <ProjectListPresentation
           ariaLabel="오산 프로젝트 목록"
           testIdPrefix="osan-project-list"
+          mobileCompact
           selectable
           desktopLeadingHeader={<span role="columnheader">선택</span>}
           columns={[
@@ -4696,11 +4698,7 @@ function OsanProjectListPage({
               { label: 'part 분류', value: project.productName },
               { label: '고객사', value: project.customerName },
               { label: 'W/O', value: project.workOrderNumber || '—' },
-              { label: 'Code', value: project.projectCode, valueClassName: 'project-code-value' },
-              { label: '수량', value: `${project.quantity.toLocaleString()}개` },
-              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> },
-              { label: '상태', value: project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status) },
-              { label: '진행률', value: `${calculateProgressPercent(project.completedStepCount, project.totalStepCount)}%` }
+              { label: '납기일', value: <span>{formatDate(project.deliveryDate)} <span className="osan-project-dday">{project.deliveryHold ? '(HOLD)' : formatOsanDday(project.deliveryDate, today, project.status).startsWith('(') ? formatOsanDday(project.deliveryDate, today, project.status) : `(${formatOsanDday(project.deliveryDate, today, project.status)})`}</span></span> }
             ]
           }))}
         />
@@ -10821,6 +10819,7 @@ function ProjectListPresentation({
   columns,
   rows,
   selectable = false,
+  mobileCompact = false,
   desktopLeadingHeader
 }: {
   ariaLabel: string;
@@ -10828,6 +10827,7 @@ function ProjectListPresentation({
   columns: ProjectListPresentationColumn[];
   rows: ProjectListPresentationRow[];
   selectable?: boolean;
+  mobileCompact?: boolean;
   desktopLeadingHeader?: ReactNode;
 }) {
   const isMobile = useIsMobileViewport();
@@ -10839,7 +10839,21 @@ function ProjectListPresentation({
       data-presentation-layout={isMobile ? 'mobile' : 'desktop'}
       data-presentation-column-count={columns.length}
     >
-      {isMobile ? (
+      {isMobile && mobileCompact ? (
+        <ul className="osan-project-mobile-list" aria-label={ariaLabel} data-testid={`${testIdPrefix}-mobile`}>
+          {rows.map(row => (
+            <li key={row.key} className={row.className} data-presentation-row="project">
+              {row.mobileTitleLeading}
+              <button type="button" className="osan-project-mobile-open" aria-label={row.openAriaLabel} disabled={row.openDisabled} onClick={row.onOpen}>
+                <strong className="osan-project-mobile-title">{row.title}</strong>
+                <span className="osan-project-mobile-fields">
+                  {row.mobileFields.map(field => <span key={field.label} data-field={field.label} className={field.valueClassName}><span className="osan-project-mobile-label">{field.label} </span>{field.value}</span>)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : isMobile ? (
         <div className="project-list-cards project-list-mobile" data-testid={`${testIdPrefix}-mobile`}>
           {rows.map((row) => (
             <article key={row.key} className={['project-list-card', row.className].filter(Boolean).join(' ')} data-testid={`${testIdPrefix}-card`} data-presentation-row="project">

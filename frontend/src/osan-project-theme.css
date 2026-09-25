@@ -89,3 +89,16 @@
  .app-shell[data-osan-progress='true'] .osan-list-frame .project-list-card .mobile-detail-list { gap: 4px 10px; margin: 6px 0 0; }
  .app-shell[data-osan-progress='true'] .osan-list-frame .project-list-card .mobile-detail-list > div { padding: 2px 0; }
 }
+
+/* Reuse the compact board-list rhythm for Osan mobile projects. */
+.app-shell .osan-project-mobile-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid #ddd; }
+.app-shell .osan-project-mobile-list > li { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid #eee; }
+.app-shell .osan-project-mobile-list > li.is-overdue { background: #fff1f2; }
+.app-shell .osan-project-mobile-list .osan-project-mobile-open { flex: 1; min-width: 0; display: block; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; padding: 0 !important; text-align: left; color: #282828; }
+.app-shell .osan-project-mobile-title { display: block; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
+.app-shell .osan-project-mobile-fields { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; line-height: 17px; }
+.app-shell .osan-project-mobile-fields > span { min-width: 0; overflow-wrap: anywhere; }
+.app-shell .osan-project-mobile-fields > [data-field='part 분류'] { flex-basis: 100%; color: #666; }
+.app-shell .osan-project-mobile-fields > [data-field='W/O'] { font-weight: 700; }
+.app-shell .osan-project-mobile-label { color: #777; font-size: 10px; font-weight: 400; }
+.app-shell .osan-project-mobile-fields .osan-project-dday { font-size: 11px; }

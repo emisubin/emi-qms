@@ -1124,7 +1124,7 @@ export async function getCurrentWebPushStatus(
 
 export async function saveCurrentWebPushSubscription(
   developmentUserKey: string | undefined,
-  request: { endpoint: string; keys: { p256dh: string; auth: string } }
+  request: { endpoint: string; keys: { p256dh: string; auth: string }; recovery?: boolean }
 ): Promise<WebPushSubscriptionMutation> {
   return fetchJson<WebPushSubscriptionMutation>('/api/my/web-push/subscriptions', developmentUserKey, {
     method: 'PUT',

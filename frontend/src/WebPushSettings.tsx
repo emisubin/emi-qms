@@ -210,87 +210,148 @@ export function WebPushSettings({ developmentUserKey }: { developmentUserKey: st
   );
 }
 
-export function WebPushFirstRunPrompt({ developmentUserKey }: { developmentUserKey: string }) {
+export function WebPushFirstRunPrompt({ developmentUserKey, accountScope = developmentUserKey }: { developmentUserKey: string; accountScope?: string }) {
   const [configuration, setConfiguration] = useState<WebPushConfiguration | null>(null);
   const [open, setOpen] = useState(false);
+  const [recovery, setRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [checkVersion, setCheckVersion] = useState(0);
   const businessUnit = getBusinessUnitRequestState().selectedBusinessUnit;
+  const isOsan = businessUnit === 'OSAN';
   const guideStorageKey = businessUnit ? `${webPushGuideDismissedStorageKey}:${businessUnit}` : webPushGuideDismissedStorageKey;
+  const sessionKey = `emi-pms:push-recovery-dismissed:${businessUnit}:${accountScope}`;
   const dialogRef = useRef<HTMLElement>(null);
+  const mounted = useRef(true);
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!supportsWebPush() || !isInstalledPwa()) return;
     let cancelled = false;
-    void getWebPushConfiguration(developmentUserKey).then(async (result) => {
-      if (cancelled || !result.configured) return;
-      const dismissed = window.localStorage.getItem(guideStorageKey) === 'true';
-      const existing = await getCurrentBrowserSubscription();
-      const current = existing
-        ? await getCurrentWebPushStatus(developmentUserKey, existing.endpoint)
-        : { active: false };
-      if (!cancelled && !dismissed && !current.active) {
+    let generation = 0;
+    const snoozed = () => isOsan && Date.now() - Number(window.sessionStorage.getItem(sessionKey) || 0) < 24 * 60 * 60 * 1000;
+    const check = async () => {
+      if (submitting.current || document.visibilityState === 'hidden') return;
+      if (snoozed()) return;
+      const requestGeneration = ++generation;
+      try {
+        const result = await getWebPushConfiguration(developmentUserKey);
+        if (cancelled || requestGeneration !== generation || !result.configured) return;
+        const existing = await getCurrentBrowserSubscription();
+        const current = existing
+          ? await getCurrentWebPushStatus(developmentUserKey, existing.endpoint)
+          : { active: false };
+        if (cancelled || requestGeneration !== generation || submitting.current || snoozed()) return;
+        // A missing browser subscription must not bypass an explicit server opt-out.
+        const userDisabled = current.deactivationReason === 'UserRequest'
+          || result.hasUserDisabledSubscription;
+        if (current.active || userDisabled) { setOpen(false); return; }
+        const dismissed = window.localStorage.getItem(guideStorageKey) === 'true';
+        if (!isOsan && dismissed) return;
         setConfiguration(result);
+        setRecovery(Boolean(current.deactivationReason) || Notification.permission === 'granted');
+        setFeedback(null);
         setOpen(true);
+      } catch {
+        // Do not mistake a failed status lookup for permission to re-register.
+        if (!cancelled && requestGeneration === generation && !submitting.current && !snoozed() && isOsan) {
+          setRecovery(false);
+          setConfiguration(null);
+          setFeedback('푸시 연결 상태를 확인하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.');
+          setOpen(true);
+        }
       }
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [developmentUserKey, guideStorageKey]);
+    };
+    void check();
+    const onVisible = () => { if (document.visibilityState === 'visible') void check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVisible); };
+  }, [developmentUserKey, guideStorageKey, isOsan, sessionKey, checkVersion]);
+
+  const close = () => {
+    if (submitting.current) return;
+    window.localStorage.setItem(guideStorageKey, 'true');
+    if (isOsan) window.sessionStorage.setItem(sessionKey, String(Date.now()));
+    setOpen(false);
+  };
 
   useEffect(() => {
     if (!open) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      window.localStorage.setItem(guideStorageKey, 'true');
-      setOpen(false);
+      if (event.key === 'Escape' && !submitting.current) {
+        window.localStorage.setItem(guideStorageKey, 'true');
+        if (isOsan) window.sessionStorage.setItem(sessionKey, String(Date.now()));
+        setOpen(false);
+      }
+      if (event.key === 'Tab') {
+        const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+        if (!buttons?.length) return;
+        const first = buttons[0], last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      previousFocus?.focus();
-    };
-  }, [open, guideStorageKey]);
+    return () => { document.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
+  }, [open, guideStorageKey, isOsan, sessionKey]);
 
-  if (!open || !configuration) return null;
-  const close = () => {
-    window.localStorage.setItem(guideStorageKey, 'true');
-    setOpen(false);
-  };
+  if (!open) return null;
   const enable = async () => {
+    if (submitting.current || !configuration?.publicKey) return;
+    submitting.current = true;
     setBusy(true);
     setFeedback(null);
     try {
       const permission = Notification.permission === 'granted'
         ? 'granted'
         : await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setFeedback('알림 권한이 허용되지 않았습니다. 나중에 내 알림 설정에서 다시 켤 수 있습니다.');
+      if (permission !== 'granted') throw new Error('기기 설정에서 EMI PMS 알림을 허용한 뒤 다시 시도해 주세요.');
+      const registration = await getWebPushRegistration();
+      if (!registration) throw new Error('푸시 알림을 준비할 수 없습니다.');
+      const existing = await registration.pushManager.getSubscription();
+      const current = existing ? await getCurrentWebPushStatus(developmentUserKey, existing.endpoint) : { active: false };
+      const latest = await getWebPushConfiguration(developmentUserKey);
+      if (!mounted.current) return;
+      if (current.deactivationReason === 'UserRequest'
+        || latest.hasUserDisabledSubscription) {
+        setOpen(false);
         return;
       }
-      const registration = await getWebPushRegistration();
-      if (!registration || !configuration.publicKey) throw new Error('푸시 알림을 준비할 수 없습니다.');
-      const subscription = await getOrCreateBrowserSubscription(registration, configuration.publicKey);
-      await saveCurrentWebPushSubscription(developmentUserKey, toWebPushRequest(subscription));
+      if (!latest.configured || !latest.publicKey) throw new Error('현재 푸시 알림을 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+      const expired = current.deactivationReason === 'WebPushHttp410' || current.deactivationReason === 'WebPushHttp404';
+      const subscription = await getOrCreateBrowserSubscription(registration, latest.publicKey, expired, () => mounted.current);
+      if (!mounted.current) return;
+      const result = await saveCurrentWebPushSubscription(developmentUserKey, { ...toWebPushRequest(subscription), recovery: true });
+      if (!result.active) throw new Error('푸시 연결을 저장하지 못했습니다. 다시 시도해 주세요.');
+      if (!mounted.current) return;
       window.localStorage.setItem(guideStorageKey, 'true');
       setOpen(false);
     } catch (error) {
-      setFeedback(errorMessage(error, '푸시 알림을 켤 수 없습니다.'));
+      if (mounted.current) setFeedback(errorMessage(error, '푸시 알림을 연결하지 못했습니다. 다시 시도해 주세요.'));
     } finally {
-      setBusy(false);
+      submitting.current = false;
+      if (mounted.current) setBusy(false);
     }
   };
   return (
     <div className="web-push-guide-overlay" role="presentation">
-      <section ref={dialogRef} className="web-push-guide" role="dialog" aria-modal="true" aria-labelledby="web-push-guide-title">
+      <section ref={dialogRef} className="web-push-guide" role="dialog" aria-modal="true" aria-labelledby="web-push-guide-title" aria-busy={busy}>
         <p className="eyebrow">PWA PUSH</p>
-        <h2 id="web-push-guide-title">이 기기에서 업무 알림 받기</h2>
-        <p>인앱 알림과 같은 업무 알림을 휴대폰이나 태블릿 알림으로 받을 수 있습니다.</p>
-        <p><strong>푸시 알림 켜기</strong>를 누른 뒤 브라우저 알림 권한을 허용해 주세요.</p>
+        <h2 id="web-push-guide-title">{!configuration ? '푸시 연결 확인' : recovery ? '푸시 알림 다시 연결' : '이 기기에서 업무 알림 받기'}</h2>
+        <p>{recovery ? '이 기기의 푸시 연결이 끊겨 업무 알림을 받지 못하고 있습니다. 다시 연결해 주세요.' : '업무 알림을 휴대폰이나 태블릿 알림으로 받을 수 있습니다.'}</p>
+        {configuration && <p>{recovery ? '아래 버튼을 눌러 이 기기를 다시 연결해 주세요.' : '푸시 알림 켜기를 누른 뒤 기기의 알림 권한을 허용해 주세요.'} 관리자 알림 설정은 그대로 유지됩니다.</p>}
         {feedback ? <p className="web-push-feedback" data-tone="error" role="alert">{feedback}</p> : null}
         <div className="web-push-guide-actions">
-          <button type="button" disabled={busy} onClick={() => void enable()}>{busy ? '처리 중' : '푸시 알림 켜기'}</button>
+          {configuration
+            ? <button type="button" disabled={busy} onClick={() => void enable()}>{busy ? '연결 중' : recovery ? '다시 연결' : '푸시 알림 켜기'}</button>
+            : <button type="button" onClick={() => setCheckVersion(value => value + 1)}>다시 확인</button>}
           <button type="button" className="secondary-button" disabled={busy} onClick={close}>나중에</button>
         </div>
       </section>

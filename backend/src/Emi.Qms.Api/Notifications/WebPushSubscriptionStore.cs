@@ -19,7 +19,8 @@ public sealed class WebPushSubscriptionStore(
         await using var command = dataSource.CreateCommand("""
             select
                 count(*) filter (where is_active = true),
-                max(greatest(activated_at_utc, coalesce(deactivated_at_utc, activated_at_utc)))
+                max(greatest(activated_at_utc, coalesce(deactivated_at_utc, activated_at_utc))),
+                coalesce(bool_or(is_active = false and deactivation_reason = 'UserRequest'), false)
             from web_push_subscriptions
             where user_id = @user_id;
             """);
@@ -37,7 +38,8 @@ public sealed class WebPushSubscriptionStore(
             configured,
             configured ? options.PublicKey!.Trim() : null,
             activeDeviceCount,
-            lastChangedAtUtc);
+            lastChangedAtUtc,
+            reader.GetBoolean(2));
     }
 
     public async Task<WebPushCurrentSubscriptionResponse> GetCurrentStatusAsync(
@@ -48,20 +50,26 @@ public sealed class WebPushSubscriptionStore(
         var normalizedEndpoint = ValidateEndpoint(endpoint);
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
-            select exists (
-                select 1
-                from web_push_subscriptions subscription
-                join qms_users users on users.id = subscription.user_id
-                where subscription.user_id = @user_id
-                  and subscription.endpoint_hash = @endpoint_hash
-                  and subscription.is_active = true
-                  and users.is_active = true
-            );
+            select subscription.is_active and users.is_active,
+                   subscription.deactivation_reason,
+                   subscription.last_failure_code
+            from web_push_subscriptions subscription
+            join qms_users users on users.id = subscription.user_id
+            where subscription.user_id = @user_id
+              and subscription.endpoint_hash = @endpoint_hash;
             """);
         command.Parameters.AddWithValue("user_id", userId);
         command.Parameters.AddWithValue("endpoint_hash", HashEndpoint(normalizedEndpoint));
-        var value = await command.ExecuteScalarAsync(cancellationToken);
-        return new WebPushCurrentSubscriptionResponse(value is true);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return new WebPushCurrentSubscriptionResponse(false);
+        }
+
+        return new WebPushCurrentSubscriptionResponse(
+            reader.GetBoolean(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2));
     }
 
     public async Task<WebPushSubscriptionMutationResponse> UpsertAsync(
@@ -87,6 +95,26 @@ public sealed class WebPushSubscriptionStore(
         if (!await IsActiveUserAsync(connection, transaction, userId, cancellationToken))
         {
             throw new InvalidOperationException("비활성 사용자는 푸시 알림을 켤 수 없습니다.");
+        }
+
+        // Serialize recovery with explicit opt-out writes through the same user lock.
+        if (request.Recovery)
+        {
+            await using var optOut = connection.CreateCommand();
+            optOut.Transaction = transaction;
+            optOut.CommandText = """
+                select exists (
+                    select 1 from web_push_subscriptions
+                    where user_id = @user_id
+                      and is_active = false
+                      and deactivation_reason = 'UserRequest'
+                );
+                """;
+            optOut.Parameters.AddWithValue("user_id", userId);
+            if (await optOut.ExecuteScalarAsync(cancellationToken) is true)
+            {
+                throw new InvalidOperationException("직접 끈 푸시 알림이 있습니다. 알림 설정에서 직접 다시 켜 주세요.");
+            }
         }
 
         Guid subscriptionId;

@@ -14,7 +14,7 @@ describe('SelectionActionBar', () => {
       mobilePrimary={{ label: 'HOLD', actionIds: ['hold'] }} actions={[
         { id: 'qr', label: 'QR 출력', onClick: qr }, { id: 'hold', label: 'HOLD 지정', onClick: hold }
       ]} />);
-    fireEvent.click(screen.getByRole('button', { name: 'HOLD', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: /^HOLD$/ }));
     const menu = screen.getByRole('dialog');
     expect(within(menu).queryByText('QR 출력')).toBeNull();
     fireEvent.click(within(menu).getByText('HOLD 지정'));

@@ -7,8 +7,9 @@ import type { OsanProjectDetail } from './projects';
 const fields = [ ['title','장비명'], ['projectCode','프로젝트 코드'], ['productName','part 분류'],
   ['customerName','고객사'], ['poNumber','PO No'], ['workOrderNumber','W/O No'], ['deliveryDate','납기일'] ] as const;
 
-export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mutationAllowed, actionsContainer }: {
+export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mutationAllowed, actionsContainer, mobileDeleteContainer }: {
   actionsContainer?: HTMLElement | null;
+  mobileDeleteContainer?: HTMLElement | null;
   project: OsanProjectDetail; userKey?: string; mutationAllowed: boolean; onSaved: () => void; onDeleted: () => void;
 }) {
   const [access, setAccess] = useState<{ canManage: boolean; editToken: string }>();
@@ -36,8 +37,9 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
     }catch(e){setError(e instanceof Error?e.message:'저장하지 못했습니다. 다시 시도해 주세요.');}finally{setBusy(false);}
   }
   if(!access?.canManage||!mutationAllowed)return error?<p role="alert">{error}</p>:null;
-  const buttons = <><button type="button" className="osan-detail-back" onClick={()=>open('edit')}>프로젝트 정보 수정</button><button type="button" className="osan-detail-back" onClick={()=>open('delete')}>프로젝트 삭제</button></>;
+  const buttons = <><button type="button" className="osan-detail-back osan-detail-edit" aria-label="프로젝트 정보 수정" onClick={()=>open('edit')}>{actionsContainer ? '수정' : '프로젝트 정보 수정'}</button><button type="button" className={`osan-detail-back ${mobileDeleteContainer ? 'osan-detail-desktop-delete' : ''}`} aria-label="프로젝트 삭제" onClick={()=>open('delete')}>{actionsContainer ? '삭제' : '프로젝트 삭제'}</button></>;
   return <div className={mode ? 'osan-management' : 'osan-management-idle'}>
+    {!mode && mobileDeleteContainer && createPortal(<button type="button" onClick={()=>{mobileDeleteContainer.closest('details')?.removeAttribute('open');open('delete');}}>프로젝트 삭제</button>,mobileDeleteContainer)}
     {!mode?(actionsContainer ? createPortal(buttons, actionsContainer) : <div className="actions">{buttons}</div>)
       :<form onSubmit={e=>{e.preventDefault();void save();}} aria-label={mode==='edit'?'프로젝트 정보 수정':'프로젝트 삭제'}>
         <h3>{mode==='edit'?'프로젝트 정보 수정':'프로젝트 삭제'}</h3>

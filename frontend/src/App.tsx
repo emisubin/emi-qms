@@ -4976,6 +4976,7 @@ function OsanProjectDetailPage({
   const [qrOpen, setQrOpen] = useState(false);
   const [state, setState] = useState<LoadState<OsanProjectDetail>>({ kind: 'loading' });
   const [managementActions, setManagementActions] = useState<HTMLDivElement | null>(null);
+  const [mobileDeleteActions, setMobileDeleteActions] = useState<HTMLDivElement | null>(null);
 
   const load = useCallback(() => {
     const controller = new AbortController();
@@ -4997,7 +4998,7 @@ function OsanProjectDetailPage({
       {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
       <header className="osan-detail-header">
         <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
-          actions={<>{state.kind === 'ready' && <button type="button" className="osan-detail-back" onClick={() => setQrOpen(true)}>QR 코드</button>}<div className="osan-detail-management-actions" ref={setManagementActions} /><button type="button" className="osan-detail-back" onClick={onBack}>목록으로</button></>} />
+          actions={<><div className="osan-detail-management-actions" ref={setManagementActions} />{state.kind === 'ready' && <><button type="button" className="osan-detail-back osan-detail-desktop-qr" onClick={() => setQrOpen(true)}>QR 코드</button><details className="osan-detail-more"><summary aria-label="프로젝트 더보기">더보기 ⋯</summary><div className="osan-detail-menu"><button type="button" onClick={e => {e.currentTarget.closest('details')?.removeAttribute('open');setQrOpen(true);}}>QR 코드</button><div ref={setMobileDeleteActions}/></div></details></>}<button type="button" className="osan-detail-back osan-detail-list" onClick={onBack}>목록</button></>} />
       </header>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
@@ -5010,12 +5011,13 @@ function OsanProjectDetailPage({
           action={<button type="button" onClick={load}>다시 시도</button>}
         />
       ) : null}
-      {state.kind === 'ready' ? <><OsanProjectManagement actionsContainer={managementActions} mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
+      {state.kind === 'ready' ? <><OsanProjectManagement actionsContainer={managementActions} mobileDeleteContainer={mobileDeleteActions} mutationAllowed={mutationAllowed} project={state.data} userKey={developmentUserKey} onSaved={load} onDeleted={onBack}/><OsanProjectDetailContent project={state.data} onOpenTarget={onOpenProgress} /></> : null}
     </section>
   );
 }
 
 function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProjectDetail; onOpenTarget: (targetId: string) => void }) {
+  const today = useKoreaDate();
   const targetRows = project.targets.map((target) => {
     const completedSteps = target.steps.filter((step) => step.status === 'Completed').length;
     const inProgress = completedSteps > 0;
@@ -5039,28 +5041,21 @@ function OsanProjectDetailContent({ project, onOpenTarget }: { project: OsanProj
     <>
       <section className="osan-detail-overview" aria-label="프로젝트 기본 정보">
         <div className="osan-detail-identity">
-          <span className="osan-detail-status">{project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status)}</span>
-          <h2>{project.title}</h2>
-          <p className="project-code-value">{project.projectCode}</p>
+          <div className="osan-detail-titleline"><h2>{project.title}</h2><span className="osan-detail-status">{project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status)}</span></div>
+          <p className="project-code-value">{project.productName} · {project.projectCode}</p>
         </div>
-        <div className="osan-detail-facts">
-          <section aria-label="프로젝트 정보">
-            <h3>프로젝트 정보</h3>
-            <p><span>고객사</span><strong>{project.customerName}</strong></p>
-            <p><span>part 분류</span><strong>{project.productName}</strong></p>
-            <p><span>수량</span><strong>{project.quantity.toLocaleString()}개</strong></p>
-          </section>
-          <section aria-label="문서 정보">
-            <h3>문서 정보</h3>
-            <p><span>PO No</span><strong>{project.poNumber ?? '없음'}</strong></p>
-            <p><span>W/O No</span><strong>{project.workOrderNumber ?? '없음'}</strong></p>
-          </section>
-          <section className="osan-detail-deadline" aria-label="납기일">
-            <h3>납기일</h3>
-            <time dateTime={project.deliveryDate}>{project.deliveryDate}</time>
-            {project.deliveryHold && <strong>HOLD · 납기 보류</strong>}
-          </section>
-        </div>
+        <section className="osan-detail-information" aria-label="프로젝트 정보">
+          <h3>프로젝트 정보</h3>
+          <dl>
+            <div><dt>고객사</dt><dd>{project.customerName}</dd></div>
+            <div><dt>Part 분류</dt><dd>{project.productName}</dd></div>
+            <div><dt>Code</dt><dd>{project.projectCode}</dd></div>
+            <div><dt>W/O No</dt><dd><strong>{project.workOrderNumber || '없음'}</strong></dd></div>
+            <div><dt>PO No</dt><dd>{project.poNumber || '없음'}</dd></div>
+            <div><dt>수량</dt><dd>{project.quantity.toLocaleString()}개</dd></div>
+            <div><dt>납기일</dt><dd><time dateTime={project.deliveryDate}>{formatDate(project.deliveryDate)}</time><span className="osan-detail-dday">{project.deliveryHold ? 'HOLD · 납기 보류' : formatOsanDday(project.deliveryDate, today, project.status)}</span></dd></div>
+          </dl>
+        </section>
       </section>
 
       <div

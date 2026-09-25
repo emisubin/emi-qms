@@ -6,7 +6,7 @@ namespace Emi.Qms.Api.OsanProjects;
 
 public sealed record OsanHomeSummary(int TotalCount, int InProgressCount, int HoldCount, int OverdueCount, int OpenIssueCount);
 public sealed record OsanHomeCustomer(Guid CustomerId, string CustomerName, int TotalCount, int InProgressCount,
-    int HoldCount, int OverdueCount, int OpenIssueCount, int ProgressPercent);
+    int HoldCount, int OverdueCount, int OpenIssueCount, int ProgressPercent, int NotStartedCount, int CompletedCount);
 public sealed record OsanHomeTask(Guid Id, string Kind, Guid ProjectId, Guid TargetId, int StageSequence,
     string ProjectTitle, string ProductName, string StageName, string Comment, string ActorName, DateTimeOffset OccurredAtUtc);
 public sealed record OsanHomeDeadline(Guid ProjectId, string Title, string ProjectCode, string CustomerName,
@@ -54,6 +54,8 @@ public sealed class OsanPersonalHomeStore(DatabaseConnectionStringProvider provi
             ), customer_rows as (
                 select a.id "customerId",a.name "customerName",count(p.id)::int "totalCount",
                     count(p.id) filter(where p.home_status='InProgress')::int "inProgressCount",
+                    count(p.id) filter(where p.home_status='NotStarted')::int "notStartedCount",
+                    count(p.id) filter(where p.home_status='Completed')::int "completedCount",
                     count(p.id) filter(where p.home_status='Hold')::int "holdCount",
                     count(p.id) filter(where p.overdue)::int "overdueCount",
                     count(p.id) filter(where p.issue_count>0)::int "openIssueCount",

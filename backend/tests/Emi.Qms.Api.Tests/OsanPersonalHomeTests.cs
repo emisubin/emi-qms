@@ -88,6 +88,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         var assigned = await home.GetAsync(UserId,all,ct);
         Assert.Equal(1,assigned.Summary.TotalCount);
         Assert.Equal(1,assigned.Summary.InProgressCount);
+        Assert.Equal(0, Assert.Single(assigned.Customers).NotStartedCount);
+        Assert.Equal(0, assigned.Customers[0].CompletedCount);
         Assert.Equal(1,assigned.Summary.OverdueCount);
         Assert.Single(assigned.Deadlines);
         Assert.Single(assigned.News);
@@ -130,5 +132,9 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(0,completed.TaskTotalCount);
         Assert.Equal(0,completed.Summary.OverdueCount);
         Assert.Equal(0,completed.Summary.TotalCount);
+        await database.ExecuteAsync("update projects set delivery_date=current_date+3 where id=@project;",ct,("project",p.ProjectId));
+        var packed = Assert.Single((await home.GetAsync(UserId,all,ct)).Customers);
+        Assert.Equal(1, packed.CompletedCount);
+        Assert.Equal(packed.TotalCount, packed.NotStartedCount + packed.InProgressCount + packed.CompletedCount + packed.HoldCount);
     }
 }

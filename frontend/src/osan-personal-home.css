@@ -12,3 +12,20 @@
 .app-shell .osan-personal-home .metrics button {min-width:0;padding:0 4px;}
 .app-shell .osan-personal-home .metrics span {min-height:30px;display:flex;align-items:center;justify-content:center;word-break:keep-all;}
 .app-shell .osan-personal-home .date-strip button.current small {color:#b82027!important;}
+
+/* Keep both profile counts aligned inside the profile card. */
+.app-shell .osan-personal-home .profile-stats {
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;
+}
+.app-shell .osan-personal-home .profile-stats>span {
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:6px;text-align:center;min-width:0;word-break:keep-all;
+}
+.app-shell .osan-personal-home .profile-stats b {margin:0;line-height:1.2;}
+/* The four KPI tiles occupy the entire strip without an outer fill or inset. */
+.app-shell .osan-personal-home .metrics {
+  padding:0!important;background:transparent!important;gap:0;align-items:stretch;
+}
+.app-shell .osan-personal-home .metrics button {
+  width:100%;height:100%;padding:10px 4px!important;margin:0;min-width:0;
+}

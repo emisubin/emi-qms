@@ -1,3 +1,4 @@
+import { SelectionActionBar } from './SelectionActionBar';
 import { NavigationIcon } from './NavigationIcon';
 import { BusbarLabelEntryPrompt } from "./BusbarLabelTracking";
 import { busbarApi } from "./interiorBusbar";
@@ -4648,7 +4649,17 @@ function OsanProjectListPage({
       actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
     >
       {qrIds && <OsanQrPrintDialog projectIds={qrIds} userKey={developmentUserKey} onClose={() => setQrIds(null)} />}
-      {state.kind === 'ready' && <div className="osan-qr-selection"><label><SelectionCheckbox checked={selection.allSelected} indeterminate={selection.selectedIds.size > 0 && !selection.allSelected} label="현재 목록 전체 선택" onChange={selection.toggleAll} />현재 목록 전체 선택</label><span>{selection.selectedIds.size}개 선택</span><button disabled={!selection.selectedIds.size} onClick={() => setQrIds([...selection.selectedIds])}>선택 프로젝트 QR 출력</button>{canManage && <><button type="button" disabled={!selection.selectedIds.size || holdBusy} onClick={() => { setHoldMode(true); setHoldMessage(''); }}>선택 HOLD 지정</button><button type="button" disabled={!selection.selectedIds.size || holdBusy} onClick={() => { setHoldMode(false); setHoldMessage(''); }}>선택 HOLD 해제</button></>}{selection.selectedIds.size > 0 && <button onClick={selection.clear}>선택 해제</button>}</div>}
+      {state.kind === 'ready' && <SelectionActionBar
+        count={selection.selectedIds.size} allSelected={selection.allSelected} onToggleAll={selection.toggleAll} onClear={selection.clear}
+        mobilePrimary={canManage ? { label: 'HOLD', actionIds: ['hold', 'unhold'] } : undefined}
+        actions={[
+          { id: 'qr', label: '선택 프로젝트 QR 출력', onClick: () => setQrIds([...selection.selectedIds]) },
+          ...(canManage ? [
+            { id: 'hold', label: 'HOLD 지정', disabled: holdBusy, onClick: () => { setHoldMode(true); setHoldMessage(''); } },
+            { id: 'unhold', label: 'HOLD 해제', disabled: holdBusy, onClick: () => { setHoldMode(false); setHoldMessage(''); } }
+          ] : [])
+        ]}
+      />}
       {holdMode !== null && <form className="osan-management" onSubmit={event => { event.preventDefault(); void applyHold(); }}><label>{holdMode ? 'HOLD 지정' : 'HOLD 해제'} 사유<textarea required maxLength={500} disabled={holdBusy} value={holdReason} onChange={event => setHoldReason(event.target.value)} /></label><button type="submit" disabled={holdBusy || !holdReason.trim()}>{holdBusy ? '처리 중…' : '선택 프로젝트 변경'}</button><button type="button" disabled={holdBusy} onClick={() => setHoldMode(null)}>취소</button></form>}
       {holdMessage && <p role="status">{holdMessage}</p>}
       {importMessage && <p role="status">{importMessage}</p>}

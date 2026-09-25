@@ -5000,7 +5000,7 @@ function OsanProjectDetailPage({
   useEffect(() => load(), [load]);
 
   return (
-    <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
+    <section className="osan-page osan-detail-page" aria-labelledby="osan-dashboard-title">
       {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
       <div className="osan-detail-header">
         <OsanMenuHeading id="osan-dashboard-title" title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
@@ -9723,7 +9723,7 @@ function TeamsActivityNotificationDetailPage({
     }
   };
 
-  if (osan) return <section className="osan-notifications">
+  if (osan) return <section className="osan-page osan-notifications">
     <OsanMenuHeading title="알림 상세" description="알림 내용과 연결된 프로젝트를 확인합니다." actions={<OsanButton onClick={onBack}>알림 목록</OsanButton>} />
     {state.kind === 'loading' ? <p role="status" className="on-empty">알림 상세를 불러오는 중입니다.</p> : null}
     {message && <ActionFeedback message={message} tone={message.includes('실패') ? 'error' : 'success'} />}
@@ -10040,7 +10040,7 @@ function NotificationsPage({
       ? actions.latestFeedback : null
   );
 
-  if (osan) return <section className="osan-notifications">
+  if (osan) return <section className="osan-page osan-notifications">
     <OsanMenuHeading title="알림" description="프로젝트와 진행 단계에 대한 알림을 확인합니다." actions={<>
       <OsanButton type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</OsanButton><OsanButton type="button" onClick={refresh}>새로고침</OsanButton>
     </>} />

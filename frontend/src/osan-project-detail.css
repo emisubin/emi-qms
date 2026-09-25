@@ -1,9 +1,6 @@
-.app-shell .osan-detail-page { padding: 24px !important; color: #282828; background: #fff; }
-.app-shell .osan-detail-header { position: relative; margin-bottom: 24px; }
-.app-shell .osan-detail-header h1 { margin: 0; font-size: 15px; font-weight: 600; line-height: 20px; }
-.app-shell .osan-detail-header .osan-dashboard-description { margin: 11px 0 0; font-size: 12px; line-height: 18px; color: #898989; }
+
 .app-shell .osan-detail-header .osan-list-actions { top: -4px; right: 0; }
-.app-shell .osan-detail-back { min-height: 26px !important; height: 26px; padding: 0 10px !important; font-size: 10px !important; background: #fff !important; color: #282828 !important; }
+
 .app-shell .osan-detail-overview { margin-bottom: 28px; }
 .app-shell .osan-detail-identity { padding: 20px 0; border-bottom: 1px solid #eee; }
 .app-shell .osan-detail-status { display: inline-block; font-size: 11px; color: #282828; background: #f5f5f5; border-radius: 6px; padding: 4px 8px; }
@@ -16,7 +13,6 @@
 .app-shell .osan-detail-facts strong { font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
 .app-shell .osan-detail-deadline time { display: block; font-size: 24px; line-height: 30px; }
 @media (max-width: 860px) {
-  .app-shell .osan-detail-page { padding: 7px 24px 37px !important; }
   .app-shell .osan-detail-facts { grid-template-columns: 1fr; gap: 20px; }
   .app-shell .osan-detail-identity h2 { font-size: 18px; line-height: 26px; }
 }
@@ -34,9 +30,6 @@
 .app-shell .osan-management .osan-management-hold { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-height: 44px; width: fit-content; margin-top: 8px; cursor: pointer; }
 .app-shell .osan-management .osan-management-hold input[type='checkbox'] { flex: 0 0 18px; width: 18px !important; min-width: 18px !important; height: 18px !important; min-height: 18px !important; margin: 0 !important; padding: 0 !important; accent-color: #da2127; }
 .app-shell .osan-management .osan-management-hold-help { margin-top: 0; }
-
-/* Profile-style project details: shared information order on desktop and mobile. */
-.app-shell .osan-detail-page .osan-detail-header{margin-bottom:28px}
 .app-shell .osan-detail-page .osan-detail-identity{padding:0 0 23px;border-bottom:1px solid #eee}
 .app-shell .osan-detail-titleline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .app-shell .osan-detail-titleline h2{margin:0;font-size:23px;line-height:1.4;font-weight:600}
@@ -49,21 +42,20 @@
 .app-shell .osan-detail-information dt{color:#858585;font-size:13px}
 .app-shell .osan-detail-information dd{margin:0;font-size:14px;overflow-wrap:anywhere}
 .app-shell .osan-detail-dday{margin-left:10px;font-size:12px;font-weight:600;color:#b82027;display:inline-block}
-.app-shell .osan-detail-header .osan-detail-back,.app-shell .osan-detail-more summary{width:auto;min-height:30px!important;height:30px;padding:4px 10px!important;font-size:12px!important;line-height:20px;border:1px solid #ddd!important;border-radius:4px!important;background:#fff!important;color:#444!important;white-space:nowrap}
+.app-shell .osan-detail-more summary{width:auto;min-height:30px!important;height:30px;padding:4px 10px!important;font-size:12px!important;line-height:20px;border:1px solid #ddd!important;border-radius:4px!important;background:#fff!important;color:#444!important;white-space:nowrap}
 .app-shell .osan-detail-header .osan-list-actions{position:static;display:flex;gap:6px;flex-wrap:nowrap;margin:0}
 .app-shell .osan-detail-management-actions{display:contents}
 .app-shell .osan-detail-edit{order:0}
 .app-shell .osan-detail-desktop-qr{order:1}
 .app-shell .osan-detail-desktop-delete{order:2}
 .app-shell .osan-detail-list{order:4}
-.app-shell .osan-detail-header .osan-detail-edit{color:#b82027!important;background:#fff5f5!important;border-color:#eac8ca!important}
+
 .app-shell .osan-detail-more{display:none;position:relative;order:3}
 .app-shell .osan-detail-more summary{list-style:none;cursor:pointer}
 .osan-detail-more summary::-webkit-details-marker{display:none}
 .app-shell .osan-detail-menu{position:absolute;right:0;top:38px;z-index:5;min-width:150px;padding:4px;border:1px solid #ddd;border-radius:6px;background:#fff;box-shadow:0 4px 15px #0001}
 .app-shell .osan-detail-menu button{display:block;width:100%;text-align:left;font-size:12px!important;padding:8px 10px!important;border:0!important;min-height:36px!important;background:#fff!important;color:#444!important}
 @media(max-width:760px){
-.app-shell .osan-detail-page{padding-left:20px!important;padding-right:20px!important}
 .app-shell .osan-detail-titleline{gap:8px}
 .app-shell .osan-detail-titleline h2{font-size:19px}
 .app-shell .osan-detail-identity p{font-size:12px;margin-top:6px}
@@ -77,10 +69,8 @@
 .app-shell .osan-detail-dday{font-size:11px;margin-left:7px}
 .app-shell .osan-detail-desktop-qr,.app-shell .osan-detail-desktop-delete{display:none!important}
 .app-shell .osan-detail-more{display:block}
-.app-shell .osan-detail-header .osan-detail-back,.app-shell .osan-detail-more summary{height:32px;min-height:32px!important}
+.app-shell .osan-detail-more summary{height:32px;min-height:32px!important}
 }
-.app-shell .osan-detail-header{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:9px 12px}
-.app-shell .osan-detail-header .osan-dashboard-description{grid-column:1/-1;margin:0!important}
 .app-shell .osan-detail-page .osan-detail-information dt{color:#858585!important;font-weight:400!important}
 .app-shell .osan-detail-page .osan-detail-information dd{font-weight:400!important}
 .app-shell .osan-detail-page .osan-detail-information dd strong{font-weight:600!important}
@@ -94,9 +84,7 @@
 .app-shell .osan-detail-page .project-department-metrics>article strong{font-size:12px!important}
 .app-shell .osan-detail-page .project-department-metrics>article i{display:none}
 @media(max-width:760px){
-.app-shell .osan-detail-header{gap:8px}
 .app-shell .osan-detail-header .osan-list-actions{gap:5px;justify-content:flex-end}
-.app-shell .osan-detail-header h1{font-size:15px!important}
 .app-shell .osan-detail-page .project-department-metrics{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important}
 .app-shell .osan-detail-page .project-panel-status-card{padding:14px 0!important;border:0!important;border-bottom:1px solid #eee!important;border-radius:0!important;box-shadow:none!important;background:#fff!important}
 }

@@ -166,7 +166,7 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     } catch (error) { setFormError(errorMessage(error)); }
     finally { setBusy(false); }
   }
-  return <section className="osan-admin-page" aria-label="오산 고객사 관리">
+  return <section className="osan-page osan-admin-page" aria-label="오산 고객사 관리">
     <OsanMenuHeading title="고객사 관리" description="프로젝트에 사용할 고객사와 알림을 받을 담당자를 관리합니다." actions={
       <OsanButton tone="primary" disabled={!mutationAllowed} onClick={event => openRegistration(undefined, event.currentTarget)}>고객사 등록</OsanButton>} />
     <OsanTabs className="osan-admin-tabs" label="배정 조회 방식" value={tab}
@@ -282,7 +282,7 @@ export function OsanGateSettingsPage({ developmentUserKey, mutationAllowed = tru
     } catch (error) { setFeedback(errorMessage(error)); }
     finally { setBusy(false); }
   }
-  return <section className="osan-admin-page osan-gate-page" aria-label="Gate 설정">
+  return <section className="osan-page osan-admin-page osan-gate-page" aria-label="Gate 설정">
     <OsanMenuHeading title="Gate 설정" description="각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다." />
     <p className="osan-gate-exception">관리자는 부서 지정과 관계없이 모든 단계를 완료할 수 있습니다.</p>
     {state.kind === 'loading' && <OsanInlineState kind="loading">Gate 설정을 불러오는 중입니다.</OsanInlineState>}

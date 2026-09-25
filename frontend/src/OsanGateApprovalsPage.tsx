@@ -25,7 +25,7 @@ export function OsanGateApprovalsPage({ developmentUserKey, onOpenStage }: {
       .catch(error => { if (!controller.signal.aborted) setState({ kind: 'error', message: error instanceof Error ? error.message : '승인 대기를 불러오지 못했습니다.' }); });
     return () => controller.abort();
   }, [developmentUserKey, revision]);
-  return <section className="osan-admin-page osan-gate-approvals-page" aria-label="Gate 승인 대기">
+  return <section className="osan-page osan-admin-page osan-gate-approvals-page" aria-label="Gate 승인 대기">
     <OsanMenuHeading title="Gate 승인 대기" description="사진·코멘트 수정 승인 요청 중 대기 건만 표시합니다." actions={
       <OsanButton onClick={() => setRevision(value => value + 1)}>새로고침</OsanButton>} />
     {state.kind === 'loading' && <OsanInlineState kind="loading">승인 대기를 불러오는 중입니다.</OsanInlineState>}

@@ -1,13 +1,19 @@
-.app-shell .osan-menu-heading.osan-menu-heading{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:9px 12px;width:100%;min-width:0;margin:0 0 24px!important;padding:0!important;border:0!important;background:transparent!important}
-.app-shell .osan-menu-heading.osan-menu-heading h1{height:auto!important;min-height:0!important;margin:0!important;padding:0!important;font-size:16px!important;font-weight:600!important;line-height:24px!important;color:#282828!important;overflow-wrap:anywhere}
+.app-shell .osan-menu-heading.osan-menu-heading{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:center;grid-template-rows:minmax(30px,auto) auto;gap:9px 12px;width:100%;min-width:0;margin:0 0 24px!important;padding:0!important;border:0!important;background:transparent!important}
+.app-shell .osan-menu-heading.osan-menu-heading h1{height:auto!important;min-height:0!important;margin:0!important;padding:0!important;font-size:16px!important;font-weight:600!important;letter-spacing:-.01em;line-height:24px!important;font-family:"Emi Figma Inter",sans-serif!important;color:#282828!important;overflow-wrap:anywhere}
 .app-shell .osan-menu-heading.osan-menu-heading .osan-menu-heading-description{grid-column:1/-1;margin:0!important;padding:0!important;min-height:0!important;font-size:12px!important;font-weight:400!important;line-height:18px!important;color:#898989!important}
 .app-shell .osan-menu-heading-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;min-width:0}
 .app-shell .osan-menu-heading-actions time{font-size:12px;color:#898989;white-space:nowrap}
 @media(max-width:760px){
-.app-shell .osan-menu-heading.osan-menu-heading{gap:8px;margin-bottom:22px!important}
+.app-shell .osan-menu-heading.osan-menu-heading{grid-template-rows:minmax(32px,auto) auto;gap:8px;margin-bottom:22px!important}
 .app-shell .osan-menu-heading.osan-menu-heading h1{font-size:15px!important;line-height:22px!important}
 .app-shell .osan-menu-heading.osan-menu-heading .osan-menu-heading-description{font-size:11px!important;line-height:17px!important}
 .app-shell .osan-menu-heading-actions{gap:5px}
 }
 .app-shell .osan-detail-header{display:block!important;margin-bottom:0!important}
 .app-shell .osan-personal-home>.page-title,.app-shell .osan-personal-home>.mobile-home-intro{margin-bottom:0!important;padding-bottom:0!important}
+
+/* One owner for every Osan menu surface, including the personal home. */
+.app-shell[data-osan-shell='true'] .osan-page {box-sizing:border-box;width:100%;min-width:0;max-width:none;margin:0;padding:24px;background:#fff;border:0;border-radius:0;box-shadow:none;font-family:"Emi Figma Inter",sans-serif;font-size:13px;color:#282828}
+@media(max-width:760px){.app-shell[data-osan-shell='true'] .osan-page{padding:16px 20px}}
+@media(min-width:861px){html:has(.app-shell[data-osan-shell='true']) {scrollbar-gutter:stable}}
+@media(max-width:860px){html:has(.app-shell[data-osan-shell='true']) {scrollbar-width:none}}

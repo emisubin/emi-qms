@@ -37,7 +37,7 @@ export function OsanNoticeBoard({userKey, noticeId, compose, admin, enabled, onL
   const value=await fetchJson<Settings>(`/api/osan/notices/${detail.noticeId}/settings`,userKey,{method:'PUT',body:JSON.stringify({...settings,...values,expectedVersion:settings.version,reannounce})});setSettings(value);setDetail(await getNotice(userKey,detail.noticeId));
  });
  const items=list?.items??[];
- return <section className="osan-board"><OsanMenuHeading title="공지사항" description="업데이트와 업무에 필요한 소식을 확인하세요." actions={!compose&&!edit&&!noticeId?<OsanButton tone="primary" disabled={!enabled} onClick={onCompose}>글쓰기</OsanButton>:undefined} />
+ return <section className="osan-page osan-board"><OsanMenuHeading title="공지사항" description="업데이트와 업무에 필요한 소식을 확인하세요." actions={!compose&&!edit&&!noticeId?<OsanButton tone="primary" disabled={!enabled} onClick={onCompose}>글쓰기</OsanButton>:undefined} />
  {error&&<p role="alert">{error} <OsanButton onClick={()=>setReload(n=>n+1)}>다시 불러오기</OsanButton></p>}
  {compose||edit?<form onSubmit={e=>{e.preventDefault();void save();}}><div className="board-toolbar"><h2>{detail?'공지 수정':'공지 작성'}</h2><div><OsanButton type="button" disabled={busy} onClick={onList}>취소</OsanButton><OsanButton tone="primary" type="submit" disabled={busy||!enabled}>저장</OsanButton></div></div>
  <label className="editor-line">제목<input maxLength={100} required value={title} disabled={busy} onChange={e=>setTitle(e.target.value)}/></label>

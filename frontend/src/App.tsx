@@ -213,6 +213,8 @@ import {
   acquireAccessToken,
   beginInteractiveLoginAudit,
   beginLoginRedirect,
+  beginServerSessionRecovery,
+  completeServerSessionRecovery,
   completeLoginRedirect,
   isExplicitlyLoggedOut,
   markExplicitLogout,
@@ -2081,6 +2083,7 @@ function QmsAppShellContent({
 
     getCurrentUser(developmentUserKey)
       .then((data) => {
+        if (!isDevMode) completeServerSessionRecovery();
         setCurrentUser({ kind: 'ready', data });
         const resolvedAccess = resolveBusinessUnitAccess(data);
         if (resolvedAccess.status === 'selected' || resolvedAccess.isOverallAdministrator) {
@@ -2295,7 +2298,7 @@ function QmsAppShellContent({
   if (!isDevMode && currentUser.kind !== 'ready') {
     if (isAuthenticationExpiredState(currentUser)) {
       return (
-        <AuthStatusScreen state="reauth" onAction={onReauthenticate} />
+        <ServerSessionRecovery onReauthenticate={onReauthenticate} />
       );
     }
 
@@ -4108,6 +4111,27 @@ export function AuthLoginScreen({
       )}
     </AuthGateMessage>
   );
+}
+
+export function ServerSessionRecovery({ onReauthenticate }: { onReauthenticate?: () => void }) {
+  const attempted = useRef(false);
+  const [recovering, setRecovering] = useState(true);
+  useEffect(() => {
+    if (attempted.current) return;
+    attempted.current = true;
+    if (beginServerSessionRecovery()) {
+      // A document GET passes through the Azure authentication gate again.
+      // Keep the current route; never replay the failed API/mutation request.
+      try {
+        window.location.reload();
+        return;
+      } catch { /* Fall back to the existing manual login action. */ }
+    }
+    setRecovering(false);
+  }, []);
+  return recovering
+    ? <AuthLoginScreen loading rememberSession={getRememberSessionPreference()} />
+    : <AuthStatusScreen state="reauth" onAction={onReauthenticate} />;
 }
 
 export function AuthStatusScreen({ state, message, onAction }: {

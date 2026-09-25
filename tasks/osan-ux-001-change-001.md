@@ -703,3 +703,10 @@
 - 실제 PC1440 및 모바일390/320 확인. 최종320px에서 버튼32px, 바 clientWidth/scrollWidth272로 넘침 없음. PC 버튼30px 확인. CSS 변경만으로 추가 기능 테스트는 반복하지 않음. diff check 통과.
 - 상세 레퍼런스 확보: 네이버웍스 주소록 공식 소개의 연락처 상세 https://naver.worksmobile.com/products/naver-works/contacts/ , 하이웍스 공식 모바일 가이드의 내 정보 조회/수정 https://customer.gabia.com/manual/hiworks/19842/19843 . 실제 이미지 브라우저 열기·스크린샷 저장·시각 확인 후 제시. 프로필 배치를 프로젝트 정보에 적용하는 디자인 선택은 대기, 상세 재디자인 미실행.
 - 로컬 변경만 수행. 원격 병합·공개배포 없음.
+
+### 20-40. PC·모바일 프로젝트 상세 프로필형 시안 (2026-09-25)
+
+- 사용자 하이웍스 프로필 정보 배치 확정 후 시안 제작 요청. project-detail.html 및 모바일390px 프리뷰 작성. 제품 코드·DB 변경 없음.
+- 실제 화면 기준: 하이웍스 PC https://customer.gabia.com/manual/hiworks/117/1751 , 모바일 https://customer.gabia.com/manual/hiworks/19842/19843 . 상단 핵심 정보와 아래 항목명–값 정렬·얇은 구분선 재사용. 프로필 사진/인사 탭 제외, PMS 정보·회사색·기존 진행 관리 내용 적용. PC 작업30px, 모바일32px 및 QR/삭제 더보기.
+- 제작 가이드 https://design-system.service.gov.uk/components/summary-list/ 확인, key/value 정보에 dl/dt/dd 사용. UI 스킬은 보조 점검에만 적용.
+- 합성 데이터로 PC1440 및 모바일390 실제 표시·더보기 확인. 가로 넘침 없음. 시안 승인 대기이며 제품 반영·원격·배포 미실행.

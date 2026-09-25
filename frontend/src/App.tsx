@@ -1,3 +1,4 @@
+import { OsanButton } from './OsanButton';
 import { OsanMenuHeading } from './OsanMenuHeading';
 import { SelectionActionBar } from './SelectionActionBar';
 import { NavigationIcon } from './NavigationIcon';
@@ -4647,7 +4648,7 @@ function OsanProjectListPage({
       selectedCustomers={filters.customers} onCustomersChange={customers => setFilters({ ...filters, customers, page: 1 })} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
       dueFrom={filters.dueFrom} dueTo={filters.dueTo} onDueChange={(dueFrom, dueTo) => setFilters({ ...filters, dueFrom, dueTo, page: 1 })}
       kpi={filters.kpi} onKpiChange={kpi => setFilters({ ...filters, kpi, page: 1 })}
-      actions={canCreate ? <div className="osan-project-actions"><button type="button" onClick={() => setExcelOpen(true)}>엑셀 업로드</button><button type="button" className="osan-list-create" onClick={onCreate}>신규 프로젝트</button></div> : undefined}
+      actions={canCreate ? <><OsanButton onClick={() => setExcelOpen(true)}>엑셀 업로드</OsanButton><OsanButton tone="primary" onClick={onCreate}>신규 프로젝트</OsanButton></> : undefined}
     >
       {qrIds && <OsanQrPrintDialog projectIds={qrIds} userKey={developmentUserKey} onClose={() => setQrIds(null)} />}
       {state.kind === 'ready' && <SelectionActionBar
@@ -4999,7 +5000,7 @@ function OsanProjectDetailPage({
       {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
       <div className="osan-detail-header">
         <OsanMenuHeading id="osan-dashboard-title" title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
-          actions={<><div className="osan-detail-management-actions" ref={setManagementActions} />{state.kind === 'ready' && <><button type="button" className="osan-detail-back osan-detail-desktop-qr" onClick={() => setQrOpen(true)}>QR 코드</button><details className="osan-detail-more"><summary aria-label="프로젝트 더보기">더보기 ⋯</summary><div className="osan-detail-menu"><button type="button" onClick={e => {e.currentTarget.closest('details')?.removeAttribute('open');setQrOpen(true);}}>QR 코드</button><div ref={setMobileDeleteActions}/></div></details></>}<button type="button" className="osan-detail-back osan-detail-list" onClick={onBack}>목록</button></>} />
+          actions={<><div className="osan-detail-management-actions" ref={setManagementActions} />{state.kind === 'ready' && <><OsanButton className="osan-detail-back osan-detail-desktop-qr" onClick={() => setQrOpen(true)}>QR 코드</OsanButton><details className="osan-detail-more"><summary aria-label="프로젝트 더보기">더보기 ⋯</summary><div className="osan-detail-menu"><button type="button" onClick={e => {e.currentTarget.closest('details')?.removeAttribute('open');setQrOpen(true);}}>QR 코드</button><div ref={setMobileDeleteActions}/></div></details></>}<OsanButton className="osan-detail-back osan-detail-list" onClick={onBack}>목록</OsanButton></>} />
       </div>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
@@ -9719,17 +9720,16 @@ function TeamsActivityNotificationDetailPage({
   };
 
   if (osan) return <section className="osan-notifications">
-    <button className="on-back" type="button" onClick={onBack}>‹ 알림 목록</button>
-    <h1>알림 상세</h1><p className="on-description">알림 내용과 연결된 프로젝트를 확인합니다.</p>
+    <OsanMenuHeading title="알림 상세" description="알림 내용과 연결된 프로젝트를 확인합니다." actions={<OsanButton onClick={onBack}>알림 목록</OsanButton>} />
     {state.kind === 'loading' ? <p role="status" className="on-empty">알림 상세를 불러오는 중입니다.</p> : null}
     {message && <ActionFeedback message={message} tone={message.includes('실패') ? 'error' : 'success'} />}
-    {state.kind !== 'ready' && state.kind !== 'loading' && <div className="on-empty" role="alert"><p>{loadStateMessage(state) ?? '알림을 표시할 수 없습니다.'}</p><button type="button" onClick={load}>다시 불러오기</button></div>}
+    {state.kind !== 'ready' && state.kind !== 'loading' && <div className="on-empty" role="alert"><p>{loadStateMessage(state) ?? '알림을 표시할 수 없습니다.'}</p><OsanButton onClick={load}>다시 불러오기</OsanButton></div>}
     {state.kind === 'ready' && <article className="on-detail" aria-label="인앱 알림 상세">
       <span className="on-badge">{osanNotificationLabel(state.data)}</span><span className="on-meta">{state.data.readAtUtc ? '읽음' : '읽지 않음'} · {formatDateTime(state.data.createdAtUtc)}</span>
       <h2>{state.data.title}</h2>
       <div className="on-facts"><strong>{state.data.projectTitle}</strong><br/>{state.data.projectCode}{osanNotificationActor(state.data) && <><br/>처리자 · {osanNotificationActor(state.data)}</>}</div>
       <p className="on-detail-body">{osanNotificationBody(state.data)}</p>
-      <div className="on-actions">{state.data.projectId && <button type="button" className="on-primary" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>관련 화면으로 이동</button>}{!state.data.readAtUtc && <button type="button" onClick={() => void markRead()}>읽음 처리</button>}<button type="button" onClick={onBack}>목록으로</button></div>
+      <div className="on-actions">{state.data.projectId && <OsanButton type="button" tone="primary" onClick={() => onOpenProject(state.data.projectId!, state.data.linkUrl)}>관련 화면으로 이동</OsanButton>}{!state.data.readAtUtc && <OsanButton type="button" onClick={() => void markRead()}>읽음 처리</OsanButton>}<OsanButton type="button" onClick={onBack}>목록으로</OsanButton></div>
     </article>}
   </section>;
 
@@ -10038,7 +10038,7 @@ function NotificationsPage({
 
   if (osan) return <section className="osan-notifications">
     <OsanMenuHeading title="알림" description="프로젝트와 진행 단계에 대한 알림을 확인합니다." actions={<>
-      <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</button><button type="button" onClick={refresh}>새로고침</button>
+      <OsanButton type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</OsanButton><OsanButton type="button" onClick={refresh}>새로고침</OsanButton>
     </>} />
     <div className="on-summary" aria-label="알림 요약"><div><span>읽지 않음</span><strong>{summary?.unreadCount ?? '-'}</strong></div><div><span>긴급/차단</span><strong>{summary?.blockingCount ?? '-'}</strong></div></div>
     <div className="on-filters" role="tablist" aria-label="알림 읽음 상태">{(['unread','All','read'] as NotificationTab[]).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : undefined} onClick={() => selectTab(tab)}>{tab === 'unread' ? '읽지 않음' : tab === 'All' ? '전체' : '읽음'}</button>)}</div>
@@ -10053,21 +10053,21 @@ function NotificationsPage({
       const projectFeedback = actions.feedbackFor(`notifications:project:${group.projectId}`);
       return <section className="on-group" key={group.groupKey} aria-label={`${group.projectTitle} 알림`}>
         <header className="on-grouphead"><div><strong>{group.projectTitle}</strong><div className="on-meta">{group.projectCode} · 알림 {group.items.length}건 · 읽지 않음 {group.unreadCount}건</div></div><div className="on-actions">
-          {group.projectId && group.unreadCount > 0 && <button type="button" disabled={actions.isBusy(`notifications:project:${group.projectId}`)} onClick={() => void readProject(group)}>{actions.isBusy(`notifications:project:${group.projectId}`) ? '정리 중' : '이 프로젝트 모두 읽음'}</button>}
-          {group.projectId && <button type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</button>}
+          {group.projectId && group.unreadCount > 0 && <OsanButton type="button" disabled={actions.isBusy(`notifications:project:${group.projectId}`)} onClick={() => void readProject(group)}>{actions.isBusy(`notifications:project:${group.projectId}`) ? '정리 중' : '이 프로젝트 모두 읽음'}</OsanButton>}
+          {group.projectId && <OsanButton type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</OsanButton>}
         </div></header>
         {projectFeedback && <div className="on-group-feedback"><ActionFeedback message={projectFeedback.message} tone={projectFeedback.tone} focusOnAttention/></div>}
         {(expanded ? group.items : group.items.slice(0,3)).map(item => <article className="on-row" key={item.notificationId}>
           <SelectionCheckbox label={`${item.title} 선택`} checked={notificationSelection.selectedIds.has(item.notificationId)} disabled={notificationSelection.busy} onChange={checked => notificationSelection.toggle(item.notificationId,checked)}/>
           <div><button type="button" className="on-title" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>{!item.readAtUtc && <span className="on-dot"/>}{item.title}</button><div className="on-bodycopy"><span className="on-badge">{osanNotificationLabel(item)}</span>{osanNotificationBody(item)}</div></div>
           <div className="on-time">{formatDateTime(item.createdAtUtc)}<br/>{item.readAtUtc ? '읽음' : '읽지 않음'}</div>
-          <div className="on-actions"><button type="button" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>상세</button>{item.projectId && <button type="button" onClick={() => void openNotification(item, () => onOpenProject(item.projectId!,item.linkUrl))}>이동</button>}{!item.readAtUtc && <button type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>{actions.isBusy(`notification:${item.notificationId}`) ? '처리 중' : '읽음'}</button>}</div>
+          <div className="on-actions"><OsanButton type="button" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>상세</OsanButton>{item.projectId && <OsanButton type="button" onClick={() => void openNotification(item, () => onOpenProject(item.projectId!,item.linkUrl))}>이동</OsanButton>}{!item.readAtUtc && <OsanButton type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>{actions.isBusy(`notification:${item.notificationId}`) ? '처리 중' : '읽음'}</OsanButton>}</div>
           {(() => { const feedback=actions.feedbackFor(`notification:${item.notificationId}`);return feedback && (feedback.tone === 'loading' || feedback.tone === 'error') ? <div className="on-row-feedback"><ActionFeedback message={feedback.message} tone={feedback.tone}/></div> : null; })()}
         </article>)}
         {group.items.length > 3 && <button type="button" className="on-more" aria-expanded={expanded} onClick={() => setExpandedGroups(current => {const next=new Set(current);if(next.has(group.groupKey))next.delete(group.groupKey);else next.add(group.groupKey);return next;})}>{expanded ? '접기' : '알림 더 보기'}</button>}
       </section>;
     })}
-    {itemsState.kind === 'ready' && <nav className="on-pagination" aria-label="알림 페이지"><button type="button" aria-label="이전 페이지" disabled>‹</button><span>1 / 1</span><button type="button" aria-label="다음 페이지" disabled>›</button></nav>}
+    {itemsState.kind === 'ready' && <nav className="on-pagination" aria-label="알림 페이지"><OsanButton type="button" aria-label="이전 페이지" disabled>‹</OsanButton><span>1 / 1</span><OsanButton type="button" aria-label="다음 페이지" disabled>›</OsanButton></nav>}
   </section>;
 
   return (

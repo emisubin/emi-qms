@@ -276,8 +276,11 @@ describe('Osan project registration', () => {
     expect(page).not.toBeNull();
     const directChildren = Array.from(page?.children ?? []);
     const directIndex = (selector: string) => directChildren.findIndex((element) => element.matches(selector));
-    expect(directIndex('h1')).toBeLessThan(directIndex('.osan-dashboard-description'));
-    expect(directIndex('.osan-dashboard-description')).toBeLessThan(directIndex('.osan-dashboard-summary'));
+    const heading = page?.querySelector('.osan-menu-heading');
+    expect(heading).toContainElement(screen.getByRole('heading', { name: '프로젝트', level: 1 }));
+    expect(heading).toContainElement(page?.querySelector('.osan-menu-heading-description') as HTMLElement);
+    expect(directIndex('.osan-menu-heading')).toBeGreaterThanOrEqual(0);
+    expect(directIndex('.osan-menu-heading')).toBeLessThan(directIndex('.osan-dashboard-summary'));
     expect(directIndex('.osan-dashboard-summary')).toBeLessThan(directIndex('.osan-dashboard-toolbar'));
     expect(directIndex('.osan-dashboard-toolbar')).toBeLessThan(directIndex('.osan-list-heading'));
     const summary = within(page as HTMLElement).getByLabelText('프로젝트 요약');

@@ -17,13 +17,13 @@
   --brand-red-soft:var(--osan-selection-bg);
 }
 /* Supersede the legacy monochrome selection rule only within Osan. */
-.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],button[aria-pressed='true'],button[data-active='true']) {
+.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],.osan-dashboard-summary button[aria-pressed='true'],.osan-personal-home .date-strip button[aria-pressed='true']) {
   border-color:var(--osan-selection-border)!important;
   background-color:var(--osan-selection-bg)!important;
   color:var(--osan-selection-text)!important;
 }
-.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],button[aria-pressed='true'],button[data-active='true']) * {color:inherit!important}
-.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],button[aria-pressed='true'],button[data-active='true']):hover:not(:disabled) {
+.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],.osan-dashboard-summary button[aria-pressed='true'],.osan-personal-home .date-strip button[aria-pressed='true']) * {color:inherit!important}
+.app-shell[data-osan-shell='true'] :where(.app-nav-button.active,.app-nav-button[aria-current='page'],.app-nav-child-button.active,.secondary-button.active,.tab-button.active,.segmented-control button[aria-selected='true'],[role='tab'][aria-selected='true'],.osan-dashboard-summary button[aria-pressed='true'],.osan-personal-home .date-strip button[aria-pressed='true']):hover:not(:disabled) {
   border-color:var(--osan-selection-border)!important;
   background-color:var(--osan-selection-bg)!important;
   color:var(--osan-selection-text)!important;

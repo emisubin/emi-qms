@@ -1,3 +1,4 @@
+import { OsanButton } from './OsanButton';
 import { OsanStepper } from './OsanStepper';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from './api';
@@ -97,9 +98,9 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
       </li>)}</ul>}
     </div>
     {data && <nav className="osan-dashboard-pagination" aria-label="진행 현황 페이지">
-      <button type="button" aria-label="이전 페이지" disabled={data.page <= 1} onClick={() => setQuery({ ...query, page: data.page - 1 })}><img src={backIcon} alt="" /></button>
+      <OsanButton type="button" aria-label="이전 페이지" disabled={data.page <= 1} onClick={() => setQuery({ ...query, page: data.page - 1 })}><img src={backIcon} alt="" /></OsanButton>
       <span aria-live="polite">{data.page} / {totalPages}</span>
-      <button type="button" aria-label="다음 페이지" disabled={data.page >= totalPages} onClick={() => setQuery({ ...query, page: data.page + 1 })}><img src={forwardIcon} alt="" /></button>
+      <OsanButton type="button" aria-label="다음 페이지" disabled={data.page >= totalPages} onClick={() => setQuery({ ...query, page: data.page + 1 })}><img src={forwardIcon} alt="" /></OsanButton>
     </nav>}
   </OsanListFrame>;
 }

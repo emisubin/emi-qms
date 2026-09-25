@@ -1,3 +1,4 @@
+import { OsanButton } from './OsanButton';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fetchJson } from './api';
@@ -37,7 +38,7 @@ export function OsanProjectManagement({ project, userKey, onSaved, onDeleted, mu
     }catch(e){setError(e instanceof Error?e.message:'저장하지 못했습니다. 다시 시도해 주세요.');}finally{setBusy(false);}
   }
   if(!access?.canManage||!mutationAllowed)return error?<p role="alert">{error}</p>:null;
-  const buttons = <><button type="button" className="osan-detail-back osan-detail-edit" aria-label="프로젝트 정보 수정" onClick={()=>open('edit')}>{actionsContainer ? '수정' : '프로젝트 정보 수정'}</button><button type="button" className={`osan-detail-back ${mobileDeleteContainer ? 'osan-detail-desktop-delete' : ''}`} aria-label="프로젝트 삭제" onClick={()=>open('delete')}>{actionsContainer ? '삭제' : '프로젝트 삭제'}</button></>;
+  const buttons = <><OsanButton type="button" tone="soft" className="osan-detail-back osan-detail-edit" aria-label="프로젝트 정보 수정" onClick={()=>open('edit')}>{actionsContainer ? '수정' : '프로젝트 정보 수정'}</OsanButton><OsanButton type="button" className={`osan-detail-back ${mobileDeleteContainer ? 'osan-detail-desktop-delete' : ''}`} aria-label="프로젝트 삭제" onClick={()=>open('delete')}>{actionsContainer ? '삭제' : '프로젝트 삭제'}</OsanButton></>;
   return <div className={mode ? 'osan-management' : 'osan-management-idle'}>
     {!mode && mobileDeleteContainer && createPortal(<button type="button" onClick={()=>{mobileDeleteContainer.closest('details')?.removeAttribute('open');open('delete');}}>프로젝트 삭제</button>,mobileDeleteContainer)}
     {!mode?(actionsContainer ? createPortal(buttons, actionsContainer) : <div className="actions">{buttons}</div>)

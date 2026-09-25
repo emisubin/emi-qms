@@ -1,3 +1,4 @@
+import { OsanButton } from './OsanButton';
 import { OsanInlineState } from './OsanUiPrimitives';
 import { OsanMenuHeading } from './OsanMenuHeading';
 import { useEffect, useState } from 'react';
@@ -26,7 +27,7 @@ export function OsanGateApprovalsPage({ developmentUserKey, onOpenStage }: {
   }, [developmentUserKey, revision]);
   return <section className="osan-admin-page osan-gate-approvals-page" aria-label="Gate 승인 대기">
     <OsanMenuHeading title="Gate 승인 대기" description="사진·코멘트 수정 승인 요청 중 대기 건만 표시합니다." actions={
-      <button type="button" onClick={() => setRevision(value => value + 1)}>새로고침</button>} />
+      <OsanButton onClick={() => setRevision(value => value + 1)}>새로고침</OsanButton>} />
     {state.kind === 'loading' && <OsanInlineState kind="loading">승인 대기를 불러오는 중입니다.</OsanInlineState>}
     {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {state.kind === 'ready' && (state.items.length ? <div className="osan-admin-approvals" role="table" aria-label="Gate 승인 요청 목록">

@@ -1,3 +1,4 @@
+import { OsanButton } from './OsanButton';
 import type { ReactNode } from 'react';
 
 /** Shares tab interaction while the owning page retains its approved appearance. */
@@ -33,6 +34,6 @@ export function OsanInlineState({ kind, children, className, onRetry }: {
   onRetry?: () => void;
 }) {
   return <p className={className} role={kind === 'error' ? 'alert' : kind === 'loading' ? 'status' : undefined}>
-    {children}{onRetry && <> <button type="button" onClick={onRetry}>다시 시도</button></>}
+    {children}{onRetry && <> <OsanButton onClick={onRetry}>다시 시도</OsanButton></>}
   </p>;
 }

@@ -481,3 +481,5 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 검증: frontend 관련 3파일 30건 PASS, typecheck·대상 ESLint·production build PASS(기존 bundle 크기 경고). 실제 API/격리 PostgreSQL/fake provider lifecycle 1건 PASS·skip0: 410 사유, UserRequest·새 endpoint 복구 거부와 구독/이벤트 불변, 타 사용자 정보 비노출, 오산/청주 분리, 명시적 켜기 보존. 증거 `/private/tmp/osan-push-recovery-backend-atomic.log`. 합성 데이터와 실제 컴포넌트로 PC1440×900·mobile390×844 팝업을 직접 확인했으며 가로 넘침·브라우저 오류 없음. 검증용 임시 페이지·서버·탭 정리 완료.
 
 독립 코드 검토의 P2 2건(복구 저장과 사용자 해제 경쟁, 계정 전환 중 브라우저 변경)을 보정하고 재검토에서 모두 해소했다. 실제 아이폰에서 재연결 후 업무 푸시가 표시되는지는 배포 이후 사용자 기기에서 확인해야 한다. 운영 복구 완료로 기록하지 않는다.
+
+배포 후속 승인(2026-09-25): 사용자 원격 병합·공개배포 승인, 버그 수정 공지 게시글 생략. 별도 업데이트 팝업 준비 완료. PR156 첫 CI의 통합 테스트는 새 configuration 응답 필드의 기대값 누락으로 1건 실패/63건 통과하여 `hasUserDisabledSubscription: false`를 명시하도록 보정했다. 제품 동작 변경은 없으며 필수 CI 재검증 후 병합한다.

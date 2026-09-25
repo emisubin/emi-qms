@@ -4,7 +4,7 @@ import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
 import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
-import { Fragment, FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
@@ -2017,6 +2017,12 @@ function QmsAppShellContent({
     }
   }, [isOsan, currentUser, view]);
 
+  // Enter Osan routes at the top; list pages restore their saved position
+  // after loading when returning from a detail in the same menu.
+  useLayoutEffect(() => {
+    if (isOsan) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [isOsan, view]);
+
   const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
     listNavigation.current(nextView);
@@ -3534,7 +3540,7 @@ function AppMobileNavigation({
   const closeMenu = useCallback((restoreFocus = true) => {
     setMenuOpen(false);
     if (restoreFocus) {
-      window.setTimeout(() => menuTriggerRef.current?.focus(), 0);
+      window.setTimeout(() => menuTriggerRef.current?.focus({ preventScroll: true }), 0);
     }
   }, []);
 
@@ -3551,7 +3557,7 @@ function AppMobileNavigation({
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const focusTimer = window.setTimeout(() => firstMenuItemRef.current?.focus(), 0);
+    const focusTimer = window.setTimeout(() => firstMenuItemRef.current?.focus({ preventScroll: true }), 0);
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {

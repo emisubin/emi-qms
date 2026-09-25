@@ -47,6 +47,9 @@ public static class OsanProjectEndpointExtensions
         .RequireAuthorization()
         .WithName("GetOsanDashboard");
 
+        app.MapGet("/api/osan/my/home", GetPersonalHomeAsync)
+            .RequireAuthorization().WithName("GetOsanPersonalHome");
+
         var api = app.MapGroup("/api/osan/projects");
 
         api.MapGet("/import/template", (
@@ -426,6 +429,17 @@ public static class OsanProjectEndpointExtensions
             return defaultValue;
         }
         return value;
+    }
+
+    internal static async Task<IResult> GetPersonalHomeAsync(DatabaseConnectionStringProvider db,
+        TimeProvider clock, ClaimsPrincipal user, CancellationToken ct)
+    {
+        if (!IsSelectedOsan(db)) return BusinessUnitDenied();
+        if (!ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ProjectRead)) return Results.Forbid();
+        var actor = ProjectEndpointExtensions.GetCurrentUserId(user);
+        if (actor is null) return Results.Unauthorized();
+        return Results.Ok(await new OsanPersonalHomeStore(db, clock).GetAsync(
+            actor.Value, ProjectEndpointExtensions.GetProjectAccessScope(user), ct));
     }
 
     private static bool IsSelectedOsan(DatabaseConnectionStringProvider connectionStringProvider) =>

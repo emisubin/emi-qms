@@ -19,6 +19,8 @@ import { matchesUserAccessFilters } from './userAccessFilters';
 import { OsanProgressPage } from './OsanProgressPage';
 import { OsanMobileTools } from './OsanMobileTools';
 import { OsanDashboardPage } from './OsanDashboardPage';
+import { OsanPersonalHome } from './OsanPersonalHomePage';
+import { rememberOsanProject } from './osanPersonalHome';
 import { createOsanListNavigation, emptyOsanListFilters, osanDueDateMatches, readOsanListSnapshot, saveOsanListSnapshot } from './osanListState';
 import { fetchJson } from './api';
 import { OsanNotificationSettings } from './OsanNotificationSettings';
@@ -2008,6 +2010,13 @@ function QmsAppShellContent({
     }
   }, [layout.isMobile]);
 
+  useEffect(() => {
+    if (isOsan && currentUser.kind === 'ready' && !currentUser.data.approvalPending
+      && (view.kind === 'detail' || view.kind === 'osan-progress' || view.kind === 'osan-qr') && view.projectId) {
+      rememberOsanProject(currentUser.data.effectiveUser?.userId ?? currentUser.data.userId, view.projectId);
+    }
+  }, [isOsan, currentUser, view]);
+
   const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
     listNavigation.current(nextView);
@@ -2712,7 +2721,19 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
-        isOsan ? <OsanDashboardPage view="home" stateScopeKey={currentUser.data.userId} developmentUserKey={developmentUserKey} onOpen={(projectId) => setView({ kind: 'detail', projectId })} /> : <HomePage
+        isOsan ? <OsanPersonalHome scope={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId} userKey={developmentUserKey}
+          name={currentUser.data.effectiveUser.displayName} department={currentUser.data.effectiveUser.departmentName ?? ''}
+          canCreate={canCreate && canBrowseOperationalPages && mutationEnabled}
+          onProject={projectId => setView({ kind: 'detail', projectId })}
+          onStage={(projectId, targetId, stage) => setView({ kind: 'osan-progress', projectId, targetId, stage: String(stage) })}
+          onProgress={filters => {
+            setView({ kind: 'osan-progress' });
+            if (filters) saveOsanListSnapshot(`${currentUser.data.userId}:dashboard:progress`, { filters: { ...emptyOsanListFilters(), ...filters }, draft: '', scrollY: 0 });
+          }}
+          onNotice={noticeId => setView({ kind: 'notice-board', ...(noticeId ? { noticeId } : {}) })}
+          onNotifications={() => setView({ kind: 'notifications' })}
+          onCreate={() => setView({ kind: 'create' })}
+          onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })}/> : <HomePage
           developmentUserKey={developmentUserKey}
           requestContextKey={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId}
           effectiveDisplayName={currentUser.data.effectiveUser.displayName}

@@ -238,7 +238,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(await hasHorizontalOverflow(page)).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('osan-project-list-desktop-1440.png'), fullPage: true });
 
-  for (const [path, title] of [['/', '오산 홈'], ['/progress', '진행 현황']] as const) {
+  for (const [path, title] of [['/progress', '진행 현황']] as const) {
     await page.goto(path);
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page.getByRole('list', { name: '프로젝트 진행 목록' })).toBeVisible();
@@ -327,14 +327,14 @@ test('Osan shares its page frame and preserves registration and target navigatio
   expect(requestFailures).toEqual([]);
 });
 
-test('Osan home and progress keep D-day beside the equipment name across widths and Korean midnight', async ({ page }, testInfo) => {
+test('Osan progress retains the former home cards and keeps D-day beside the equipment name across widths and Korean midnight', async ({ page }, testInfo) => {
   const unexpected: string[] = [], errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await installBackend(page, [], unexpected);
   await page.addInitScript(() => window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN'));
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const route of ['/', '/progress']) {
+    for (const route of ['/progress']) {
       await page.clock.setFixedTime(new Date('2026-12-30T14:59:59Z'));
       await page.goto(route);
       const title = page.locator('.osan-dashboard-project-title');

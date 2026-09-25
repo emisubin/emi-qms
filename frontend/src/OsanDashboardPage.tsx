@@ -65,7 +65,7 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
     onOpen(projectId);
   };
   return <OsanListFrame
-    className={isHome ? 'osan-home-dashboard' : ''}
+    className="osan-home-dashboard"
     title={isHome ? '오산 홈' : '진행 현황'}
     description="납기가 빠른 순서입니다. HOLD는 하단에 표시하며, 납기가 지난 완료 프로젝트는 제외됩니다."
     summaryLabels={['관리 대상', '공정 시작 전', '공정 진행 중', '공정 이상', 'HOLD']}
@@ -89,15 +89,11 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
       {data && <ul className="osan-dashboard-list" aria-label="프로젝트 진행 목록">{data.items.map(project => <li key={project.projectId}>
         <button type="button" className={`osan-dashboard-project${isOsanOverdue(project, today) ? ' is-overdue' : ''}`} onClick={() => open(project.projectId)} aria-label={`${project.title} ${isHome ? '프로젝트 상세' : '진행 상세'} 열기`}>
           <span className="osan-dashboard-project-title" title={project.title}><span className="osan-dashboard-project-name">{project.title}</span><span className="osan-dashboard-part" title={project.productName}>{project.productName}</span><span className={`osan-dashboard-dday${project.deliveryHold ? ' is-hold' : ''}`}>{project.deliveryHold ? 'HOLD' : formatOsanDday(project.deliveryDate, today, project.status)}</span></span>
-          {isHome && <span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
+          {<span className="osan-home-deadline"><strong>W/O {project.workOrderNumber || '—'}</strong><span>납기 {project.deliveryDate}</span></span>}
           <OsanStepper stages={project.stages}/>
           <span className="osan-dashboard-percent" role="progressbar" aria-label={`${project.title} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={project.progressPercent}>{project.progressPercent}%</span>
         </button>
-        {!isHome && <dl className="osan-dashboard-project-meta">
-          <div><dt>part 분류</dt><dd>{project.productName}</dd></div><div><dt>수량</dt><dd>{project.quantity}</dd></div>
-          <div><dt>고객사</dt><dd>{project.customerName}</dd></div><div><dt>W/O</dt><dd><strong>{project.workOrderNumber || '—'}</strong></dd></div>
-          <div><dt>코드</dt><dd>{project.projectCode}</dd></div><div><dt>납기일</dt><dd>{project.deliveryDate}</dd></div>
-        </dl>}
+
       </li>)}</ul>}
     </div>
     {data && <nav className="osan-dashboard-pagination" aria-label="진행 현황 페이지">

@@ -31,11 +31,11 @@ it('날짜 선택은 일부 홈 일정 대신 담당 고객사와 납기일로 �
 it('모바일 소식에서 반려 요약을 누르면 내 업무의 반려 목록으로 전환되고 실제 단계로 연결된다',async()=>{
  render(<OsanPersonalHome {...props}/>);
  const rejection=await screen.findByRole('button',{name:'반려 1건 보기'});
- fireEvent.click(screen.getByRole('tab',{name:'소식',exact:true}));
- expect(screen.getByRole('tab',{name:'소식',exact:true})).toHaveAttribute('aria-selected','true');
+ fireEvent.click(screen.getByRole('tab',{name:'소식'}));
+ expect(screen.getByRole('tab',{name:'소식'})).toHaveAttribute('aria-selected','true');
  fireEvent.click(rejection);
- expect(screen.getByRole('tab',{name:'내 업무',exact:true})).toHaveAttribute('aria-selected','true');
- expect(screen.getByRole('tab',{name:'반려 1',exact:true})).toHaveAttribute('aria-selected','true');
+ expect(screen.getByRole('tab',{name:'내 업무'})).toHaveAttribute('aria-selected','true');
+ expect(screen.getByRole('tab',{name:'반려 1'})).toHaveAttribute('aria-selected','true');
  fireEvent.click(screen.getByRole('button',{name:/반려 제어반/}));
  expect(props.onStage).toHaveBeenCalledWith('p','t',3);
 });

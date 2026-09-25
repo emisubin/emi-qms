@@ -1,0 +1,18 @@
+/* All Osan routes share App's mobile header and this single home-based layout.
+ * Page-specific styles must not redefine the brand, selector or account layout. */
+@media (max-width: 860px) {
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] { padding: 0 !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .app-content { padding: 0; gap: 0; background: #fff; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-app-bar { width: 100%; display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; min-height: 52px; margin: 0 !important; padding: 12px 24px; border: 0 !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-app-brand { flex: 1; min-width: 58px; padding: 0 !important; min-height: 21px; height: 21px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-app-brand > span { display: none; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-app-brand .app-brand-logo { width: 58px; height: 21px; object-fit: contain; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-app-bar .business-unit-selector { min-width: 0; width: 90px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-account-trigger { min-width: 24px; width: 24px; height: 24px; min-height: 24px; padding: 0 !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-account-trigger .profile-avatar { width: 24px; height: 24px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .business-unit-selector select { min-height: 28px; height: 28px; padding: 2px 8px; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-menu-trigger { width: 17px; min-width: 17px; height: 24px; min-height: 24px; padding: 0 !important; border: 0 !important; background: transparent !important; }
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true'] .mobile-menu-trigger svg { width: 17px; height: 12px; }
+  /* Body gutters are independent of the shared header. */
+  .app-shell[data-layout-mode='mobile'][data-osan-shell='true']:not([data-osan-progress='true']) .app-content > section { margin-left: 8px; margin-right: 8px; }
+}

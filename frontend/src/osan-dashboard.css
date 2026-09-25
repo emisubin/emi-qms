@@ -50,10 +50,6 @@
   .app-shell .osan-dashboard-project-meta { display: none; }
 }
 
-@media (max-width: 860px) {
-  .app-shell[data-layout-mode='mobile']:has(.osan-dashboard, .osan-detail-page) .mobile-app-bar { border: 0 !important; }
-  .app-shell[data-layout-mode='mobile']:has(.osan-dashboard, .osan-detail-page) .mobile-app-brand { padding: 0 !important; min-height: 21px; height: 21px; }
-}
 
 @media (min-width: 861px) {
   .app-shell .osan-dashboard-project { height: 52px; }

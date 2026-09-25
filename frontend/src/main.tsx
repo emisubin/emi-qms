@@ -16,6 +16,7 @@ import './styles.css';
 import './design-system/tokens.css';
 import './design-system/wireframe.css';
 import './osan-progress.css';
+import './osan-mobile-shell.css';
 import './auth-figma.css';
 
 const disposeViewport = installPwaViewport();

@@ -98,7 +98,12 @@
 .app-shell .osan-project-mobile-title { display: block; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
 .app-shell .osan-project-mobile-fields { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; line-height: 17px; }
 .app-shell .osan-project-mobile-fields > span { min-width: 0; overflow-wrap: anywhere; }
-.app-shell .osan-project-mobile-fields > [data-field='part 분류'] { flex-basis: 100%; color: #666; }
+
 .app-shell .osan-project-mobile-fields > [data-field='W/O'] { font-weight: 700; }
 .app-shell .osan-project-mobile-label { color: #777; font-size: 10px; font-weight: 400; }
 .app-shell .osan-project-mobile-fields .osan-project-dday { font-size: 11px; }
+
+.app-shell .osan-project-mobile-heading { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.app-shell .osan-project-mobile-heading > * { min-width: 0; overflow-wrap: anywhere; }
+.app-shell .osan-project-mobile-title { flex: 0 1 auto; }
+.app-shell .osan-project-mobile-part { flex: 1; color: #666; font-size: 11px; line-height: 17px; }

@@ -175,7 +175,7 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(mobileList.locator('.project-code-value')).toHaveCount(0);
   await expect(mobileList.getByText('시작 전')).toHaveCount(0);
   await expect(mobileList.getByText('0%')).toHaveCount(0);
-  await expect(mobileList.locator('.osan-project-mobile-label')).toHaveText(['part 분류 ', '고객사 ', 'W/O ', '납기일 ']);
+  await expect(mobileList.locator('.osan-project-mobile-label')).toHaveText(['Part 분류 ', '고객사 ', 'W/O ', '납기일 ']);
   const osanMobilePage = page.locator('[data-presentation-contract="osan-list-frame"]');
   await expect(osanMobilePage.getByRole('heading', { name: '프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();

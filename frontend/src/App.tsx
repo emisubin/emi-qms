@@ -10845,9 +10845,12 @@ function ProjectListPresentation({
             <li key={row.key} className={row.className} data-presentation-row="project">
               {row.mobileTitleLeading}
               <button type="button" className="osan-project-mobile-open" aria-label={row.openAriaLabel} disabled={row.openDisabled} onClick={row.onOpen}>
-                <strong className="osan-project-mobile-title">{row.title}</strong>
+                <span className="osan-project-mobile-heading">
+                  <strong className="osan-project-mobile-title">{row.title}</strong>
+                  <span className="osan-project-mobile-part"><span className="osan-project-mobile-label">Part 분류 </span>{row.mobileFields.find(field => field.label === 'part 분류')?.value}</span>
+                </span>
                 <span className="osan-project-mobile-fields">
-                  {row.mobileFields.map(field => <span key={field.label} data-field={field.label} className={field.valueClassName}><span className="osan-project-mobile-label">{field.label} </span>{field.value}</span>)}
+                  {row.mobileFields.filter(field => field.label !== 'part 분류').map(field => <span key={field.label} data-field={field.label} className={field.valueClassName}><span className="osan-project-mobile-label">{field.label} </span>{field.value}</span>)}
                 </span>
               </button>
             </li>

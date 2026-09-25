@@ -36,3 +36,5 @@
 - 변경: `/api/me` 인증 만료 UI에서 현재 문서를 자동으로 1회 reload하여 사전 인증 관문을 다시 거친다. query/hash를 포함한 현재 주소 보존. 서버 복구 가드는 MSAL 토큰 성공으로 지우지 않고 `/api/me` 성공 후에만 해제. 실패 후 복귀/저장소 장애/명시적 로그아웃은 자동 반복 없이 기존 수동 로그인 사용. 실패한 저장 API 재전송 없음. 서버 권한·인증 설정·DB 변경 없음.
 - 검증: auth/app unit 128 PASS. reload 최종 보정 후 auth38 재실행. TypeScript·대상 ESLint·Vite build PASS(기존 bundle 크기 안내 유지). PC1440·모바일390 실제 Chrome 합성 E2E2 PASS: query/hash 보존, document GET 최초+복구 총2회, 실패시 수동 화면, mutation0. 전용 Playwright binary 부재로 기존 설치 Chrome 임시 설정을 사용하고 삭제했다. 운영 Microsoft 인증 왕복/실제8시간 만료 검수는 미실행.
 - 독립 reviewer `/root/auth_expiry_review` GO. 최초 location.replace의 fragment same-document 가능성 P2는 reload로 보정하고 위 E2E로 검증. 리뷰 범위 App.tsx/auth.ts/auth.test.tsx 및 auth-shell fixture·회귀검사. 기존 UI 그대로 재사용하며 디자인 변경 없음.
+
+- 후속 배포(2026-09-25): 사용자 명시 승인으로 PR #155, main7b606dc에 포함하여20:34KST 공개배포·저장 재개 완료. required CI 전체 성공 및 운영 인증 후 오산 홈 조회 확인. 정확한 이미지/배포 증거는 `tasks/osan-ux-001-change-001.md`20-49 참조. 실제 장시간 만료 왕복은 여전히 미검수.

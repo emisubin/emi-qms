@@ -1,3 +1,4 @@
+import { OsanMenuHeading } from './OsanMenuHeading';
 import { useEffect, useRef, useState } from 'react';
 import { createNotice, deleteNotice, deleteNoticeAttachment, downloadNoticeAttachment, fetchJson, getNotice, listNotices, updateNotice, uploadNoticeAttachment } from './api';
 import type { NoticeDetail, NoticeListResponse } from './notices';
@@ -35,7 +36,7 @@ export function OsanNoticeBoard({userKey, noticeId, compose, admin, enabled, onL
   const value=await fetchJson<Settings>(`/api/osan/notices/${detail.noticeId}/settings`,userKey,{method:'PUT',body:JSON.stringify({...settings,...values,expectedVersion:settings.version,reannounce})});setSettings(value);setDetail(await getNotice(userKey,detail.noticeId));
  });
  const items=list?.items??[];
- return <section className="osan-board"><header className="board-heading"><h1>공지사항</h1><p>업데이트와 업무에 필요한 소식을 확인하세요.</p></header>
+ return <section className="osan-board"><OsanMenuHeading title="공지사항" description="업데이트와 업무에 필요한 소식을 확인하세요." />
  {error&&<p role="alert">{error} <button onClick={()=>setReload(n=>n+1)}>다시 불러오기</button></p>}
  {compose||edit?<form onSubmit={e=>{e.preventDefault();void save();}}><div className="board-toolbar"><h2>{detail?'공지 수정':'공지 작성'}</h2><div><button type="button" disabled={busy} onClick={onList}>취소</button><button className="primary" disabled={busy||!enabled}>저장</button></div></div>
  <label className="editor-line">제목<input maxLength={100} required value={title} disabled={busy} onChange={e=>setTitle(e.target.value)}/></label>

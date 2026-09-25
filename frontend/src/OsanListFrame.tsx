@@ -1,3 +1,4 @@
+import { OsanMenuHeading } from './OsanMenuHeading';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import filterIcon from './assets/osan-dashboard-filter.png';
 import './osan-dashboard.css';
@@ -114,7 +115,7 @@ export function OsanListFrame({ title, description, counts, search, onSearchChan
   const active = statuses.length > 0 || selectedCustomers.length > 0 || !!dueFrom || !!dueTo;
   const summaryValues = kpiValues ?? ['All', 'NotStarted', 'InProgress', 'Completed'];
   return <section className={`osan-dashboard osan-list-frame ${className}`} aria-labelledby="osan-dashboard-title" data-presentation-contract="osan-list-frame">
-    <OsanPageHeading title={title} description={description} actions={actions} />
+    <OsanMenuHeading id="osan-dashboard-title" title={title} description={description} actions={actions} />
     <div className="osan-dashboard-summary" data-count={summaryLabels.length} aria-label="프로젝트 요약">
       {summaryLabels.map((label, i) => <button type="button" key={label} className={kpi === summaryValues[i] ? 'is-selected' : ''}
         aria-pressed={kpi === summaryValues[i]} onClick={() => onKpiChange(kpi === summaryValues[i] ? null : summaryValues[i])}>

@@ -1,3 +1,4 @@
+import { OsanMenuHeading } from './OsanMenuHeading';
 import { SelectionActionBar } from './SelectionActionBar';
 import { NavigationIcon } from './NavigationIcon';
 import { BusbarLabelEntryPrompt } from "./BusbarLabelTracking";
@@ -26,7 +27,7 @@ import { createOsanListNavigation, emptyOsanListFilters, osanDueDateMatches, rea
 import { fetchJson } from './api';
 import { OsanNotificationSettings } from './OsanNotificationSettings';
 import './osan-project-theme.css';
-import { OsanListFrame, OsanPageHeading } from './OsanListFrame';
+import { OsanListFrame } from './OsanListFrame';
 import { OsanProjectExcelDialog } from './OsanProjectExcelDialog';
 import { formatOsanDday, useKoreaDate, isOsanOverdue } from './osanDday';
 import './osan-project-detail.css';
@@ -4996,10 +4997,10 @@ function OsanProjectDetailPage({
   return (
     <section className="page-surface osan-detail-page" aria-labelledby="osan-dashboard-title">
       {qrOpen && state.kind === 'ready' && <OsanQrPrintDialog projectIds={[projectId]} userKey={developmentUserKey} onClose={() => setQrOpen(false)} />}
-      <header className="osan-detail-header">
-        <OsanPageHeading title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
+      <div className="osan-detail-header">
+        <OsanMenuHeading id="osan-dashboard-title" title="프로젝트 상세" description="프로젝트 기본 정보와 대상별 진행 상태를 확인합니다."
           actions={<><div className="osan-detail-management-actions" ref={setManagementActions} />{state.kind === 'ready' && <><button type="button" className="osan-detail-back osan-detail-desktop-qr" onClick={() => setQrOpen(true)}>QR 코드</button><details className="osan-detail-more"><summary aria-label="프로젝트 더보기">더보기 ⋯</summary><div className="osan-detail-menu"><button type="button" onClick={e => {e.currentTarget.closest('details')?.removeAttribute('open');setQrOpen(true);}}>QR 코드</button><div ref={setMobileDeleteActions}/></div></details></>}<button type="button" className="osan-detail-back osan-detail-list" onClick={onBack}>목록</button></>} />
-      </header>
+      </div>
       {state.kind === 'loading' ? <DsStatePanel kind="loading" title="프로젝트를 불러오는 중입니다." /> : null}
       {state.kind === 'forbidden' ? <DsStatePanel kind="forbidden" title="프로젝트를 볼 권한이 없습니다." description={state.message} /> : null}
       {state.kind === 'not-found' ? <DsStatePanel kind="not-found" title="프로젝트를 찾을 수 없습니다." description={state.message} /> : null}
@@ -10036,9 +10037,9 @@ function NotificationsPage({
   );
 
   if (osan) return <section className="osan-notifications">
-    <header className="on-heading"><div><h1>알림</h1><p className="on-description">프로젝트와 진행 단계에 대한 알림을 확인합니다.</p></div><div className="on-actions">
+    <OsanMenuHeading title="알림" description="프로젝트와 진행 단계에 대한 알림을 확인합니다." actions={<>
       <button type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</button><button type="button" onClick={refresh}>새로고침</button>
-    </div></header>
+    </>} />
     <div className="on-summary" aria-label="알림 요약"><div><span>읽지 않음</span><strong>{summary?.unreadCount ?? '-'}</strong></div><div><span>긴급/차단</span><strong>{summary?.blockingCount ?? '-'}</strong></div></div>
     <div className="on-filters" role="tablist" aria-label="알림 읽음 상태">{(['unread','All','read'] as NotificationTab[]).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : undefined} onClick={() => selectTab(tab)}>{tab === 'unread' ? '읽지 않음' : tab === 'All' ? '전체' : '읽음'}</button>)}</div>
     {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && <StateMessage state={summaryState}/>}

@@ -1,3 +1,4 @@
+import { OsanMenuHeading } from './OsanMenuHeading';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchJson } from './api';
 import './OsanAdminPage.css';
@@ -164,8 +165,8 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     finally { setBusy(false); }
   }
   return <section className="osan-admin-page" aria-label="오산 고객사 관리">
-    <header className="osan-admin-heading"><div><h1>고객사 관리</h1><p>프로젝트에 사용할 고객사와 알림을 받을 담당자를 관리합니다.</p></div>
-      <button type="button" className="osan-admin-primary" disabled={!mutationAllowed} onClick={event => openRegistration(undefined, event.currentTarget)}>고객사 등록</button></header>
+    <OsanMenuHeading title="고객사 관리" description="프로젝트에 사용할 고객사와 알림을 받을 담당자를 관리합니다." actions={
+      <button type="button" className="osan-admin-primary" disabled={!mutationAllowed} onClick={event => openRegistration(undefined, event.currentTarget)}>고객사 등록</button>} />
     <div className="osan-admin-tabs" role="tablist" aria-label="배정 조회 방식">
       <button type="button" role="tab" aria-selected={tab === 'customer'} onClick={() => { setTab('customer'); setSearch(''); setUnassigned(false); }}>고객사별 담당자</button>
       <button type="button" role="tab" aria-selected={tab === 'person'} onClick={() => { setTab('person'); setSearch(''); setUnassigned(false); }}>사용자별 고객사</button>
@@ -281,7 +282,7 @@ export function OsanGateSettingsPage({ developmentUserKey, mutationAllowed = tru
     finally { setBusy(false); }
   }
   return <section className="osan-admin-page osan-gate-page" aria-label="Gate 설정">
-    <header className="osan-admin-heading"><div><h1>Gate 설정</h1><p>각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다.</p></div></header>
+    <OsanMenuHeading title="Gate 설정" description="각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다." />
     <p className="osan-gate-exception">관리자는 부서 지정과 관계없이 모든 단계를 완료할 수 있습니다.</p>
     {state.kind === 'loading' && <p role="status">Gate 설정을 불러오는 중입니다.</p>}
     {state.kind === 'error' && <p role="alert">{state.message} <button type="button" onClick={() => setRevision(value => value + 1)}>다시 시도</button></p>}

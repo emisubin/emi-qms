@@ -1,3 +1,4 @@
+import { OsanMenuHeading } from './OsanMenuHeading';
 import { useEffect, useState } from 'react';
 import { fetchJson } from './api';
 import './OsanAdminPage.css';
@@ -23,8 +24,8 @@ export function OsanGateApprovalsPage({ developmentUserKey, onOpenStage }: {
     return () => controller.abort();
   }, [developmentUserKey, revision]);
   return <section className="osan-admin-page osan-gate-approvals-page" aria-label="Gate 승인 대기">
-    <header className="osan-admin-heading"><div><h1>Gate 승인 대기</h1><p>사진·코멘트 수정 승인 요청 중 대기 건만 표시합니다.</p></div>
-      <button type="button" onClick={() => setRevision(value => value + 1)}>새로고침</button></header>
+    <OsanMenuHeading title="Gate 승인 대기" description="사진·코멘트 수정 승인 요청 중 대기 건만 표시합니다." actions={
+      <button type="button" onClick={() => setRevision(value => value + 1)}>새로고침</button>} />
     {state.kind === 'loading' && <p role="status">승인 대기를 불러오는 중입니다.</p>}
     {state.kind === 'error' && <p role="alert">{state.message} <button type="button" onClick={() => setRevision(value => value + 1)}>다시 시도</button></p>}
     {state.kind === 'ready' && (state.items.length ? <div className="osan-admin-approvals" role="table" aria-label="Gate 승인 요청 목록">

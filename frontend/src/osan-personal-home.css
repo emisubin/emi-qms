@@ -61,3 +61,73 @@
 
 .app-shell .osan-personal-home .deadline-project-title {display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 6px;overflow-wrap:anywhere;}
 .app-shell .osan-personal-home .deadline-part {font-weight:400;font-size:11px;color:#747981;}
+
+/* Approved mobile app home: reuse live widgets in selectable sections. */
+.app-shell .osan-personal-home .mobile-home-intro,
+.app-shell .osan-personal-home .mobile-home-urgent,
+.app-shell .osan-personal-home .mobile-home-tabs {display:none;}
+@media(max-width:760px) {
+ .app-shell .osan-personal-home {padding:20px 20px 70px!important;}
+ .app-shell .osan-personal-home>.page-title,
+ .app-shell .osan-personal-home .profile {display:none;}
+ .app-shell .osan-personal-home .mobile-home-intro {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:18px;}
+ .app-shell .osan-personal-home .mobile-home-intro h1 {font-size:22px;line-height:1.3;margin:0 0 7px;}
+ .app-shell .osan-personal-home .mobile-home-intro p {font-size:12px;color:#7b8088;line-height:1.5;}
+ .app-shell .osan-personal-home .mobile-home-intro time {font-size:12px;color:#7b8088;white-space:nowrap;}
+ .app-shell .osan-personal-home .mobile-home-urgent {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));background:#fbefef!important;border:1px solid #f0dcdc;border-radius:12px;overflow:hidden;}
+ .app-shell .osan-personal-home .mobile-home-urgent button {display:flex;justify-content:space-between;align-items:center;gap:8px;padding:13px 16px;min-height:76px;text-align:left;border-radius:0;}
+ .app-shell .osan-personal-home .mobile-home-urgent button+button {border-left:1px solid #efdede;}
+ .app-shell .osan-personal-home .mobile-home-urgent span {font-size:12px;}
+ .app-shell .osan-personal-home .mobile-home-urgent small {display:block;font-size:10px;color:#7b8088;margin-top:5px;}
+ .app-shell .osan-personal-home .mobile-home-urgent b {font-size:26px;color:#b82027!important;}
+ .app-shell .osan-personal-home .dashboard {gap:0;}
+ .app-shell .osan-personal-home .widget {padding:20px 0 0!important;border:0!important;border-radius:0!important;box-shadow:none!important;}
+ .app-shell .osan-personal-home .quick {order:-3;padding:16px 0 18px!important;}
+ .app-shell .osan-personal-home .quick .widget-title {display:none;}
+ .app-shell .osan-personal-home .quick-grid button {background:transparent!important;padding:6px 0;min-height:58px;font-size:11px;gap:7px;}
+ .app-shell .osan-personal-home .quick-grid svg {width:20px;height:20px;}
+ .app-shell .osan-personal-home .mobile-home-tabs {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));order:-2;width:calc(100% + 40px);margin:0 -20px;padding:0 14px;border-bottom:1px solid #eaebee;background:white!important;}
+ .app-shell .osan-personal-home .mobile-home-tabs button {height:47px;font-size:13px;font-weight:600;color:#7b8088;border-radius:0;position:relative;padding:0 2px;white-space:nowrap;}
+ .app-shell .osan-personal-home .mobile-home-tabs button[aria-selected=true] {color:#b82027!important;background:transparent!important;}
+ .app-shell .osan-personal-home .mobile-home-tabs button[aria-selected=true]:after {content:'';position:absolute;bottom:0;height:3px;border-radius:2px;background:#b82027;left:17px;right:17px;}
+ .app-shell .osan-personal-home:not([data-mobile-tab=work]) .requests,
+ .app-shell .osan-personal-home:not([data-mobile-tab=work]) .recent,
+ .app-shell .osan-personal-home:not([data-mobile-tab=customers]) .progress,
+ .app-shell .osan-personal-home:not([data-mobile-tab=deadlines]) .deadlines,
+ .app-shell .osan-personal-home:not([data-mobile-tab=news]) .notices,
+ .app-shell .osan-personal-home:not([data-mobile-tab=news]) .news {display:none;}
+ .app-shell .osan-personal-home .tabs {border:0;padding:0;margin-bottom:7px;gap:6px;}
+ .app-shell .osan-personal-home .tabs button {font-size:11px;border-radius:16px;padding:7px 11px;background:#f5f6f7;}
+ .app-shell .osan-personal-home .task-row {display:grid;grid-template-columns:minmax(0,1fr) 12px;gap:6px 10px;padding:15px 0;}
+ .app-shell .osan-personal-home .task-row>.badge {grid-column:1;justify-self:start;}
+ .app-shell .osan-personal-home .task-row .row-body {grid-column:1;}
+ .app-shell .osan-personal-home .task-row .chevron {grid-column:2;grid-row:1/3;}
+ .app-shell .osan-personal-home .row-body strong {font-size:14px;line-height:1.4;}
+ .app-shell .osan-personal-home .row-body>span {font-size:12px;}
+ .app-shell .osan-personal-home .metrics {gap:6px;}
+ .app-shell .osan-personal-home .metrics button {background:#f7f8f9!important;border:0;border-radius:9px;padding:12px 2px!important;}
+ .app-shell .osan-personal-home .metrics b {font-size:21px;}
+ .app-shell .osan-personal-home .date-strip {gap:7px;}
+ .app-shell .osan-personal-home .date-strip>button {flex:1;min-width:0;height:62px;background:#f6f7f8!important;border-radius:9px!important;font-size:18px;}
+ .app-shell .osan-personal-home .date-strip>button.current {background:#fbefef!important;}
+ .app-shell .osan-personal-home .deadline-row {padding:15px 0;}
+ .app-shell .osan-personal-home .deadline-row b {font-size:14px;}
+ .app-shell .osan-personal-home .deadline-row small {font-size:11px;}
+}
+@media(max-width:760px) {
+ .app-shell .osan-personal-home .mobile-home-urgent {border-radius:12px!important;}
+ .app-shell .osan-personal-home .mobile-home-urgent button {background:#fbefef!important;border:0!important;border-radius:0!important;}
+ .app-shell .osan-personal-home .mobile-home-urgent button+button {border-left:1px solid #efdede!important;}
+ .app-shell .osan-personal-home .tabs button {border-radius:16px!important;}
+ .app-shell .osan-personal-home .customer-statuses {display:none;}
+}
+.app-shell .osan-personal-home .mobile-deadline-heading,
+.app-shell .osan-personal-home .mobile-overdue {display:none;}
+@media(max-width:760px) {
+ .app-shell .osan-personal-home .mobile-deadline-heading {display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:12px;color:#7b8088;}
+ .app-shell .osan-personal-home .deadlines>.widget-title,
+ .app-shell .osan-personal-home .date-strip>span {display:none;}
+ .app-shell .osan-personal-home .mobile-overdue {display:block;margin-top:25px;}
+ .app-shell .osan-personal-home .mobile-overdue>button {display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;min-height:65px;border-bottom:1px solid #eaebee;border-radius:0;padding:15px 0;}
+ .app-shell .osan-personal-home .mobile-overdue small {display:block;font-size:12px;margin-top:6px;color:#747981;}
+}

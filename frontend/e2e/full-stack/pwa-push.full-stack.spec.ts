@@ -19,7 +19,8 @@ test('PWA push settings stay self-service and provider-safe in the isolated stac
     configured: true,
     publicKey: 'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     activeDeviceCount: 0,
-    lastChangedAtUtc: null
+    lastChangedAtUtc: null,
+    hasUserDisabledSubscription: false
   });
 
   const firstSubscription = await request.put(`${apiBaseUrl}/api/my/web-push/subscriptions`, {

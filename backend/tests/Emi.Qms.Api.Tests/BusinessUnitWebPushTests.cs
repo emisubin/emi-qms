@@ -68,6 +68,19 @@ public sealed partial class BusinessUnitIsolationTests
             if (body is not null) request.Content = JsonContent.Create(body);
             return await client.SendAsync(request, ct);
         }
+        async Task<WebPushCurrentSubscriptionResponse> Status(string campus = BusinessUnitCodes.Osan, string? user = null,
+            string targetEndpoint = endpoint)
+        {
+            using var response = await Send(HttpMethod.Post, "/api/my/web-push/current-status", new { endpoint = targetEndpoint }, campus, user);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<WebPushCurrentSubscriptionResponse>(ct))!;
+        }
+        async Task<WebPushConfigurationResponse> Configuration(string campus = BusinessUnitCodes.Osan, string? user = null)
+        {
+            using var response = await Send(HttpMethod.Get, "/api/my/web-push", campus: campus, user: user);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<WebPushConfigurationResponse>(ct))!;
+        }
         async Task<bool> Active(string campus)
         {
             using var response = await Send(HttpMethod.Post, "/api/my/web-push/current-status", new { endpoint }, campus);
@@ -87,6 +100,10 @@ public sealed partial class BusinessUnitIsolationTests
         }
         using (var otherUser = await Send(HttpMethod.Post, "/api/my/web-push/current-status", new { endpoint }, user: "dev-viewer"))
             Assert.False((await otherUser.Content.ReadFromJsonAsync<WebPushCurrentSubscriptionResponse>(ct))!.Active);
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(true), await Status());
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false), await Status(targetEndpoint: "https://push.example.test/missing"));
+        Assert.False((await Configuration()).HasUserDisabledSubscription);
+        Assert.False((await Configuration(user: "dev-viewer")).HasUserDisabledSubscription);
         foreach (var (method, path) in new[]
         {
             (HttpMethod.Post, "/api/my/web-push"),
@@ -217,6 +234,51 @@ public sealed partial class BusinessUnitIsolationTests
             "select count(*) from web_push_subscription_events where event_type='ProviderDeactivated' and reason='WebPushHttp410'", ct));
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju, BusinessUnitConnectionPurpose.Migration,
             "select count(*) from web_push_subscription_events where event_type='ProviderDeactivated'", ct));
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false, "WebPushHttp410", "WebPushHttp410"), await Status());
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false), await Status(user: "dev-viewer"));
+        Assert.False((await Configuration()).HasUserDisabledSubscription);
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(true), await Status(BusinessUnitCodes.Cheongju));
+
+        using (var reactivate = await Send(HttpMethod.Put, "/api/my/web-push/subscriptions", subscription))
+            Assert.Equal(HttpStatusCode.OK, reactivate.StatusCode);
+        using (var deactivate = await Send(HttpMethod.Post, "/api/my/web-push/subscriptions/deactivate-current", new { endpoint, reason = "UserRequest" }))
+            Assert.Equal(HttpStatusCode.OK, deactivate.StatusCode);
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false, "UserRequest"), await Status());
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false), await Status(user: "dev-viewer"));
+        Assert.True((await Configuration()).HasUserDisabledSubscription);
+        Assert.False((await Configuration(user: "dev-viewer")).HasUserDisabledSubscription);
+        Assert.False((await Configuration(BusinessUnitCodes.Cheongju)).HasUserDisabledSubscription);
+        var subscriptionCountBeforeRecovery = await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from web_push_subscriptions", ct);
+        var eventCountBeforeRecovery = await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from web_push_subscription_events", ct);
+        // Covers an opt-out written after the browser's earlier recovery eligibility check.
+        foreach (var recoveryEndpoint in new[] { endpoint, "https://push.example.test/fresh-recovery-browser" })
+        {
+            using var recovery = await Send(HttpMethod.Put, "/api/my/web-push/subscriptions",
+                subscription with { Endpoint = recoveryEndpoint, Recovery = true });
+            Assert.Equal(HttpStatusCode.Conflict, recovery.StatusCode);
+        }
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false, "UserRequest"), await Status());
+        Assert.Equal(0, (await Configuration()).ActiveDeviceCount);
+        Assert.Equal(subscriptionCountBeforeRecovery, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from web_push_subscriptions", ct));
+        Assert.Equal(eventCountBeforeRecovery, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from web_push_subscription_events", ct));
+        // A different active device does not erase an explicit opt-out on this device.
+        using (var secondDevice = await Send(HttpMethod.Put, "/api/my/web-push/subscriptions",
+            subscription with { Endpoint = "https://push.example.test/second-browser" }))
+            Assert.Equal(HttpStatusCode.OK, secondDevice.StatusCode);
+        Assert.True((await Configuration()).HasUserDisabledSubscription);
+        Assert.Equal(1, (await Configuration()).ActiveDeviceCount);
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(false, "UserRequest"), await Status());
+        using (var reactivate = await Send(HttpMethod.Put, "/api/my/web-push/subscriptions", subscription))
+            Assert.Equal(HttpStatusCode.OK, reactivate.StatusCode);
+        Assert.Equal(new WebPushCurrentSubscriptionResponse(true), await Status());
+        Assert.False((await Configuration()).HasUserDisabledSubscription);
+        using (var recovery = await Send(HttpMethod.Put, "/api/my/web-push/subscriptions",
+            subscription with { Recovery = true }))
+            Assert.Equal(HttpStatusCode.OK, recovery.StatusCode);
     }
 
     private sealed class IsolationWebPushProtocolClient : IWebPushProtocolClient

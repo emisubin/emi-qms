@@ -6,7 +6,8 @@ public sealed record WebPushSubscriptionKeysRequest(string P256dh, string Auth);
 
 public sealed record WebPushSubscriptionRequest(
     string Endpoint,
-    WebPushSubscriptionKeysRequest Keys);
+    WebPushSubscriptionKeysRequest Keys,
+    bool Recovery = false);
 
 public sealed record WebPushSubscriptionEndpointRequest(string Endpoint);
 
@@ -18,9 +19,13 @@ public sealed record WebPushConfigurationResponse(
     bool Configured,
     string? PublicKey,
     int ActiveDeviceCount,
-    DateTimeOffset? LastChangedAtUtc);
+    DateTimeOffset? LastChangedAtUtc,
+    bool HasUserDisabledSubscription = false);
 
-public sealed record WebPushCurrentSubscriptionResponse(bool Active);
+public sealed record WebPushCurrentSubscriptionResponse(
+    bool Active,
+    string? DeactivationReason = null,
+    string? LastFailureCode = null);
 
 public sealed record WebPushSubscriptionMutationResponse(
     bool Active,

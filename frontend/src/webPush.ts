@@ -5,10 +5,13 @@ export type WebPushConfiguration = {
   publicKey: string | null;
   activeDeviceCount: number;
   lastChangedAtUtc: string | null;
+  hasUserDisabledSubscription?: boolean;
 };
 
 export type WebPushCurrentSubscriptionStatus = {
   active: boolean;
+  deactivationReason?: string | null;
+  lastFailureCode?: string | null;
 };
 
 export type WebPushSubscriptionMutation = {
@@ -65,20 +68,26 @@ export function decodeVapidPublicKey(value: string) {
 
 export async function getOrCreateBrowserSubscription(
   registration: ServiceWorkerRegistration,
-  publicKey: string
+  publicKey: string,
+  renewExpiredSubscription = false,
+  isCurrentScope: () => boolean = () => true
 ) {
+  const ensureCurrent = () => { if (!isCurrentScope()) throw new Error('푸시 연결 중 계정 또는 캠퍼스가 변경되었습니다.'); };
+  ensureCurrent();
   const expectedKey = decodeVapidPublicKey(publicKey);
   const existing = await registration.pushManager.getSubscription();
+  ensureCurrent();
   if (existing) {
     const currentKey = existing.options.applicationServerKey
       ? new Uint8Array(existing.options.applicationServerKey)
       : null;
     const sameKey = currentKey?.length === expectedKey.length
       && currentKey.every((value, index) => value === expectedKey[index]);
-    if (sameKey) return existing;
+    if (sameKey && !renewExpiredSubscription) return existing;
     await existing.unsubscribe();
   }
 
+  ensureCurrent();
   return registration.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: expectedKey

@@ -2541,7 +2541,7 @@ function QmsAppShellContent({
         {currentUser.kind === "ready" && !currentUser.data.approvalPending && !isOsan && <BusbarLabelEntryPrompt key={busbarScopeKey} user={developmentUserKey} scope={busbarScopeKey} mobile={layout.isMobile || layout.touchOptimized} />}
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} reason={maintenance.state?.writeBlocked ? maintenanceDisabledReason : undefined} />
         {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
-          <WebPushFirstRunPrompt developmentUserKey={developmentUserKey} />
+          <WebPushFirstRunPrompt key={`${currentUser.data.userId}:${selectedBusinessUnit}`} accountScope={currentUser.data.userId} developmentUserKey={developmentUserKey} />
         ) : null}
         <header className="mobile-app-bar">
           {!isOsan && <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />}

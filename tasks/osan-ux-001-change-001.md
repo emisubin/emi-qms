@@ -775,3 +775,19 @@
 - 요청대로 Gate 설정의 관리자 예외 안내 문구와 해당 하단 선 제거(권한 동작은 유지).
 - 홈 최근 확인한 프로젝트·공지사항 각 행 제목 앞에 작은 회색 점 추가. 공통 marker 규칙으로 두 목록 적용, 행 높이/클릭 동작 유지.
 - PC 두 목록, 모바일390 최근 프로젝트 표시 직접 확인. diff check 통과. 저위험 문구/스타일 수정으로 별도 제품 테스트 미실행. 공개배포 없음.
+
+### 20-49. 홈·공통 UI 및 인증 만료 복구 공개배포 (2026-09-25, 완료)
+
+- 사용자 병합·공개배포 승인. 공지 원문은 사용자가 직접 작성한 홈 리뉴얼/모바일 사용성 개선 2개 항목만 사용하며, 개발 작업 전체를 공지에 추가하지 않는다. 공지 선별 기준은 `docs/development/update-notice-template.md`에 반영.
+- 운영 오산 공지 `2700bdd0-5a64-4abb-9410-68f24eb28085` 게시 및 원문 확인(19:24 KST). 일반 공지 팝업으로 중복 지정하지 않음.
+- 별도 업데이트 팝업 최초19:30~20:00 승인·등록 후, required CI 소요 시간으로 사용자에게20:30~21:00 변경 승인받음. 저장 제한은 실제 배포 직전부터 정상 검증까지로 유지.
+- 기존 Announced 일정 수정 CLI가 없어, 해당 release ID/기존 시간/state/title/notice 조건이 일치하는 두 캠퍼스의 `deployment_maintenance` 1행씩만 수정하는 일회성 runner 사용. 실행 `maintenance-mpecq9e` Succeeded. starts/end 및 version/popup_version만 갱신, Announced 유지. 업무 데이터·저장 차단 상태·스키마 변경 없음. 실행 파일·이미지·로그는 `/private/tmp/emi-home-release-20260925`에 보관.
+- PR #155. CI에서 옛 홈 제목·상세 배치·공통 heading 이전 구조를 기대하던 검사를 확정 UI에 맞게 보정(1944df6/b6d22c4). 부서·권한·DB 격리 및 원문 공백·코드·가로 넘침·목록 순서 검증 유지. 설치 Chrome으로 관련 mock 브라우저7개 분할 재검증 통과. 최종 보정은 독립 reviewer 재검토 GO.
+- 최종 후보 b6d22c4, required CI36124131550 진행 중. 원격 main 병합/앱 이미지 교체/저장 제한 시작은 아직 미실행. 배포 시 migration/bootstrap/backfill 미실행이며 기존 DB·자료 보존.
+
+- 최종 결과: required CI36124131550 전체 성공. Backend978, Frontend unit555/mock browser71, full-stack66 통과. 후보b6d22c4를 PR #155로 정상 병합(보호 규칙/CI 우회 없음), remote main `7b606dc9dfda6f4223beb508570679306cecb096`, 20:25:52 KST. 병합 tree와 검토 후보 tree 일치 확인.
+- 실제 main archive로 이미지 재빌드/registry digest 확인: backend `sha256:f96aeff4b9957c7209d59f77bc0df994dae744a612535411b7036f3d7eae20ca`, frontend `sha256:2502275e3ebe14af9fb6ba634cec7be4c6129f4d154e0c1ba95d8d0a0d6a5a9b`.
+- 20:30 이후 기존 배포 runner1회 실행, exit0. prepared검사 `maintenance-fff7nod`, activate `maintenance-v2a5ucy`, complete `maintenance-1adevj7` 모두Succeeded. 실제 저장 제한 구간은 activation20:31:36~20:32:04 내 시작, complete20:34:06~20:34:42 내 해제. 두 캠퍼스의 DB readiness/정확한 migration ledger 확인 후20:34:42 완료. migration/bootstrap/backfill미실행.
+- backend--0000066 Healthy, frontend--0000056 ready. 배포 스크립트 backend/frontend/publicsecurity PASS(공개 live200, 익명 root/API401). 운영 공지 화면에서 배포 중 배너 및 수정/삭제 비활성화, 완료 후 배너 제거·버튼 활성 복귀 확인. 새 홈 운영 조회 성공: 관리 대상256건 및 담당 고객사/요청·진행 현황·납기/공지 표시. PC와 모바일390 실제 시각 확인, 모바일 document폭390/viewport390, 화면 alert없음. 운영 업무 데이터 저장 시험은 하지 않음.
+- 일반 브라우저 로그인과 실제 운영 데이터 조회는 성공. 장시간 세션 만료 이후 Microsoft 인증 왕복은 이번 배포 직후 재현할 수 없어 미검수이며 합성 복구 검증과 구분함.
+- 자동 후속 실행 등록은 자동 승인 검토에서 거부되었고, 사용자가 현재 대화 직접 진행을 선택하여 자동화 미생성. 현재 대화에서 CI완료→병합→승인 시간 배포→저장 재개까지 직접 완료.

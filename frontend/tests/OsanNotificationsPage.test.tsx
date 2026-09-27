@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OsanNotificationsPage } from '../src/OsanNotificationsPage';
 import { osanNotificationPresentation } from '../src/osanNotificationPresentation';
@@ -38,9 +38,9 @@ describe('Osan notification C', () => {
  it('restores filters after opening and coming back, scoped to the user',async () => {
   const p=props();let rendered=render(<OsanNotificationsPage {...p}/>);await screen.findByText('테스트 장비');
   fireEvent.click(screen.getByRole('tab',{name:'전체'}));await waitFor(()=>expect(listNotifications).toHaveBeenLastCalledWith('user',undefined));await screen.findByText('테스트 장비');
-  fireEvent.change(screen.getByRole('textbox',{name:'알림 검색'}),{target:{value:'테스트'}});fireEvent.change(screen.getByRole('combobox'),{target:{value:'7'}});
+  fireEvent.change(screen.getByRole('textbox',{name:'알림 검색'}),{target:{value:'테스트'}});fireEvent.click(screen.getByRole('button',{name:'검색'}));fireEvent.click(screen.getByRole('button',{name:/^필터/}));fireEvent.click(screen.getByRole('button',{name:/알림 유형 필터/}));fireEvent.click(screen.getByRole('checkbox',{name:'공정 진행 요청'}));fireEvent.click(screen.getByRole('button',{name:'적용'}));
   fireEvent.click(screen.getByRole('button',{name:/테스트 장비.*Rack/}));await waitFor(()=>expect(p.onOpen).toHaveBeenCalled());rendered.unmount();
-  rendered=render(<OsanNotificationsPage {...p}/>);expect(screen.getByRole('tab',{name:'전체'})).toHaveAttribute('aria-selected','true');expect(screen.getByRole('textbox')).toHaveValue('테스트');expect(screen.getByRole('combobox')).toHaveValue('7');rendered.unmount();
+  rendered=render(<OsanNotificationsPage {...p}/>);expect(screen.getByRole('tab',{name:'전체'})).toHaveAttribute('aria-selected','true');expect(screen.getByRole('textbox')).toHaveValue('테스트');fireEvent.click(screen.getByRole('button',{name:/^필터/}));expect(screen.getByRole('button',{name:'알림 유형 필터: 공정 진행 요청'})).toBeInTheDocument();rendered.unmount();
   render(<OsanNotificationsPage {...props()}/>);expect(screen.getByRole('textbox')).toHaveValue('');expect(screen.getByRole('tab',{name:/읽지 않음/})).toHaveAttribute('aria-selected','true');
  });
  it('represents all eight approved types and prioritizes comments',()=>{
@@ -51,4 +51,22 @@ describe('Osan notification C', () => {
  it('refreshes rows and badge after read all',async()=>{
   vi.mocked(markAllNotificationsRead).mockResolvedValue({unreadCount:0,blockingCount:0});const p=props();render(<OsanNotificationsPage {...p}/>);await screen.findByText('테스트 장비');fireEvent.click(screen.getByRole('button',{name:'전체 읽음'}));await waitFor(()=>expect(p.onBadgeRefresh).toHaveBeenCalledOnce());expect(markAllNotificationsRead).toHaveBeenCalledWith('user');
  });
+});
+
+it('공통 필터에서 검색·복수 선택·적용·취소·초기화를 제공한다', async () => {
+ vi.mocked(listNotifications).mockResolvedValue({items:[item,{...item,notificationId:'n2',title:'Gate 완료',projectTitle:'완료 장비'},{...item,notificationId:'n3',title:'공정 이상 발생',projectTitle:'이상 장비'}]});
+ render(<OsanNotificationsPage {...props()}/>);await screen.findByText('테스트 장비');
+ fireEvent.click(screen.getByRole('button',{name:/^필터/}));
+ fireEvent.click(screen.getByRole('button',{name:/알림 유형 필터/}));
+ const dialog=screen.getByRole('dialog',{name:'알림 유형 선택'});
+ fireEvent.change(within(dialog).getByRole('searchbox'),{target:{value:'공정'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'검색 결과 전체 선택'}));
+ expect(screen.getByText('완료 장비')).toBeInTheDocument();
+ fireEvent.click(within(dialog).getByRole('button',{name:'적용'}));
+ expect(screen.queryByText('완료 장비')).toBeNull();expect(screen.getByText('이상 장비')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:/알림 유형 필터/}));
+ fireEvent.click(screen.getByRole('button',{name:'검색 결과 선택 해제'}));
+ fireEvent.click(screen.getByRole('button',{name:'취소'}));
+ expect(screen.queryByText('완료 장비')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'초기화'}));expect(screen.getByText('완료 장비')).toBeInTheDocument();
 });

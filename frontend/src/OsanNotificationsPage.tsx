@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { exportOsanNotificationsExcel, getNotificationSummary, listNotifications, markAllNotificationsRead, markNotificationRead } from './api';
 import type { NotificationItem } from './projects';
 import { OsanMenuHeading } from './OsanMenuHeading';
+import { OsanFilterToolbar } from './OsanFilterToolbar';
+import { OsanMultiSelectFilter } from './OsanMultiSelectFilter';
 import { OsanButton } from './OsanButton';
 import { SelectedExportTray, SelectionCheckbox } from './SelectedExcelExport';
 import { useSelectedRows } from './useSelectedRows';
@@ -11,7 +13,7 @@ import './OsanNotificationsPage.css';
 const iconModules = import.meta.glob('./assets/notification-icons/*.svg', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 const icons = ['folder-plus', 'clipboard-check', 'undo-2', 'file-pen-line', 'triangle-alert', 'wrench', 'badge-check', 'user-round-check'].map(name => iconModules[`./assets/notification-icons/${name}.svg`]);
 type Tab = 'unread' | 'read' | 'all';
-type Snapshot = { tab: Tab; query: string; kind: string; scroll: number };
+type Snapshot = { tab: Tab; query: string; kinds: string[]; scroll: number };
 const snapshots = new Map<string, Snapshot>();
 const day = (date: string) => new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(date));
 const time = (date: string) => new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(date));
@@ -22,7 +24,8 @@ export function OsanNotificationsPage({ developmentUserKey, scopeKey, onOpen, on
   const [initial] = useState(() => snapshots.get(scopeKey));
   const [tab, setTab] = useState<Tab>(initial?.tab ?? 'unread');
   const [query, setQuery] = useState(initial?.query ?? '');
-  const [kind, setKind] = useState(initial?.kind ?? '');
+  const [selectedKinds, setSelectedKinds] = useState<string[]>(initial?.kinds ?? []);
+  const [searchDraft, setSearchDraft] = useState(initial?.query ?? '');
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -51,8 +54,8 @@ export function OsanNotificationsPage({ developmentUserKey, scopeKey, onOpen, on
   }, [loading, initial]);
   const visible = useMemo(() => items.filter(item => {
     const presentation = osanNotificationPresentation(item);
-    return (kind === '' || String(presentation.kind) === kind) && [item.projectTitle, item.projectItem, item.title, item.message].join(' ').toLowerCase().includes(query.trim().toLowerCase());
-  }), [items, query, kind]);
+    return (selectedKinds.length === 0 || selectedKinds.includes(String(presentation.kind))) && [item.projectTitle, item.projectItem, item.title, item.message].join(' ').toLowerCase().includes(query.trim().toLowerCase());
+  }), [items, query, selectedKinds]);
   const ids = visible.map(item => item.notificationId);
   const selection = useSelectedRows(ids);
   async function open(item: NotificationItem) {
@@ -62,7 +65,7 @@ export function OsanNotificationsPage({ developmentUserKey, scopeKey, onOpen, on
     try {
       if (!item.readAtUtc) await markNotificationRead(developmentUserKey, item.notificationId);
       if (!mounted.current) return;
-      snapshots.set(scopeKey, { tab, query, kind, scroll: window.scrollY });
+      snapshots.set(scopeKey, { tab, query, kinds: selectedKinds, scroll: window.scrollY });
       onBadgeRefresh(); onOpen(item.projectId, item.linkUrl);
     } catch { if (mounted.current) setError('읽음 처리에 실패했습니다. 다시 시도해 주세요.'); }
     finally { opening.current = false; }
@@ -77,7 +80,10 @@ export function OsanNotificationsPage({ developmentUserKey, scopeKey, onOpen, on
   return <section className="osan-page osan-notification-feed">
     <OsanMenuHeading title="알림" description="프로젝트와 공정의 새로운 소식을 확인하세요." actions={<><OsanButton onClick={() => setAttempt(value => value + 1)} disabled={busy || loading}>새로고침</OsanButton><OsanButton onClick={() => void readAll()} disabled={busy || loading}>전체 읽음</OsanButton></>} />
     <div className="onf-tabs" role="tablist" aria-label="알림 읽음 상태">{(['unread', 'read', 'all'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>{value === 'unread' ? '읽지 않음' : value === 'read' ? '읽음' : '전체'}{value === 'unread' && <span>{unread}</span>}</button>)}</div>
-    <div className="onf-tools"><input aria-label="알림 검색" placeholder="프로젝트·내용 검색" value={query} onChange={event => setQuery(event.target.value)} /><select aria-label="알림 유형" value={kind} onChange={event => setKind(event.target.value)}><option value="">모든 알림 유형</option>{kinds.map((label, index) => <option value={index} key={label}>{label}</option>)}</select><span className="onf-count">{visible.length}건</span></div>
+    <OsanFilterToolbar search={searchDraft} onSearchChange={setSearchDraft} onSearch={() => setQuery(searchDraft)} searchLabel="알림 검색" placeholder="프로젝트·내용 검색" active={selectedKinds.length > 0} onReset={() => { setSelectedKinds([]); setQuery(''); setSearchDraft(''); }}>
+      <OsanMultiSelectFilter label="알림 유형" options={kinds.map((label, index) => ({ value: String(index), label }))} values={selectedKinds} onApply={setSelectedKinds} />
+    </OsanFilterToolbar>
+    <span className="onf-count">{visible.length}건</span>
     {!loading && items.length > 0 && <SelectedExportTray compact developmentUserKey={developmentUserKey} screen="notifications" label="선택 내보내기" visibleIds={ids} selectedIds={selection.selectedIds} allSelected={selection.allSelected} busy={selection.busy} filters={{ readStatus: tab === 'all' ? undefined : tab }} exportFile={() => exportOsanNotificationsExcel(developmentUserKey, [...selection.selectedIds], tab === 'all' ? undefined : tab)} onBusyChange={selection.setBusy} onToggleAll={selection.toggleAll} onClear={selection.clear} />}
     {error && <div role="alert" className="onf-error">{error} <OsanButton onClick={() => setAttempt(value => value + 1)}>다시 시도</OsanButton></div>}
     {loading ? <p role="status">알림을 불러오는 중입니다.</p> : !error && visible.length === 0 ? <p className="onf-empty">표시할 알림이 없습니다.</p> : visible.map((item, index) => {

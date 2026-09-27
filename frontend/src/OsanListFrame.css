@@ -3,7 +3,7 @@
   max-width: 100%;
 }
 
-.app-shell .osan-list-frame .osan-dashboard-filter-options {
+.app-shell .osan-filter-toolbar .osan-dashboard-filter-options {
   align-items: flex-end;
   gap: 10px;
   padding: 10px 0 14px;
@@ -174,7 +174,7 @@
 }
 
 @media (max-width: 520px) {
-  .app-shell .osan-list-frame .osan-dashboard-filter-options { align-items: stretch; }
+  .app-shell .osan-filter-toolbar .osan-dashboard-filter-options { align-items: stretch; }
   .app-shell .osan-filter-select { min-width: 0; flex: 1 1 calc(50% - 5px); }
   .app-shell .osan-filter-select-trigger { min-height: 44px !important; }
   .app-shell .osan-filter-select-popup { width: min(292px, calc(100vw - 48px)); }
@@ -190,3 +190,6 @@
   .app-shell .osan-dashboard-filter-options input[type='date'] { width: min(190px, 56vw); }
   .app-shell .osan-dashboard-filter-options > button { flex: 1 1 calc(50% - 5px); min-height: 44px !important; }
 }
+
+.app-shell .osan-filter-toolbar { display: contents; }
+.app-shell .osan-filter-toolbar .osan-dashboard-toolbar { flex-wrap: wrap; }

@@ -4,9 +4,6 @@
 .app-shell .osan-notification-feed .onf-tabs > button { min-width:102px; min-height:44px; padding:12px 20px; border:0!important; border-bottom:2px solid transparent!important; border-radius:0!important; color:#777!important; background:transparent!important; font-size:13px; font-weight:400; }
 .app-shell .osan-notification-feed .onf-tabs > button[aria-selected='true'] { border-bottom-color:#da2127!important; color:#c5222b!important; background:transparent!important; font-weight:700; }
 .app-shell .osan-notification-feed .onf-tabs > button > span { margin-left:6px; padding:2px 6px; border-radius:8px!important; background:#fff0f1!important; color:#c5222b!important; font-size:11px; }
-.app-shell .osan-notification-feed .onf-tools { display:flex; align-items:center; gap:8px; padding:15px 0; }
-.app-shell .osan-notification-feed .onf-tools input { width:260px; min-width:0; height:34px; padding:0 10px; font-size:13px; }
-.app-shell .osan-notification-feed .onf-tools select { height:34px; width:auto; max-width:175px; padding:0 9px; font-size:12px; }
 .app-shell .osan-notification-feed .onf-count { margin-left:auto; font-size:12px; color:#888!important; white-space:nowrap; }
 .app-shell .osan-notification-feed .onf-date { padding:9px 12px; border-top:1px solid #eee; border-bottom:1px solid #eee; background:#fafafa!important; color:#8a8d92!important; font-size:11px; }
 .app-shell .osan-notification-feed .onf-row { display:flex; align-items:center; gap:8px; border-bottom:1px solid #eee; background:#fff!important; }
@@ -38,9 +35,6 @@
 @media(max-width:700px) {
  .app-shell .osan-notification-feed .onf-tabs { gap:0; }
  .app-shell .osan-notification-feed .onf-tabs > button { flex:1; min-width:0; padding:12px 10px; }
- .app-shell .osan-notification-feed .onf-tools { padding:12px 0; }
- .app-shell .osan-notification-feed .onf-tools input { width:0; flex:1; font-size:16px; }
- .app-shell .osan-notification-feed .onf-tools select { max-width:135px; }
  .app-shell .osan-notification-feed .onf-count { display:none; }
  .app-shell .osan-notification-feed .onf-open { padding:12px 4px; gap:10px; }
  .app-shell .osan-notification-feed .onf-icon { width:27px; height:27px; }

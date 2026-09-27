@@ -282,8 +282,8 @@ describe('Osan project registration', () => {
     expect(heading).toContainElement(page?.querySelector('.osan-menu-heading-description') as HTMLElement);
     expect(directIndex('.osan-menu-heading')).toBeGreaterThanOrEqual(0);
     expect(directIndex('.osan-menu-heading')).toBeLessThan(directIndex('.osan-dashboard-summary'));
-    expect(directIndex('.osan-dashboard-summary')).toBeLessThan(directIndex('.osan-dashboard-toolbar'));
-    expect(directIndex('.osan-dashboard-toolbar')).toBeLessThan(directIndex('.osan-list-heading'));
+    expect(directIndex('.osan-dashboard-summary')).toBeLessThan(directIndex('.osan-filter-toolbar'));
+    expect(directIndex('.osan-filter-toolbar')).toBeLessThan(directIndex('.osan-list-heading'));
     const summary = within(page as HTMLElement).getByLabelText('프로젝트 요약');
     expect(Array.from(summary.children).map(item => item.textContent)).toEqual(['전체3', '시작 전2', '진행 중0', '완료1']);
     const pageQueries = within(page as HTMLElement);

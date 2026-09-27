@@ -864,7 +864,7 @@ describe('business-unit access shell', () => {
     expect(window.location.pathname).toBe('/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   });
 
-  it('uses approved Osan notification rows and shared read/detail actions', async () => {
+  it('uses approved Osan notification tabs and direct stage navigation after read', async () => {
     selectBusinessUnit('OSAN');
     window.history.replaceState(null, '', '/notifications');
     let wasRead = false;
@@ -880,17 +880,15 @@ describe('business-unit access shell', () => {
       return fallback(input,init);
     }));
     render(<App/>);
-    expect(await screen.findByRole('button',{name:'입고검사 완료'})).toBeInTheDocument();
+    const notification = await screen.findByRole('button',{name:/검수 장비.*Gate 완료.*입고검사/});
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button',{name:/컬럼 선택/})).not.toBeInTheDocument();
-    expect(screen.getAllByRole('tab').map(el=>el.textContent)).toEqual(['읽지 않음','전체','읽음']);
-    fireEvent.click(screen.getByRole('button',{name:'이 프로젝트 모두 읽음'}));
-    expect(await screen.findByText(/프로젝트 알림 읽음 처리에 실패했습니다|읽음 처리에 실패했습니다/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'상세'}));
-    expect(await screen.findByRole('heading',{name:'알림 상세'})).toBeInTheDocument();
-    expect(await screen.findByRole('heading',{name:'입고검사 완료'})).toBeInTheDocument();
-    expect(wasRead).toBe(true);
-    expect(screen.getByRole('button',{name:'관련 화면으로 이동'})).toBeInTheDocument();
+    expect(screen.getAllByRole('tab').map(el=>el.textContent?.replace(/\d/g,''))).toEqual(['읽지 않음','읽음','전체']);
+    fireEvent.click(notification);
+    await waitFor(() => expect(wasRead).toBe(true));
+    await waitFor(() => expect(window.location.pathname).toBe('/progress'));
+    expect(new URLSearchParams(window.location.search).get('projectId')).toBe(item.projectId);
+    expect(new URLSearchParams(window.location.search).get('stage')).toBe('1');
+    expect(screen.queryByRole('heading',{name:'알림 상세'})).not.toBeInTheDocument();
     expect(screen.queryByText('내부 추적값')).not.toBeInTheDocument();
   });
 

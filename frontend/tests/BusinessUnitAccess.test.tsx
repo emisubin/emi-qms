@@ -868,7 +868,7 @@ describe('business-unit access shell', () => {
     selectBusinessUnit('OSAN');
     window.history.replaceState(null, '', '/notifications');
     let wasRead = false;
-    const item = {notificationId:'77000000-0000-0000-0000-000000000001',projectId:'80000000-0000-0000-0000-000000000001',projectTitle:'검수 장비',projectCode:'OS-TEST',projectItem:null,workItemId:null,workItemTitle:null,workflowStageCode:null,workflowStageName:null,notificationType:'Information',notificationTypeLabel:'정보',severity:'Information',severityLabel:'정보',visibilityScope:'Project',visibilityScopeLabel:'프로젝트',sourceKind:'OsanWorkflow',sourceKindLabel:'오산 진행',title:'입고검사 완료',message:'예시 작업자님이 단계를 완료했습니다.\nCode: OS-TEST',linkUrl:'/progress?projectId=80000000-0000-0000-0000-000000000001&stage=1',createdAtUtc:'2026-09-11T05:00:00Z',readAtUtc:null};
+    const item = {notificationId:'77000000-0000-0000-0000-000000000001',projectId:'80000000-0000-0000-0000-000000000001',projectTitle:'검수 장비',projectCode:'OS-TEST',projectItem:null,workItemId:null,workItemTitle:null,workflowStageCode:null,workflowStageName:null,notificationType:'Information',notificationTypeLabel:'정보',severity:'Information',severityLabel:'정보',visibilityScope:'Project',visibilityScopeLabel:'프로젝트',sourceKind:'OsanWorkflow',sourceKindLabel:'오산 진행',title:'입고검사 완료',message:'예시 작업자님이 단계를 완료했습니다.\nCode: OS-TEST',linkUrl:'/progress?projectId=80000000-0000-0000-0000-000000000001&stage=1&targetId=81000000-0000-0000-0000-000000000001',createdAtUtc:'2026-09-11T05:00:00Z',readAtUtc:null};
     const fallback=shellFetch(selectedUser({status:'selected',selectedBusinessUnit:'OSAN',allowedBusinessUnits:['OSAN'],isOverallAdministrator:false,errorCode:null}));
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit) => {
       const url=new URL(String(input));
@@ -888,6 +888,7 @@ describe('business-unit access shell', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/progress'));
     expect(new URLSearchParams(window.location.search).get('projectId')).toBe(item.projectId);
     expect(new URLSearchParams(window.location.search).get('stage')).toBe('1');
+    expect(new URLSearchParams(window.location.search).get('targetId')).toBe('81000000-0000-0000-0000-000000000001');
     expect(screen.queryByRole('heading',{name:'알림 상세'})).not.toBeInTheDocument();
     expect(screen.queryByText('내부 추적값')).not.toBeInTheDocument();
   });

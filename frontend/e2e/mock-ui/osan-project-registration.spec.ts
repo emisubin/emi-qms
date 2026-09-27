@@ -181,15 +181,15 @@ test('Osan shares its page frame and preserves registration and target navigatio
   await expect(osanMobilePage.getByRole('button', { name: '신규 프로젝트', exact: true })).toBeVisible();
   await expect(osanMobilePage.getByRole('textbox', { name: '프로젝트 검색' })).toBeVisible();
   await expect(osanMobilePage.getByLabel('프로젝트 요약').getByRole('button')).toHaveText(['전체1', '시작 전1', '진행 중0', '완료0']);
-  await osanMobilePage.getByRole('button', { name: '필터', exact: true }).click();
+  await osanMobilePage.getByRole('button', { name: /^필터/ }).click();
   await osanMobilePage.getByRole('button', { name: '상태 필터: 전체' }).click();
   await expect(osanMobilePage.getByRole('group', { name: '상태 목록' }).getByRole('checkbox')).toHaveCount(4);
   await expect(osanMobilePage.getByRole('group', { name: '상태 목록' }).locator('input:checked')).toHaveCount(0);
   await osanMobilePage.getByRole('button', { name: '취소', exact: true }).click();
   await expect(osanMobilePage.getByLabel('납기 시작일', { exact: true })).toHaveValue('');
   await expect(osanMobilePage.getByLabel('납기 종료일', { exact: true })).toHaveValue('');
-  await osanMobilePage.getByRole('button', { name: '고객사 필터: 전체' }).click();
-  await osanMobilePage.getByRole('checkbox', { name: '고객사', exact: true }).check();
+  await osanMobilePage.getByRole('button', { name: '고객사 필터: 고객사' }).click();
+  await expect(osanMobilePage.getByRole('checkbox', { name: '고객사', exact: true })).toBeChecked();
   await osanMobilePage.getByRole('button', { name: '적용', exact: true }).click();
   await expect(mobileList).toBeVisible();
   await osanMobilePage.getByRole('button', { name: '초기화', exact: true }).click();
@@ -447,6 +447,7 @@ async function installBackend(page: Page, postedBodies: Array<Record<string, unk
       });
     }
     if (path === '/api/me') return fulfillJson(route, currentUser(businessUnit));
+    if (path === '/api/osan/my/home') return fulfillJson(route, { customers: [{ customerId, customerName: '고객사' }], summary: { totalCount: 0, inProgressCount: 0, holdCount: 0, overdueCount: 0, openIssueCount: 0 }, tasks: [], deadlines: [], news: [], taskTotalCount: 0, deadlineTotalCount: 0 });
     if (path === '/api/osan/customers') return fulfillJson(route, { items: [{ customerId, name: '고객사', version: 1 }] });
     if (path === '/api/osan/notices/popups') return fulfillJson(route, { items: [] });
     if (path === '/api/maintenance') return fulfillJson(route, {
@@ -858,13 +859,13 @@ function osanListFrameContract(page: Page) {
   return page.locator('[data-presentation-contract="osan-list-frame"]').evaluate(root => {
     const sections = new Map<string, string>([
       ['.osan-menu-heading', 'header'],
-      ['.osan-dashboard-summary', 'kpi'], ['.osan-dashboard-toolbar', 'filter'],
+      ['.osan-dashboard-summary', 'kpi'], ['.osan-filter-toolbar', 'filter'],
       ['.osan-list-heading', 'listHeading']
     ]);
     const elements = [...sections].map(([selector]) => root.querySelector(`:scope > ${selector}`) as HTMLElement);
     return {
       order: Array.from(root.children).flatMap(element => [...sections].filter(([selector]) => element.matches(selector)).map(([, name]) => name)),
-      geometry: elements.map(element => ({ y: element.getBoundingClientRect().y, height: element.getBoundingClientRect().height })),
+      geometry: elements.map(element => { const visibleElement = element.matches('.osan-filter-toolbar') ? element.querySelector('.osan-dashboard-toolbar')! : element; return { y: visibleElement.getBoundingClientRect().y, height: visibleElement.getBoundingClientRect().height }; }),
       labels: Array.from(root.querySelectorAll('.osan-dashboard-summary > :is(div,button) > span')).map(element => element.textContent)
     };
   });

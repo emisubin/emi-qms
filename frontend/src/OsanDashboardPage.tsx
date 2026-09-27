@@ -1,3 +1,4 @@
+import { getOsanPersonalHome } from './osanPersonalHome';
 import { OsanButton } from './OsanButton';
 import { OsanStepper } from './OsanStepper';
 import { useEffect, useRef, useState } from 'react';
@@ -22,11 +23,26 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
   const [initial] = useState(() => readOsanListSnapshot(snapshotKey));
   const [draft, setDraft] = useState(initial?.draft ?? '');
   const [query, setQuery] = useState(initial?.filters ?? emptyOsanListFilters());
+  const [defaultsReady, setDefaultsReady] = useState(!!initial);
   const scrollRestored = useRef(false);
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ query: typeof query; state: State }>({ query, state: { kind: 'loading' } });
   const state: State = result.query === query ? result.state : { kind: 'loading' };
   useEffect(() => {
+    if (defaultsReady) return;
+    const controller = new AbortController();
+    getOsanPersonalHome(developmentUserKey, controller.signal).then(home => {
+      if (controller.signal.aborted) return;
+      const customers = home.customers.map(customer => customer.customerName);
+      setQuery({ ...emptyOsanListFilters(), customers, assignedEmptyOnly: customers.length === 0 });
+      setDefaultsReady(true);
+    }).catch(error => {
+      if (!controller.signal.aborted) setResult({query, state: {kind:'error', forbidden:false, message:error instanceof Error ? error.message : '담당 고객사를 불러오지 못했습니다.'}});
+    });
+    return () => controller.abort();
+  }, [defaultsReady, developmentUserKey, attempt, query]);
+  useEffect(() => {
+    if (!defaultsReady) return;
     let current = true;
     const controller = new AbortController();
     getOsanDashboard(developmentUserKey, { ...query, view }, controller.signal).then(data => {
@@ -36,13 +52,13 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
         setQuery({ ...query, page: lastPage });
         return;
       }
-      setResult({ query, state: { kind: 'ready', data } });
+      setResult({ query, state: { kind: 'ready', data: query.assignedEmptyOnly ? {...data,items:[],totalCount:0,summary:{totalCount:0,notStartedCount:0,inProgressCount:0,completedCount:0,holdCount:0,openIssueProjectCount:0}} : data } });
     }).catch((error: unknown) => {
       if (current) setResult({ query, state: { kind: 'error', forbidden: error instanceof ApiError && error.status === 403,
         message: error instanceof Error ? error.message : '진행 현황을 불러오지 못했습니다.' } });
     });
     return () => { current = false; controller.abort(); };
-  }, [developmentUserKey, query, attempt, isHome, view]);
+  }, [developmentUserKey, query, attempt, isHome, view, defaultsReady]);
   useEffect(() => {
     const refresh = () => setAttempt(value => value + 1);
     const timer = window.setInterval(refresh, 60_000);
@@ -51,8 +67,8 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
   }, [isHome]);
   const data = state.kind === 'ready' ? state.data : undefined;
   useEffect(() => {
-    saveOsanListSnapshot(snapshotKey, { filters: query, draft, scrollY: window.scrollY });
-  }, [snapshotKey, query, draft]);
+    if (defaultsReady) saveOsanListSnapshot(snapshotKey, { filters: query, draft, scrollY: window.scrollY });
+  }, [snapshotKey, query, draft, defaultsReady]);
   useEffect(() => {
     if (!data || scrollRestored.current) return;
     scrollRestored.current = true;
@@ -74,7 +90,7 @@ function Workspace({ developmentUserKey, stateScopeKey, onOpen, view = 'progress
     counts={counts} search={draft} onSearchChange={setDraft}
     onSearch={() => setQuery({ ...query, search: draft.trim(), page: 1 })}
     statuses={query.statuses} onStatusesChange={statuses => setQuery({ ...query, statuses, page: 1 })}
-    selectedCustomers={query.customers} customers={result.state.kind === 'ready' ? result.state.data.customers ?? [] : []} onCustomersChange={customers => setQuery({ ...query, customers, page: 1 })}
+    assignedEmptyOnly={query.assignedEmptyOnly} selectedCustomers={query.customers} customers={result.state.kind === 'ready' ? result.state.data.customers ?? [] : []} onCustomersChange={customers => setQuery({ ...query, customers, assignedEmptyOnly: false, page: 1 })}
     dueFrom={query.dueFrom} dueTo={query.dueTo} onDueChange={(dueFrom, dueTo) => setQuery({ ...query, dueFrom, dueTo, page: 1 })}
     kpi={query.kpi} onKpiChange={kpi => setQuery({ ...query, kpi, page: 1 })}
     onReset={reset}

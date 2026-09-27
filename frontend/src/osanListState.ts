@@ -1,6 +1,7 @@
 export type OsanListFilters = {
   search: string;
   customers: string[];
+  assignedEmptyOnly?: boolean;
   statuses: string[];
   dueFrom: string;
   dueTo: string;

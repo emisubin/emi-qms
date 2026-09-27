@@ -3,7 +3,8 @@ import './OsanListFrame.css';
 
 type FilterOption = { value: string; label: string };
 
-export function OsanMultiSelectFilter({ label, options, values, onApply, align = 'start' }: {
+export function OsanMultiSelectFilter({ label, options, values, onApply, align = 'start', emptyLabel = '전체' }: {
+  emptyLabel?: string;
   label: string; options: FilterOption[]; values: string[]; onApply: (values: string[]) => void; align?: 'start' | 'end';
 }) {
   const [open, setOpen] = useState(false);
@@ -18,7 +19,7 @@ export function OsanMultiSelectFilter({ label, options, values, onApply, align =
     ? options.filter(option => option.label.toLocaleLowerCase('ko').includes(normalizedQuery))
     : options, [normalizedQuery, options]);
   const selectedLabels = options.filter(option => values.includes(option.value)).map(option => option.label);
-  const summary = selectedLabels.length === 0 ? '전체' : selectedLabels.length === 1 ? selectedLabels[0] : `${selectedLabels.length}개 선택`;
+  const summary = selectedLabels.length === 0 ? emptyLabel : selectedLabels.length === 1 ? selectedLabels[0] : `${selectedLabels.length}개 선택`;
 
   const openDropdown = () => {
     setDraft(values);

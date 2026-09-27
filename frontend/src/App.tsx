@@ -1,3 +1,6 @@
+import { getOsanPersonalHome } from './osanPersonalHome';
+import { OsanNotificationsPage } from './OsanNotificationsPage';
+import { OsanSortHeader, sortOsanRows, type OsanSort } from './OsanSortHeader';
 import { OsanButton } from './OsanButton';
 import { OsanMenuHeading } from './OsanMenuHeading';
 import { SelectionActionBar } from './SelectionActionBar';
@@ -2028,8 +2031,10 @@ function QmsAppShellContent({
     if (isOsan) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [isOsan, view]);
 
+  const notificationOrigin = useRef(window.history.state?.osanNotificationOrigin === true);
   const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
+    if (nextView.kind !== "detail" && !(nextView.kind === "osan-progress" && nextView.projectId)) notificationOrigin.current = false;
     listNavigation.current(nextView);
     setViewState(nextView);
     if (typeof window === 'undefined') {
@@ -2038,7 +2043,7 @@ function QmsAppShellContent({
 
     const nextPath = pathForView(nextView);
     if (`${window.location.pathname}${window.location.search}` !== nextPath) {
-      window.history.pushState(null, '', nextPath);
+      window.history.pushState({osanNotificationOrigin: notificationOrigin.current}, '', nextPath);
     }
   }, []);
 
@@ -2188,6 +2193,7 @@ function QmsAppShellContent({
 
   useEffect(() => {
     const handlePopState = () => {
+      notificationOrigin.current = window.history.state?.osanNotificationOrigin === true;
       const nextView = initialViewFromLocation();
       listNavigation.current(nextView);
       setViewState(nextView);
@@ -2852,7 +2858,7 @@ function QmsAppShellContent({
           initialStage={view.stage}
           developmentUserKey={developmentUserKey}
           mutationAllowed={mutationEnabled && canUpdateManufacturing}
-          onBack={() => setView({ kind: 'osan-progress' })}
+          onBack={() => setView({ kind: notificationOrigin.current ? 'notifications' : 'osan-progress' })}
           onOpenTarget={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })}
         /> : <OsanDashboardPage
           stateScopeKey={currentUser.data.userId}
@@ -2881,6 +2887,7 @@ function QmsAppShellContent({
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'list' ? (
         isOsan ? <OsanProjectListPage
+          key={currentUser.data.userId}
           canManage={isSystemAdministrator && mutationEnabled}
           stateScopeKey={currentUser.data.userId}
           developmentUserKey={developmentUserKey}
@@ -2936,7 +2943,7 @@ function QmsAppShellContent({
           mutationAllowed={mutationEnabled}
           developmentUserKey={developmentUserKey}
           projectId={view.projectId}
-          onBack={() => setView({ kind: 'list' })}
+          onBack={() => setView({ kind: notificationOrigin.current ? 'notifications' : 'list' })}
           onOpenProgress={(targetId) => setView({ kind: 'osan-progress', projectId: view.projectId, targetId })}
         /> : <>
           {projectActionFeedback?.projectId === view.projectId ? (
@@ -3215,8 +3222,10 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notifications' ? (
-        <NotificationsPage
-          osan={isOsan}
+        isOsan ? <OsanNotificationsPage key={currentUser.data.userId} scopeKey={currentUser.data.userId}
+          developmentUserKey={developmentUserKey} onBadgeRefresh={refreshShellBadges}
+          onOpen={(projectId, linkUrl) => {notificationOrigin.current = true; setView(viewFromProjectLink(projectId, linkUrl));}} /> : <NotificationsPage
+          osan={false}
           developmentUserKey={developmentUserKey}
           onOpenPreferences={() => setView({ kind: 'notification-preferences' })}
           onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
@@ -3502,7 +3511,7 @@ function AppNavigation({
               >
                 <span className="app-nav-label"><NavigationIcon label={item.label} /><span>{item.label}</span></span>
                 {item.children
-                  ? <span className="app-nav-disclosure" aria-hidden="true">⌄</span>
+                  ? <span className="app-nav-disclosure" aria-hidden="true">{isOsan ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg> : '⌄'}</span>
                   : item.badge && item.badge > 0
                     ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
                     : null}
@@ -4574,9 +4583,11 @@ function OsanProjectListPage({
   onCreate: () => void;
   onOpen: (projectId: string) => void;
 }) {
+  const [sort, setSort] = useState<OsanSort>(null);
   const today = useKoreaDate();
   const snapshotKey = `${stateScopeKey ?? developmentUserKey}:projects`;
   const [initialSnapshot] = useState(() => readOsanListSnapshot(snapshotKey));
+  const defaultApplied = useRef(!!initialSnapshot);
   const scrollRestored = useRef(false);
   const [qrIds, setQrIds] = useState<string[] | null>(null);
   const [search, setSearch] = useState(initialSnapshot?.draft ?? '');
@@ -4593,10 +4604,17 @@ function OsanProjectListPage({
   const load = useCallback(() => {
     const controller = new AbortController();
     setState({ kind: 'loading' });
-    listOsanProjects(developmentUserKey, { signal: controller.signal })
-      .then((response) => setState(response.items.length > 0
-        ? { kind: 'ready', data: response.items }
-        : { kind: 'empty' }))
+    Promise.all([listOsanProjects(developmentUserKey, {signal:controller.signal}),
+      defaultApplied.current ? Promise.resolve(null) : getOsanPersonalHome(developmentUserKey, controller.signal)])
+      .then(([response, home]) => {
+        if (controller.signal.aborted) return;
+        if (home) {
+          const customers = home.customers.map(customer => customer.customerName);
+          setFilters({...emptyOsanListFilters(), customers, assignedEmptyOnly:customers.length === 0});
+          defaultApplied.current = true;
+        }
+        setState(response.items.length > 0 ? {kind:'ready',data:response.items} : {kind:'empty'});
+      })
       .catch((error: unknown) => {
         if (!isAbortError(error)) {
           setState(toLoadError(error, '오산 프로젝트 목록을 불러올 수 없습니다.'));
@@ -4606,7 +4624,7 @@ function OsanProjectListPage({
   }, [developmentUserKey]);
 
   useEffect(() => load(), [load, importRevision]);
-  useEffect(() => { saveOsanListSnapshot(snapshotKey, { filters, draft: search, scrollY: window.scrollY }); }, [snapshotKey, filters, search]);
+  useEffect(() => { if(defaultApplied.current) saveOsanListSnapshot(snapshotKey, { filters, draft: search, scrollY: window.scrollY }); }, [snapshotKey, filters, search]);
   useEffect(() => {
     if (state.kind !== 'ready' || scrollRestored.current) return;
     scrollRestored.current = true;
@@ -4622,11 +4640,16 @@ function OsanProjectListPage({
     const matchesCustomer = filters.customers.length === 0 || filters.customers.includes(project.customerName);
     const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(status);
     const matchesKpi = !filters.kpi || filters.kpi === 'All' || status === filters.kpi;
-    return matchesSearch && matchesCustomer && matchesStatus && matchesKpi
+    return !filters.assignedEmptyOnly && matchesSearch && matchesCustomer && matchesStatus && matchesKpi
       && osanDueDateMatches(project.deliveryDate, filters.dueFrom, filters.dueTo);
   }).sort((a, b) => {
     const group = (project: OsanProjectListItem) => project.deliveryHold ? 2 : project.status === 'Completed' ? 1 : 0;
     return group(a) - group(b);
+  });
+  const sortedProjects = sortOsanRows(filteredProjects, sort, (project, key) => {
+    if (key === 'progress') return calculateProgressPercent(project.completedStepCount, project.totalStepCount);
+    if (key === 'status') return project.deliveryHold ? 'HOLD' : formatOsanProjectStatus(project.status);
+    return project[key as keyof OsanProjectListItem] as string | number ?? '';
   });
   const selection = useSelectedRows(filteredProjects.map(project => project.projectId));
   const resetFilters = () => {
@@ -4673,7 +4696,7 @@ function OsanProjectListPage({
       counts={state.kind === 'loading' || state.kind === 'error' || state.kind === 'forbidden' ? null : [projects.length, projects.filter(p => p.status === 'NotStarted').length, projects.filter(p => p.status === 'InProgress').length, projects.filter(p => p.status === 'Completed').length]}
       search={search} onSearchChange={setSearch} onSearch={() => setFilters({ ...filters, search: search.trim(), page: 1 })}
       statuses={filters.statuses} onStatusesChange={statuses => setFilters({ ...filters, statuses, page: 1 })} onReset={resetFilters}
-      selectedCustomers={filters.customers} onCustomersChange={customers => setFilters({ ...filters, customers, page: 1 })} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
+      assignedEmptyOnly={filters.assignedEmptyOnly} selectedCustomers={filters.customers} onCustomersChange={customers => setFilters({ ...filters, customers, assignedEmptyOnly:false, page: 1 })} customers={[...new Set(projects.map(p => p.customerName))].sort((a,b)=>a.localeCompare(b,'ko'))}
       dueFrom={filters.dueFrom} dueTo={filters.dueTo} onDueChange={(dueFrom, dueTo) => setFilters({ ...filters, dueFrom, dueTo, page: 1 })}
       kpi={filters.kpi} onKpiChange={kpi => setFilters({ ...filters, kpi, page: 1 })}
       actions={canCreate ? <><OsanButton onClick={() => setExcelOpen(true)}>엑셀 업로드</OsanButton><OsanButton tone="primary" onClick={onCreate}>신규 프로젝트</OsanButton></> : undefined}
@@ -4733,17 +4756,17 @@ function OsanProjectListPage({
           selectable
           desktopLeadingHeader={<span role="columnheader">선택</span>}
           columns={[
-            { label: '장비명', align: 'left' },
-            { label: 'part 분류', align: 'left' },
-            { label: '고객사', align: 'left' },
-            { label: 'W/O', align: 'left' },
-            { label: 'Code', align: 'center' },
-            { label: '수량', align: 'center' },
-            { label: '납기일', align: 'center' },
-            { label: '상태', align: 'center' },
-            { label: '진행률', align: 'center' }
+            { label: '장비명', sortField: 'title', sort, onSort: setSort, align: 'left' },
+            { label: 'part 분류', sortField: 'productName', sort, onSort: setSort, align: 'left' },
+            { label: '고객사', sortField: 'customerName', sort, onSort: setSort, align: 'left' },
+            { label: 'W/O', sortField: 'workOrderNumber', sort, onSort: setSort, align: 'left' },
+            { label: 'Code', sortField: 'projectCode', sort, onSort: setSort, align: 'center' },
+            { label: '수량', sortField: 'quantity', sort, onSort: setSort, align: 'center' },
+            { label: '납기일', sortField: 'deliveryDate', sort, onSort: setSort, align: 'center' },
+            { label: '상태', sortField: 'status', sort, onSort: setSort, align: 'center' },
+            { label: '진행률', sortField: 'progress', sort, onSort: setSort, align: 'center' }
           ]}
-          rows={filteredProjects.map((project) => ({
+          rows={sortedProjects.map((project) => ({
             key: project.projectId,
             className: isOsanOverdue(project, today) ? 'is-overdue' : undefined,
             title: project.title,
@@ -10844,6 +10867,9 @@ function ProjectListPage({
 type ProjectListPresentationAlignment = 'left' | 'center';
 
 type ProjectListPresentationColumn = {
+  sortField?: string;
+  sort?: OsanSort;
+  onSort?: (value: OsanSort) => void;
   label: string;
   align: ProjectListPresentationAlignment;
 };
@@ -10948,7 +10974,7 @@ function ProjectListPresentation({
           <div className="project-list-head" role="row">
             {desktopLeadingHeader}
             {columns.map((column) => (
-              <span key={column.label} role="columnheader" className={`align-${column.align}`}>{column.label}</span>
+              column.sortField && column.onSort ? <OsanSortHeader key={column.label} className={`align-${column.align}`} label={column.label} field={column.sortField} sort={column.sort ?? null} onSort={column.onSort}/> : <span key={column.label} role="columnheader" className={`align-${column.align}`}>{column.label}</span>
             ))}
           </div>
           {rows.map((row) => (

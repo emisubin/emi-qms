@@ -1,3 +1,4 @@
+import { OsanSortHeader, sortOsanRows, type OsanSort } from './OsanSortHeader';
 import { OsanButton } from './OsanButton';
 import { OsanInlineState } from './OsanUiPrimitives';
 import { OsanMenuHeading } from './OsanMenuHeading';
@@ -16,6 +17,7 @@ export function OsanGateApprovalsPage({ developmentUserKey, onOpenStage }: {
   developmentUserKey?: string; onOpenStage: (projectId: string, targetId: string, stage: number) => void;
 }) {
   const [state, setState] = useState<State>({ kind: 'loading' });
+  const [sort, setSort] = useState<OsanSort>(null);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -31,8 +33,8 @@ export function OsanGateApprovalsPage({ developmentUserKey, onOpenStage }: {
     {state.kind === 'loading' && <OsanInlineState kind="loading">승인 대기를 불러오는 중입니다.</OsanInlineState>}
     {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {state.kind === 'ready' && (state.items.length ? <div className="osan-admin-approvals" role="table" aria-label="Gate 승인 요청 목록">
-      <div role="row" className="osan-admin-approval-head"><span role="columnheader">프로젝트</span><span role="columnheader">Gate</span><span role="columnheader">요청자</span><span role="columnheader">요청일</span><span className="osan-approval-reason" role="columnheader">요청 사유</span></div>
-      {state.items.map(item => <div role="row" className="osan-admin-approval-row" key={item.requestId} tabIndex={0}
+      <div role="row" className="osan-admin-approval-head"><OsanSortHeader field="projectTitle" sort={sort} onSort={setSort}>프로젝트</OsanSortHeader><OsanSortHeader field="stageSequence" sort={sort} onSort={setSort}>Gate</OsanSortHeader><OsanSortHeader field="requestedByName" sort={sort} onSort={setSort}>요청자</OsanSortHeader><OsanSortHeader field="requestedAt" sort={sort} onSort={setSort}>요청일</OsanSortHeader><OsanSortHeader field="reason" sort={sort} onSort={setSort} className="osan-approval-reason">요청 사유</OsanSortHeader></div>
+      {sortOsanRows(state.items, sort, (item, key) => key === 'requestedAt' ? Date.parse(item.requestedAt) : item[key as keyof Approval]).map(item => <div role="row" className="osan-admin-approval-row" key={item.requestId} tabIndex={0}
         aria-label={`${item.projectTitle} · ${stages[item.stageSequence - 1] ?? 'Gate'} 단계 상세 열기`}
         onClick={() => onOpenStage(item.projectId, item.targetId, item.stageSequence)}
         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenStage(item.projectId, item.targetId, item.stageSequence); } }}>

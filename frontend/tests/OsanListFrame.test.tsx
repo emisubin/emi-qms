@@ -85,3 +85,13 @@ describe('OsanListFrame 다중 선택 필터', () => {
     expect(screen.getByRole('button', { name: '고객사 필터: 전체' })).toBeInTheDocument();
   });
 });
+
+ it('프로젝트가 없는 배정 고객사도 표시하고 개별 해제할 수 있다', () => {
+    const applied = vi.fn();
+    render(<FrameHarness initialCustomers={['신규 담당 고객사']} onCustomersApplied={applied} />);
+    const dialog = openCustomerDropdown();
+    expect(screen.getByRole('button', { name: '고객사 필터: 신규 담당 고객사' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '신규 담당 고객사' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '적용' }));
+    expect(applied).toHaveBeenCalledWith([]);
+  });

@@ -13,20 +13,21 @@ const statusOptions = [
 ];
 
 export function OsanListFrame({ title, description, counts, search, onSearchChange, onSearch,
-  statuses, onStatusesChange, onReset, selectedCustomers, customers = [], onCustomersChange,
+  statuses, onStatusesChange, onReset, assignedEmptyOnly = false, selectedCustomers, customers = [], onCustomersChange,
   dueFrom, dueTo, onDueChange, kpi, onKpiChange, kpiValues,
   actions, className = '', summaryLabels = ['전체', '시작 전', '진행 중', '완료'], children }: {
   summaryLabels?: string[];
   title: string; description: string; counts: number[] | null; search: string;
   onSearchChange: (value: string) => void; onSearch: () => void;
   statuses: string[]; onStatusesChange: (values: string[]) => void; onReset: () => void;
+  assignedEmptyOnly?: boolean;
   selectedCustomers: string[]; customers?: string[]; onCustomersChange: (values: string[]) => void;
   dueFrom: string; dueTo: string; onDueChange: (from: string, to: string) => void;
   kpi: string | null; onKpiChange: (value: string | null) => void; kpiValues?: string[];
   actions?: ReactNode; className?: string; children: ReactNode;
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
-  const active = statuses.length > 0 || selectedCustomers.length > 0 || !!dueFrom || !!dueTo;
+  const active = assignedEmptyOnly || statuses.length > 0 || selectedCustomers.length > 0 || !!dueFrom || !!dueTo;
   const summaryValues = kpiValues ?? ['All', 'NotStarted', 'InProgress', 'Completed'];
   return <section className={`osan-page osan-dashboard osan-list-frame ${className}`} aria-labelledby="osan-dashboard-title" data-presentation-contract="osan-list-frame">
     <OsanMenuHeading id="osan-dashboard-title" title={title} description={description} actions={actions} />
@@ -46,7 +47,7 @@ export function OsanListFrame({ title, description, counts, search, onSearchChan
       </OsanButton>
     </div>
     {filterOpen && <div className="osan-dashboard-filter-options" id="osan-dashboard-filter-options">
-      <OsanMultiSelectFilter label="고객사" options={customers.map(name => ({ value: name, label: name }))}
+      <OsanMultiSelectFilter emptyLabel={assignedEmptyOnly ? "담당 고객사 없음" : "전체"} label="고객사" options={[...new Set([...customers, ...selectedCustomers])].map(name => ({ value: name, label: name }))}
         values={selectedCustomers} onApply={onCustomersChange} />
       <OsanMultiSelectFilter label="상태" options={statusOptions} values={statuses} onApply={onStatusesChange} align="end" />
       <label>납기 시작일 <input type="date" value={dueFrom} max={dueTo || undefined} onChange={event => onDueChange(event.target.value, dueTo)} /></label>

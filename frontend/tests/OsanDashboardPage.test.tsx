@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OsanDashboardPage } from '../src/OsanDashboardPage';
 import { clearOsanListSnapshots } from '../src/osanListState';
 import * as api from '../src/osanDashboard';
+import {getOsanPersonalHome} from '../src/osanPersonalHome';
+vi.mock('../src/osanPersonalHome',()=>({getOsanPersonalHome:vi.fn()}));
 
 vi.mock('../src/osanDashboard', async original => ({ ...await original<typeof import('../src/osanDashboard')>(), getOsanDashboard: vi.fn() }));
 
@@ -18,6 +20,7 @@ const fixture = (totalCount = 51): api.OsanDashboardResponse => ({
 beforeEach(() => {
   clearOsanListSnapshots();
   vi.clearAllMocks();
+  vi.mocked(getOsanPersonalHome).mockResolvedValue({customers:[{customerName:"고객 A"}]} as Awaited<ReturnType<typeof getOsanPersonalHome>>);
   vi.mocked(api.getOsanDashboard).mockResolvedValue(fixture());
 });
 
@@ -29,17 +32,16 @@ describe('오산 홈·진행 현황 공용 목록', () => {
     expect(within(summary).getByRole('button', { name: /공정 이상/ })).toHaveTextContent('3');
     expect(screen.getByText('1 / 2')).toBeInTheDocument();
     expect(api.getOsanDashboard).toHaveBeenCalledWith(undefined,
-      expect.objectContaining({ view, page: 1, customers: [], statuses: [], kpi: null }), expect.any(AbortSignal));
+      expect.objectContaining({ view, page: 1, customers: ['고객 A'], statuses: [], kpi: null }), expect.any(AbortSignal));
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '7');
   });
 
   it('고객사와 상태는 각각 복수 선택하고 날짜·검색·KPI는 기존 조건을 유지한다', async () => {
     render(<OsanDashboardPage view="home" stateScopeKey="user-1" onOpen={vi.fn()} />);
     await screen.findByRole('button', { name: '검수 프로젝트 프로젝트 상세 열기' });
-    fireEvent.click(screen.getByRole('button', { name: '필터' }));
+    fireEvent.click(screen.getByRole('button', { name: /^필터/ }));
     fireEvent.click(screen.getByRole('button', { name: /고객사 필터/ }));
     const customerDialog = screen.getByRole('dialog', { name: '고객사 선택' });
-    fireEvent.click(within(customerDialog).getByRole('checkbox', { name: '고객 A' }));
     fireEvent.click(within(customerDialog).getByRole('checkbox', { name: '고객 B' }));
     fireEvent.click(within(customerDialog).getByRole('button', { name: '적용' }));
     fireEvent.click(screen.getByRole('button', { name: /상태 필터/ }));
@@ -69,10 +71,9 @@ describe('오산 홈·진행 현황 공용 목록', () => {
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
     fireEvent.change(screen.getByRole('textbox', { name: '프로젝트 검색' }), { target: { value: '패널' } });
     fireEvent.click(screen.getByRole('button', { name: '검색' }));
-    fireEvent.click(screen.getByRole('button', { name: '필터' }));
+    fireEvent.click(screen.getByRole('button', { name: /^필터/ }));
     fireEvent.click(screen.getByRole('button', { name: /고객사 필터/ }));
     const customerDialog = screen.getByRole('dialog', { name: '고객사 선택' });
-    fireEvent.click(within(customerDialog).getByRole('checkbox', { name: '고객 A' }));
     fireEvent.click(within(customerDialog).getByRole('button', { name: '적용' }));
     fireEvent.click(await screen.findByRole('button', { name: '검수 프로젝트 진행 상세 열기' }));
     expect(open).toHaveBeenCalledWith('p1');
@@ -84,16 +85,28 @@ describe('오산 홈·진행 현황 공용 목록', () => {
     second.unmount();
     render(<OsanDashboardPage view="progress" stateScopeKey="user-2" onOpen={vi.fn()} />);
     await waitFor(() => expect(api.getOsanDashboard).toHaveBeenLastCalledWith(undefined,
-      expect.objectContaining({ search: '', customers: [] }), expect.any(AbortSignal)));
+      expect.objectContaining({ search: '', customers: ['고객 A'] }), expect.any(AbortSignal)));
   });
 
   it('이전 요청의 늦은 응답은 새 사용자 목록을 덮지 않는다', async () => {
     let resolveOld!: (value: api.OsanDashboardResponse) => void;
     vi.mocked(api.getOsanDashboard).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
     const page = render(<OsanDashboardPage stateScopeKey="old" onOpen={vi.fn()} />);
+    await waitFor(()=>expect(api.getOsanDashboard).toHaveBeenCalledTimes(1));
     page.rerender(<OsanDashboardPage stateScopeKey="new" onOpen={vi.fn()} />);
     await screen.findByRole('button', { name: '검수 프로젝트 진행 상세 열기' });
     await act(async () => resolveOld(fixture()));
     expect(vi.mocked(api.getOsanDashboard).mock.calls[0][2].aborted).toBe(true);
   });
+  it('미배정이면 최초 빈 목록이고 필터 초기화 후 전체 조회가 된다',async()=>{
+    vi.mocked(getOsanPersonalHome).mockResolvedValue({customers:[],taskTotalCount:0,deadlineTotalCount:0,summary:{totalCount:0,inProgressCount:0,holdCount:0,overdueCount:0,openIssueCount:0},tasks:[],deadlines:[],news:[]});
+    render(<OsanDashboardPage stateScopeKey="none" onOpen={vi.fn()}/>);
+    await waitFor(()=>expect(api.getOsanDashboard).toHaveBeenCalled());
+    expect(screen.queryByRole('button',{name:'검수 프로젝트 진행 상세 열기'})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:/^필터/}));
+    await screen.findByRole('button',{name:/담당 고객사 없음/});
+    fireEvent.click(screen.getByRole('button',{name:'초기화'}));
+    await screen.findByRole('button',{name:'검수 프로젝트 진행 상세 열기'});
+  });
+
 });

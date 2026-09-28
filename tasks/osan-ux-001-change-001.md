@@ -859,3 +859,22 @@
 - 팝업 보정: writeBlocked 시에만 팝업 청구/표시, 시간 문구 삭제. 예정→실제 제한 전환 때 같은 버전도 첫 표시되는 테스트 포함7건 통과, 타입 검사 통과.
 - 최신 main 통합 시 제품 충돌 없음. 두 Task의 추가 기록 충돌만 기존 배포 이력과 이번 변경 모두 보존하여 해결. PR157 생성, required CI 대기. 배포 시 frontend만 교체하며 backend·migration·bootstrap·backfill·업무 데이터 변경 없음.
 - PR 첫 전체 frontend 검증577/579 통과, 기존 알림 상세/탭순서·공통 toolbar 추출 전 DOM 기대값2건 실패. 확정 직접 이동 및 공통 toolbar 계약으로 검증을 보정했고 해당2suite38건 통과했다. 제품 동작을 테스트에 맞춰 되돌리지 않는다.
+
+- 최종 후보 fd13a82의 CI36358716939: backend978/978, frontend579/579, mock browser71/71, full-stack66/66 및 CI Gate 통과. 기존 E2E의 담당 고객사 mock/기본 선택 기대값을 보정했고, 이미지 로딩 전 naturalWidth 검사 경쟁은 동일 assertion의 expect.poll로 보정했다. 알림 이동 targetId 검증 추가. 독립 재검토 차단 Finding 없음.
+- PR #157 정상 squash 병합 완료: 08353f68a079fd3ad0da1cfb6cdf1a3cc6dfb324. 병합 tree와 검증 후보 tree 일치 확인. main 후속 CI도 success. 보호 규칙 우회 없음.
+- 공개배포 완료(2026-09-28 KST): frontend--0000058, digest sha256:4c0cf7d43c69e27e1b834c1fcde2cc4e6fc1e3f48aae66f218128a60b73964fa. backend--0000067 유지. 양쪽 Healthy/ready와 image 일치, env/secret reference 불변 확인. migration/bootstrap/backfill 미실행.
+- 공지 게시글 없이 유지보수 prepare/activate/complete 실행 모두 성공(maintenance-9le9qrg / maintenance-aoclzfl / maintenance-ww4d7v8). 실제 배포 직전 활성화, 정상 확인 후 저장 제한 해제. 이번 전환 전 클라이언트의 시간 표시 허용 범위 준수.
+- 공개 PMS 로그인된 오산 알림 화면 새로고침 후 읽지 않음→읽음→전체 탭, 공통 필터, 팝업·배너 비표시를 직접 확인. 업무 등록/수정/삭제 시험은 운영에서 수행하지 않았다. health200, 비인증 API/root401 유지.
+- 배포 증거는 /private/tmp/emi-notifications-release-20260928에 최소 결과로 보관. 이 완료 기록은 배포 뒤 별도 로컬 커밋하며 배포 제품을 변경하지 않는다.
+
+
+### 20-56. 오산 공지 읽은 인원수 (로컬 구현)
+- 승인: 네이버웍스 방식으로 게시글별 고유 계정 수를 `읽음 N명`으로 표시. 반복 조회는 1명, 기존 읽음 기록 포함. 사용자 명단 추가 없음.
+- 기존 notice_reads의 (notice_id,user_id) PK를 그대로 사용해 목록·상세 응답에 readerCount 추가. 새 테이블/migration 없음. 작성자도 실제 읽음 기록이 있으면 동일하게 포함. 팝업 수신 기록은 집계하지 않는다.
+- PC 목록 읽음 열, 모바일 기존 날짜 행 오른쪽 읽음 N명, 상세 작성자/시간 옆 표시. 기존 볼드/언볼드와 행 밀도 유지. 청주 표시 변경 없음.
+- 상세 첫 열람 기록 뒤 서버 인원수 재조회. 배포 중 기록 실패는 기존처럼 본문 조회 유지. 읽음 성공 응답을 JSON으로 반환해 fetchJson 파싱 실패 보정. 재조회는 인원수만 갱신하여 편집 버전/내용을 보존.
+- 검증: 공지 서버 테스트6건 통과(격리 임시 DB: 동시 동일 계정→1, 타계정 추가→2, 재열람→2), UI8건 통과(목록/최초 갱신/실패/편집 버전 반례 포함), TypeScript·대상 lint·diff 확인 통과. 처음 FE 실행에서 접근성 이름의 숨긴 문구 기대값1건 실패를 보정했고 해당 suite 재통과. 나머지 FE581건은 그 첫 실행에서 통과.
+- PC1366/모바일390 실제 컴포넌트+합성응답 screenshot 직접 확인, 가로 넘침 없음, 목록 행40/41px. 기존 UAT는 읽기 전용을 유지하여 실데이터 읽음 저장 시험/공유 API 재기동 없음. 실제 오산 HTTP 성공 응답 통합 경로는 미실행, store 집계와 UI 응답 처리를 각각 검증.
+- 독립 검토 P2(인원 재조회가 본문/버전을 혼합할 위험)를 보정하고 회귀 테스트 추가, 재검토 미해결 P0–P2 없음. 검증용 임시 화면 제거. 로컬 커밋 후 원격 병합·배포는 미실행.
+
+- 2026-09-28 사용자 검수 후 이번 변경 원격 main 병합·공개배포 승인. 공지 게시글 생략, 실제 배포 직전 팝업/배너/저장 제한만 적용. DB schema 변경 없음.

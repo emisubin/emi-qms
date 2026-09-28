@@ -15,6 +15,7 @@ export type NoticeListItem = {
   authorDisplayName: string;
   authorDepartmentName: string | null;
   createdAtUtc: string;
+  readerCount?: number;
   canDelete: boolean;
   updatedAtUtc: string | null;
 };
@@ -30,6 +31,7 @@ export type NoticeDetail = {
   createdAtUtc: string;
   updatedAtUtc: string | null;
   canEdit: boolean;
+  readerCount?: number;
   canDelete: boolean;
   attachments: NoticeAttachment[];
 };

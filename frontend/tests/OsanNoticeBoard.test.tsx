@@ -105,3 +105,36 @@ it('계정을 바꾸면 이전 계정의 열린 공지를 즉시 닫는다', asy
   await waitFor(() => expect(vi.mocked(api.fetchJson).mock.calls).toContainEqual(['/api/osan/notices/popups', 'user-b']));
   expect(screen.queryByRole('dialog', { name: '공지사항' })).not.toBeInTheDocument();
 });
+
+
+it('목록에서 서버가 집계한 읽은 인원수와 읽음 글꼴을 표시한다', async () => {
+  vi.mocked(api.listNotices).mockResolvedValue({items:[{...detail, preview:'본문', readerCount:12, isRead:true}],totalCount:1,page:1,pageSize:20});
+  render(<OsanNoticeBoard userKey="user-a" admin={false} enabled onList={vi.fn()} onOpen={vi.fn()} onCompose={vi.fn()}/>);
+  expect(await screen.findByRole('cell',{name:/12명/})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:detail.title})).toHaveClass('notice-title-read');
+});
+
+it('상세를 처음 읽은 후 서버의 최신 인원수를 표시한다', async () => {
+  vi.mocked(api.getNotice).mockResolvedValueOnce({...detail,readerCount:0}).mockResolvedValue({...detail,readerCount:1});
+  render(<OsanNoticeBoard userKey="user-a" noticeId="notice-a" admin={false} enabled onList={vi.fn()} onOpen={vi.fn()} onCompose={vi.fn()}/>);
+  expect(await screen.findByText(/읽음 1명/)).toBeInTheDocument();
+});
+
+it('읽음 기록이 실패하면 인원수를 임의로 늘리지 않고 본문을 유지한다', async () => {
+  vi.mocked(api.getNotice).mockResolvedValue({...detail,readerCount:3});
+  vi.mocked(api.fetchJson).mockRejectedValue(new Error('업데이트 중'));
+  render(<OsanNoticeBoard userKey="user-a" noticeId="notice-a" admin={false} enabled onList={vi.fn()} onOpen={vi.fn()} onCompose={vi.fn()}/>);
+  expect(await screen.findByText(/읽음 3명/)).toBeInTheDocument();
+  expect(screen.getByText('변경된 기능')).toBeInTheDocument();
+  expect(api.getNotice).toHaveBeenCalledOnce();
+});
+
+
+it('읽음 새로고침은 편집 버전과 본문을 바꾸지 않는다', async () => {
+ vi.mocked(api.getNotice).mockResolvedValueOnce({...detail,readerCount:0}).mockResolvedValue({...detail,version:2,body:'다른 사용자의 수정',readerCount:1});
+ render(<OsanNoticeBoard userKey="user-a" noticeId="notice-a" admin={false} enabled onList={vi.fn()} onOpen={vi.fn()} onCompose={vi.fn()}/>);
+ await screen.findByText(/읽음 1명/);
+ fireEvent.click(screen.getByRole('button',{name:'수정'}));
+ fireEvent.click(screen.getByRole('button',{name:'저장'}));
+ await waitFor(()=>expect(api.updateNotice).toHaveBeenCalledWith('user-a','notice-a',expect.objectContaining({expectedVersion:1,body:detail.body})));
+});

@@ -18,7 +18,8 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
             select id,title,body,author_user_id,author_display_name_snapshot,
                    author_department_name_snapshot,created_at_utc,updated_at_utc,
                    count(*) over ()::integer, pinned, exists(select 1 from notice_reads r where r.notice_id=notice_posts.id and r.user_id=@actor_user_id),
-                   (select count(*)::integer from notice_attachments a where a.notice_post_id=notice_posts.id and a.deleted_at_utc is null)
+                   (select count(*)::integer from notice_attachments a where a.notice_post_id=notice_posts.id and a.deleted_at_utc is null),
+                   (select count(*)::integer from notice_reads r where r.notice_id=notice_posts.id)
             from notice_posts
             where deleted_at_utc is null and (@search = '' or position(lower(@search) in lower(title)) > 0 or position(lower(@search) in lower(author_display_name_snapshot)) > 0)
             order by pinned desc,created_at_utc desc,id desc
@@ -43,7 +44,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
                 reader.IsDBNull(5) ? null : reader.GetString(5),
                 reader.GetFieldValue<DateTimeOffset>(6),
                 reader.GetGuid(3) == actorUserId || canAdmin,
-                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7), reader.GetBoolean(9), reader.GetBoolean(10), reader.GetInt32(11)));
+                reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7), reader.GetBoolean(9), reader.GetBoolean(10), reader.GetInt32(11), reader.GetInt32(12)));
         }
 
         if (items.Count == 0 && page > 1)
@@ -456,12 +457,14 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         CancellationToken cancellationToken, bool canAdmin = false)
     {
         NoticeDetailRow? row;
+        int readerCount;
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
                 select id,title,body,body_format,version,author_user_id,author_display_name_snapshot,
-                       author_department_name_snapshot,created_at_utc,updated_at_utc
+                       author_department_name_snapshot,created_at_utc,updated_at_utc,
+                       (select count(*)::integer from notice_reads r where r.notice_id=notice_posts.id)
                 from notice_posts
                 where id=@notice_id and deleted_at_utc is null;
                 """;
@@ -471,6 +474,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
             {
                 return null;
             }
+            readerCount = reader.GetInt32(10);
             row = new NoticeDetailRow(
                 reader.GetGuid(0),
                 reader.GetString(1),
@@ -503,7 +507,7 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
             row.UpdatedAtUtc,
             canManage,
             canManage,
-            attachments);
+            attachments, readerCount);
     }
 
     private static async Task<IReadOnlyList<NoticeAttachmentResponse>> ReadAttachmentsAsync(

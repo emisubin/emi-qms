@@ -1,0 +1,48 @@
+/* Approved notification C surfaces. Every override is scoped to this page;
+   shared wireframe rules and other pages are intentionally untouched. */
+.app-shell .osan-notification-feed .onf-tabs { display:flex; gap:8px; border-bottom:1px solid #ddd; margin-top:22px; }
+.app-shell .osan-notification-feed .onf-tabs > button { min-width:102px; min-height:44px; padding:12px 20px; border:0!important; border-bottom:2px solid transparent!important; border-radius:0!important; color:#777!important; background:transparent!important; font-size:13px; font-weight:400; }
+.app-shell .osan-notification-feed .onf-tabs > button[aria-selected='true'] { border-bottom-color:#da2127!important; color:#c5222b!important; background:transparent!important; font-weight:700; }
+.app-shell .osan-notification-feed .onf-tabs > button > span { margin-left:6px; padding:2px 6px; border-radius:8px!important; background:#fff0f1!important; color:#c5222b!important; font-size:11px; }
+.app-shell .osan-notification-feed .onf-count { margin-left:auto; font-size:12px; color:#888!important; white-space:nowrap; }
+.app-shell .osan-notification-feed .onf-date { padding:9px 12px; border-top:1px solid #eee; border-bottom:1px solid #eee; background:#fafafa!important; color:#8a8d92!important; font-size:11px; }
+.app-shell .osan-notification-feed .onf-row { display:flex; align-items:center; gap:8px; border-bottom:1px solid #eee; background:#fff!important; }
+.app-shell .osan-notification-feed .onf-row.is-unread { background:#fcfcfd!important; }
+.app-shell .osan-notification-feed .onf-row > input { flex:none; margin-left:8px; }
+.app-shell .osan-notification-feed .onf-open { display:flex; position:relative; flex:1; min-width:0; align-items:flex-start; gap:13px; width:100%; padding:14px 12px; border:0!important; border-radius:0!important; background:transparent!important; text-align:left; line-height:1.5; min-height:0; height:auto; white-space:normal; }
+.app-shell .osan-notification-feed .onf-row:hover { background:#f6f7f8!important; }
+.app-shell .osan-notification-feed .onf-icon { flex:none; display:grid; place-items:center; width:30px; height:30px; border-radius:50%!important; background:#f0f2f5!important; color:#788391!important; }
+.app-shell .osan-notification-feed .onf-icon.red { background:#fff0f1!important; color:#c82b34!important; }
+.app-shell .osan-notification-feed .onf-icon.green { background:#edf5ef!important; color:#4b8863!important; }
+.app-shell .osan-notification-feed .onf-icon > span { display:block; width:17px; height:17px; color:inherit!important; background:transparent!important; }
+.app-shell .osan-notification-feed .onf-copy { flex:1; min-width:0; display:block; }
+.app-shell .osan-notification-feed .onf-title { display:flex; align-items:center; gap:3px 8px; flex-wrap:wrap; font-size:13px; }
+.app-shell .osan-notification-feed .onf-title strong { font-weight:700; color:#303238!important; overflow-wrap:anywhere; }
+.app-shell .osan-notification-feed .onf-title > span { color:#8a8f97!important; font-size:12px; overflow-wrap:anywhere; }
+.app-shell .osan-notification-feed .onf-event { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:5px; font-size:12px; }
+.app-shell .osan-notification-feed .onf-event b { font-weight:500; color:#626974!important; }
+.app-shell .osan-notification-feed .onf-event b.red { color:#c32932!important; }
+.app-shell .osan-notification-feed .onf-event b.green { color:#43825b!important; }
+.app-shell .osan-notification-feed .onf-event > span { border-left:1px solid #d9dce0; padding-left:8px; color:#777e88!important; }
+.app-shell .osan-notification-feed .onf-excerpt { display:block; margin-top:4px; color:#8b9098!important; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.app-shell .osan-notification-feed .onf-time { display:flex; align-items:center; gap:8px; color:#93969b!important; font-size:11px; white-space:nowrap; }
+.app-shell .osan-notification-feed .onf-time i { width:5px; height:5px; background:#da2127!important; border-radius:50%!important; }
+.app-shell .osan-notification-feed .is-read .onf-icon { background:#f2f2f2!important; color:#999!important; }
+.app-shell .osan-notification-feed .is-read .onf-title strong,.app-shell .osan-notification-feed .is-read .onf-event b { color:#888!important; font-weight:400; }
+.app-shell .osan-notification-feed .is-read :is(.onf-title > span,.onf-event > span,.onf-excerpt,.onf-time) { color:#999!important; }
+.app-shell .osan-notification-feed .onf-empty { padding:60px 12px; text-align:center; color:#999!important; }
+.app-shell .osan-notification-feed .onf-error { padding:12px 0; color:#b4222b!important; }
+@media(max-width:700px) {
+ .app-shell .osan-notification-feed .onf-tabs { gap:0; }
+ .app-shell .osan-notification-feed .onf-tabs > button { flex:1; min-width:0; padding:12px 10px; }
+ .app-shell .osan-notification-feed .onf-count { display:none; }
+ .app-shell .osan-notification-feed .onf-open { padding:12px 4px; gap:10px; }
+ .app-shell .osan-notification-feed .onf-icon { width:27px; height:27px; }
+ .app-shell .osan-notification-feed .onf-title { padding-right:43px; }
+ .app-shell .osan-notification-feed .onf-time { position:absolute; top:13px; right:4px; font-size:10px; gap:5px; }
+ .app-shell .osan-notification-feed :is(.onf-title > span,.onf-event,.onf-excerpt) { font-size:11px; }
+ .app-shell .osan-notification-feed .onf-date { padding:8px 7px; }
+}
+
+.app-shell .osan-notification-feed .onf-icon svg { display:block; width:17px; height:17px; fill:none; stroke:currentColor; }
+.app-shell .osan-notification-feed .onf-icon :is(svg,path,rect,circle) { color:inherit!important; }

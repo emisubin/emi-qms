@@ -70,14 +70,15 @@ it('일정 변경 때만 새 팝업 버전을 청구하고 상태 전환만으�
 });
 
 
-it('업데이트 팝업은 공지 전문 대신 시간·대상을 안내하고 공지 상세로 연결한다', async () => {
+it('업데이트 팝업은 공지 전문과 시간 없이 대상을 안내하고 공지 상세로 연결한다', async () => {
   vi.mocked(fetchJson).mockResolvedValue({ claimed: true });
   const onOpenNotice = vi.fn();
   render(<MaintenanceAnnouncement status={active} unavailable={false}
     userKey="user-a" scope="OSAN:user-a" onOpenNotice={onOpenNotice} />);
   await act(async () => {});
   expect(screen.getByText('오산')).toBeInTheDocument();
-  expect(screen.getByText('저장 제한 시간')).toBeInTheDocument();
+  expect(screen.queryByText('저장 제한 시간')).not.toBeInTheDocument();
+  expect(screen.queryByText(/09:00|10:00/)).not.toBeInTheDocument();
   expect(screen.queryByText(active.body)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '업데이트 내용 보기' }));
   expect(onOpenNotice).toHaveBeenCalledWith('notice-a');
@@ -97,10 +98,21 @@ it('완료 후 새 접속자에게 배너와 팝업을 표시하지 않는다', 
   expect(screen.queryByText(/시작 전에 저장/)).not.toBeInTheDocument();
 });
 
-it('예고 팝업은 유지하지만 저장 제한 시작 전 배너는 표시하지 않는다', async () => {
+it('저장 제한 시작 전에는 팝업 청구와 배너 표시를 하지 않는다', async () => {
  vi.mocked(fetchJson).mockResolvedValue({ claimed: true });
  render(<MaintenanceAnnouncement status={{...active, state:'Announced',writeBlocked:false}} unavailable={false} userKey="user-a" scope="OSAN:user-a" onOpenNotice={vi.fn()}/>);
  await act(async () => {});
  expect(screen.queryByRole('status')).not.toBeInTheDocument();
- expect(screen.getByRole('region', {name:'업데이트 안내'})).toBeInTheDocument();
+ expect(screen.queryByRole('region', {name:'업데이트 안내'})).not.toBeInTheDocument();
+ expect(fetchJson).not.toHaveBeenCalled();
+});
+
+it('예고에서 실제 저장 제한으로 전환되면 같은 팝업 버전도 처음 표시한다', async () => {
+ vi.mocked(fetchJson).mockResolvedValue({claimed:true});
+ const props={unavailable:false,userKey:'user-a',scope:'OSAN:user-a',onOpenNotice:vi.fn()};
+ const {rerender}=render(<MaintenanceAnnouncement {...props} status={{...active,state:'Announced',writeBlocked:false}}/>);
+ await act(async()=>{});expect(fetchJson).not.toHaveBeenCalled();
+ rerender(<MaintenanceAnnouncement {...props} status={active}/>);
+ await act(async()=>{});expect(screen.getByRole('region',{name:'업데이트 안내'})).toBeInTheDocument();
+ expect(fetchJson).toHaveBeenCalledTimes(1);
 });

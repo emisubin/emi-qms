@@ -61,7 +61,7 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
 
 async function assertSuppliedInternalLogo(locator: Locator) {
   await expect(locator).toBeVisible();
-  expect(await locator.evaluate((image) => {
+  await expect.poll(() => locator.evaluate((image) => {
     const img = image as HTMLImageElement;
     const style = getComputedStyle(img);
     return {

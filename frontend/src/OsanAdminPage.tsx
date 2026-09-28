@@ -1,3 +1,4 @@
+import { OsanSortHeader, sortOsanRows, type OsanSort } from './OsanSortHeader';
 import { OsanButton } from './OsanButton';
 import { OsanTabs, OsanInlineState } from './OsanUiPrimitives';
 import { OsanMenuHeading } from './OsanMenuHeading';
@@ -17,6 +18,7 @@ const normalized = (value: string) => value.replace(/\s/g, '').toLocaleLowerCase
 export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = true }: { developmentUserKey?: string; mutationAllowed?: boolean }) {
   const [state, setState] = useState<Load<AssignmentData>>({ kind: 'loading' });
   const [revision, setRevision] = useState(0);
+  const [sort, setSort] = useState<OsanSort>(null);
   const [tab, setTab] = useState<'customer' | 'person'>('customer');
   const [search, setSearch] = useState('');
   const [unassigned, setUnassigned] = useState(false);
@@ -98,6 +100,12 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     const related = 'name' in item ? users.filter(user => user.customerIds.includes(item.customerId)) : item.customerIds;
     if ('name' in item) return !unassigned || related.length === 0;
     return (!department || (item.departmentName ?? '소속 없음') === department) && (assignment === 'all' || (assignment === 'assigned' ? related.length > 0 : related.length === 0));
+  });
+  const sortedRecords = sortOsanRows<Customer | User>(records, sort, (item, key) => {
+    if (key === 'name') return 'name' in item ? item.name : item.displayName;
+    if ('name' in item) return users.filter(user => user.customerIds.includes(item.customerId) && user.departmentName === (key === 'related' ? '품질' : '제조')).length;
+    const related = customers.filter(customer => item.customerIds.includes(customer.customerId));
+    return key === 'related' ? related.map(customer => customer.name).join(', ') : related.length;
   });
   const openAssignment = (kind: 'customer' | 'person', id: string, element: HTMLElement) => {
     trigger.current = element;
@@ -181,8 +189,8 @@ export function OsanCustomerAdminPage({ developmentUserKey, mutationAllowed = tr
     {state.kind === 'loading' && <OsanInlineState kind="loading">고객사와 담당자를 불러오는 중입니다.</OsanInlineState>}
     {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {data && <div className={`osan-admin-records${tab === 'customer' ? ' osan-customer-counts' : ''}`} role="table" aria-label={tab === 'customer' ? '고객사별 담당자' : '사용자별 고객사'}>
-      <div className="osan-admin-record-head" role="row"><span role="columnheader">{tab === 'customer' ? '고객사명' : '사용자'}</span><span role="columnheader">{tab === 'customer' ? '품질 담당자' : '담당 고객사'}</span><span role="columnheader">{tab === 'customer' ? '제조 담당자' : '고객사 수'}</span><span role="columnheader">설정</span></div>
-      {records.map(item => {
+      <div className="osan-admin-record-head" role="row"><OsanSortHeader field="name" sort={sort} onSort={setSort}>{tab === 'customer' ? '고객사명' : '사용자'}</OsanSortHeader><OsanSortHeader field="related" sort={sort} onSort={setSort}>{tab === 'customer' ? '품질 담당자' : '담당 고객사'}</OsanSortHeader><OsanSortHeader field="count" sort={sort} onSort={setSort}>{tab === 'customer' ? '제조 담당자' : '고객사 수'}</OsanSortHeader><span role="columnheader">설정</span></div>
+      {sortedRecords.map(item => {
         const isCustomer = 'name' in item;
         const related = isCustomer ? users.filter(user => user.customerIds.includes(item.customerId)) : customers.filter(customer => item.customerIds.includes(customer.customerId));
         const title = isCustomer ? item.name : item.displayName;

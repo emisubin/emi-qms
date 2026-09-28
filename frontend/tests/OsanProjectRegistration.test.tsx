@@ -102,6 +102,7 @@ function shellFetch(handler?: (url: URL, init?: RequestInit) => Response | Promi
       ready: true,
       reason: 'development'
     });
+    if (url.pathname === '/api/osan/my/home') return json({customers:['고객사','두번째 고객사','세번째 고객사'].map(customerName=>({customerName}))});
     if (url.pathname === '/api/me') return json(currentUser());
     if (url.pathname === '/api/osan/customers') return json({ items: [{ customerId, name: '고객사' }] });
     return json({ title: 'unexpected test request' }, 404);
@@ -281,12 +282,12 @@ describe('Osan project registration', () => {
     expect(heading).toContainElement(page?.querySelector('.osan-menu-heading-description') as HTMLElement);
     expect(directIndex('.osan-menu-heading')).toBeGreaterThanOrEqual(0);
     expect(directIndex('.osan-menu-heading')).toBeLessThan(directIndex('.osan-dashboard-summary'));
-    expect(directIndex('.osan-dashboard-summary')).toBeLessThan(directIndex('.osan-dashboard-toolbar'));
-    expect(directIndex('.osan-dashboard-toolbar')).toBeLessThan(directIndex('.osan-list-heading'));
+    expect(directIndex('.osan-dashboard-summary')).toBeLessThan(directIndex('.osan-filter-toolbar'));
+    expect(directIndex('.osan-filter-toolbar')).toBeLessThan(directIndex('.osan-list-heading'));
     const summary = within(page as HTMLElement).getByLabelText('프로젝트 요약');
     expect(Array.from(summary.children).map(item => item.textContent)).toEqual(['전체3', '시작 전2', '진행 중0', '완료1']);
     const pageQueries = within(page as HTMLElement);
-    fireEvent.click(pageQueries.getByRole('button', { name: '필터' }));
+    fireEvent.click(pageQueries.getByRole('button', { name: /^필터/ }));
     fireEvent.click(pageQueries.getByRole('button', { name: /상태 필터/ }));
     expect(pageQueries.getByRole('checkbox', { name: '포장완료' })).not.toBeChecked();
     fireEvent.click(pageQueries.getByRole('button', { name: '취소' }));
@@ -308,7 +309,8 @@ describe('Osan project registration', () => {
     fireEvent.click(pageQueries.getByRole('button', { name: '검색' }));
     expect(pageQueries.getByLabelText('납기 시작일')).toBeInTheDocument();
     fireEvent.click(pageQueries.getByRole('button', { name: /고객사 필터/ }));
-    fireEvent.click(pageQueries.getByRole('checkbox', { name: '두번째 고객사' }));
+    fireEvent.click(pageQueries.getByRole('checkbox', { name: '고객사' }));
+    fireEvent.click(pageQueries.getByRole('checkbox', { name: '세번째 고객사' }));
     fireEvent.click(pageQueries.getByRole('button', { name: '적용' }));
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(within(table).getByText('완료 검색명')).toBeInTheDocument();

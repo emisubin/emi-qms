@@ -110,3 +110,52 @@ it('삭제 실패는 팝업에 남아 재시도할 수 있고 취소는 삭제�
   fireEvent.click(screen.getByRole('button', { name: '취소' }));
   expect(screen.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument();
 });
+
+
+it('고객사 헤더는 원래 모습을 유지하며 오름차순·내림차순·원래 순서를 전환한다', async () => {
+  vi.mocked(api.fetchJson).mockResolvedValueOnce({ customers: [
+    { ...customer, customerId: 'c2', name: '나고객' }, { ...customer, name: '가고객' }
+  ], users: [user] });
+  render(<OsanCustomerAdminPage developmentUserKey="admin" />);
+  await screen.findByRole('button', { name: '나고객 더보기' });
+  const header = screen.getByRole('columnheader', { name: '고객사명' });
+  const names = () => screen.getAllByRole('button', { name: /고객 더보기/ }).map(row => row.getAttribute('aria-label'));
+  fireEvent.click(header);
+  expect(names()).toEqual(['가고객 더보기', '나고객 더보기']);
+  expect(header).toHaveAttribute('aria-sort', 'ascending');
+  fireEvent.keyDown(header, { key: 'Enter' });
+  expect(names()).toEqual(['나고객 더보기', '가고객 더보기']);
+  fireEvent.keyDown(header, { key: ' ' });
+  expect(header).toHaveAttribute('aria-sort', 'none');
+  expect(names()).toEqual(['나고객 더보기', '가고객 더보기']);
+  expect(header.querySelector('button, svg')).toBeNull();
+});
+
+it('Gate 요청일 정렬은 날짜 기준으로 바뀌고 세 번째 클릭은 서버 순서를 복원한다', async () => {
+  const base = { projectId: 'p', projectCode: 'OS', targetId: 't', stageSequence: 1, requestedByName: '김담당', reason: null };
+  vi.mocked(api.fetchJson).mockResolvedValueOnce({ items: [
+    { ...base, requestId: 'r2', projectTitle: '늦은 요청', requestedAt: '2026-09-28T00:00:00Z' },
+    { ...base, requestId: 'r1', projectTitle: '이른 요청', requestedAt: '2026-09-27T00:00:00Z' }
+  ] });
+  render(<OsanGateApprovalsPage onOpenStage={vi.fn()} />);
+  await screen.findByRole('row', { name: /늦은 요청/ });
+  const header = screen.getByRole('columnheader', { name: '요청일' });
+  const first = () => screen.getAllByRole('row', { name: /단계 상세 열기/ })[0];
+  fireEvent.click(header); expect(first()).toHaveTextContent('이른 요청');
+  fireEvent.click(header); expect(first()).toHaveTextContent('늦은 요청');
+  fireEvent.click(header); expect(first()).toHaveTextContent('늦은 요청');
+  expect(header).toHaveAttribute('aria-sort', 'none');
+});
+
+it('사용자별 고객사는 고객사 수를 숫자로 정렬한다', async () => {
+  const customers = Array.from({ length: 10 }, (_, i) => ({ ...customer, customerId: `c${i}` }));
+  vi.mocked(api.fetchJson).mockResolvedValueOnce({ customers, users: [
+    { ...user, userId: 'u10', displayName: '열개 담당', customerIds: customers.map(value => value.customerId) },
+    { ...user, userId: 'u2', displayName: '두개 담당', customerIds: ['c0', 'c1'] }
+  ] });
+  render(<OsanCustomerAdminPage />);
+  await screen.findByRole('columnheader', { name: '고객사명' });
+  fireEvent.click(screen.getByRole('tab', { name: '사용자별 고객사' }));
+  fireEvent.click(screen.getByRole('columnheader', { name: '고객사 수' }));
+  expect(screen.getAllByRole('button', { name: /담당 더보기/ })[0]).toHaveAccessibleName('두개 담당 더보기');
+});

@@ -62,9 +62,17 @@ public sealed class NoticeApiTests
         var claims=await Task.WhenAll(Enumerable.Range(0,4).Select(_=>store.ClaimPopupAsync(post.NoticeId,1,actor,ct)));
         Assert.Single(claims,value=>value);
         Assert.Empty(await store.PendingPopupsAsync(actor,ct));
+        Assert.Equal(0,(await store.GetAsync(post.NoticeId,actor,ct)).Value!.ReaderCount);
+        await Task.WhenAll(Enumerable.Range(0,4).Select(_=>store.MarkNoticeReadAsync(post.NoticeId,actor,ct)));
+        Assert.Equal(1,(await store.GetAsync(post.NoticeId,actor,ct)).Value!.ReaderCount);
+        var authorMe=await sales.GetFromJsonAsync<JsonElement>("/api/me",ct);
+        var author=authorMe.GetProperty("userId").GetGuid();
+        Assert.True(await store.MarkNoticeReadAsync(post.NoticeId,author,ct));
         Assert.True(await store.MarkNoticeReadAsync(post.NoticeId,actor,ct));
+        Assert.Equal(2,(await store.GetAsync(post.NoticeId,actor,ct)).Value!.ReaderCount);
         var list=await store.ListAsync(actor,1,20,ct);
         Assert.True(Assert.Single(list.Items).IsRead);
+        Assert.Equal(2,Assert.Single(list.Items).ReaderCount);
         Assert.Empty((await store.ListAsync(actor,1,20,ct,search:"없는 제목")).Items);
         Assert.Single((await store.ListAsync(actor,1,20,ct,search:"관리자 수정")).Items);
         Assert.Equal(1,(await store.ListAsync(actor,2,20,ct,search:"관리자 수정")).TotalCount);

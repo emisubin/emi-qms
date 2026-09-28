@@ -103,7 +103,7 @@ public static class OsanNoticeEndpoints
         });
         api.MapGet("/popups",async(NoticeStore store,ClaimsPrincipal user,CancellationToken ct)=>Results.Ok(new {items=await store.PendingPopupsAsync(Id(user),ct)}));
         api.MapPost("/{id:guid}/read",async(Guid id,NoticeStore store,ClaimsPrincipal user,CancellationToken ct)=>
-            await store.MarkNoticeReadAsync(id,Id(user),ct) ? Results.Ok() : Results.NotFound());
+            await store.MarkNoticeReadAsync(id,Id(user),ct) ? Results.Ok(new { read = true }) : Results.NotFound());
         api.MapPost("/{id:guid}/popups/{version:int}/claim",async(Guid id,int version,NoticeStore store,ClaimsPrincipal user,CancellationToken ct)=>
             Results.Ok(new {claimed=await store.ClaimPopupAsync(id,version,Id(user),ct)}));
         api.MapGet("/{id:guid}/settings",async(Guid id,NoticeStore store,ClaimsPrincipal user,CancellationToken ct)=>

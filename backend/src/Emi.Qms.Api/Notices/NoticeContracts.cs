@@ -14,7 +14,7 @@ public sealed record NoticeListItemResponse(
     string? AuthorDepartmentName,
     DateTimeOffset CreatedAtUtc,
     bool CanDelete,
-    DateTimeOffset? UpdatedAtUtc = null, bool Pinned = false, bool IsRead = false, int AttachmentCount = 0);
+    DateTimeOffset? UpdatedAtUtc = null, bool Pinned = false, bool IsRead = false, int AttachmentCount = 0, int ReaderCount = 0);
 
 public sealed record NoticeDetailResponse(
     Guid NoticeId,
@@ -28,7 +28,7 @@ public sealed record NoticeDetailResponse(
     DateTimeOffset? UpdatedAtUtc,
     bool CanEdit,
     bool CanDelete,
-    IReadOnlyList<NoticeAttachmentResponse> Attachments);
+    IReadOnlyList<NoticeAttachmentResponse> Attachments, int ReaderCount = 0);
 
 public sealed record NoticeAttachmentResponse(
     Guid AttachmentId,

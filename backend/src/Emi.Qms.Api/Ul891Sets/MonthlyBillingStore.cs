@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -8,7 +9,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Ul891Sets;
 
-public sealed class MonthlyBillingStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class MonthlyBillingStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<ProjectMutationResult<MonthlyBillingResponse>> GetAsync(
         Guid projectId,

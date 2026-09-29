@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using Emi.Qms.Api.Admin;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Calendar;
 
-public sealed class AdminCalendarHolidayStore(DatabaseConnectionStringProvider connectionStringProvider, TimeProvider timeProvider)
+public sealed class AdminCalendarHolidayStore(CheongjuDatabase connectionStringProvider, TimeProvider timeProvider)
 {
     private const string DefaultCountryCode = "KR";
     private const string AdminSource = "AdminManual";

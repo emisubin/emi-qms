@@ -48,7 +48,7 @@ describe('NoticeBoardPage', () => {
         method: init?.method ?? 'GET',
         body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
       });
-      if (url.pathname === '/api/notices' && init?.method === 'POST') {
+      if (url.pathname === '/cheongju/api/notices' && init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as { title: string; body: string };
         return json(detailResponse(body.title, body.body));
       }
@@ -91,10 +91,10 @@ describe('NoticeBoardPage', () => {
       const url = new URL(String(input), 'http://localhost');
       const method = init?.method ?? 'GET';
       calls.push({ method, body: init?.body && !(init.body instanceof FormData) ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined });
-      if (url.pathname === `/api/notices/${noticeId}` && method === 'PUT') {
+      if (url.pathname === `/cheongju/api/notices/${noticeId}` && method === 'PUT') {
         return json({ ...detailResponse('변경된 공지', '**중요** 내용'), version: 2, updatedAtUtc: '2026-07-21T02:00:00Z' });
       }
-      if (url.pathname === `/api/notices/${noticeId}`) {
+      if (url.pathname === `/cheongju/api/notices/${noticeId}`) {
         return json(detailResponse('안전 공지', '<script>실행 안 됨</script>\n**중요** 내용'));
       }
       return json(listResponse());
@@ -118,7 +118,7 @@ describe('NoticeBoardPage', () => {
   it('shows attachment management only after the author opens notice editing', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost');
-      if (url.pathname === `/api/notices/${noticeId}`) {
+      if (url.pathname === `/cheongju/api/notices/${noticeId}`) {
         return json({
           ...detailResponse(),
           attachments: [{

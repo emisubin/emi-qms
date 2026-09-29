@@ -6,7 +6,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class WorkItemEscalationStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private static readonly IReadOnlyDictionary<string, string[]> StageSecondaryResponsibilities =
@@ -852,7 +852,7 @@ public sealed class WorkItemEscalationStore(
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
-            : connectionStringProvider.GetConnectionString(target, BusinessUnitConnectionPurpose.Runtime);
+            : connectionStringProvider.GetConnectionString(target);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");

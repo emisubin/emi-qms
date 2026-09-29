@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Admin;
 
-public sealed class AdminMasterDataStore(DatabaseConnectionStringProvider connectionStringProvider, TimeProvider timeProvider)
+public sealed class AdminMasterDataStore(CheongjuDatabase connectionStringProvider, TimeProvider timeProvider)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 

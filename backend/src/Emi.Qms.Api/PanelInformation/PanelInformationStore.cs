@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Globalization;
 using System.Text;
@@ -10,7 +11,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.PanelInformation;
 
 public sealed class PanelInformationStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     PanelInformationExcelParser excelParser)
 {
     public async Task<PanelInformationResponse?> GetPanelInformationAsync(

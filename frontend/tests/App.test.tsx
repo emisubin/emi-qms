@@ -133,13 +133,13 @@ describe('App', () => {
     const pendingProjectIds: Array<string | null> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/pending') {
+      if (url.pathname === '/cheongju/api/pending') {
         pendingProjectIds.push(url.searchParams.get('projectId'));
       }
-      if (url.pathname === '/api/projects') {
+      if (url.pathname === '/cheongju/api/projects') {
         return json({ items: [], page: 1, pageSize: 100, totalCount: 101 });
       }
-      if (url.pathname === `/api/projects/${projectId}`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}`) {
         return json(projectDetail(true, 'Active', exactProjectTitle));
       }
       return mockFetch(input, init);
@@ -159,7 +159,7 @@ describe('App', () => {
     let projectRequestCount = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}`) {
         projectRequestCount += 1;
         return projectRequestCount === 1
           ? json({ title: '프로젝트 정보를 불러오지 못했습니다.' }, 503)
@@ -182,7 +182,7 @@ describe('App', () => {
     window.history.pushState(null, '', `/pending/${pendingId}`);
     mockMobileViewport(true);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === `/api/pending/${pendingId}`) {
+      if (new URL(String(input)).pathname === `/cheongju/api/pending/${pendingId}`) {
         return json({
           issue: {
             pendingId,
@@ -328,14 +328,14 @@ describe('App', () => {
 
     await screen.findByLabelText('공지사항 요약');
     expect(screen.getByRole('heading', { name: 'Pending' })).toBeInTheDocument();
-    await waitFor(() => expect(calls).toContain('/api/notices'));
-    expect(calls).toContain('/api/pending');
+    await waitFor(() => expect(calls).toContain('/cheongju/api/notices'));
+    expect(calls).toContain('/cheongju/api/pending');
   });
 
   it('keeps an attempted forbidden widget visible as an error instead of hiding it', async () => {
     window.history.pushState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/my-work/summary') {
+      if (new URL(String(input)).pathname === '/cheongju/api/my-work/summary') {
         return json({ title: 'forbidden' }, 403);
       }
       return mockFetch(input, init);
@@ -352,7 +352,7 @@ describe('App', () => {
     let myWorkCallCount = 0;
     let resolveOldResponse: ((response: Response) => void) | undefined;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/my-work/summary') {
+      if (new URL(String(input)).pathname === '/cheongju/api/my-work/summary') {
         myWorkCallCount += 1;
         if (myWorkCallCount === 1) {
           return new Promise<Response>((resolve) => {
@@ -418,7 +418,7 @@ describe('App', () => {
   it('keeps healthy Home widgets usable while one widget fails and retries independently', async () => {
     let notificationAttempts = 0;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/notifications/summary') {
+      if (new URL(String(input)).pathname === '/cheongju/api/notifications/summary') {
         notificationAttempts += 1;
         return Promise.resolve(notificationAttempts === 1
           ? json({ title: 'temporarily unavailable' }, 503)
@@ -458,7 +458,7 @@ describe('App', () => {
     window.history.pushState(null, '', '/');
     mockMobileViewport(true);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/notifications/summary') {
+      if (new URL(String(input)).pathname === '/cheongju/api/notifications/summary') {
         return json({ title: 'temporarily unavailable' }, 503);
       }
       return mockFetch(input, init);
@@ -495,7 +495,7 @@ describe('App', () => {
   it('shows review-safe mode and disables mutation actions while keeping navigation available', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/runtime-mode') {
+      if (path === '/access/api/runtime-mode') {
         return json({
           mode: 'ReviewSafe',
           reviewSafe: true,
@@ -537,7 +537,7 @@ describe('App', () => {
   it('fails closed when runtime mode cannot be loaded', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/runtime-mode') {
+      if (path === '/access/api/runtime-mode') {
         return new Response(null, { status: 503 });
       }
       return mockFetch(input, init);
@@ -619,7 +619,7 @@ describe('App', () => {
 
     fireEvent.click(exportButton);
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining('/api/data-exports/selected'),
+      expect.stringContaining('/cheongju/api/data-exports/selected'),
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -676,7 +676,7 @@ describe('App', () => {
     const pendingId = '88000000-0000-0000-0000-000000000001';
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/my-work') {
+      if (path === '/cheongju/api/my-work') {
         return Promise.resolve(json({
           items: [
             {
@@ -728,7 +728,7 @@ describe('App', () => {
           ]
         }));
       }
-      if (path === '/api/notifications') {
+      if (path === '/cheongju/api/notifications') {
         return Promise.resolve(json({
           items: [
             {
@@ -831,11 +831,11 @@ describe('App', () => {
     let workCompleted = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/my-work/76000000-0000-0000-0000-000000000001/complete' && init?.method === 'POST') {
+      if (path === '/cheongju/api/my-work/76000000-0000-0000-0000-000000000001/complete' && init?.method === 'POST') {
         workCompleted = true;
         return json({ status: 'Completed', statusLabel: '완료' });
       }
-      if (path === '/api/my-work' && workCompleted) {
+      if (path === '/cheongju/api/my-work' && workCompleted) {
         return json({ title: 'refresh failed' }, 500);
       }
       return mockFetch(input, init);
@@ -858,14 +858,14 @@ describe('App', () => {
     let notificationRead = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/notifications/77000000-0000-0000-0000-000000000001/read' && init?.method === 'POST') {
+      if (path === '/cheongju/api/notifications/77000000-0000-0000-0000-000000000001/read' && init?.method === 'POST') {
         notificationRead = true;
         return json({ notificationId: '77000000-0000-0000-0000-000000000001', readAtUtc: '2026-07-18T10:00:00Z' });
       }
-      if (path === '/api/notifications' && notificationRead) {
+      if (path === '/cheongju/api/notifications' && notificationRead) {
         return json({ items: [] });
       }
-      if (path === '/api/notifications/summary' && notificationRead) {
+      if (path === '/cheongju/api/notifications/summary' && notificationRead) {
         return json({ unreadCount: 0, blockingCount: 0 });
       }
       return mockFetch(input, init);
@@ -885,7 +885,7 @@ describe('App', () => {
     mockMobileViewport(true);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/me') {
+      if (path === '/access/api/me') {
         const user = currentUser(readDevUser(init));
         return json({ ...user, permissions: [...user.permissions, 'Pending.Read'] });
       }
@@ -1061,7 +1061,7 @@ describe('App', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '이동' })[0]);
 
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining('/api/my-work/76000000-0000-0000-0000-000000000001/start'),
+      expect.stringContaining('/cheongju/api/my-work/76000000-0000-0000-0000-000000000001/start'),
       expect.objectContaining({ method: 'POST' })
     ));
     expect(await screen.findByRole('heading', { name: '생산계획 수정' })).toBeInTheDocument();
@@ -1071,7 +1071,7 @@ describe('App', () => {
     const materialWorkItemId = '76000000-0000-0000-0000-000000000005';
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/my-work') {
+      if (url.pathname === '/cheongju/api/my-work') {
         return Promise.resolve(json({
           items: [
             {
@@ -1101,11 +1101,11 @@ describe('App', () => {
         }));
       }
 
-      if (url.pathname === `/api/my-work/${materialWorkItemId}/start` && init?.method === 'POST') {
+      if (url.pathname === `/cheongju/api/my-work/${materialWorkItemId}/start` && init?.method === 'POST') {
         return Promise.resolve(json({ status: 'InProgress', statusLabel: '진행 중' }));
       }
 
-      if (url.pathname === '/api/notifications') {
+      if (url.pathname === '/cheongju/api/notifications') {
         return Promise.resolve(json({
           items: [
             {
@@ -1139,7 +1139,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '이동' }));
 
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/my-work/${materialWorkItemId}/start`),
+      expect.stringContaining(`/cheongju/api/my-work/${materialWorkItemId}/start`),
       expect.objectContaining({ method: 'POST' })
     ));
     expect(await screen.findByRole('tab', { name: '전체 흐름' })).toHaveAttribute('aria-selected', 'true');
@@ -1468,7 +1468,7 @@ describe('App', () => {
   it('uses the whole-workflow progress as the project detail progress source', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.origin);
-      if (url.pathname === `/api/projects/${projectId}/workflow`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/workflow`) {
         return Promise.resolve(json({
           ...projectWorkflowResponse(projectId),
           completedRequiredStageCount: 7,
@@ -1501,7 +1501,7 @@ describe('App', () => {
     const requestBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/projects' && init?.method === 'POST') {
+      if (url.pathname === '/cheongju/api/projects' && init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         requestBodies.push(body);
       }
@@ -1582,7 +1582,7 @@ describe('App', () => {
     const salesOwners = createDeferred<Response>();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === '/api/sales-owners') {
+      if (path === '/cheongju/api/sales-owners') {
         return salesOwners.promise;
       }
 
@@ -1612,7 +1612,7 @@ describe('App', () => {
       const path = new URL(String(input)).pathname;
       if (delayNextProjectDetail
           && !delayedProjectDetail
-          && path === `/api/projects/${projectId}`
+          && path === `/cheongju/api/projects/${projectId}`
           && init?.method === undefined) {
         delayedProjectDetail = true;
         return staleProject.promise;
@@ -1665,7 +1665,7 @@ describe('App', () => {
     let changePanelCountBody: { panelCount: number; expectedActivePanelCount: number } | undefined;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === `/api/projects/${projectId}/change-panel-count`) {
+      if (path === `/cheongju/api/projects/${projectId}/change-panel-count`) {
         changePanelCountBody = JSON.parse(String(init?.body));
         return json({ title: '다른 사용자가 프로젝트 면수를 변경했습니다. 화면을 새로고침한 후 다시 시도해 주세요.' }, 409);
       }
@@ -1714,11 +1714,11 @@ describe('App', () => {
     const cancelled = createDeferred<Response>();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Active') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('status') === 'Active') {
         return active.promise;
       }
 
-      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Cancelled') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('status') === 'Cancelled') {
         return cancelled.promise;
       }
 
@@ -1741,11 +1741,11 @@ describe('App', () => {
     const deleted = createDeferred<Response>();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Cancelled') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('status') === 'Cancelled') {
         return cancelled.promise;
       }
 
-      if (url.pathname === '/api/deleted-projects') {
+      if (url.pathname === '/cheongju/api/deleted-projects') {
         return deleted.promise;
       }
 
@@ -1768,7 +1768,7 @@ describe('App', () => {
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/deleted-projects/${projectId}/restore`) {
+      if (url.pathname === `/cheongju/api/deleted-projects/${projectId}/restore`) {
         calls.push(`${init?.method ?? 'GET'} ${url.pathname}`);
       }
 
@@ -1786,7 +1786,7 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: '복구' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '복구' }));
 
-    await waitFor(() => expect(calls).toContain(`POST /api/deleted-projects/${projectId}/restore`));
+    await waitFor(() => expect(calls).toContain(`POST /cheongju/api/deleted-projects/${projectId}/restore`));
   });
 
   it('keeps the latest search result when an earlier search fails later', async () => {
@@ -1794,11 +1794,11 @@ describe('App', () => {
     const beta = createDeferred<Response>();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/projects' && url.searchParams.get('search') === 'Alpha') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('search') === 'Alpha') {
         return alpha.promise;
       }
 
-      if (url.pathname === '/api/projects' && url.searchParams.get('search') === 'Beta') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('search') === 'Beta') {
         return beta.promise;
       }
 
@@ -1821,11 +1821,11 @@ describe('App', () => {
   it('does not render an error banner for an aborted stale request', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Active') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('status') === 'Active') {
         return abortableResponse(init?.signal ?? undefined);
       }
 
-      if (url.pathname === '/api/projects' && url.searchParams.get('status') === 'Cancelled') {
+      if (url.pathname === '/cheongju/api/projects' && url.searchParams.get('status') === 'Cancelled') {
         return Promise.resolve(projectListResponse([projectListItem('dev-sales', 'Cancelled', 'Abort Cancelled', cancelledProjectId)]));
       }
 
@@ -1843,7 +1843,7 @@ describe('App', () => {
     let requestedSearch = '';
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/panel-information/import/template`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information/import/template`) {
         requestedSearch = url.search;
         return Promise.resolve(new Response(new Blob(['xlsx']), {
           status: 200,
@@ -1898,10 +1898,10 @@ describe('App', () => {
   it('keeps UL891 design read-only in project detail and opens the dedicated edit page', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path === `/api/projects/${projectId}/set-structure`) {
+      if (path === `/cheongju/api/projects/${projectId}/set-structure`) {
         return json(ul891SetStructure());
       }
-      if (path === `/api/projects/${projectId}/qr`) {
+      if (path === `/cheongju/api/projects/${projectId}/qr`) {
         return json({ projectId, eligibleCount: 0, issuedCount: 0, panels: [] });
       }
       return mockFetch(input, init);
@@ -1934,10 +1934,10 @@ describe('App', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const path = url.pathname;
-      if (path === `/api/projects/${projectId}/set-structure`) {
+      if (path === `/cheongju/api/projects/${projectId}/set-structure`) {
         return json({ projectId, structureMode: 'FlatPanel', isLegacyFlat: false, canEditOrder: false, canEditDesign: false, specs: [], orderedProcurementItems: [], recoveryCases: [] });
       }
-      if (path === '/api/materials/kitting') {
+      if (path === '/cheongju/api/materials/kitting') {
         return json({ projects: [{
           projectId,
           projectCode: 'PJT-003A',
@@ -1956,27 +1956,27 @@ describe('App', () => {
         checkedStepCount: 2, totalStepCount: 4, activePendingId: null, activePendingNumber: null, actionDepartmentCode: null,
         startedAtUtc: '2026-07-05T01:00:00Z', completedAtUtc: null, canMutate: false
       };
-      if (path === '/api/manufacturing/queue') {
+      if (path === '/cheongju/api/manufacturing/queue') {
         return json({ projects: [{ projectId, projectCode: 'PJT-003A', projectTitle: 'TASK-003A Demo', readyCount: 0, inProgressCount: 1, blockedCount: 0, completedCount: 0, panels: [manufacturingPanel] }] });
       }
-      if (path === `/api/manufacturing/panels/${panelIds[0]}`) {
+      if (path === `/cheongju/api/manufacturing/panels/${panelIds[0]}`) {
         return json({ panel: manufacturingPanel, steps: [{ stepId: 'step-1', sequenceNumber: 1, stepName: '조립', checked: true, checkedByDisplayName: '담당자', checkedAtUtc: '2026-07-05T01:10:00Z' }], events: [] });
       }
-      if (path === '/api/quality/inspections/queue') {
+      if (path === '/cheongju/api/quality/inspections/queue') {
         const stage = url.searchParams.get('stage');
         return json({ projects: stage === 'LQC' ? [{
           projectId, projectCode: 'PJT-003A', projectTitle: 'TASK-003A Demo', fatRequired: false, readyCount: 1, inProgressCount: 0, blockedCount: 0, completedCount: 0,
           panels: [{ panelId: panelIds[0], displayCode: 'P01', panelName: 'MAIN', workflowStage: 'ManufacturingCompleted', stageCode: 'LQC', stageLabel: 'LQC', workItemId: 'quality-work-1', workItemStatus: 'Requested', attemptId: null, attemptNumber: 0, status: 'Ready', version: 1, pendingId: null, pendingNumber: null, actionDepartmentCode: null, canMutate: false }]
         }] : [] });
       }
-      if (path === `/api/quality/inspections/panels/${panelIds[0]}`) {
+      if (path === `/cheongju/api/quality/inspections/panels/${panelIds[0]}`) {
         return json({ panel: { panelId: panelIds[0], displayCode: 'P01', panelName: 'MAIN', workflowStage: 'ManufacturingCompleted', stageCode: 'LQC', stageLabel: 'LQC', workItemId: 'quality-work-1', workItemStatus: 'Requested', attemptId: null, attemptNumber: 0, status: 'Ready', version: 1, pendingId: null, pendingNumber: null, actionDepartmentCode: null, canMutate: false }, decisionMode: 'Checklist', reportId: null, reportStatus: null, reportVersion: null, result: null, reason: null, pdfStatus: null, items: [], responses: [], photos: [], history: [] });
       }
-      if (path === '/api/logistics/queue') return json({ stage: url.searchParams.get('stage'), todayCount: 0, blockedCount: 0, projects: [], drafts: [] });
-      if (path === `/api/logistics/projects/${projectId}/history`) {
+      if (path === '/cheongju/api/logistics/queue') return json({ stage: url.searchParams.get('stage'), todayCount: 0, blockedCount: 0, projects: [], drafts: [] });
+      if (path === `/cheongju/api/logistics/projects/${projectId}/history`) {
         return json({ projectId, items: [{ targetId: 'packing-1', stage: 'packing', displayCode: 'PU-001', status: 'Finalized', version: 1, note: null, specification: null, weightText: null, departureDate: null, panelCodes: ['P01'], unitCodes: [], evidence: [], createdByName: '담당자', createdAtUtc: '2026-07-06T01:00:00Z', finalizedByName: '담당자', finalizedAtUtc: '2026-07-06T02:00:00Z', cancelledByName: null, cancelledAtUtc: null }] });
       }
-      if (path === `/api/projects/${projectId}/qr`) {
+      if (path === `/cheongju/api/projects/${projectId}/qr`) {
         return json({ projectId, eligibleCount: 1, issuedCount: 1, panels: [{ panelId: panelIds[0], sequenceNumber: 1, displayCode: 'P01', displayName: 'MAIN', qrEligible: true, hasActiveQr: true, qr: { qrCodeId: 'qr-1', projectId, panelId: panelIds[0], status: 'Active', scanUrl: '/q/token', issuedByName: '담당자', issuedAtUtc: '2026-07-06T01:00:00Z' } }] });
       }
       return mockFetch(input, init);
@@ -2001,7 +2001,7 @@ describe('App', () => {
   it('shows a friendly template download server error', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/panel-information/import/template`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information/import/template`) {
         return Promise.resolve(json({ title: '양식을 다운로드할 수 없습니다.' }, 500));
       }
 
@@ -2027,12 +2027,12 @@ describe('App', () => {
     }> = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
         savedRequests.push(JSON.parse(String(init.body)));
         return Promise.resolve(json(panelInformationWithSize(projectId, 'DRIFT-B')));
       }
 
-      if (url.pathname === `/api/projects/${projectId}/panel-information`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information`) {
         return Promise.resolve(json(panelInformationWithSize(projectId, 'DRIFT-A')));
       }
 
@@ -2066,7 +2066,7 @@ describe('App', () => {
     }> = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
         savedRequests.push(JSON.parse(String(init.body)));
         return Promise.resolve(json(panelInformation(projectId)));
       }
@@ -2111,7 +2111,7 @@ describe('App', () => {
   it('shows panel rows with the full combined W H D size in the design tab', async () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/panel-information`) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information`) {
         const grouped = panelInformation(projectId);
         Object.assign(grouped.panels[0], {
           panelName: 'GROUP-A', drawingNumber: 'DWG-A', widthMm: 800, heightMm: 1800, depthMm: 400,
@@ -2147,7 +2147,7 @@ describe('App', () => {
     const savedRequests: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/panel-information` && init?.method === 'PATCH') {
         savedRequests.push(JSON.parse(String(init.body)));
         return Promise.resolve(json(panelInformation(projectId)));
       }
@@ -2265,12 +2265,12 @@ describe('App', () => {
     let failProcurementRefresh = false;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
         savedRequests.push(JSON.parse(String(init.body)));
         failProcurementRefresh = true;
         return Promise.resolve(json(procurementResponse()));
       }
-      if (url.pathname === `/api/projects/${projectId}/procurement` && failProcurementRefresh && !init?.method) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/procurement` && failProcurementRefresh && !init?.method) {
         failProcurementRefresh = false;
         return Promise.resolve(json({ title: '최신 구매정보를 불러오지 못했습니다.' }, 503));
       }
@@ -2334,7 +2334,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       if (deferEditLoads
-          && url.pathname === `/api/projects/${projectId}/procurement`
+          && url.pathname === `/cheongju/api/projects/${projectId}/procurement`
           && (!init?.method || init.method === 'GET')) {
         return new Promise<Response>((resolve) => editLoadResolvers.push(resolve));
       }
@@ -2378,10 +2378,10 @@ describe('App', () => {
     let patchCount = 0;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
         patchCount += 1;
       }
-      if (url.pathname === `/api/projects/${projectId}/procurement` && !init?.method) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/procurement` && !init?.method) {
         return Promise.resolve(json({ ...procurementResponse(), iqcRoutingPolicy: 'CategoryBased', items: [] }));
       }
       return mockFetch(input, init);
@@ -2714,7 +2714,7 @@ describe('App', () => {
     expect(assigneeEditSection!).not.toHaveTextContent('알림 기준');
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     const saveCall = vi.mocked(fetch).mock.calls.find(([input, init]) =>
-      String(input).includes(`/api/projects/${projectId}/production-planning`) && init?.method === 'PATCH');
+      String(input).includes(`/cheongju/api/projects/${projectId}/production-planning`) && init?.method === 'PATCH');
     expect(saveCall).toBeDefined();
     const savedPayload = JSON.parse(String(saveCall![1]?.body));
     expect(savedPayload.items.map((item: { sequenceNumber: number }) => item.sequenceNumber))
@@ -2767,7 +2767,7 @@ describe('App', () => {
 
     await waitFor(() => {
       const saveCall = vi.mocked(fetch).mock.calls.find(([input, init]) =>
-        String(input).includes(`/api/projects/${projectId}/production-planning/department-assignees`)
+        String(input).includes(`/cheongju/api/projects/${projectId}/production-planning/department-assignees`)
         && init?.method === 'PATCH');
       expect(saveCall).toBeDefined();
       const payload = JSON.parse(String(saveCall![1]?.body));
@@ -2813,7 +2813,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('수정사유'), { target: { value: '전체 세트 계획 입력' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/projects/${projectId}/production-planning/set-defaults`),
+      expect.stringContaining(`/cheongju/api/projects/${projectId}/production-planning/set-defaults`),
       expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"overwriteExisting":false') })
     ));
   }, 30_000);
@@ -2823,7 +2823,7 @@ describe('App', () => {
       const url = new URL(String(input));
       const path = url.pathname;
 
-      if (path === `/api/projects/${projectId}/settlement`) {
+      if (path === `/cheongju/api/projects/${projectId}/settlement`) {
         return Promise.resolve(json({
           projectId,
           projectCode: 'PJT-003A',
@@ -2855,7 +2855,7 @@ describe('App', () => {
         }));
       }
 
-      if (path === '/api/materials/kitting') {
+      if (path === '/cheongju/api/materials/kitting') {
         return Promise.resolve(json({ projects: [{
           projectId,
           projectCode: 'PJT-003A',
@@ -2897,7 +2897,7 @@ describe('App', () => {
         completedAtUtc: '2026-07-05T02:00:00Z',
         canMutate: false
       };
-      if (path === '/api/manufacturing/queue') {
+      if (path === '/cheongju/api/manufacturing/queue') {
         return Promise.resolve(json({ projects: [{
           projectId,
           projectCode: 'PJT-003A',
@@ -2909,7 +2909,7 @@ describe('App', () => {
           panels: [manufacturingPanel]
         }] }));
       }
-      if (path === `/api/manufacturing/panels/${panelIds[0]}`) {
+      if (path === `/cheongju/api/manufacturing/panels/${panelIds[0]}`) {
         return Promise.resolve(json({
           panel: manufacturingPanel,
           steps: [{
@@ -2965,7 +2965,7 @@ describe('App', () => {
         pendingNumber: 48,
         actionDepartmentCode: 'manufacturing'
       };
-      if (path === '/api/quality/inspections/queue') {
+      if (path === '/cheongju/api/quality/inspections/queue') {
         const stage = url.searchParams.get('stage');
         const stagePanel = stage === 'LQC' ? qualityPanel : stage === 'OQC' ? oqcPanel : null;
         return Promise.resolve(json({ projects: stagePanel ? [{
@@ -2980,7 +2980,7 @@ describe('App', () => {
           panels: [stagePanel]
         }] : [] }));
       }
-      if (path === `/api/quality/inspections/panels/${panelIds[0]}`) {
+      if (path === `/cheongju/api/quality/inspections/panels/${panelIds[0]}`) {
         const oqc = url.searchParams.get('stage') === 'OQC';
         const qualityItems = oqc
           ? [1, 2, 3, 4].map((order) => ({
@@ -3039,7 +3039,7 @@ describe('App', () => {
         }));
       }
 
-      if (path === '/api/logistics/queue') {
+      if (path === '/cheongju/api/logistics/queue') {
         return Promise.resolve(json({
           stage: url.searchParams.get('stage'),
           todayCount: 0,
@@ -3047,7 +3047,7 @@ describe('App', () => {
           projects: []
         }));
       }
-      if (path === `/api/logistics/projects/${projectId}/history`) {
+      if (path === `/cheongju/api/logistics/projects/${projectId}/history`) {
         return Promise.resolve(json({ projectId, items: [{
           targetId: '76000000-0000-0000-0000-000000000051',
           stage: 'packing',
@@ -3078,7 +3078,7 @@ describe('App', () => {
         }] }));
       }
 
-      if (path === `/api/projects/${projectId}/panel-information`) {
+      if (path === `/cheongju/api/projects/${projectId}/panel-information`) {
         const response = panelInformation(projectId);
         const historicalSequences = [1, 10, 19, 52];
         response.panels = response.panels.map((panel, index) => ({
@@ -3234,7 +3234,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const path = url.pathname;
-      if (path === '/api/pending') {
+      if (path === '/cheongju/api/pending') {
         pendingQueries.push(url.searchParams);
         return json({
           summary: { openCount: 1, urgentCount: 0, overdueCount: 0, reinspectionCount: 0, closedCount: 0 },
@@ -3268,7 +3268,7 @@ describe('App', () => {
           }]
         });
       }
-      if (path === '/api/manufacturing/queue') {
+      if (path === '/cheongju/api/manufacturing/queue') {
         return json({
           projects: [{
             projectId,
@@ -3413,7 +3413,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/runtime-mode') {
+  if (path === '/access/api/runtime-mode') {
     return json({
       mode: 'Development',
       reviewSafe: false,
@@ -3438,11 +3438,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/me') {
+  if (path === '/access/api/me') {
     return json(currentUser(userKey));
   }
 
-  if (path === '/api/me/profile-photo') {
+  if (path === '/cheongju/api/me/profile-photo') {
     if (init?.method === 'PUT') {
       return json({ profilePhotoVersion: 'test-photo-1', normalizedMime: 'image/png', byteSize: 128 });
     }
@@ -3452,7 +3452,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json({ title: 'not found' }, 404);
   }
 
-  if (path === '/api/form-templates/my-scope') {
+  if (path === '/cheongju/api/form-templates/my-scope') {
     if (userKey === 'dev-admin') {
       return json({ canManage: true, isSystemAdministrator: true, domains: ['Quality', 'Manufacturing', 'ProductionPlanning'] });
     }
@@ -3465,7 +3465,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json({ canManage: false, isSystemAdministrator: false, domains: [] });
   }
 
-  if (path === '/api/form-templates/material-categories') {
+  if (path === '/cheongju/api/form-templates/material-categories') {
     return json({
       items: [
         {
@@ -3492,7 +3492,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/sales/kpi') {
+  if (path === '/cheongju/api/sales/kpi') {
     return json({
       year: 2026,
       currency: 'KRW',
@@ -3519,7 +3519,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/home/department-metrics') {
+  if (path === '/cheongju/api/home/department-metrics') {
     const user = currentUser(userKey);
     if (user.roles.includes('system-administrator')) {
       return json({
@@ -3552,7 +3552,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/pending') {
+  if (path === '/cheongju/api/pending') {
     return json({
       summary: {
         openCount: 0,
@@ -3568,7 +3568,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path.startsWith('/api/admin/users')) {
+  if (path.startsWith('/cheongju/api/admin/users')) {
     const updated = init?.method === 'PATCH';
     const approvalPendingFilter = new URL(String(input), 'http://localhost').searchParams.get('filter') === 'approval-pending';
     if (path.endsWith('/schedule-deletion')) {
@@ -3678,7 +3678,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/dashboard') {
+  if (path === '/cheongju/api/admin/dashboard') {
     return json({
       pendingUserCount: 1,
       failedDeliveryCount: 2,
@@ -3694,8 +3694,8 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 	    }, userKey === 'dev-admin' ? 200 : 403);
 	  }
 
-  if (path === '/api/admin/departments' || path.startsWith('/api/admin/departments/')) {
-    if (path === '/api/admin/departments' && init?.method === 'POST') {
+  if (path === '/cheongju/api/admin/departments' || path.startsWith('/cheongju/api/admin/departments/')) {
+    if (path === '/cheongju/api/admin/departments' && init?.method === 'POST') {
       const body = JSON.parse(init.body?.toString() ?? '{}') as { code?: string; name?: string; sortOrder?: number };
       if (body.code?.includes(' ') || !body.name || (body.sortOrder ?? 0) > 9999) {
         return json({
@@ -3732,7 +3732,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(init?.method === 'POST' || init?.method === 'PUT' || init?.method === 'PATCH' ? department : { departments: [department] }, userKey === 'dev-admin' ? (init?.method === 'POST' ? 201 : 200) : 403);
   }
 
-  if (path === '/api/admin/permissions/matrix') {
+  if (path === '/cheongju/api/admin/permissions/matrix') {
     return json({
       roles: [
         { roleId: '20000000-0000-0000-0000-000000000001', code: 'system-administrator', name: 'System Administrator' },
@@ -3747,7 +3747,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/master-data/change-logs') {
+  if (path === '/cheongju/api/admin/master-data/change-logs') {
     return json({
       items: [
         {
@@ -3766,7 +3766,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/work-items/history') {
+  if (path === '/cheongju/api/admin/work-items/history') {
     return json({
       items: [
         {
@@ -3791,7 +3791,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path.startsWith('/api/admin/notification-deliveries/') && init?.method !== 'POST') {
+  if (path.startsWith('/cheongju/api/admin/notification-deliveries/') && init?.method !== 'POST') {
     const webPushDetail = path.endsWith('79000000-0000-0000-0000-000000000102');
     return json({
       deliveryId: path.split('/').at(-1),
@@ -3840,7 +3840,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-	  if (path === '/api/admin/notification-deliveries') {
+	  if (path === '/cheongju/api/admin/notification-deliveries') {
 	    const status = url.searchParams.get('status') || 'Sent';
 	    const handlingStatus = url.searchParams.get('handlingStatus') ?? 'Open';
 	    const webPushChannel = url.searchParams.get('channel') === 'WebPush';
@@ -3902,7 +3902,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/notification-deliveries/acknowledge' || path === '/api/admin/notification-deliveries/dismiss' || path === '/api/admin/notification-deliveries/retry') {
+  if (path === '/cheongju/api/admin/notification-deliveries/acknowledge' || path === '/cheongju/api/admin/notification-deliveries/dismiss' || path === '/cheongju/api/admin/notification-deliveries/retry') {
     return json({
       requestedCount: 1,
       succeededCount: 1,
@@ -3918,7 +3918,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/notification-deliveries/send-manual') {
+  if (path === '/cheongju/api/admin/notification-deliveries/send-manual') {
     return json({
       correlationId: 'N003-UNIT-FRONT',
       requestedCount: 3,
@@ -3958,7 +3958,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-	  if (path === '/api/admin/work-item-escalations') {
+	  if (path === '/cheongju/api/admin/work-item-escalations') {
 	    const level = url.searchParams.get('level') ?? 'L1';
 	    return json({
 	      items: [
@@ -3985,7 +3985,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/calendar/holidays/template') {
+  if (path === '/cheongju/api/admin/calendar/holidays/template') {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-admin' ? 200 : 403,
       headers: {
@@ -3994,7 +3994,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }));
   }
 
-  if (path === '/api/admin/calendar/holidays/preview') {
+  if (path === '/cheongju/api/admin/calendar/holidays/preview') {
     return json({
       fileSha256: 'calendar-holiday-test',
       totalRows: 2,
@@ -4027,7 +4027,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/calendar/holidays/apply') {
+  if (path === '/cheongju/api/admin/calendar/holidays/apply') {
     return json({
       insertedCount: 1,
       updatedCount: 1,
@@ -4036,7 +4036,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/admin/calendar/holidays') {
+  if (path === '/cheongju/api/admin/calendar/holidays') {
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body));
       return json({
@@ -4105,7 +4105,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path.startsWith('/api/admin/calendar/holidays/')) {
+  if (path.startsWith('/cheongju/api/admin/calendar/holidays/')) {
     const pathParts = path.split('/');
     if (init?.method === 'DELETE') {
       adminHolidayDeletionScheduled = true;
@@ -4132,11 +4132,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/sales-owners') {
+  if (path === '/cheongju/api/sales-owners') {
     return json([{ userId: salesOwnerId, displayName: 'Dev Sales User' }]);
   }
 
-  if (path === '/api/my-work/summary') {
+  if (path === '/cheongju/api/my-work/summary') {
     return json({
       requestedCount: 1,
       inProgressCount: 0,
@@ -4149,7 +4149,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/my-work') {
+  if (path === '/cheongju/api/my-work') {
     return json({
       items: [
         {
@@ -4179,7 +4179,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/my-work/76000000-0000-0000-0000-000000000001/start' && init?.method === 'POST') {
+  if (path === '/cheongju/api/my-work/76000000-0000-0000-0000-000000000001/start' && init?.method === 'POST') {
     return json({
       workItemId: '76000000-0000-0000-0000-000000000001',
       projectId,
@@ -4205,7 +4205,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/my-work/assigned-projects') {
+  if (path === '/cheongju/api/my-work/assigned-projects') {
     return json({
       items: [
         {
@@ -4224,11 +4224,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/notifications/summary') {
+  if (path === '/cheongju/api/notifications/summary') {
     return json({ unreadCount: 1, blockingCount: 0 });
   }
 
-  if (path === '/api/notices' && init?.method === 'POST') {
+  if (path === '/cheongju/api/notices' && init?.method === 'POST') {
     const body = JSON.parse(String(init.body)) as { title: string; body: string };
     return json({
       noticeId,
@@ -4241,11 +4241,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === `/api/notices/${noticeId}` && init?.method === 'DELETE') {
+  if (path === `/cheongju/api/notices/${noticeId}` && init?.method === 'DELETE') {
     return json({ noticeId, deleted: true });
   }
 
-  if (path === `/api/notices/${noticeId}`) {
+  if (path === `/cheongju/api/notices/${noticeId}`) {
     return json({
       noticeId,
       title: '7월 생산 일정 안내',
@@ -4257,7 +4257,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/notices') {
+  if (path === '/cheongju/api/notices') {
     return json({
       items: [{
         noticeId,
@@ -4274,7 +4274,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path.startsWith('/api/notifications/')) {
+  if (path.startsWith('/cheongju/api/notifications/')) {
     const notificationId = path.split('/').at(-1) ?? '77000000-0000-0000-0000-000000000001';
     return json({
       notificationId,
@@ -4294,7 +4294,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/notifications') {
+  if (path === '/cheongju/api/notifications') {
     return json({
       items: [
         {
@@ -4317,7 +4317,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/projects' && init?.method === 'POST') {
+  if (path === '/cheongju/api/projects' && init?.method === 'POST') {
     const body = JSON.parse(String(init.body)) as { projectTitle: string };
     if (body.projectTitle.toLowerCase().includes('duplicate')) {
       return json({ title: '동일한 PJT Title이 이미 존재합니다.' }, 409);
@@ -4327,7 +4327,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(projectDetail(true, 'Active', body.projectTitle), 201);
   }
 
-  if (path === '/api/data-exports/selected' && init?.method === 'POST') {
+  if (path === '/cheongju/api/data-exports/selected' && init?.method === 'POST') {
     const body = JSON.parse(String(init.body)) as { ids: string[] };
     return new Response(new Blob(['selected-xlsx']), {
       status: 200,
@@ -4339,7 +4339,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/projects') {
+  if (path === '/cheongju/api/projects') {
     const status = url.searchParams.get('status');
     const items = [
       projectListItem(userKey, 'Active', 'TASK-003A Demo', projectId),
@@ -4356,11 +4356,11 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/projects/summary') {
+  if (path === '/cheongju/api/projects/summary') {
     return json(projectSummaryResponse());
   }
 
-  if (path === '/api/projects/import/template') {
+  if (path === '/cheongju/api/projects/import/template') {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-sales' ? 200 : 403,
       headers: {
@@ -4369,23 +4369,23 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }));
   }
 
-  if (path === '/api/projects/import/preview') {
+  if (path === '/cheongju/api/projects/import/preview') {
     return json(projectExcelPreviewResponse(), userKey === 'dev-sales' ? 200 : 403);
   }
 
-  if (path === '/api/projects/import/apply') {
+  if (path === '/cheongju/api/projects/import/apply') {
     return json({ createdCount: 1, projectIds: [projectId] }, userKey === 'dev-sales' ? 200 : 403);
   }
 
-  if (path === '/api/procurement/import/preview') {
+  if (path === '/cheongju/api/procurement/import/preview') {
     return json(procurementExcelPreviewResponse(), userKey === 'dev-procurement' ? 200 : 403);
   }
 
-  if (path === '/api/procurement/import/apply') {
+  if (path === '/cheongju/api/procurement/import/apply') {
     return json({ appliedRowCount: 1 }, userKey === 'dev-procurement' ? 200 : 403);
   }
 
-  if (path === '/api/deleted-projects') {
+  if (path === '/cheongju/api/deleted-projects') {
     return json({
       items: [deletedProjectListItem(userKey)],
       page: 1,
@@ -4394,19 +4394,19 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, canReadDeletedProjects(userKey) ? 200 : 403);
   }
 
-  if (path === '/api/deleted-projects/purge-all' && init?.method === 'POST') {
+  if (path === '/cheongju/api/deleted-projects/purge-all' && init?.method === 'POST') {
     return json({ deletedProjectCount: 1 }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === `/api/deleted-projects/${projectId}/purge` && init?.method === 'DELETE') {
+  if (path === `/cheongju/api/deleted-projects/${projectId}/purge` && init?.method === 'DELETE') {
     return json({ deletedProjectCount: 1 }, userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === `/api/deleted-projects/${projectId}/restore` && init?.method === 'POST') {
+  if (path === `/cheongju/api/deleted-projects/${projectId}/restore` && init?.method === 'POST') {
     return json(projectDetail(canReadSalesAmount(userKey), 'Cancelled', 'Deleted Project'), userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === `/api/deleted-projects/${projectId}`) {
+  if (path === `/cheongju/api/deleted-projects/${projectId}`) {
     return json({
       ...deletedProjectListItem(userKey),
       statusReason: '삭제 전 상태 사유',
@@ -4415,15 +4415,15 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }, canReadDeletedProjects(userKey) ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}` && init?.method === 'PATCH') {
+  if (path === `/cheongju/api/projects/${projectId}` && init?.method === 'PATCH') {
     return json(projectDetail(canReadSalesAmount(userKey), 'Active', 'TASK-003A Demo'));
   }
 
-  if (path === `/api/projects/${projectId}/workflow`) {
+  if (path === `/cheongju/api/projects/${projectId}/workflow`) {
     return json(projectWorkflowResponse(projectId));
   }
 
-  if (path === `/api/projects/${projectId}/set-structure`) {
+  if (path === `/cheongju/api/projects/${projectId}/set-structure`) {
     return json({
       projectId,
       structureMode: 'FlatPanel',
@@ -4436,31 +4436,31 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === `/api/projects/${projectId}`) {
+  if (path === `/cheongju/api/projects/${projectId}`) {
     return json(projectDetail(canReadSalesAmount(userKey), 'Active', 'TASK-003A Demo'));
   }
 
-  if (path === `/api/projects/${onHoldProjectId}/workflow`) {
+  if (path === `/cheongju/api/projects/${onHoldProjectId}/workflow`) {
     return json(projectWorkflowResponse(onHoldProjectId));
   }
 
-  if (path === `/api/projects/${onHoldProjectId}`) {
+  if (path === `/cheongju/api/projects/${onHoldProjectId}`) {
     return json(projectDetail(canReadSalesAmount(userKey), 'OnHold', 'OnHold Project', onHoldProjectId));
   }
 
-  if (path === `/api/projects/${projectId}/panels`) {
+  if (path === `/cheongju/api/projects/${projectId}/panels`) {
     return json(panels());
   }
 
-  if (path === `/api/projects/${onHoldProjectId}/panels`) {
+  if (path === `/cheongju/api/projects/${onHoldProjectId}/panels`) {
     return json(panels(onHoldProjectId));
   }
 
-  if (path.startsWith(`/api/projects/${projectId}/panels/`)) {
+  if (path.startsWith(`/cheongju/api/projects/${projectId}/panels/`)) {
     return json(panels()[0]);
   }
 
-  if (path === `/api/projects/${projectId}/audit-history`) {
+  if (path === `/cheongju/api/projects/${projectId}/audit-history`) {
     if (userKey !== 'dev-admin') {
       return json({ title: 'Forbidden' }, 403);
     }
@@ -4482,28 +4482,28 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === `/api/projects/${onHoldProjectId}/audit-history`) {
+  if (path === `/cheongju/api/projects/${onHoldProjectId}/audit-history`) {
     return json({ items: [] });
   }
 
-  if (path === `/api/projects/${projectId}/panel-information`) {
+  if (path === `/cheongju/api/projects/${projectId}/panel-information`) {
     return json(panelInformation(projectId));
   }
 
-  if (path === `/api/projects/${onHoldProjectId}/panel-information`) {
+  if (path === `/cheongju/api/projects/${onHoldProjectId}/panel-information`) {
     return json(panelInformation(onHoldProjectId));
   }
 
-  if (path === `/api/projects/${projectId}/panel-information/history`
-      || path === `/api/projects/${onHoldProjectId}/panel-information/history`) {
+  if (path === `/cheongju/api/projects/${projectId}/panel-information/history`
+      || path === `/cheongju/api/projects/${onHoldProjectId}/panel-information/history`) {
     return json(panelInformationHistory(), userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === '/api/production-planning/summary') {
+  if (path === '/cheongju/api/production-planning/summary') {
     return json(productionPlanningSummaryResponse());
   }
 
-  if (path === '/api/manufacturing/release-candidates') {
+  if (path === '/cheongju/api/manufacturing/release-candidates') {
     return json({
       projects: [{
         projectId,
@@ -4526,7 +4526,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/manufacturing/releases' && init?.method === 'POST') {
+  if (path === '/cheongju/api/manufacturing/releases' && init?.method === 'POST') {
     if (userKey !== 'dev-production') return json({ title: 'forbidden' }, 403);
     const body = JSON.parse(String(init.body)) as { operationId: string; panelIds: string[] };
     body.panelIds.forEach((panelId) => manufacturingReleasedPanelIds.add(panelId));
@@ -4538,27 +4538,27 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === '/api/production-planning/projects') {
+  if (path === '/cheongju/api/production-planning/projects') {
     return json(productionPlanningProjectListResponse());
   }
 
-  if (path === '/api/production-planning/product-types') {
+  if (path === '/cheongju/api/production-planning/product-types') {
     return json(productionProductTypesResponse());
   }
 
-  if (path === '/api/production-planning/settings/templates' && init?.method === 'PATCH') {
+  if (path === '/cheongju/api/production-planning/settings/templates' && init?.method === 'PATCH') {
     return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === '/api/production-planning/settings/templates') {
+  if (path === '/cheongju/api/production-planning/settings/templates') {
     return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path.startsWith('/api/production-planning/settings/templates/') && init?.method === 'PATCH') {
+  if (path.startsWith('/cheongju/api/production-planning/settings/templates/') && init?.method === 'PATCH') {
     return json(productionTemplateSettingsResponse(), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === '/api/calendar/business-days') {
+  if (path === '/cheongju/api/calendar/business-days') {
     return json({
       from: '2026-07-01',
       to: '2026-07-03',
@@ -4595,35 +4595,35 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     });
   }
 
-  if (path === `/api/projects/${projectId}/production-planning` && init?.method === 'PATCH') {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning` && init?.method === 'PATCH') {
     return json(productionPlanningResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/department-assignees` && init?.method === 'PATCH') {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/department-assignees` && init?.method === 'PATCH') {
     return json(departmentAssigneeScopeResponse(), userKey === 'dev-design' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/department-assignees`) {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/department-assignees`) {
     return json(departmentAssigneeScopeResponse(), userKey === 'dev-design' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/set-defaults` && init?.method === 'PATCH') {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/set-defaults` && init?.method === 'PATCH') {
     return json(productionPlanningSetScopedResponse('Planned'), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/production-planning`) {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning`) {
     return json(useSetScopedProductionPlan ? productionPlanningSetScopedResponse() : productionPlanningResponse());
   }
 
-  if (path === `/api/projects/${onHoldProjectId}/production-planning`) {
+  if (path === `/cheongju/api/projects/${onHoldProjectId}/production-planning`) {
     return json(productionPlanningResponse('NotPlanned', onHoldProjectId));
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/history`) {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/history`) {
     return json(productionPlanningHistory(), userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/export-template`) {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/export-template`) {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-production' ? 200 : 403,
       headers: {
@@ -4633,27 +4633,27 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }));
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/import/preview`) {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/import/preview`) {
     return json(productionPlanningExcelPreviewResponse(), userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/production-planning/import/apply`) {
+  if (path === `/cheongju/api/projects/${projectId}/production-planning/import/apply`) {
     return json({ appliedRowCount: 1, skippedRowCount: 0, appliedProjectIds: [projectId] }, userKey === 'dev-production' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
+  if (path === `/cheongju/api/projects/${projectId}/procurement` && init?.method === 'PATCH') {
     return json(procurementResponse(), userKey === 'dev-procurement' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/procurement`) {
+  if (path === `/cheongju/api/projects/${projectId}/procurement`) {
     return json(procurementResponse());
   }
 
-  if (path === `/api/projects/${projectId}/procurement/history`) {
+  if (path === `/cheongju/api/projects/${projectId}/procurement/history`) {
     return json(procurementHistory(), userKey === 'dev-admin' ? 200 : 403);
   }
 
-  if (path === `/api/projects/${projectId}/procurement/import/template`) {
+  if (path === `/cheongju/api/projects/${projectId}/procurement/import/template`) {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-procurement' ? 200 : 403,
       headers: {
@@ -4663,7 +4663,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }));
   }
 
-  if (path === '/api/procurement/import/template') {
+  if (path === '/cheongju/api/procurement/import/template') {
     return Promise.resolve(new Response(new Blob(['xlsx']), {
       status: userKey === 'dev-procurement' ? 200 : 403,
       headers: {
@@ -4673,35 +4673,35 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }));
   }
 
-  if (path === '/api/procurement/settings/required-items' && init?.method === 'PATCH') {
+  if (path === '/cheongju/api/procurement/settings/required-items' && init?.method === 'PATCH') {
     return json(procurementRequiredItemSettings(), userKey === 'dev-procurement' ? 200 : 403);
   }
 
-  if (path === '/api/procurement/settings/required-items') {
+  if (path === '/cheongju/api/procurement/settings/required-items') {
     return json(procurementRequiredItemSettings());
   }
 
-  if (path.startsWith('/api/procurement/settings/required-items/') && init?.method === 'PATCH') {
+  if (path.startsWith('/cheongju/api/procurement/settings/required-items/') && init?.method === 'PATCH') {
     return json(procurementRequiredItemSettings(), userKey === 'dev-procurement' ? 200 : 403);
   }
 
-  if (path === '/api/materials/receipts' && init?.method === 'PATCH') {
+  if (path === '/cheongju/api/materials/receipts' && init?.method === 'PATCH') {
     return json({ title: 'validation', errors: { ReceiptCompleted: ['입고 완료값은 상태 흐름에서 자동 계산됩니다.'] } }, 400);
   }
 
-  if (path === '/api/materials/receipts') {
+  if (path === '/cheongju/api/materials/receipts') {
     return json(materialReceiptResponse(url.searchParams.get('includeCompleted') === 'true'));
   }
 
-  if (path === '/api/quality/iqc/reconcile' && init?.method === 'POST') {
+  if (path === '/cheongju/api/quality/iqc/reconcile' && init?.method === 'POST') {
     return json({ recoveredReceiptCount: 0, ensuredAttemptCount: 0 });
   }
 
-  if (path === '/api/quality/iqc') {
+  if (path === '/cheongju/api/quality/iqc') {
     return json({ items: [] });
   }
 
-  if (path === '/api/procurement/dashboard') {
+  if (path === '/cheongju/api/procurement/dashboard') {
     return json(procurementDashboardResponse());
   }
 

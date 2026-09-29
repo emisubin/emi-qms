@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Globalization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
@@ -11,7 +12,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Materials;
 
 public sealed class MaterialsStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     PendingStore pendingStore,
     TimeProvider timeProvider)
 {

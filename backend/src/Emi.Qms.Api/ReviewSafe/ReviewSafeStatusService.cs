@@ -154,7 +154,7 @@ public sealed class ReviewSafeStatusService(
     {
         var expectedApplicationNamePrefix = ReviewSafeMode.ResolveDatabaseApplicationName(configuration);
         var expectedCount = directoryMigrationCatalog.Catalog.GetSnapshot().ExpectedCount
-            + (businessCatalogState.ExpectedCount * connectionStringProvider.BusinessUnits.Businesses.Count);
+            + connectionStringProvider.BusinessUnits.Businesses.Sum(target => migrationCatalog.GetSnapshot(target.Code).ExpectedCount);
         var actualCount = 0;
         var missing = new List<string>();
         var unexpected = new List<string>();
@@ -178,7 +178,7 @@ public sealed class ReviewSafeStatusService(
                 var applicationName = await ReadSettingAsync(connection, "application_name", cancellationToken);
                 var ledger = target.Kind == BusinessUnitDatabaseKind.Directory
                     ? await directoryMigrationCatalog.InspectAsync(connection, cancellationToken)
-                    : await migrationLedgerInspector.InspectAsync(connection, cancellationToken);
+                    : await migrationLedgerInspector.InspectAsync(connection, target.Code, cancellationToken);
 
                 allReadOnly &= string.Equals(readOnly, "on", StringComparison.OrdinalIgnoreCase);
                 allApplicationNamesMatch &= string.Equals(

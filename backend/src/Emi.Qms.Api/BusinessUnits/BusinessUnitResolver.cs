@@ -101,8 +101,14 @@ public sealed class BusinessUnitResolver(
             reason);
     }
 
-    private static (string? Code, bool Invalid) ReadRequestedBusinessUnit(HttpRequest request)
+    internal static (string? Code, bool Invalid) ReadRequestedBusinessUnit(HttpRequest request)
     {
+        if (request.HttpContext.Features.Get<BusinessUnitRoute>() is { } route)
+        {
+            // The common entry point may discover a single Directory membership, but a
+            // client header cannot choose a business behind that common URL.
+            return (route.Code, false);
+        }
         if (!request.Headers.TryGetValue(BusinessUnitHeaderNames.Selection, out var values))
         {
             return (null, false);
@@ -141,7 +147,7 @@ public sealed class BusinessUnitDatabaseBoundaryValidator(
 
         var ledger = target.Kind == BusinessUnitDatabaseKind.Directory
             ? await directoryMigrationCatalog.InspectAsync(connection, cancellationToken)
-            : await migrationLedgerInspector.InspectAsync(connection, cancellationToken);
+            : await migrationLedgerInspector.InspectAsync(connection, target.Code, cancellationToken);
         if (!ledger.MigrationLedgerReady)
         {
             throw new BusinessUnitContextUnavailableException("business_unit_database_ledger_mismatch");

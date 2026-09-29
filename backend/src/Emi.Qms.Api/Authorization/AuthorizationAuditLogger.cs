@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Claims;
 using Npgsql;
 
@@ -14,7 +15,7 @@ public interface IAuthorizationAuditLogger
 }
 
 public sealed class AuthorizationAuditLogger(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     ILogger<AuthorizationAuditLogger> logger)
     : IAuthorizationAuditLogger
 {

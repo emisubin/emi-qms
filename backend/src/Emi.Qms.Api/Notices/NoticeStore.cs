@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.RegularExpressions;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Notices;
 
-public sealed partial class NoticeStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed partial class NoticeStore(BusinessDatabase connectionStringProvider)
 {
     public async Task<NoticeListResponse> ListAsync(
         Guid actorUserId,

@@ -22,29 +22,29 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
     window.localStorage.setItem('emi-qms-development-user-key', 'dev-sales');
   });
 
-  const cheongjuBefore = await request.get(`${backendUrl}/api/projects`, {
+  const cheongjuBefore = await request.get(`${backendUrl}/cheongju/api/projects`, {
     headers: requestHeaders('CHEONGJU')
   });
   expect(cheongjuBefore.status()).toBe(200);
   const cheongjuBeforeBody = await cheongjuBefore.text();
 
   const adminHeaders = { 'X-Dev-User': 'dev-admin', 'X-Qms-Business-Unit': 'OSAN' };
-  const customerResponse = await request.post(`${backendUrl}/api/osan/admin/customers`, {
+  const customerResponse = await request.post(`${backendUrl}/osan/api/osan/admin/customers`, {
     headers: adminHeaders, data: { name: '테스트 고객사' }
   });
   expect(customerResponse.status()).toBe(201);
   const customer = await customerResponse.json() as { customerId: string };
-  const assignmentsResponse = await request.get(`${backendUrl}/api/osan/admin/customer-assignments`, { headers: adminHeaders });
+  const assignmentsResponse = await request.get(`${backendUrl}/osan/api/osan/admin/customer-assignments`, { headers: adminHeaders });
   expect(assignmentsResponse.status()).toBe(200);
   const assignments = await assignmentsResponse.json() as { users: Array<{ userId: string; version: number; customerIds: string[] }> };
   const sales = assignments.users.find(user => user.userId === '50000000-0000-0000-0000-000000000002');
   expect(sales).toBeDefined();
-  const assigned = await request.put(`${backendUrl}/api/osan/admin/customer-assignments/${sales!.userId}`, {
+  const assigned = await request.put(`${backendUrl}/osan/api/osan/admin/customer-assignments/${sales!.userId}`, {
     headers: adminHeaders, data: { expectedVersion: sales!.version, customerIds: [...sales!.customerIds, customer.customerId] }
   });
   expect(assigned.status()).toBe(200);
 
-  const rejectedCheongjuCreate = await request.post(`${backendUrl}/api/osan/projects`, {
+  const rejectedCheongjuCreate = await request.post(`${backendUrl}/osan/api/osan/projects`, {
     headers: requestHeaders('CHEONGJU'),
     data: {
       title: 'Rejected Cheongju Project',
@@ -78,7 +78,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await page.getByLabel('part 분류').fill('  전원장치 A  ');
   await expect(page.getByLabel('수량', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('status').filter({ hasText: '연결된 고객사: 테스트 고객사' })).toBeVisible();
-  const createResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/osan/projects' && response.request().method() === 'POST');
+  const createResponsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/osan/api/osan/projects' && response.request().method() === 'POST');
   await page.getByRole('button', { name: '프로젝트 등록' }).click();
   const createResponse = await createResponsePromise;
   expect(createResponse.status(), await createResponse.text()).toBe(201);
@@ -107,7 +107,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   const projectRow = page.getByTestId('osan-project-list-desktop').getByRole('row', { name: '오산 통합 프로젝트 상세 열기' });
   await expect(projectRow.locator('.project-code-value')).toHaveText('OSAN  001');
 
-  const osanList = await request.get(`${backendUrl}/api/osan/projects`, {
+  const osanList = await request.get(`${backendUrl}/osan/api/osan/projects`, {
     headers: requestHeaders('OSAN')
   });
   expect(osanList.status()).toBe(200);
@@ -115,7 +115,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect(osanItems.items).toHaveLength(1);
   expect(osanItems.items[0].projectCode).toBe('OSAN  001');
 
-  const osanDetail = await request.get(`${backendUrl}/api/osan/projects/${osanItems.items[0].projectId}`, {
+  const osanDetail = await request.get(`${backendUrl}/osan/api/osan/projects/${osanItems.items[0].projectId}`, {
     headers: requestHeaders('OSAN')
   });
   expect(osanDetail.status()).toBe(200);
@@ -124,7 +124,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect(detail.targets).toHaveLength(1);
   expect(detail.targets.every((target) => target.steps.length === 7)).toBe(true);
 
-  const relatedUrl = `${backendUrl}/api/osan/projects/${osanItems.items[0].projectId}/progress/related-panels`;
+  const relatedUrl = `${backendUrl}/osan/api/osan/projects/${osanItems.items[0].projectId}/progress/related-panels`;
   const relatedResponse = await request.get(relatedUrl, { headers: requestHeaders('OSAN') });
   expect(relatedResponse.status()).toBe(200);
   const related = await relatedResponse.json();
@@ -135,7 +135,7 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   expect((await request.post(relatedUrl, { headers: requestHeaders('OSAN') })).status()).toBe(403);
   expect((await request.get(`${relatedUrl}/extra`, { headers: requestHeaders('OSAN') })).status()).toBe(403);
 
-  const cheongjuAfter = await request.get(`${backendUrl}/api/projects`, {
+  const cheongjuAfter = await request.get(`${backendUrl}/cheongju/api/projects`, {
     headers: requestHeaders('CHEONGJU')
   });
   expect(cheongjuAfter.status()).toBe(200);

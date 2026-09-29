@@ -36,7 +36,7 @@ server {
         return 200 '{"status":"healthy"}';
     }
 
-    location ~ ^/(api|health)(/|$) {
+    location ~ ^/(api|health|cheongju/api|osan/api|access/api)(/|$) {
         if ($trusted_edge = 0) {
             return 403;
         }

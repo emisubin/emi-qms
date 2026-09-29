@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 using System.Data;
 
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class OsanNotificationPreferenceStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    OsanDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private sealed record Definition(string Kind, string Label);

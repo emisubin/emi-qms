@@ -123,6 +123,11 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
+builder.Services.AddScoped<BusinessDatabaseScope>();
+builder.Services.AddScoped<BusinessDatabase>();
+builder.Services.AddSingleton<CheongjuDatabase>();
+builder.Services.AddSingleton<OsanDatabase>();
+builder.Services.AddSingleton<BusinessUnitWorkerRunner>();
 builder.Services.AddSingleton<BusinessUnitDirectoryStore>();
 builder.Services.AddSingleton<BusinessUnitAccessAdministrationStore>();
 builder.Services.AddSingleton<BusinessUnitDatabaseBoundaryValidator>();
@@ -137,97 +142,97 @@ builder.Services.AddSingleton<DatabaseMigrationRunner>();
 builder.Services.AddSingleton<DatabaseRoleBootstrapper>();
 builder.Services.AddSingleton<ReviewSafeStatusService>();
 builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
-builder.Services.AddSingleton<UserProfilePhotoStore>();
-builder.Services.AddSingleton<HomeMetricsStore>();
-builder.Services.AddSingleton<G2OperationsStore>();
-builder.Services.AddSingleton<NoticeStore>();
-builder.Services.AddSingleton<DeploymentMaintenanceStore>();
-builder.Services.AddSingleton<OsanPolicyStore>();
-builder.Services.AddSingleton<IProjectDeletionGuard, ProjectDeletionGuard>();
+builder.Services.AddScoped<UserProfilePhotoStore>();
+builder.Services.AddScoped<HomeMetricsStore>();
+builder.Services.AddScoped<G2OperationsStore>();
+builder.Services.AddScoped<NoticeStore>();
+builder.Services.AddScoped<DeploymentMaintenanceStore>();
+builder.Services.AddScoped<OsanPolicyStore>();
+builder.Services.AddScoped<IProjectDeletionGuard, ProjectDeletionGuard>();
 builder.Services.AddSingleton<ProjectExcelParser>();
-builder.Services.AddSingleton<ProjectStore>();
+builder.Services.AddScoped<ProjectStore>();
 builder.Services.AddSingleton<OsanProjectExcelParser>();
-builder.Services.AddSingleton<OsanProjectStore>();
+builder.Services.AddScoped<OsanProjectStore>();
 OsanProgressPhotoValidator.ConfigureDecoderResourceLimits();
-builder.Services.AddSingleton<OsanProgressStore>();
-builder.Services.AddSingleton<OsanPhotoEditStore>();
-builder.Services.AddSingleton<OsanWorkRequestStore>();
+builder.Services.AddScoped<OsanProgressStore>();
+builder.Services.AddScoped<OsanPhotoEditStore>();
+builder.Services.AddScoped<OsanWorkRequestStore>();
 builder.Services.AddSingleton<ExcelWorkbookBuilder>();
 builder.Services.AddSingleton<ExcelExportConcurrencyGate>();
-builder.Services.AddSingleton<DataExportAuditStore>();
-builder.Services.AddSingleton<AuditStore>();
-builder.Services.AddSingleton<ExcelExportService>();
-builder.Services.AddSingleton<SelectedExcelExportService>();
+builder.Services.AddScoped<DataExportAuditStore>();
+builder.Services.AddScoped<AuditStore>();
+builder.Services.AddScoped<ExcelExportService>();
+builder.Services.AddScoped<SelectedExcelExportService>();
 builder.Services.AddSingleton<PanelInformationExcelParser>();
-builder.Services.AddSingleton<PanelInformationStore>();
-builder.Services.AddSingleton<QrScanUrlBuilder>();
-builder.Services.AddSingleton<PanelQrStore>();
-builder.Services.AddSingleton<PanelQrRenderer>();
-builder.Services.AddSingleton<PendingStore>();
-builder.Services.AddSingleton<PendingTypeStore>();
-builder.Services.AddSingleton<ProcurementExcelParser>();
-builder.Services.AddSingleton<ProcurementStore>();
-builder.Services.AddSingleton<InteriorBusbarStore>();
+builder.Services.AddScoped<PanelInformationStore>();
+builder.Services.AddScoped<QrScanUrlBuilder>();
+builder.Services.AddScoped<PanelQrStore>();
+builder.Services.AddScoped<PanelQrRenderer>();
+builder.Services.AddScoped<PendingStore>();
+builder.Services.AddScoped<PendingTypeStore>();
+builder.Services.AddScoped<ProcurementExcelParser>();
+builder.Services.AddScoped<ProcurementStore>();
+builder.Services.AddScoped<InteriorBusbarStore>();
 builder.Services.AddInteriorBusbarPublication(builder.Configuration);
 builder.Services.AddInteriorBusbarEcount(builder.Configuration);
-builder.Services.AddSingleton<MaterialsStore>();
-builder.Services.AddSingleton<PanelKittingStore>();
-builder.Services.AddSingleton<ManufacturingStore>();
-builder.Services.AddSingleton<LogisticsStore>();
-builder.Services.AddSingleton<SalesSettlementStore>();
-builder.Services.AddSingleton<SalesBillingRequestStore>();
-builder.Services.AddSingleton<SalesKpiStore>();
-builder.Services.AddSingleton<Ul891SetStore>();
-builder.Services.AddSingleton<MonthlyBillingStore>();
-builder.Services.AddSingleton<IqcPdfRenderer>();
-builder.Services.AddSingleton<IqcReportStore>();
-builder.Services.AddSingleton<QualityInspectionPdfRenderer>();
-builder.Services.AddSingleton<QualityInspectionStore>();
-builder.Services.AddSingleton<ProductionPlanningStore>();
-builder.Services.AddSingleton<ProductionControlTemplateStore>();
-builder.Services.AddSingleton<SystemHolidayStore>();
-builder.Services.AddSingleton<BusinessCalendarStore>();
-builder.Services.AddSingleton<AdminCalendarHolidayStore>();
+builder.Services.AddScoped<MaterialsStore>();
+builder.Services.AddScoped<PanelKittingStore>();
+builder.Services.AddScoped<ManufacturingStore>();
+builder.Services.AddScoped<LogisticsStore>();
+builder.Services.AddScoped<SalesSettlementStore>();
+builder.Services.AddScoped<SalesBillingRequestStore>();
+builder.Services.AddScoped<SalesKpiStore>();
+builder.Services.AddScoped<Ul891SetStore>();
+builder.Services.AddScoped<MonthlyBillingStore>();
+builder.Services.AddScoped<IqcPdfRenderer>();
+builder.Services.AddScoped<IqcReportStore>();
+builder.Services.AddScoped<QualityInspectionPdfRenderer>();
+builder.Services.AddScoped<QualityInspectionStore>();
+builder.Services.AddScoped<ProductionPlanningStore>();
+builder.Services.AddScoped<ProductionControlTemplateStore>();
+builder.Services.AddScoped<SystemHolidayStore>();
+builder.Services.AddScoped<BusinessCalendarStore>();
+builder.Services.AddScoped<AdminCalendarHolidayStore>();
 builder.Services.AddSingleton<CalendarHolidayExcelParser>();
-builder.Services.AddSingleton<AdminMasterDataStore>();
-builder.Services.AddSingleton<ApprovalPendingUserCountService>();
-builder.Services.AddSingleton<FormTemplateStore>();
-builder.Services.AddSingleton<MaterialCategoryStore>();
-builder.Services.AddSingleton<MaterialCategoryIqcStore>();
-builder.Services.AddSingleton<AdminScheduledDeletionService>();
-builder.Services.AddSingleton<IAdminDeletionPurgeService>(services =>
+builder.Services.AddScoped<AdminMasterDataStore>();
+builder.Services.AddScoped<ApprovalPendingUserCountService>();
+builder.Services.AddScoped<FormTemplateStore>();
+builder.Services.AddScoped<MaterialCategoryStore>();
+builder.Services.AddScoped<MaterialCategoryIqcStore>();
+builder.Services.AddScoped<AdminScheduledDeletionService>();
+builder.Services.AddScoped<IAdminDeletionPurgeService>(services =>
     services.GetRequiredService<AdminScheduledDeletionService>());
 builder.Services.AddOptions<AdminDeletionPurgeOptions>()
     .Bind(builder.Configuration.GetSection(AdminDeletionPurgeOptions.SectionName))
     .ValidateOnStart();
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<AdminDeletionPurgeOptions>, AdminDeletionPurgeOptionsValidator>();
-builder.Services.AddSingleton<WorkflowStore>();
+builder.Services.AddScoped<WorkflowStore>();
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notifications"));
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<NotificationOptions>, NotificationOptionsValidator>();
 builder.Services.AddOptions<NotificationOptions>().ValidateOnStart();
 builder.Services.AddSingleton<NotificationWorkerIdentity>();
-builder.Services.AddSingleton<NotificationDeliveryStore>();
-builder.Services.AddSingleton<NotificationPreferenceStore>();
+builder.Services.AddScoped<NotificationDeliveryStore>();
+builder.Services.AddScoped<NotificationPreferenceStore>();
 builder.Services.AddScoped<OsanNotificationPreferenceStore>();
-builder.Services.AddSingleton<NotificationPreferenceAuditStore>();
-builder.Services.AddSingleton<WebPushSubscriptionStore>();
-builder.Services.AddSingleton<IWebPushSubscriptionDeliveryStore>(services =>
+builder.Services.AddScoped<NotificationPreferenceAuditStore>();
+builder.Services.AddScoped<WebPushSubscriptionStore>();
+builder.Services.AddScoped<IWebPushSubscriptionDeliveryStore>(services =>
     services.GetRequiredService<WebPushSubscriptionStore>());
-builder.Services.AddSingleton<NotificationDispatcher>();
-builder.Services.AddSingleton<WorkItemEscalationStore>();
-builder.Services.AddSingleton<NotificationEscalationService>();
+builder.Services.AddScoped<NotificationDispatcher>();
+builder.Services.AddScoped<WorkItemEscalationStore>();
+builder.Services.AddScoped<NotificationEscalationService>();
 if (!reviewSafeEnabled)
 {
-    builder.Services.AddSingleton<INotificationChannelHandler, TeamsChannelHandler>();
-    builder.Services.AddSingleton<INotificationChannelHandler, TeamsDirectMessageHandler>();
-    builder.Services.AddSingleton<INotificationChannelHandler, TeamsActivityChannelHandler>();
-    builder.Services.AddSingleton<INotificationChannelHandler, MailChannelHandler>();
-    builder.Services.AddSingleton<INotificationChannelHandler, WebPushChannelHandler>();
+    builder.Services.AddScoped<INotificationChannelHandler, TeamsChannelHandler>();
+    builder.Services.AddScoped<INotificationChannelHandler, TeamsDirectMessageHandler>();
+    builder.Services.AddScoped<INotificationChannelHandler, TeamsActivityChannelHandler>();
+    builder.Services.AddScoped<INotificationChannelHandler, MailChannelHandler>();
+    builder.Services.AddScoped<INotificationChannelHandler, WebPushChannelHandler>();
     builder.Services.AddSingleton<IWebPushProtocolClient, WebPushProtocolClient>();
     builder.Services.AddHttpClient<IGraphTokenProvider, GraphClientCredentialsTokenProvider>();
-    builder.Services.AddSingleton<IMailClient, ConfiguredMailClient>();
-    builder.Services.AddSingleton<ISmtpMailClient, SmtpMailClient>();
-    builder.Services.AddSingleton<ISmtpMailTransport, MailKitSmtpMailTransport>();
+    builder.Services.AddScoped<IMailClient, ConfiguredMailClient>();
+    builder.Services.AddScoped<ISmtpMailClient, SmtpMailClient>();
+    builder.Services.AddScoped<ISmtpMailTransport, MailKitSmtpMailTransport>();
     builder.Services.AddHttpClient<IGraphMailClient, GraphMailClient>();
     builder.Services.AddHttpClient<ITeamsWebhookClient, TeamsWebhookClient>();
     builder.Services.AddHttpClient<ITeamsActivityClient, GraphTeamsActivityClient>();
@@ -242,7 +247,10 @@ if (mutationWorkerActivation.NotificationEscalationWorkerEnabled)
 }
 if (mutationWorkerActivation.AdminDeletionPurgeWorkerEnabled)
 {
-    builder.Services.AddHostedService<AdminDeletionPurgeWorker>();
+    builder.Services.AddHostedService<AdminDeletionPurgeWorker>(services => new AdminDeletionPurgeWorker(
+        null, services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<AdminDeletionPurgeOptions>>(),
+        services.GetRequiredService<ILogger<AdminDeletionPurgeWorker>>(),
+        services.GetRequiredService<BusinessUnitWorkerRunner>()));
 }
 if (reviewSafeEnabled)
 {
@@ -267,6 +275,7 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
     app.Environment);
 var maintenanceCommand = args.SingleOrDefault(DeploymentMaintenanceCli.Commands.Contains);
 var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
+var deploymentDrainOnly = args.Contains("--deployment-drain-check", StringComparer.Ordinal);
 var bootstrapDatabaseRolesOnly = args.Contains("--bootstrap-database-roles", StringComparer.Ordinal);
 var backfillBusinessUnitMembershipsOnly = args.Contains("--backfill-business-unit-memberships", StringComparer.Ordinal);
 var inspectBusinessUnitMembershipBackfillOnly = args.Contains(
@@ -277,21 +286,33 @@ var splitDatabaseRolesEnabled = !string.IsNullOrWhiteSpace(app.Configuration["Da
 if (new[]
     {
         migrateOnly,
+        deploymentDrainOnly,
         bootstrapDatabaseRolesOnly,
         backfillBusinessUnitMembershipsOnly,
         inspectBusinessUnitMembershipBackfillOnly,
         maintenanceCommand is not null
     }.Count(selected => selected) > 1)
 {
-    throw new InvalidOperationException("Only one database operation mode can be selected.");
+    app.Logger.LogError("Only one database operation mode can be selected.");
+    Environment.ExitCode = 1;
+    return;
 }
 
-if (migrateOnly && (splitDatabaseRolesEnabled || businessUnitConfiguration.Enabled))
+if ((migrateOnly || deploymentDrainOnly) && (splitDatabaseRolesEnabled || businessUnitConfiguration.Enabled))
 {
-    DatabaseOperationSecurityPolicy.ThrowIfInvalid(
-        app.Environment,
-        app.Configuration,
-        DatabaseOperationMode.Migration);
+    try
+    {
+        DatabaseOperationSecurityPolicy.ThrowIfInvalid(
+            app.Environment,
+            app.Configuration,
+            DatabaseOperationMode.Migration);
+    }
+    catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
+    {
+        app.Logger.LogError("Database operation failed. Code=database_operation_configuration_invalid.");
+        Environment.ExitCode = 1;
+        return;
+    }
 }
 else if (bootstrapDatabaseRolesOnly)
 {
@@ -334,23 +355,75 @@ else
         requireRestoreVerification: !migrateOnly);
 }
 
+if (deploymentDrainOnly)
+{
+    // This mode never starts HTTP, seeders, workers, or database migrations.
+    var target = app.Configuration["Database:MigrationTarget"] ?? string.Empty;
+    var rawMaintenance = app.Configuration["DeploymentDrain:RequireMaintenance"] ?? "true";
+    var validMaintenance = bool.TryParse(rawMaintenance, out var requireMaintenance);
+    var validRelease = Guid.TryParse(app.Configuration["DeploymentDrain:ReleaseId"], out var releaseId)
+        && releaseId != Guid.Empty;
+    if (!validMaintenance || (requireMaintenance && !validRelease))
+    {
+        app.Logger.LogError("Deployment drain failed. Code=drain_configuration_invalid.");
+        Environment.ExitCode = 1;
+        return;
+    }
+    var checker = new DeploymentDrainChecker(app.Configuration,
+        app.Services.GetRequiredService<DatabaseConnectionStringProvider>(),
+        app.Services.GetRequiredService<ILogger<DeploymentDrainChecker>>());
+    var result = await checker.CheckAsync(target, releaseId, requireMaintenance, CancellationToken.None);
+    app.Logger.LogInformation("Deployment drain completed. Safe={IsSafe}; Code={Code}.", result.IsSafe, result.Code);
+    Environment.ExitCode = result.IsSafe ? 0 : 1;
+    return;
+}
+
 if (bootstrapDatabaseRolesOnly)
 {
-    await app.Services
-        .GetRequiredService<DatabaseRoleBootstrapper>()
-        .BootstrapAsync(CancellationToken.None);
+    var bootstrapper = app.Services.GetRequiredService<DatabaseRoleBootstrapper>();
+    if (businessUnitConfiguration.Enabled)
+        await bootstrapper.BootstrapAsync(app.Configuration["Database:BootstrapTarget"]
+            ?? throw new InvalidOperationException("Database:BootstrapTarget is required for business-unit bootstrap."),
+            CancellationToken.None);
+    else
+        await bootstrapper.BootstrapAsync(CancellationToken.None);
     app.Logger.LogInformation("Database role bootstrap completed.");
     return;
 }
 
 if (migrateOnly)
 {
-    var inspection = await app.Services
-        .GetRequiredService<DatabaseMigrationRunner>()
-        .ApplyAndVerifyAsync(CancellationToken.None);
-    app.Logger.LogInformation(
-        "Database migration completed with {ExpectedMigrationCount} verified migrations.",
-        inspection.ExpectedMigrationCount);
+    var runner = app.Services.GetRequiredService<DatabaseMigrationRunner>();
+    try
+    {
+        var inspection = businessUnitConfiguration.Enabled
+            ? await runner.ApplyAndVerifyAsync(
+                app.Configuration["Database:MigrationTarget"]
+                    ?? throw new InvalidOperationException("Database:MigrationTarget is required for business-unit migrations."),
+                CancellationToken.None)
+            : await runner.ApplyAndVerifyAsync(CancellationToken.None);
+        app.Logger.LogInformation(
+            "Database migration completed with {ExpectedMigrationCount} verified migrations.",
+            inspection.ExpectedMigrationCount);
+    }
+    catch (Npgsql.PostgresException exception)
+    {
+        // A rejected migration is a normal CLI failure, not an unhandled process
+        // abort. Never print SQL, row details, or arbitrary server exception text.
+        var failureCode = exception.SqlState == "P0001"
+            && exception.MessageText == "business_schema_explicit_consent_required"
+            ? "business_schema_explicit_consent_required"
+            : "database_migration_failed";
+        app.Logger.LogError("Database migration failed. Code={FailureCode}; SqlState={SqlState}.",
+            failureCode, exception.SqlState);
+        Environment.ExitCode = 1;
+    }
+    catch (Exception exception) when (exception is Npgsql.NpgsqlException or InvalidOperationException or ArgumentException)
+    {
+        app.Logger.LogError("Database migration failed. Code=database_migration_failed; ExceptionType={ExceptionType}.",
+            exception.GetType().Name);
+        Environment.ExitCode = 1;
+    }
     return;
 }
 
@@ -420,6 +493,8 @@ app.UseExceptionHandler(exceptionApp =>
     });
 });
 
+app.UseMiddleware<BusinessUnitRouteMiddleware>();
+app.UseRouting();
 app.UseCors("FrontendDevelopment");
 app.UseMiddleware<ReviewSafeMutationGuardMiddleware>();
 app.UseAuthentication();
@@ -435,6 +510,7 @@ app.UseMiddleware<AuditMutationMiddleware>();
 app.UseMiddleware<UploadSecurityMiddleware>();
 
 if (!reviewSafeEnabled
+    && !businessUnitConfiguration.Enabled
     && (builder.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup")
     || builder.Configuration.GetValue<bool>("DATABASE_APPLY_MIGRATIONS_ON_STARTUP"))
    )
@@ -476,12 +552,12 @@ app.MapGet("/health/ready", async (DatabaseHealthChecker databaseHealthChecker, 
     }
 
     var database = await databaseHealthChecker.CheckAsync(cancellationToken);
-    var status = database.IsReady ? "ok" : "degraded";
+    var status = database.IsReady && database.Reason == "reachable" ? "ok" : "degraded";
 
     var readyResponse = new ReadyHealthResponse(
         "ready",
         status,
-        new DatabaseHealthResult(database.IsReady, database.IsReady ? "ready" : "not_ready"),
+        new DatabaseHealthResult(database.IsReady, database.IsReady ? "ready" : "not_ready", database.BusinessUnits),
         timeProvider.GetUtcNow());
     return database.IsReady
         ? Results.Ok(readyResponse)

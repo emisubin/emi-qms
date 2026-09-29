@@ -12,7 +12,7 @@ describe('AuditPage', () => {
     const eventId = '91000000-0000-0000-0000-000000000001';
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/admin/audit-events') {
+      if (url.pathname === '/cheongju/api/admin/audit-events') {
         return json({
           items: [{
             eventId,
@@ -59,7 +59,7 @@ describe('AuditPage', () => {
           toDate: '2026-08-28'
         });
       }
-      if (url.pathname === `/api/admin/audit-events/${eventId}`) {
+      if (url.pathname === `/cheongju/api/admin/audit-events/${eventId}`) {
         return json({
           event: {
             eventId,
@@ -174,7 +174,7 @@ describe('AuditPage', () => {
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/admin/audit-events') {
+      if (url.pathname === '/cheongju/api/admin/audit-events') {
         return json({
           items: [item],
           page: 1,
@@ -192,7 +192,7 @@ describe('AuditPage', () => {
           toDate: '2026-09-01'
         });
       }
-      if (url.pathname === `/api/admin/audit-events/${eventId}`) {
+      if (url.pathname === `/cheongju/api/admin/audit-events/${eventId}`) {
         return json({ event: item, changes: [], loginContext: null, valueNotice: '고정 형식 값만 표시합니다.' });
       }
       return json({ title: 'not found' }, 404);

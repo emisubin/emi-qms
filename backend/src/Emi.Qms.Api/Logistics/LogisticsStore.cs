@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,7 +11,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Logistics;
 
-public sealed class LogisticsStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class LogisticsStore(CheongjuDatabase connectionStringProvider)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private const int MaxPhotoBytes = 5 * 1024 * 1024;

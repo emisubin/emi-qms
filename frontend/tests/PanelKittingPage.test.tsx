@@ -33,7 +33,7 @@ describe('PanelKittingPage', () => {
     let completionAttempt = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/materials/kitting' && (!init?.method || init.method === 'GET')) {
+      if (url.pathname === '/cheongju/api/materials/kitting' && (!init?.method || init.method === 'GET')) {
         return json({
           projects: [{
             projectId,
@@ -70,7 +70,7 @@ describe('PanelKittingPage', () => {
         });
       }
 
-      if (url.pathname === '/api/materials/kitting/complete') {
+      if (url.pathname === '/cheongju/api/materials/kitting/complete') {
         completionAttempt += 1;
         const body = JSON.parse(String(init?.body)) as { operationId: string; panelIds: string[] };
         operationIds.push(body.operationId);

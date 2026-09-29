@@ -1,9 +1,10 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using Npgsql;
 
 namespace Emi.Qms.Api.Identity;
 
-public sealed class UserProfilePhotoStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class UserProfilePhotoStore(BusinessDatabase connectionStringProvider)
 {
     public async Task<string?> GetVersionAsync(Guid userId, CancellationToken cancellationToken)
     {

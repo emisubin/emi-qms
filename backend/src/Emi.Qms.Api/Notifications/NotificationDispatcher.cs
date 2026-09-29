@@ -8,7 +8,7 @@ public sealed class NotificationDispatcher(
     IEnumerable<INotificationChannelHandler> channelHandlers,
     IOptionsMonitor<NotificationOptions> options,
     NotificationWorkerIdentity workerIdentity,
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     BusinessUnitDatabaseBoundaryValidator boundaryValidator,
     ILogger<NotificationDispatcher> logger)
 {

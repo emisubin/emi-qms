@@ -45,7 +45,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(409, (await policy.ArchiveCustomerAsync(customer.CustomerId, customer.Version + 1, ct)).Status);
         Assert.Equal(OsanProjectCreateStatus.CustomerInvalid,
             (await store.CreateAsync(Normalize(ValidRequest(projectCode: "ARCHIVE-NEW")), UserId, ct)).Status);
-        Assert.Equal(1L, await database.ReadScalarAsync<long>("select count(*) from projects where project_profile='Osan'", ct));
+        Assert.Equal(1L, await database.ReadScalarAsync<long>("select count(*) from projects", ct));
 
         var edited = await store.ManageAsync(projectId, OsanProjectStore.EditToken(after),
             Normalize(ValidRequest(projectCode: "ARCHIVE-EXISTING") with { Title = "Updated retained project" }),

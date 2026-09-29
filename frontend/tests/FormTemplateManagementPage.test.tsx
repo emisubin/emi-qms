@@ -40,7 +40,7 @@ describe('FormTemplateManagementPage', () => {
       const url = new URL(String(input), 'http://localhost');
       const method = init?.method ?? 'GET';
       calls.push({ path: url.pathname, method });
-      if (url.pathname === '/api/form-templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates' && method === 'GET') {
         return json({ templates: [{ family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }] });
       }
       if (url.pathname.endsWith('/current') && method === 'PUT') {
@@ -63,8 +63,8 @@ describe('FormTemplateManagementPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     await screen.findByText(/현재 양식을 저장했습니다/);
     expect(calls).toEqual(expect.arrayContaining([
-      { path: '/api/form-templates/IqcReport/MATERIAL_IQC/current', method: 'GET' },
-      { path: '/api/form-templates/IqcReport/MATERIAL_IQC/current', method: 'PUT' }
+      { path: '/cheongju/api/form-templates/IqcReport/MATERIAL_IQC/current', method: 'GET' },
+      { path: '/cheongju/api/form-templates/IqcReport/MATERIAL_IQC/current', method: 'PUT' }
     ]));
   });
 
@@ -74,13 +74,13 @@ describe('FormTemplateManagementPage', () => {
       const url = new URL(String(input), 'http://localhost');
       const method = init?.method ?? 'GET';
       calls.push({ path: url.pathname, method, body: init?.body ? JSON.parse(String(init.body)) : null });
-      if (url.pathname === '/api/form-templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates' && method === 'GET') {
         return json({ templates: [{ family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }] });
       }
-      if (url.pathname === '/api/production-control/templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/production-control/templates' && method === 'GET') {
         return json(productionControlCatalog(false));
       }
-      if (url.pathname === '/api/production-control/templates/planning/product-ul67/versions/planning-v1' && method === 'PUT') {
+      if (url.pathname === '/cheongju/api/production-control/templates/planning/product-ul67/versions/planning-v1' && method === 'PUT') {
         return json(productionControlCatalog(false));
       }
       return json(versionsResponse([activeVersion]));
@@ -139,7 +139,7 @@ describe('FormTemplateManagementPage', () => {
       const url = new URL(String(input), 'http://localhost');
       const method = init?.method ?? 'GET';
       calls.push({ path: url.pathname, method });
-      if (url.pathname === '/api/form-templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates' && method === 'GET') {
         return json({ templates: [{
           family: 'PanelQualityStage',
           templateKey: 'LQC',
@@ -150,7 +150,7 @@ describe('FormTemplateManagementPage', () => {
           draftCount: 0
         }] });
       }
-      if (url.pathname === '/api/form-templates/lqc-items' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates/lqc-items' && method === 'GET') {
         return json(lqcItemCatalog(lqcOperational));
       }
       if (url.pathname.endsWith('/operating-status') && method === 'PUT') {
@@ -160,7 +160,7 @@ describe('FormTemplateManagementPage', () => {
       if (url.pathname.endsWith('/lqc-items/product-ul67/current') && method === 'PUT') {
         return json(lqcItemCatalog(lqcOperational, 'Item별 저장 검사 항목'));
       }
-      if (url.pathname === '/api/production-control/templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/production-control/templates' && method === 'GET') {
         return json(productionControlCatalog(false, false));
       }
       return json({ ...versionsResponse([activeVersion]), family: 'PanelQualityStage', templateKey: 'LQC', displayName: 'Item별 LQC 검사' });
@@ -174,14 +174,14 @@ describe('FormTemplateManagementPage', () => {
     expect(switchControl).not.toBeChecked();
     fireEvent.click(switchControl);
     await screen.findByText(/UL67 LQC를 운영 중으로 변경했습니다/);
-    expect(calls).toContainEqual({ path: '/api/form-templates/lqc-items/product-ul67/operating-status', method: 'PUT' });
+    expect(calls).toContainEqual({ path: '/cheongju/api/form-templates/lqc-items/product-ul67/operating-status', method: 'PUT' });
 
     expect(screen.getByRole('button', { name: '수정' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: '수정' }));
     fireEvent.change(screen.getByRole('textbox', { name: '항목명' }), { target: { value: 'Item별 저장 검사 항목' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     await screen.findByText(/LQC 검사 항목을 저장했습니다/);
-    expect(calls).toContainEqual({ path: '/api/form-templates/lqc-items/product-ul67/current', method: 'PUT' });
+    expect(calls).toContainEqual({ path: '/cheongju/api/form-templates/lqc-items/product-ul67/current', method: 'PUT' });
 
     fireEvent.click(screen.getByRole('button', { name: /생산계획·실적 연결/ }));
     expect(await screen.findByText(/기존 LQC 연결 이력은 유지되며 새 연결은 제조 단계 완료/)).toBeInTheDocument();
@@ -201,10 +201,10 @@ describe('FormTemplateManagementPage', () => {
       const method = init?.method ?? 'GET';
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
       calls.push({ path: url.pathname, method, body });
-      if (url.pathname === '/api/form-templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates' && method === 'GET') {
         return json({ templates: [{ family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }] });
       }
-      if (url.pathname === '/api/form-templates/material-category-iqc' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates/material-category-iqc' && method === 'GET') {
         return json({ canManage: true, items: [category] });
       }
       if (url.pathname.endsWith('/current') && method === 'PUT') {
@@ -257,13 +257,13 @@ describe('FormTemplateManagementPage', () => {
       const url = new URL(String(input), 'http://localhost');
       const method = init?.method ?? 'GET';
       calls.push({ path: url.pathname, method });
-      if (url.pathname === '/api/form-templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/form-templates' && method === 'GET') {
         return json({ templates: [{ family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }] });
       }
-      if (url.pathname === '/api/production-control/templates' && method === 'GET') {
+      if (url.pathname === '/cheongju/api/production-control/templates' && method === 'GET') {
         return json(manufacturingSaveCount >= 2 ? productionControlCatalogWithReplacedManufacturing() : productionControlCatalog(false));
       }
-      if (url.pathname === '/api/production-control/templates/manufacturing/product-ul67/versions/manufacturing-v1' && method === 'PUT') {
+      if (url.pathname === '/cheongju/api/production-control/templates/manufacturing/product-ul67/versions/manufacturing-v1' && method === 'PUT') {
         manufacturingSaveCount += 1;
         if (manufacturingSaveCount === 1) {
           return json({
@@ -304,14 +304,14 @@ describe('FormTemplateManagementPage', () => {
   it('shows only quality forms and allows the quality department head to change LQC operation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost');
-      if (url.pathname === '/api/form-templates') {
+      if (url.pathname === '/cheongju/api/form-templates') {
         return json({ templates: [
           { family: 'IqcReport', templateKey: 'MATERIAL_IQC', displayName: '자재 수입검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 },
           { family: 'PanelQualityStage', templateKey: 'LQC', displayName: 'Item별 LQC 검사', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 },
           { family: 'PanelQualityStage', templateKey: 'OQC', displayName: 'OQC 자체검수', domain: 'Quality', activeVersionNumber: 1, activatedAtUtc: activeVersion.activatedAtUtc, draftCount: 0 }
         ] });
       }
-      if (url.pathname === '/api/form-templates/lqc-items') return json(lqcItemCatalog(true));
+      if (url.pathname === '/cheongju/api/form-templates/lqc-items') return json(lqcItemCatalog(true));
       return json(versionsResponse([activeVersion]));
     }));
 
@@ -334,8 +334,8 @@ describe('FormTemplateManagementPage', () => {
   it('shows and enables only manufacturing and planning forms for the production department head', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost');
-      if (url.pathname === '/api/form-templates') return json({ templates: [] });
-      if (url.pathname === '/api/production-control/templates') return json(productionControlCatalog(false));
+      if (url.pathname === '/cheongju/api/form-templates') return json({ templates: [] });
+      if (url.pathname === '/cheongju/api/production-control/templates') return json(productionControlCatalog(false));
       return json({ title: 'not found' }, 404);
     }));
 

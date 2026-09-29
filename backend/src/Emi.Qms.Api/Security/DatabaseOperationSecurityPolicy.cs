@@ -45,6 +45,15 @@ public static class DatabaseOperationSecurityPolicy
         {
             var unitErrors = businessUnits.Errors.ToList();
             var targets = businessUnits.AllTargets().ToList();
+            if (mode is DatabaseOperationMode.Migration or DatabaseOperationMode.RoleBootstrap)
+            {
+                var setting = mode == DatabaseOperationMode.Migration ? "Database:MigrationTarget" : "Database:BootstrapTarget";
+                var selectedCode = configuration[setting]?.Trim().ToUpperInvariant();
+                var selected = targets.SingleOrDefault(target => target.Code == selectedCode);
+                if (selected is null)
+                    return unitErrors.Append($"{setting} must identify one configured database.").ToList();
+                targets = [selected];
+            }
             var purposes = mode switch
             {
                 DatabaseOperationMode.Migration => new[] { BusinessUnitConnectionPurpose.Migration },

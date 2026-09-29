@@ -203,16 +203,18 @@ public sealed partial class OsanProjectRegistrationApiTests
         var emptyConfig = new ConfigurationBuilder().Build();
         var legacy = new DatabaseConnectionStringProvider(emptyConfig);
         var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim(QmsClaimTypes.Permission, QmsPermissions.ManufacturingUpdate)], "test"));
-        var wrongUnit = await OsanProgressEndpointExtensions.AuthorizeProjectAsync(Guid.NewGuid(), QmsPermissions.ManufacturingUpdate,
-            new OsanProjectStore(legacy), legacy, user, ct);
-        Assert.Equal(403, Assert.IsAssignableFrom<IStatusCodeHttpResult>(wrongUnit).StatusCode);
-        var context = new DefaultHttpContext();
-        var osan = legacy.GetCurrentBusinessUnit()! with { Code = BusinessUnitCodes.Osan };
-        BusinessUnitRequestContextFeature.Set(context, new(BusinessUnitAccessStatuses.Selected, UserId, osan, [BusinessUnitCodes.Osan], false, "synthetic"));
-        var selected = new DatabaseConnectionStringProvider(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>
-            { ["BusinessUnits:Enabled"] = "true" }).Build(), new HttpContextAccessor { HttpContext = context });
+        var rejected = await Assert.ThrowsAsync<BusinessUnitContextUnavailableException>(() =>
+            OsanProgressEndpointExtensions.AuthorizeProjectAsync(
+                Guid.NewGuid(),
+                QmsPermissions.ManufacturingUpdate,
+                new OsanProjectStore(legacy),
+                legacy,
+                user,
+                ct));
+        Assert.Equal("business_unit_unknown", rejected.Reason);
+        var selected = CreateOsanGuardProvider();
         var readonlyUser = new ClaimsPrincipal(new ClaimsIdentity([new Claim(QmsClaimTypes.Permission, QmsPermissions.ProjectRead)], "test"));
         Assert.IsType<ForbidHttpResult>(await OsanProgressEndpointExtensions.AuthorizeProjectAsync(Guid.NewGuid(), QmsPermissions.ManufacturingUpdate,
-            new OsanProjectStore(legacy), selected, readonlyUser, ct));
+            new OsanProjectStore(selected), selected, readonlyUser, ct));
     }
 }

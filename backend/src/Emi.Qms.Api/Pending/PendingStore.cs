@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,7 +11,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Pending;
 
-public sealed class PendingStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
 {
     private const int MaxActionPhotoBytes = 5 * 1024 * 1024;
     private const int MaxActionRoundBytes = 15 * 1024 * 1024;

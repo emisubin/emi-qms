@@ -16,6 +16,11 @@ public sealed class DatabaseMigrationRunner(
         _ = await ApplyAndVerifyAsync(cancellationToken);
     }
 
+    public async Task ApplyAsync(string targetCode, CancellationToken cancellationToken)
+    {
+        _ = await ApplyAndVerifyAsync(targetCode, cancellationToken);
+    }
+
     public async Task<MigrationLedgerInspection> ApplyAndVerifyAsync(CancellationToken cancellationToken)
     {
         if (ReviewSafeMode.IsEnabled(configuration))
@@ -38,11 +43,36 @@ public sealed class DatabaseMigrationRunner(
                 cancellationToken);
         }
 
+        throw new InvalidOperationException("business_unit_migration_target_required");
+    }
+
+    public async Task<MigrationLedgerInspection> ApplyAndVerifyAsync(
+        string targetCode,
+        CancellationToken cancellationToken)
+    {
+        if (ReviewSafeMode.IsEnabled(configuration))
+        {
+            throw new InvalidOperationException("Database migrations are disabled in review-safe UAT mode.");
+        }
+
         var businessUnits = connectionStringProvider.BusinessUnits;
+        if (!businessUnits.Enabled)
+        {
+            throw new InvalidOperationException("business_unit_migration_target_not_enabled");
+        }
         businessUnits.ThrowIfInvalid();
+        var normalizedTargetCode = targetCode.Trim().ToUpperInvariant();
+        var target = businessUnits.AllTargets()
+            .SingleOrDefault(candidate => string.Equals(
+                candidate.Code,
+                normalizedTargetCode,
+                StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("business_unit_migration_target_invalid");
         var operationErrors = businessUnits
-            .ValidateOperationConnections(configuration, BusinessUnitConnectionPurpose.Migration)
-            .Concat(businessUnits.ValidateSameServer(configuration, BusinessUnitConnectionPurpose.Migration))
+            .ValidateOperationConnections(
+                configuration,
+                BusinessUnitConnectionPurpose.Migration,
+                [target])
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (operationErrors.Count > 0)
@@ -51,13 +81,18 @@ public sealed class DatabaseMigrationRunner(
                 $"Business-unit migration configuration is invalid ({operationErrors.Count} validation error(s)).");
         }
 
-        var failures = new List<string>();
-        MigrationLedgerInspection? lastBusinessInspection = null;
-        var directory = businessUnits.Directory
-            ?? throw new InvalidOperationException("Business-unit directory target is not configured.");
         try
         {
-            await ApplyDirectoryMigrationsAsync(directory, cancellationToken);
+            return target.Kind == BusinessUnitDatabaseKind.Directory
+                ? await ApplyDirectoryMigrationsAsync(target, cancellationToken)
+                : await ApplyBusinessMigrationsAsync(
+                    connectionStringProvider.GetConnectionString(
+                        target,
+                        BusinessUnitConnectionPurpose.Migration),
+                    target,
+                    target.MigrationRoleName,
+                    target.RuntimeRoleName,
+                    cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -65,49 +100,12 @@ public sealed class DatabaseMigrationRunner(
         }
         catch (Exception exception)
         {
-            failures.Add(directory.Code);
             logger.LogError(
                 "Database migration target failed. Target={Target} ExceptionType={ExceptionType}.",
-                directory.Code,
+                target.Code,
                 exception.GetType().Name);
+            throw;
         }
-
-        foreach (var target in businessUnits.Businesses)
-        {
-            try
-            {
-                var connectionString = connectionStringProvider.GetConnectionString(
-                    target,
-                    BusinessUnitConnectionPurpose.Migration);
-                lastBusinessInspection = await ApplyBusinessMigrationsAsync(
-                    connectionString,
-                    target,
-                    target.MigrationRoleName,
-                    target.RuntimeRoleName,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures.Add(target.Code);
-                logger.LogError(
-                    "Database migration target failed. Target={Target} ExceptionType={ExceptionType}.",
-                    target.Code,
-                    exception.GetType().Name);
-            }
-        }
-
-        if (failures.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"Business-unit migration failed for {failures.Count} target(s); no target fallback was used.");
-        }
-
-        return lastBusinessInspection
-            ?? throw new InvalidOperationException("No business-unit migration target was processed.");
     }
 
     private async Task<MigrationLedgerInspection> ApplyBusinessMigrationsAsync(
@@ -117,21 +115,31 @@ public sealed class DatabaseMigrationRunner(
         string? runtimeRoleName,
         CancellationToken cancellationToken)
     {
+        var migrationFiles = target is null
+            ? migrationCatalog.GetMigrationFiles()
+            : migrationCatalog.GetMigrationFiles(target.Code);
+        int? commonMigrationCount = target is null
+            ? null
+            : migrationCatalog.GetCommonMigrationFiles().Count;
         return await ApplyTargetAsync(
             connectionString,
-            migrationCatalog.GetMigrationFiles(),
+            migrationFiles,
             async (connection, token) =>
             {
                 if (target is not null)
                 {
                     await BusinessUnitDatabaseIdentity.BindOrVerifyAsync(connection, target, token);
                 }
-                return await new MigrationLedgerInspector(migrationCatalog).InspectAsync(connection, token);
+                var inspector = new MigrationLedgerInspector(migrationCatalog);
+                return target is null
+                    ? await inspector.InspectAsync(connection, token)
+                    : await inspector.InspectAsync(connection, target.Code, token);
             },
             target,
             migrationRoleName,
             runtimeRoleName,
             BusinessUnitDatabaseKind.Business,
+            commonMigrationCount,
             cancellationToken);
     }
 
@@ -155,6 +163,7 @@ public sealed class DatabaseMigrationRunner(
             target.MigrationRoleName,
             target.RuntimeRoleName,
             BusinessUnitDatabaseKind.Directory,
+            bindTargetAtMigrationIndex: null,
             cancellationToken);
     }
 
@@ -166,8 +175,13 @@ public sealed class DatabaseMigrationRunner(
         string? migrationRoleName,
         string? runtimeRoleName,
         BusinessUnitDatabaseKind databaseKind,
+        int? bindTargetAtMigrationIndex,
         CancellationToken cancellationToken)
     {
+        var separationApproval = configuration["Database:BusinessSchemaSeparationApproved"];
+        if (separationApproval is not null && !bool.TryParse(separationApproval, out _))
+            throw new InvalidOperationException("business_schema_approval_invalid");
+        var separationApproved = bool.TryParse(separationApproval, out var approved) && approved;
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using (var lockCommand = connection.CreateCommand())
@@ -203,12 +217,32 @@ public sealed class DatabaseMigrationRunner(
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            foreach (var migrationFile in migrationFiles)
+            for (var migrationIndex = 0; migrationIndex < migrationFiles.Count; migrationIndex += 1)
             {
+                if (bindTargetAtMigrationIndex == migrationIndex && target is not null)
+                {
+                    await BusinessUnitDatabaseIdentity.BindOrVerifyAsync(
+                        connection,
+                        target,
+                        cancellationToken);
+                }
+
+                var migrationFile = migrationFiles[migrationIndex];
                 var version = Path.GetFileNameWithoutExtension(migrationFile);
                 if (await IsMigrationAppliedAsync(connection, version, cancellationToken)) continue;
 
                 await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+                if (target?.Kind == BusinessUnitDatabaseKind.Business
+                    && version == $"0131_{target.Code.ToLowerInvariant()}_business_schema")
+                {
+                    // Approval belongs to this exact migration transaction. Override
+                    // any stale connection/session option, including on denial.
+                    await using var consent = connection.CreateCommand();
+                    consent.Transaction = transaction;
+                    consent.CommandText = "select set_config('emi_qms.business_schema_separation', @target, true);";
+                    consent.Parameters.AddWithValue("target", separationApproved ? target.Code : string.Empty);
+                    await consent.ExecuteNonQueryAsync(cancellationToken);
+                }
                 await using (var migrationCommand = connection.CreateCommand())
                 {
                     migrationCommand.Transaction = transaction;
@@ -241,7 +275,8 @@ public sealed class DatabaseMigrationRunner(
                 migrationRoleName,
                 runtimeRoleName,
                 cancellationToken,
-                databaseKind);
+                databaseKind,
+                target?.Code);
             return inspection;
         }
         finally

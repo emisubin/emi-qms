@@ -41,7 +41,7 @@ async function navMockFetch(input: RequestInfo | URL): Promise<Response> {
     return json({ name: 'ready', status: 'ok', database: { isReady: true, reason: 'reachable' }, checkedAtUtc: '2026-08-01T00:00:00Z' });
   }
 
-  if (path === '/api/runtime-mode') {
+  if (path === '/access/api/runtime-mode') {
     return json({
       mode: 'Development',
       reviewSafe: false,
@@ -66,11 +66,11 @@ async function navMockFetch(input: RequestInfo | URL): Promise<Response> {
     });
   }
 
-  if (path === '/api/me') {
+  if (path === '/access/api/me') {
     return json(me);
   }
 
-  if (path === '/api/audit/site-access/signals') {
+  if (path === '/cheongju/api/audit/site-access/signals') {
     return json({
       sessionId: '61000000-0000-4000-8000-000000000001',
       idempotencyReceipt: '61000000-0000-4000-8000-000000000002',
@@ -119,7 +119,7 @@ describe('FABLE department navigation: whole-parent disclosure accordion', () =>
     await renderShell();
     const fetchMock = vi.mocked(fetch);
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
-      new URL(String(input)).pathname === '/api/audit/site-access/signals'
+      new URL(String(input)).pathname === '/cheongju/api/audit/site-access/signals'
     ))).toBe(true));
 
     window.history.pushState(null, '', '/projects');
@@ -127,7 +127,7 @@ describe('FABLE department navigation: whole-parent disclosure accordion', () =>
 
     await waitFor(() => {
       const bodies = fetchMock.mock.calls
-        .filter(([input]) => new URL(String(input)).pathname === '/api/audit/site-access/signals')
+        .filter(([input]) => new URL(String(input)).pathname === '/cheongju/api/audit/site-access/signals')
         .map(([, init]) => JSON.parse(String(init?.body)));
       expect(bodies.map((body) => body.menuCode)).toEqual(['Home', 'Projects']);
       expect(bodies.every((body) => Object.keys(body).sort().join(',') === 'browserClientId,menuCode')).toBe(true);

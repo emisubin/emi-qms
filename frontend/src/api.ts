@@ -208,6 +208,8 @@ import type {
   UpdateProjectRequest
 } from './projects';
 
+import { businessApiRoute } from './businessApiRoute';
+
 const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080');
 export const defaultDevelopmentUserKey = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
@@ -898,12 +900,13 @@ function normalizeApiBaseUrl(value: string) {
   return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }
 
-function buildApiUrl(path: string) {
+function buildApiUrl(path: string, businessUnit = selectedBusinessUnit) {
+  path = businessApiRoute(path, businessUnit);
   if (!apiBaseUrl) {
     return path;
   }
 
-  if (apiBaseUrl === '/api' && (path === '/api' || path.startsWith('/api/'))) {
+  if (apiBaseUrl === '/api' && /^\/(api|cheongju\/api|osan\/api|access\/api)(\/|$)/.test(path)) {
     return path;
   }
 
@@ -3793,10 +3796,10 @@ async function fetchWithAuth(
     }
 
     if (!controller) {
-      return fetch(buildApiUrl(path), { ...init, headers });
+      return fetch(buildApiUrl(path, requestBusinessUnit), { ...init, headers });
     }
 
-    const response = await fetch(buildApiUrl(path), { ...init, headers, signal: controller.signal });
+    const response = await fetch(buildApiUrl(path, requestBusinessUnit), { ...init, headers, signal: controller.signal });
     if (controller.signal.aborted || requestGeneration !== businessUnitGeneration) {
       throw new BusinessUnitRequestInvalidatedError();
     }

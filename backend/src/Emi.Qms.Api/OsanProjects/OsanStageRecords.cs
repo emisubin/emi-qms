@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -80,13 +81,9 @@ internal static class OsanStageRecords
             await OsanNotificationWriter.WriteAsync(c,tx,project,operation,OsanNotificationKind.ProjectCompleted,actor,DateTimeOffset.UtcNow,ct);
     }
 
-    internal static async Task<IReadOnlyList<Guid>> ReadOverallAdministratorsAsync(DatabaseConnectionStringProvider provider,CancellationToken ct)
+    internal static async Task<IReadOnlyList<Guid>> ReadOverallAdministratorsAsync(OsanDatabase provider,CancellationToken ct)
     {
-        if(!provider.BusinessUnits.Enabled || provider.BusinessUnits.Directory is not { } directory)return [];
-        await using var source=NpgsqlDataSource.Create(provider.GetConnectionString(directory));
-        await using var cmd=source.CreateCommand("select distinct a.user_id from directory_overall_administrators a join directory_identities i on i.user_id=a.user_id where a.is_active and i.is_active");
-        var result=new List<Guid>();await using var reader=await cmd.ExecuteReaderAsync(ct);
-        while(await reader.ReadAsync(ct))result.Add(reader.GetGuid(0));return result;
+        return await provider.GetOverallAdministratorIdsAsync(ct);
     }
 
     internal static string Fingerprint(object value)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value))));

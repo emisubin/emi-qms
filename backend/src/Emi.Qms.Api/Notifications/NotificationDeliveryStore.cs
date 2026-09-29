@@ -10,7 +10,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class NotificationDeliveryStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     TimeProvider timeProvider,
     IConfiguration configuration)
 {
@@ -76,7 +76,7 @@ public sealed class NotificationDeliveryStore(
         CancellationToken cancellationToken,
         BusinessUnitDatabaseTarget? target = null)
     {
-        if (!CanUseExternalNotifications(target)) return 0;
+        if (!CanUseExternalNotifications(target) || connectionStringProvider.IsOsan) return 0;
         if (!options.DailyDigest.Enabled)
         {
             return 0;
@@ -472,78 +472,10 @@ public sealed class NotificationDeliveryStore(
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = """
-            select
-                nd.id,
-                nd.notification_id,
-                nd.notification_recipient_id,
-                nd.recipient_user_id,
-                nd.project_id,
-                nd.work_item_id,
-                nd.channel,
-                nd.delivery_type,
-                nd.status,
-                nd.attempt_count,
-                nd.next_attempt_at_utc,
-                nd.last_attempt_at_utc,
-                nd.sent_at_utc,
-                nd.suppressed_at_utc,
-                nd.error_code,
-                nd.error_message,
-                nd.dedupe_key,
-                nd.group_key,
-                nd.provider_message_id,
-                nd.created_at_utc,
-                nd.updated_at_utc,
-                u.display_name,
-                u.email,
-                u.entra_object_id,
-                u.auth_provider,
-                u.is_active,
-                n.title,
-                n.message,
-                n.link_url,
-                p.project_title,
-                p.project_code,
-                n.notification_type,
-                n.severity,
-                n.source_kind,
-                wi.title,
-                ws.stage_name,
-                nd.admin_handling_status,
-                nd.admin_handled_at_utc,
-                nd.admin_handled_by_user_id,
-                handled_by.display_name,
-                nd.admin_handling_note,
-                nd.display_title,
-                nd.display_message,
-                nd.display_project_name,
-                nd.display_work_item_title,
-                nd.display_recipient_name,
-                nd.display_recipient_email,
-                nd.display_recipient_kind,
-                nd.display_channel_target,
-                nd.manual_notification_kind,
-                nd.correlation_id,
-                nd.manual_payload_json::text,
-                nd.manual_requested_by_user_id,
-                nd.manual_requested_at_utc,
-                nd.claim_token,
-                nd.claimed_at_utc,
-                nd.claim_expires_at_utc,
-                nd.claimed_by_instance_id,
-                nd.current_generation,
-                nd.generation_attempt_count
-            from notification_deliveries nd
-            left join qms_users u on u.id = nd.recipient_user_id
-            left join notifications n on n.id = nd.notification_id
-            left join projects p on p.id = coalesce(nd.project_id, n.project_id)
-            left join work_items wi on wi.id = nd.work_item_id
-            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
-            left join qms_users handled_by on handled_by.id = nd.admin_handled_by_user_id
+            command.CommandText = BuildDeliveryReadSql(connectionStringProvider.IsOsan, """
             where nd.id = any(@ids)
             order by array_position(@ids, nd.id);
-            """;
+            """);
             command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = candidateIds.ToArray() });
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
@@ -732,75 +664,7 @@ public sealed class NotificationDeliveryStore(
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
-            select
-                nd.id,
-                nd.notification_id,
-                nd.notification_recipient_id,
-                nd.recipient_user_id,
-                nd.project_id,
-                nd.work_item_id,
-                nd.channel,
-                nd.delivery_type,
-                nd.status,
-                nd.attempt_count,
-                nd.next_attempt_at_utc,
-                nd.last_attempt_at_utc,
-                nd.sent_at_utc,
-                nd.suppressed_at_utc,
-                nd.error_code,
-                nd.error_message,
-                nd.dedupe_key,
-                nd.group_key,
-                nd.provider_message_id,
-                nd.created_at_utc,
-                nd.updated_at_utc,
-                u.display_name,
-                u.email,
-                u.entra_object_id,
-                u.auth_provider,
-                u.is_active,
-                n.title,
-                n.message,
-                n.link_url,
-                p.project_title,
-                p.project_code,
-                n.notification_type,
-                n.severity,
-                n.source_kind,
-                wi.title,
-                ws.stage_name,
-                nd.admin_handling_status,
-                nd.admin_handled_at_utc,
-                nd.admin_handled_by_user_id,
-                handled_by.display_name,
-                nd.admin_handling_note,
-                nd.display_title,
-                nd.display_message,
-                nd.display_project_name,
-                nd.display_work_item_title,
-                nd.display_recipient_name,
-                nd.display_recipient_email,
-                nd.display_recipient_kind,
-                nd.display_channel_target,
-                nd.manual_notification_kind,
-                nd.correlation_id,
-                nd.manual_payload_json::text,
-                nd.manual_requested_by_user_id,
-                nd.manual_requested_at_utc,
-                nd.claim_token,
-                nd.claimed_at_utc,
-                nd.claim_expires_at_utc,
-                nd.claimed_by_instance_id,
-                nd.current_generation,
-                nd.generation_attempt_count
-            from notification_deliveries nd
-            left join qms_users u on u.id = nd.recipient_user_id
-            left join notifications n on n.id = nd.notification_id
-            left join projects p on p.id = coalesce(nd.project_id, n.project_id)
-            left join work_items wi on wi.id = nd.work_item_id
-            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
-            left join qms_users handled_by on handled_by.id = nd.admin_handled_by_user_id
+        await using var command = dataSource.CreateCommand(BuildDeliveryReadSql(connectionStringProvider.IsOsan, """
             where (@status is null or nd.status = @status)
               and (@channel is null or nd.channel = @channel)
               and (@delivery_type is null or nd.delivery_type = @delivery_type)
@@ -811,7 +675,7 @@ public sealed class NotificationDeliveryStore(
               )
             order by nd.created_at_utc desc
             limit 200;
-            """);
+            """));
         command.Parameters.Add(new NpgsqlParameter("status", NpgsqlDbType.Text) { Value = NormalizeFilter(status) ?? (object)DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("channel", NpgsqlDbType.Text) { Value = NormalizeFilter(channel) ?? (object)DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("delivery_type", NpgsqlDbType.Text) { Value = NormalizeFilter(deliveryType) ?? (object)DBNull.Value });
@@ -835,79 +699,11 @@ public sealed class NotificationDeliveryStore(
         bool teamsActivityOnly = false)
     {
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
-            select
-                nd.id,
-                nd.notification_id,
-                nd.notification_recipient_id,
-                nd.recipient_user_id,
-                nd.project_id,
-                nd.work_item_id,
-                nd.channel,
-                nd.delivery_type,
-                nd.status,
-                nd.attempt_count,
-                nd.next_attempt_at_utc,
-                nd.last_attempt_at_utc,
-                nd.sent_at_utc,
-                nd.suppressed_at_utc,
-                nd.error_code,
-                nd.error_message,
-                nd.dedupe_key,
-                nd.group_key,
-                nd.provider_message_id,
-                nd.created_at_utc,
-                nd.updated_at_utc,
-                u.display_name,
-                u.email,
-                u.entra_object_id,
-                u.auth_provider,
-                u.is_active,
-                n.title,
-                n.message,
-                n.link_url,
-                p.project_title,
-                p.project_code,
-                n.notification_type,
-                n.severity,
-                n.source_kind,
-                wi.title,
-                ws.stage_name,
-                nd.admin_handling_status,
-                nd.admin_handled_at_utc,
-                nd.admin_handled_by_user_id,
-                handled_by.display_name,
-                nd.admin_handling_note,
-                nd.display_title,
-                nd.display_message,
-                nd.display_project_name,
-                nd.display_work_item_title,
-                nd.display_recipient_name,
-                nd.display_recipient_email,
-                nd.display_recipient_kind,
-                nd.display_channel_target,
-                nd.manual_notification_kind,
-                nd.correlation_id,
-                nd.manual_payload_json::text,
-                nd.manual_requested_by_user_id,
-                nd.manual_requested_at_utc,
-                nd.claim_token,
-                nd.claimed_at_utc,
-                nd.claim_expires_at_utc,
-                nd.claimed_by_instance_id,
-                nd.current_generation,
-                nd.generation_attempt_count
-            from notification_deliveries nd
-            left join qms_users u on u.id = nd.recipient_user_id
-            left join notifications n on n.id = nd.notification_id
-            left join projects p on p.id = coalesce(nd.project_id, n.project_id)
-            left join work_items wi on wi.id = nd.work_item_id
-            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
-            left join qms_users handled_by on handled_by.id = nd.admin_handled_by_user_id
+        await using var command = dataSource.CreateCommand(BuildDeliveryReadSql(connectionStringProvider.IsOsan, """
             where nd.id = @id
               and (@recipient_user_id is null or nd.recipient_user_id = @recipient_user_id)
               and (@teams_activity_only = false or nd.channel = 'TeamsActivity');
-            """);
+            """));
         command.Parameters.AddWithValue("id", deliveryId);
         command.Parameters.Add(new NpgsqlParameter("recipient_user_id", NpgsqlDbType.Uuid) { Value = (object?)recipientUserId ?? DBNull.Value });
         command.Parameters.AddWithValue("teams_activity_only", teamsActivityOnly);
@@ -924,7 +720,8 @@ public sealed class NotificationDeliveryStore(
         }
 
         var attempts = await ListDeliveryAttemptsAsync(dataSource, deliveryId, cancellationToken);
-        var reprocessEvents = await ListDeliveryReprocessEventsAsync(dataSource, deliveryId, cancellationToken);
+        IReadOnlyList<NotificationDeliveryReprocessEventResponse> reprocessEvents = connectionStringProvider.IsOsan
+            ? [] : await ListDeliveryReprocessEventsAsync(dataSource, deliveryId, cancellationToken);
         return ToDetailResponse(row, attempts, reprocessEvents, timeProvider.GetUtcNow());
     }
 
@@ -1056,6 +853,8 @@ public sealed class NotificationDeliveryStore(
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
+        if (connectionStringProvider.IsOsan)
+            return ReprocessFailure("Forbidden", "오산에서는 관리자 수동 재처리를 지원하지 않습니다.");
         if (items is null || items.Count == 0)
         {
             return ReprocessFailure("Invalid", "재처리할 실패 알림을 한 건 이상 선택해 주세요.");
@@ -1286,12 +1085,14 @@ public sealed class NotificationDeliveryStore(
         Guid requestedByUserId,
         CancellationToken cancellationToken)
     {
+        if (connectionStringProvider.IsOsan && workItemId is not null)
+            throw new InvalidOperationException("Cheongju work items are unavailable in the Osan module.");
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
+        await using var command = dataSource.CreateCommand($"""
             insert into notifications (
                 id,
                 project_id,
-                work_item_id,
+                {(connectionStringProvider.IsOsan ? "" : "work_item_id,")}
                 notification_type,
                 severity,
                 title,
@@ -1305,7 +1106,7 @@ public sealed class NotificationDeliveryStore(
             values (
                 @id,
                 @project_id,
-                @work_item_id,
+                {(connectionStringProvider.IsOsan ? "" : "@work_item_id,")}
                 'Info',
                 @severity,
                 @title,
@@ -1322,14 +1123,14 @@ public sealed class NotificationDeliveryStore(
                 link_url = excluded.link_url,
                 visibility_scope = excluded.visibility_scope,
                 source_kind = excluded.source_kind,
-                work_item_id = excluded.work_item_id,
+                {(connectionStringProvider.IsOsan ? "" : "work_item_id = excluded.work_item_id,")}
                 manual_requested_by_user_id = excluded.manual_requested_by_user_id
             returning id;
             """);
         var notificationId = Guid.NewGuid();
         command.Parameters.AddWithValue("id", notificationId);
         command.Parameters.AddWithValue("project_id", (object?)projectId ?? DBNull.Value);
-        command.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
+        if (!connectionStringProvider.IsOsan) command.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
         command.Parameters.AddWithValue("severity", ManualNotificationSeverity(notificationKind));
         command.Parameters.AddWithValue("title", title);
         command.Parameters.AddWithValue("message", message);
@@ -1355,6 +1156,8 @@ public sealed class NotificationDeliveryStore(
         string correlationId,
         CancellationToken cancellationToken)
     {
+        if (connectionStringProvider.IsOsan)
+            throw new InvalidOperationException("Cheongju work items are unavailable in the Osan module.");
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             insert into work_items (
@@ -1443,13 +1246,15 @@ public sealed class NotificationDeliveryStore(
         Guid? notificationRecipientId = null,
         Guid? workItemId = null)
     {
+        if (connectionStringProvider.IsOsan && workItemId is not null)
+            throw new InvalidOperationException("Cheongju work items are unavailable in the Osan module.");
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
+        await using var command = dataSource.CreateCommand($"""
             insert into notification_deliveries (
                 notification_id,
                 notification_recipient_id,
                 project_id,
-                work_item_id,
+                {(connectionStringProvider.IsOsan ? "" : "work_item_id,")}
                 recipient_user_id,
                 channel,
                 delivery_type,
@@ -1475,7 +1280,7 @@ public sealed class NotificationDeliveryStore(
                 @notification_id,
                 @notification_recipient_id,
                 @project_id,
-                @work_item_id,
+                {(connectionStringProvider.IsOsan ? "" : "@work_item_id,")}
                 @recipient_user_id,
                 @channel,
                 'ManualTest',
@@ -1503,7 +1308,7 @@ public sealed class NotificationDeliveryStore(
         command.Parameters.AddWithValue("notification_id", (object?)notificationId ?? DBNull.Value);
         command.Parameters.AddWithValue("notification_recipient_id", (object?)notificationRecipientId ?? DBNull.Value);
         command.Parameters.AddWithValue("project_id", (object?)projectId ?? DBNull.Value);
-        command.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
+        if (!connectionStringProvider.IsOsan) command.Parameters.AddWithValue("work_item_id", (object?)workItemId ?? DBNull.Value);
         command.Parameters.AddWithValue("recipient_user_id", (object?)recipientUserId ?? DBNull.Value);
         command.Parameters.AddWithValue("channel", channel);
         command.Parameters.AddWithValue("dedupe_key", $"{groupKey}:{now:yyyyMMddHHmmss}:{Guid.NewGuid():N}");
@@ -1982,6 +1787,8 @@ public sealed class NotificationDeliveryStore(
         CancellationToken cancellationToken,
         BusinessUnitDatabaseTarget? target)
     {
+        if (connectionStringProvider.IsOsan)
+            throw new InvalidOperationException("Daily digest is unavailable in the Osan module.");
         var kindLabel = DeliveryTypeLabel(NotificationDeliveryTypes.DailyDigest);
         var digestTitle = $"{ResolveDailyDigestDateLabel(delivery)} 업무 요약";
 
@@ -2120,14 +1927,34 @@ public sealed class NotificationDeliveryStore(
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
+        command.CommandText = BuildWebPushSql(osanOnly);
+        command.Parameters.AddWithValue("channel_enabled", channelEnabled);
+        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
+        command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    internal static string BuildWebPushSql(bool isOsan)
+    {
+        var preferenceProjection = isOsan ? """
+                    exists (
+                        select 1 from osan_notification_global_preferences preference
+                        where preference.scope_id=1
+                          and preference.event_kind=osan_event.event_kind
+                          and preference.channel='WebPush'
+                          and preference.is_enabled=false
+                          and (preference.stage_sequence=0
+                            or (osan_event.event_kind='StepCompleted' and preference.stage_sequence=osan_event.stage_sequence))
+                    ) as preference_disabled
+            """ : "false as preference_disabled";
+        return $"""
             with eligible as (
                 select
                     n.id as notification_id,
                     nr.id as notification_recipient_id,
                     users.id as recipient_user_id,
                     n.project_id,
-                    n.work_item_id,
+                    {(isOsan ? "" : "n.work_item_id,")}
                     n.title,
                     n.message,
                     n.created_at_utc,
@@ -2136,23 +1963,12 @@ public sealed class NotificationDeliveryStore(
                     users.email,
                     subscription.id as subscription_id,
                     subscription.generation as subscription_generation,
-                    osan_event.event_kind,
-                    osan_event.stage_sequence,
-                    case when @osan_only then exists (
-                        select 1 from osan_notification_global_preferences preference
-                        where preference.scope_id=1
-                          and preference.event_kind=osan_event.event_kind
-                          and preference.channel='WebPush'
-                          and preference.is_enabled=false
-                          and (preference.stage_sequence=0
-                            or (osan_event.event_kind='StepCompleted' and preference.stage_sequence=osan_event.stage_sequence))
-                    ) else false end as preference_disabled
+                    {preferenceProjection}
                 from notifications n
                 join qms_users users
                   on users.is_active = true
                  and (
-                    (@osan_only and n.source_kind = 'OsanWorkflow' and n.visibility_scope = 'RecipientOnly')
-                    or (not @osan_only and n.source_kind <> 'OsanWorkflow')
+                    {(isOsan ? "n.source_kind = 'OsanWorkflow' and n.visibility_scope = 'RecipientOnly'" : "n.source_kind <> 'OsanWorkflow'")}
                  )
                  and (
                     users.auth_provider <> 'EntraId'
@@ -2182,14 +1998,12 @@ public sealed class NotificationDeliveryStore(
                  and subscription.is_active = true
                  and subscription.activated_at_utc <= n.created_at_utc
                 left join projects on projects.id = n.project_id
-                left join osan_notification_events osan_event on osan_event.notification_id=n.id
+                {(isOsan ? "join osan_notification_events osan_event on osan_event.notification_id=n.id" : "")}
                 where n.visibility_scope in ('RecipientOnly', 'Authenticated')
-                  and (not @osan_only or projects.project_profile = 'Osan')
-                  and (not @osan_only or osan_event.notification_id is not null)
             )
             insert into notification_deliveries (
                 notification_id, notification_recipient_id, recipient_user_id,
-                project_id, work_item_id, web_push_subscription_id, web_push_subscription_generation,
+                project_id, {(isOsan ? "" : "work_item_id,")} web_push_subscription_id, web_push_subscription_generation,
                 channel, delivery_type, status, next_attempt_at_utc,
                 suppressed_at_utc, error_code, error_message,
                 dedupe_key, group_key,
@@ -2202,7 +2016,7 @@ public sealed class NotificationDeliveryStore(
                 eligible.notification_recipient_id,
                 eligible.recipient_user_id,
                 eligible.project_id,
-                eligible.work_item_id,
+                {(isOsan ? "" : "eligible.work_item_id,")}
                 eligible.subscription_id,
                 eligible.subscription_generation,
                 'WebPush',
@@ -2217,20 +2031,15 @@ public sealed class NotificationDeliveryStore(
                 eligible.title,
                 eligible.message,
                 eligible.project_title,
-                work_items.title,
+                {(isOsan ? "null::text" : "work_items.title")},
                 eligible.display_name,
                 eligible.email,
                 'User',
                 concat('PWA 기기 ', upper(left(replace(eligible.subscription_id::text, '-', ''), 8)))
             from eligible
-            left join work_items on work_items.id = eligible.work_item_id
+            {(isOsan ? "" : "left join work_items on work_items.id = eligible.work_item_id")}
             on conflict do nothing;
             """;
-        command.Parameters.AddWithValue("channel_enabled", channelEnabled);
-        command.Parameters.AddWithValue("osan_only", osanOnly);
-        command.Parameters.AddWithValue("now", timeProvider.GetUtcNow());
-        command.Parameters.AddWithValue("batch_window_seconds", batchWindowSeconds);
-        return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<int> InsertUrgentMailDeliveriesAsync(
@@ -3466,6 +3275,76 @@ public sealed class NotificationDeliveryStore(
             reader.GetInt32(59));
     }
 
+    internal static string BuildDeliveryReadSql(bool isOsan, string filterSql) => $"""
+            select
+                nd.id,
+                nd.notification_id,
+                nd.notification_recipient_id,
+                nd.recipient_user_id,
+                nd.project_id,
+                {(isOsan ? "null::uuid" : "nd.work_item_id")},
+                nd.channel,
+                nd.delivery_type,
+                nd.status,
+                nd.attempt_count,
+                nd.next_attempt_at_utc,
+                nd.last_attempt_at_utc,
+                nd.sent_at_utc,
+                nd.suppressed_at_utc,
+                nd.error_code,
+                nd.error_message,
+                nd.dedupe_key,
+                nd.group_key,
+                nd.provider_message_id,
+                nd.created_at_utc,
+                nd.updated_at_utc,
+                u.display_name,
+                u.email,
+                u.entra_object_id,
+                u.auth_provider,
+                u.is_active,
+                n.title,
+                n.message,
+                n.link_url,
+                p.project_title,
+                p.project_code,
+                n.notification_type,
+                n.severity,
+                n.source_kind,
+                {(isOsan ? "null::text, null::text" : "wi.title, ws.stage_name")},
+                nd.admin_handling_status,
+                nd.admin_handled_at_utc,
+                nd.admin_handled_by_user_id,
+                handled_by.display_name,
+                nd.admin_handling_note,
+                nd.display_title,
+                nd.display_message,
+                nd.display_project_name,
+                nd.display_work_item_title,
+                nd.display_recipient_name,
+                nd.display_recipient_email,
+                nd.display_recipient_kind,
+                nd.display_channel_target,
+                nd.manual_notification_kind,
+                nd.correlation_id,
+                nd.manual_payload_json::text,
+                nd.manual_requested_by_user_id,
+                nd.manual_requested_at_utc,
+                nd.claim_token,
+                nd.claimed_at_utc,
+                nd.claim_expires_at_utc,
+                nd.claimed_by_instance_id,
+                nd.current_generation,
+                nd.generation_attempt_count
+            from notification_deliveries nd
+            left join qms_users u on u.id = nd.recipient_user_id
+            left join notifications n on n.id = nd.notification_id
+            left join projects p on p.id = coalesce(nd.project_id, n.project_id)
+            {(isOsan ? "" : "left join work_items wi on wi.id = nd.work_item_id left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code")}
+            left join qms_users handled_by on handled_by.id = nd.admin_handled_by_user_id
+            {filterSql}
+            """;
+
     private bool CanUseExternalNotifications(BusinessUnitDatabaseTarget? target)
     {
         return !connectionStringProvider.BusinessUnits.Enabled
@@ -3476,7 +3355,7 @@ public sealed class NotificationDeliveryStore(
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
-            : connectionStringProvider.GetConnectionString(target, BusinessUnitConnectionPurpose.Runtime);
+            : connectionStringProvider.GetConnectionString(target);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");

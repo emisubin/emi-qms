@@ -108,6 +108,15 @@ migration_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 assert_scope migration 'run_migration=true' "${api_sha}" "${migration_sha}"
 assert_scope migration-e2e 'run_full_stack=true' "${api_sha}" "${migration_sha}"
 
+for business in cheongju osan; do
+  previous_migration_sha="${migration_sha}"
+  commit_file "database/business-migrations/${business}/0131_synthetic.sql" "${business}-schema"
+  migration_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
+  assert_scope "${business}-migration" 'run_migration=true' "${previous_migration_sha}" "${migration_sha}"
+  assert_scope "${business}-backend" 'deploy_backend=true' "${previous_migration_sha}" "${migration_sha}"
+  assert_scope "${business}-e2e" 'run_full_stack=true' "${previous_migration_sha}" "${migration_sha}"
+done
+
 commit_file .github/workflows/ci.yml workflow
 workflow_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 assert_scope workflow 'classification=workflow-policy-only' "${migration_sha}" "${workflow_sha}"

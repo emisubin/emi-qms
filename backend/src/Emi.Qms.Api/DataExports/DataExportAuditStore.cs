@@ -1,8 +1,9 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.DataExports;
 
-public sealed class DataExportAuditStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class DataExportAuditStore(BusinessDatabase connectionStringProvider)
 {
     public async Task AppendSuccessAsync(
         Guid actorUserId,

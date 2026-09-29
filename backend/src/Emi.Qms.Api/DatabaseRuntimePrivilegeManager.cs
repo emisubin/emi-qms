@@ -30,6 +30,24 @@ public sealed class DatabaseRuntimePrivilegeManager
     public async Task ConfigureBootstrapPrivilegesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        BusinessUnitDatabaseTarget target,
+        IReadOnlyCollection<string> deniedRoleNames,
+        CancellationToken cancellationToken)
+    {
+        await ConfigureBootstrapPrivilegesAsync(
+            connection,
+            transaction,
+            target.ExpectedDatabaseName,
+            target.MigrationRoleName,
+            target.RuntimeRoleName,
+            target.Kind,
+            deniedRoleNames,
+            cancellationToken);
+    }
+
+    public async Task ConfigureBootstrapPrivilegesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
         string databaseName,
         string migrationRoleName,
         string runtimeRoleName,
@@ -96,7 +114,8 @@ public sealed class DatabaseRuntimePrivilegeManager
         string? configuredMigrationRoleName,
         string? configuredRuntimeRoleName,
         CancellationToken cancellationToken,
-        BusinessUnitDatabaseKind databaseKind = BusinessUnitDatabaseKind.Business)
+        BusinessUnitDatabaseKind databaseKind = BusinessUnitDatabaseKind.Business,
+        string? businessUnitCode = null)
     {
         if (string.IsNullOrWhiteSpace(configuredMigrationRoleName)
             && string.IsNullOrWhiteSpace(configuredRuntimeRoleName))
@@ -129,6 +148,17 @@ public sealed class DatabaseRuntimePrivilegeManager
         var runtime = QuoteIdentifier(configuredRuntimeRoleName);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        if (databaseKind == BusinessUnitDatabaseKind.Business
+            && businessUnitCode is not null
+            && businessUnitCode is not BusinessUnitCodes.Cheongju and not BusinessUnitCodes.Osan)
+        {
+            throw new InvalidOperationException("business_unit_privilege_target_invalid");
+        }
+
+        var businessAuditTables = businessUnitCode == BusinessUnitCodes.Osan
+            ? "public.audit_coverage_state, public.audit_events, public.audit_event_changes"
+            : "public.audit_coverage_state, public.audit_events, public.audit_event_changes, "
+              + "public.site_access_coverage_state, public.site_access_sessions";
         var objectGrants = databaseKind == BusinessUnitDatabaseKind.Directory
             ? $"""
               revoke all privileges on all tables in schema public from {runtime};
@@ -157,11 +187,9 @@ public sealed class DatabaseRuntimePrivilegeManager
             grant select on table public.schema_migrations to {runtime};
 
             revoke insert, update, delete, truncate, references, trigger
-                on table public.audit_coverage_state, public.audit_events, public.audit_event_changes,
-                    public.site_access_coverage_state, public.site_access_sessions
+                on table {businessAuditTables}
                 from {runtime};
-            grant select on table public.audit_coverage_state, public.audit_events, public.audit_event_changes,
-                    public.site_access_coverage_state, public.site_access_sessions
+            grant select on table {businessAuditTables}
                 to {runtime};
 
             revoke all privileges on all sequences in schema public from {runtime};

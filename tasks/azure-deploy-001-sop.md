@@ -167,3 +167,7 @@ hostname, email, tenant/client identifier, token, secret, connection string, 실
 5. 실제 실행 결과는 PR #127 head `7e95129ce0cbf5b389ead02b7d6558c67b268675`, CI `34221079465`, main `b41c932e2154a921cf8b0aab753fc6d0692b209f`, full release `34225420777`, DB-only repair `34228436474`, final inspect `34229045510`이다.
 6. Roleless membership `1`건을 회수하고, current overall `3`을 보존한 채 stale managed System Administrator `1`건을 제거했다. Final inspect는 전체 변경 marker `0`, overall `3/3/3`, permission gap `0/0`이다.
 7. 최종 Backend `backend--0000040`, Frontend `frontend--0000029`는 latest ready·traffic `100%`다. 실제 계정 UI smoke는 별도 사용자 확인으로 남긴다.
+
+## 2026-09-29 청주·오산 구조 분리의 적용 조건
+
+기존 backend 한 개를 유지한다. 이번 구조 분리의 현재 배포/실패 복구 절차는 [종료 확인과 승인 연결 안내](../docs/development/azure-maintenance-first-rollout.md#구조-분리-이후-일반-release-연결)를 따른다. 위 과거 additive 배포의 “앱을 유지한 채 migration” 또는 “구 image 자동 rollback”을 표/열 제거0131에 적용하지 않는다. 로컬 구현·합성 시험 승인과 실제 운영 중단·DB 변경·배포 승인을 구분한다.

@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -13,7 +14,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Ul891Sets;
 
-public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class Ul891SetStore(CheongjuDatabase connectionStringProvider)
 {
     internal static async Task CreateInitialStructureAsync(
         NpgsqlConnection connection,

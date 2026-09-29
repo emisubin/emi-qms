@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +10,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Sales;
 
 public sealed class SalesBillingRequestStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider,
     ExcelWorkbookBuilder workbookBuilder,
     ExcelExportConcurrencyGate concurrencyGate)

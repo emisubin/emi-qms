@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.Manufacturing;
@@ -48,7 +49,7 @@ public sealed record ProjectMutationResult<T>(
 }
 
 public sealed class ProjectStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     IEnumerable<IProjectDeletionGuard> deletionGuards,
     ProjectExcelParser projectExcelParser)
 {

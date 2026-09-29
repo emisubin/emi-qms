@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Npgsql;
@@ -6,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.PanelQr;
 
 public sealed partial class PanelQrStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     QrScanUrlBuilder scanUrlBuilder,
     TimeProvider timeProvider)
 {

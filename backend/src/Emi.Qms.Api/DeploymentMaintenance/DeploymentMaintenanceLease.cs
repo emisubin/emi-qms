@@ -48,6 +48,34 @@ public sealed class DeploymentMaintenanceLease : IAsyncDisposable
         }
     }
 
+    public static async Task<DeploymentMaintenanceLease?> AcquireAsync(
+        BusinessDatabase database, IReadOnlyList<BusinessUnitDatabaseTarget> targets, CancellationToken ct)
+    {
+        if (targets.Count != 1 || targets[0] != database.GetCurrentBusinessUnit())
+            throw new BusinessUnitContextUnavailableException("business_unit_module_mismatch");
+        var opened = new List<NpgsqlConnection>();
+        var locked = new List<NpgsqlConnection>();
+        try
+        {
+            var connection = new NpgsqlConnection(database.GetConnectionString());
+            await connection.OpenAsync(ct);
+            opened.Add(connection);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "select pg_advisory_lock_shared(@key)";
+            command.Parameters.AddWithValue("key", AdvisoryKey);
+            await command.ExecuteNonQueryAsync(ct);
+            locked.Add(connection);
+            command.CommandText = "select state from deployment_maintenance where id=1";
+            if ((string?)await command.ExecuteScalarAsync(ct) is not ("Idle" or "Announced" or "Completed"))
+            {
+                await new DeploymentMaintenanceLease(opened, locked).DisposeAsync();
+                return null;
+            }
+            return new DeploymentMaintenanceLease(opened, locked);
+        }
+        catch { await new DeploymentMaintenanceLease(opened, locked).DisposeAsync(); throw; }
+    }
+
     public static async Task<DeploymentMaintenanceLease?> AcquireCurrentAsync(
         DatabaseConnectionStringProvider provider,CancellationToken ct)
     {

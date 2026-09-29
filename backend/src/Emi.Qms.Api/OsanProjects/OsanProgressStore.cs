@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,7 +10,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed partial class OsanProgressStore(OsanDatabase connectionStringProvider)
 {
     public async Task<OsanProgressResponse?> GetAsync(
         Guid projectId,
@@ -48,13 +49,11 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             left join projects candidate
               on nullif(btrim(source.osan_work_order_number), '') is not null
              and candidate.osan_work_order_number = source.osan_work_order_number
-             and candidate.project_profile = 'Osan'
              and candidate.deleted_at_utc is null
              {accessCondition}
             left join osan_active_project_targets target
               on target.project_id = candidate.id
             where source.id = @source_project_id
-              and source.project_profile = 'Osan'
               and source.deleted_at_utc is null
             order by
                 (candidate.id = source.id) desc,
@@ -458,7 +457,6 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             select status
             from projects
             where id = @project_id
-              and project_profile = 'Osan'
               and deleted_at_utc is null
             for update;
             """;
@@ -693,7 +691,6 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
             update projects project
             set status = 'Completed', updated_at_utc = now()
             where project.id = @project_id
-              and project.project_profile = 'Osan'
               and not exists (
                   select 1
                   from osan_active_project_targets target
@@ -799,7 +796,6 @@ public sealed partial class OsanProgressStore(DatabaseConnectionStringProvider c
                 select id, project_code, project_title, status, osan_product_name, osan_work_order_number
                 from projects
                 where id = @project_id
-                  and project_profile = 'Osan'
                   and deleted_at_utc is null;
                 """;
             projectCommand.Parameters.AddWithValue("project_id", projectId);

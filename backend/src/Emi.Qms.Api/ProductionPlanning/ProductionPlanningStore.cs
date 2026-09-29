@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Workflow;
 using Npgsql;
@@ -6,7 +7,7 @@ using System.Globalization;
 
 namespace Emi.Qms.Api.ProductionPlanning;
 
-public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class ProductionPlanningStore(CheongjuDatabase connectionStringProvider)
 {
     private const string ActivePlanItemNameUniqueConstraint = "ux_project_production_plan_items_active_name";
 

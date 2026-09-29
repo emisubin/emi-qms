@@ -41,7 +41,7 @@ public sealed class InteriorBusbarLifecycleTests
         Assert.Equal("Draft", before["status"]);
         Assert.StartsWith("IB-", (string)before["number"]!);
         var sink = new Sink();
-        using var publisher = new InteriorBusbarPublicationWorker(new(Config(f)), Options, sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        using var publisher = new InteriorBusbarPublicationWorker(new DatabaseConnectionStringProvider(Config(f)), Options, sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
         Assert.True(await publisher.PublishNextAsync(TestContext.Current.CancellationToken));
         Assert.Contains("https://pms.example.test/interior-busbar/production?productId="+id, sink.Html);
         Assert.DoesNotContain("data:image", sink.Html);
@@ -70,13 +70,13 @@ public sealed class InteriorBusbarLifecycleTests
         var request = await f.ShipmentRequest(project,1);
         var product = request.ProductIds![0];
         var sink = new Sink { FailAfterWrite = true };
-        var store = new InteriorBusbarStore(new(Config(f)),f.Clock,Options,publicationSink:sink);
+        var store = new InteriorBusbarStore(new DatabaseConnectionStringProvider(Config(f)),f.Clock,Options,publicationSink:sink);
         var failure = await Assert.ThrowsAsync<BusbarException>(()=>store.Shipment(request,f.Actor));
         Assert.Equal("publication_failed",failure.Code);
         Assert.Equal(0L,await f.Scalar("select count(*) from busbar_shipments"));
         Assert.Equal(1L,await f.Scalar("select count(*) from busbar_publication_recovery"));
         sink.FailAfterWrite=false;
-        using var publisher = new InteriorBusbarPublicationWorker(new(Config(f)),Options,sink,NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        using var publisher = new InteriorBusbarPublicationWorker(new DatabaseConnectionStringProvider(Config(f)),Options,sink,NullLogger<InteriorBusbarPublicationWorker>.Instance);
         Assert.True(await publisher.PublishNextAsync(TestContext.Current.CancellationToken));
         Assert.Contains("pms.example.test",sink.Html);
         Assert.Equal(0L,await f.Scalar("select count(*) from busbar_publication_recovery"));

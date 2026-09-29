@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Authorization;
 using Npgsql;
 using NpgsqlTypes;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Identity;
 
 public sealed class DbIdentityStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     IConfiguration configuration)
     : IIdentityStore
 {
@@ -290,8 +291,8 @@ public sealed class DbIdentityStore(
     public async Task<QmsProject?> GetProjectByKeyAsync(string projectKey, CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
-            select id, project_key, project_number, name
+        await using var command = dataSource.CreateCommand($"""
+            select id, project_key, {(connectionStringProvider.IsOsan ? "project_code, project_title" : "project_number, name")}
             from projects
             where project_key = @project_key;
             """);
@@ -494,14 +495,14 @@ public sealed class DbIdentityStore(
         return permissions;
     }
 
-    private static async Task<IReadOnlyList<QmsProject>> ReadProjectAccessForUserAsync(
+    private async Task<IReadOnlyList<QmsProject>> ReadProjectAccessForUserAsync(
         NpgsqlConnection connection,
         Guid userId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            select p.id, p.project_key, p.project_number, p.name
+        command.CommandText = $"""
+            select p.id, p.project_key, {(connectionStringProvider.IsOsan ? "p.project_code, p.project_title" : "p.project_number, p.name")}
             from projects p
             join user_project_access upa on upa.project_id = p.id
             where upa.user_id = @user_id

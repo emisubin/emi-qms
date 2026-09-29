@@ -123,7 +123,7 @@ public sealed class InteriorBusbarPublicationTests
         await f.Store.Photo(productId, "back", Pixel, null, f.Actor);
         var config = Config(new() { ["ConnectionStrings:QmsDatabase"] = f.Connection });
         var sink = new RecordingSink();
-        using var worker = new InteriorBusbarPublicationWorker(new(config), Options(), sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        using var worker = new InteriorBusbarPublicationWorker(new DatabaseConnectionStringProvider(config), Options(), sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
         Assert.True(await worker.PublishNextAsync(TestContext.Current.CancellationToken));
         var failed = await f.Store.GetProduct(productId);
         Assert.Equal("Failed", failed["publicationState"]);
@@ -178,7 +178,7 @@ public sealed class InteriorBusbarPublicationTests
         await f.Store.CorrectProduct(productId, new(workerId, "독립 출하 사진 보존 확인"), f.Actor);
         var sink = new RecordingSink { Fail = false };
         using var publication = new InteriorBusbarPublicationWorker(
-            new(Config(new() { ["ConnectionStrings:QmsDatabase"] = f.Connection })), Options(), sink,
+            new DatabaseConnectionStringProvider(Config(new() { ["ConnectionStrings:QmsDatabase"] = f.Connection })), Options(), sink,
             NullLogger<InteriorBusbarPublicationWorker>.Instance);
         Assert.True(await publication.PublishNextAsync(TestContext.Current.CancellationToken));
 
@@ -229,7 +229,7 @@ public sealed class InteriorBusbarPublicationTests
         }
         values["ConnectionStrings:CHEONGJURuntime"] = f.Connection;
         var sink = new RecordingSink { Fail = false };
-        using var worker = new InteriorBusbarPublicationWorker(new(Config(values)), Options(), sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        using var worker = new InteriorBusbarPublicationWorker(new DatabaseConnectionStringProvider(Config(values)), Options(), sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
         var error = await Assert.ThrowsAsync<BusinessUnitContextUnavailableException>(() => worker.PublishNextAsync(TestContext.Current.CancellationToken));
         Assert.Equal("busbar_publication_database_identity_mismatch", error.Reason);
         Assert.Equal("", sink.Html);

@@ -7,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class WebPushSubscriptionStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     TimeProvider timeProvider) : IWebPushSubscriptionDeliveryStore
 {
     public async Task<WebPushConfigurationResponse> GetConfigurationAsync(

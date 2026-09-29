@@ -9,6 +9,23 @@ public sealed class DatabaseHealthChecker(
     MigrationLedgerInspector migrationLedgerInspector,
     BusinessUnitDirectoryMigrationCatalog directoryMigrationCatalog)
 {
+    public async Task<DatabaseHealthResult> CheckTargetAsync(BusinessUnitDatabaseTarget target, CancellationToken ct)
+    {
+        try
+        {
+            await using var source = NpgsqlDataSource.Create(connectionStringProvider.GetConnectionString(target));
+            await using var connection = await source.OpenConnectionAsync(ct);
+            if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, ct))
+                return new(false, "business_unit_database_identity_mismatch");
+            var ledger = target.Kind == BusinessUnitDatabaseKind.Directory
+                ? await directoryMigrationCatalog.InspectAsync(connection, ct)
+                : await migrationLedgerInspector.InspectAsync(connection, target.Code, ct);
+            return new(ledger.MigrationLedgerReady, ledger.MigrationLedgerReady ? "reachable" : "business_unit_database_unready");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return new(false, "business_unit_database_unready"); }
+    }
+
     public async Task<DatabaseHealthResult> CheckAsync(CancellationToken cancellationToken)
     {
         if (!connectionStringProvider.BusinessUnits.Enabled)
@@ -16,9 +33,10 @@ public sealed class DatabaseHealthChecker(
             return await CheckLegacyAsync(cancellationToken);
         }
 
-        var allReady = true;
+        var states = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (var target in connectionStringProvider.BusinessUnits.AllTargets())
         {
+            states[target.Code] = false;
             try
             {
                 var connectionString = connectionStringProvider.GetConnectionString(
@@ -31,17 +49,13 @@ public sealed class DatabaseHealthChecker(
                         target,
                         cancellationToken))
                 {
-                    allReady = false;
                     continue;
                 }
 
                 var ledger = target.Kind == BusinessUnitDatabaseKind.Directory
                     ? await directoryMigrationCatalog.InspectAsync(connection, cancellationToken)
-                    : await migrationLedgerInspector.InspectAsync(connection, cancellationToken);
-                if (!ledger.MigrationLedgerReady)
-                {
-                    allReady = false;
-                }
+                    : await migrationLedgerInspector.InspectAsync(connection, target.Code, cancellationToken);
+                states[target.Code] = ledger.MigrationLedgerReady;
             }
             catch (OperationCanceledException)
             {
@@ -51,13 +65,16 @@ public sealed class DatabaseHealthChecker(
             {
                 // Continue checking the remaining isolated targets. A failed target
                 // is never substituted with another configured database.
-                allReady = false;
+                states[target.Code] = false;
             }
         }
 
-        return allReady
-            ? new DatabaseHealthResult(true, "reachable")
-            : new DatabaseHealthResult(false, "business_unit_database_unready");
+        var directoryReady = states.GetValueOrDefault("DIRECTORY");
+        var businessStates = connectionStringProvider.BusinessUnits.Businesses
+            .ToDictionary(target => target.Code, target => states[target.Code], StringComparer.Ordinal);
+        var canServeRequests = directoryReady && businessStates.Values.Any(ready => ready);
+        return new DatabaseHealthResult(canServeRequests,
+            states.Values.All(ready => ready) ? "reachable" : "business_unit_database_unready", businessStates);
     }
 
     private async Task<DatabaseHealthResult> CheckLegacyAsync(CancellationToken cancellationToken)

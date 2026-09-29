@@ -15,37 +15,37 @@ public static class OsanPolicyEndpointExtensions
     {
         var api=app.MapGroup("/api/osan").RequireAuthorization();
         api.MapGet("/customers", async (string? query, OsanPolicyStore store,
-            DatabaseConnectionStringProvider db, ClaimsPrincipal user,CancellationToken ct) =>
+            OsanDatabase db, ClaimsPrincipal user,CancellationToken ct) =>
         {
             var denied=Guard(db,user,false);
             return denied ?? Results.Ok(new {items=await store.CustomersAsync(query,ct)});
         }).WithName("ListOsanCustomers");
         api.MapGet("/admin/customers", async (OsanPolicyStore store,
-            DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct) =>
+            OsanDatabase db,ClaimsPrincipal user,CancellationToken ct) =>
         {
             var denied=Guard(db,user,true);
             return denied ?? Results.Ok(new {items=await store.CustomersAsync(null,ct)});
         }).WithName("ListOsanAdminCustomers");
         api.MapPost("/admin/customers", async (OsanCustomerNameRequest request,OsanPolicyStore store,
-            DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct) =>
+            OsanDatabase db,ClaimsPrincipal user,CancellationToken ct) =>
         {
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.CreateCustomerAsync(request.Name,ct));
         }).WithName("CreateOsanCustomer");
         api.MapPut("/admin/customers/{customerId:guid}",async(Guid customerId,OsanCustomerNameRequest request,
-            OsanPolicyStore store,DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+            OsanPolicyStore store,OsanDatabase db,ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.RenameCustomerAsync(customerId,request.Name,request.ExpectedVersion,ct));
         }).WithName("RenameOsanCustomer");
         api.MapDelete("/admin/customers/{customerId:guid}",async(Guid customerId,long expectedVersion,
-            OsanPolicyStore store,DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+            OsanPolicyStore store,OsanDatabase db,ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.ArchiveCustomerAsync(customerId,expectedVersion,ct));
         }).WithName("ArchiveOsanCustomer");
         api.MapGet("/admin/customer-assignments",async(OsanPolicyStore store,
-            DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+            OsanDatabase db,ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
             if(denied is not null)return denied;
@@ -54,25 +54,25 @@ public static class OsanPolicyEndpointExtensions
             return Results.Ok(new {customers,users});
         }).WithName("ListOsanCustomerAssignments");
         api.MapPut("/admin/customer-assignments/{userId:guid}",async(Guid userId,
-            OsanCustomerAssignmentsRequest request,OsanPolicyStore store,DatabaseConnectionStringProvider db,
+            OsanCustomerAssignmentsRequest request,OsanPolicyStore store,OsanDatabase db,
             ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.AssignAsync(userId,request.CustomerIds,request.ExpectedVersion,ct));
         }).WithName("SetOsanCustomerAssignments");
-        api.MapGet("/admin/gates",async(OsanPolicyStore store,DatabaseConnectionStringProvider db,
+        api.MapGet("/admin/gates",async(OsanPolicyStore store,OsanDatabase db,
             ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
             return denied ?? Results.Ok(await store.GatesAsync(ct));
         }).WithName("GetOsanGateConfiguration");
         api.MapPut("/admin/gates",async(OsanGatesRequest request,OsanPolicyStore store,
-            DatabaseConnectionStringProvider db,ClaimsPrincipal user,CancellationToken ct)=>
+            OsanDatabase db,ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.SetGatesAsync(request.Gates,request.ExpectedVersion,ct));
         }).WithName("SetOsanGateConfiguration");
-        api.MapGet("/gate-approvals",async(OsanPolicyStore store,DatabaseConnectionStringProvider db,
+        api.MapGet("/gate-approvals",async(OsanPolicyStore store,OsanDatabase db,
             ClaimsPrincipal user,CancellationToken ct)=>
         {
             var denied=Guard(db,user,true);
@@ -81,7 +81,7 @@ public static class OsanPolicyEndpointExtensions
         return app;
     }
 
-    private static IResult? Guard(DatabaseConnectionStringProvider db,ClaimsPrincipal user,bool admin)
+    private static IResult? Guard(OsanDatabase db,ClaimsPrincipal user,bool admin)
     {
         if(!string.Equals(db.GetCurrentBusinessUnit()?.Code,BusinessUnitCodes.Osan,StringComparison.Ordinal))
             return Results.Json(new OsanProjectErrorResponse("business_unit_capability_disabled",

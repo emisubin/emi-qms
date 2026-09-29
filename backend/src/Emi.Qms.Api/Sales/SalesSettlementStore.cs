@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,7 +12,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Sales;
 
 public sealed class SalesSettlementStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

@@ -6,7 +6,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Admin;
 
 public sealed class AdminScheduledDeletionService(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider,
     BusinessUnitDatabaseBoundaryValidator boundaryValidator,
     ILogger<AdminScheduledDeletionService> logger) : IAdminDeletionPurgeService

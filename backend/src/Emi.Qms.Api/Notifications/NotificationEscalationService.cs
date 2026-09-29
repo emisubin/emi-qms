@@ -8,7 +8,7 @@ public sealed class NotificationEscalationService(
     WorkItemEscalationStore escalationStore,
     TimeProvider timeProvider,
     IOptionsMonitor<NotificationOptions> options,
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     BusinessUnitDatabaseBoundaryValidator boundaryValidator,
     ILogger<NotificationEscalationService> logger)
 {

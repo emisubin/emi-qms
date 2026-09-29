@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.PendingTypes;
 
-public sealed class PendingTypeStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class PendingTypeStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<PendingTypeCatalogResponse> GetCatalogAsync(CancellationToken cancellationToken)
     {

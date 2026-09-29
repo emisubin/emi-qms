@@ -1,14 +1,15 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Audit;
 
 public sealed class AuditStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     TimeProvider timeProvider,
     ILogger<AuditStore> logger)
 {
-    private const string UnifiedSelect = """
+    private const string CheongjuUnifiedSelect = """
         select event.id,
                'Global'::text as source,
                event.occurred_at_utc,
@@ -111,6 +112,74 @@ public sealed class AuditStore(
         from site_access_sessions access
         where access.started_at_utc >= (
             select coverage_started_at_utc from site_access_coverage_state where singleton)
+        """;
+
+    private string UnifiedSelect => connectionStringProvider.IsOsan ? OsanUnifiedSelect : CheongjuUnifiedSelect;
+
+    private const string OsanUnifiedSelect = """
+        select event.id,
+               'Global'::text as source,
+               event.occurred_at_utc,
+               event.event_type,
+               event.actor_user_id,
+               event.actor_display_name,
+               event.actor_department_name,
+               event.actual_actor_user_id,
+               event.actual_actor_display_name,
+               event.domain,
+               event.action,
+               event.target_type,
+               event.target_key,
+               event.outcome,
+               event.failure_reason,
+               event.reason_summary,
+               event.login_correlation_id,
+               (select count(*)::integer from audit_event_changes change where change.audit_event_id = event.id),
+               host(event.client_ip),
+               event.browser_family,
+               event.os_family,
+               event.app_access_outcome,
+               null::timestamptz as last_activity_at_utc,
+               null::timestamptz as ended_at_utc,
+               null::text as site_access_status,
+               null::text[] as menu_codes,
+               (select coverage_started_at_utc from audit_coverage_state where singleton)
+                   as site_access_coverage_started_at_utc
+        from audit_events event
+        where event.occurred_at_utc >= (select coverage_started_at_utc from audit_coverage_state where singleton)
+        union all
+        select denied.id,
+               'Authorization'::text,
+               denied.occurred_at_utc,
+               'AuthorizationDenied'::text,
+               denied.user_id,
+               coalesce(qms_user.display_name, '알 수 없는 사용자'),
+               department.name,
+               denied.actual_actor_user_id,
+               actual_user.display_name,
+               'Authorization'::text,
+               denied.endpoint,
+               case when denied.target_project_key is null then null else 'project' end,
+               denied.target_project_key,
+               'Rejected'::text,
+               denied.reason,
+               '권한 확인 단계에서 요청이 거절되었습니다.'::text,
+               null::uuid,
+               0::integer,
+               null::text,
+               null::text,
+               null::text,
+               null::text,
+               null::timestamptz,
+               null::timestamptz,
+               null::text,
+               null::text[],
+               (select coverage_started_at_utc from audit_coverage_state where singleton)
+        from authorization_audit_events denied
+        left join qms_users qms_user on qms_user.id = denied.user_id
+        left join departments department on department.id = qms_user.department_id
+        left join qms_users actual_user on actual_user.id = denied.actual_actor_user_id
+        where denied.occurred_at_utc >= (select coverage_started_at_utc from audit_coverage_state where singleton)
         """;
 
     private const string FilterPredicate = """
@@ -218,6 +287,8 @@ public sealed class AuditStore(
         string osFamily,
         CancellationToken cancellationToken)
     {
+        if (connectionStringProvider.IsOsan)
+            throw new InvalidOperationException("Site access collection is unavailable in the Osan module.");
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             select session_id, idempotency_receipt, started_at_utc, last_activity_at_utc, created
@@ -261,6 +332,8 @@ public sealed class AuditStore(
         Guid receipt,
         CancellationToken cancellationToken)
     {
+        if (connectionStringProvider.IsOsan)
+            throw new InvalidOperationException("Site access collection is unavailable in the Osan module.");
         await using var dataSource = CreateDataSource();
         await using var command = dataSource.CreateCommand("""
             select qms_end_site_access(
@@ -524,12 +597,15 @@ public sealed class AuditStore(
             ToUtcDateTimeOffset(reader.GetValue(26)));
     }
 
-    private static async Task<AuditCoverageResponse> ReadCoverageAsync(
+    private async Task<AuditCoverageResponse> ReadCoverageAsync(
         NpgsqlConnection connection,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = connectionStringProvider.IsOsan ? """
+            select coverage_started_at_utc, coverage_started_at_utc
+            from audit_coverage_state where singleton;
+            """ : """
             select audit.coverage_started_at_utc, site.coverage_started_at_utc
             from audit_coverage_state audit
             cross join site_access_coverage_state site
@@ -546,7 +622,7 @@ public sealed class AuditStore(
             startedAt,
             $"{startedAt:yyyy-MM-dd HH:mm:ss} UTC 이후 변경·인증 기록입니다.",
             siteStartedAt,
-            $"{siteStartedAt:yyyy-MM-dd HH:mm:ss} UTC 이후 사이트 접속 기록입니다.",
+            connectionStringProvider.IsOsan ? "오산에서는 사이트 접속 기록을 수집하지 않습니다." : $"{siteStartedAt:yyyy-MM-dd HH:mm:ss} UTC 이후 사이트 접속 기록입니다.",
             "마지막 활동 시각은 페이지 진입 또는 새로고침 신호이며 실제 근무시간을 의미하지 않습니다.");
     }
 

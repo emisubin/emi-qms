@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Admin;
 
-public sealed class MaterialCategoryIqcStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class MaterialCategoryIqcStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<MaterialCategoryIqcTemplatesResponse> GetAsync(
         Guid userId, bool isSystemAdministrator, CancellationToken cancellationToken)

@@ -193,7 +193,7 @@ public sealed class AzureInteriorBusbarPublicationSink : IInteriorBusbarPublicat
 }
 
 public sealed class InteriorBusbarPublicationWorker(
-    DatabaseConnectionStringProvider connections, InteriorBusbarPublicationOptions options,
+    CheongjuDatabase connections, InteriorBusbarPublicationOptions options,
     IInteriorBusbarPublicationSink sink, ILogger<InteriorBusbarPublicationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

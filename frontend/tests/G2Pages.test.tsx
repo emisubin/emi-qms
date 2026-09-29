@@ -197,7 +197,7 @@ describe('G2 charts and daily management', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       methods.push(init?.method ?? 'GET');
       const url = new URL(String(input));
-      if (url.pathname === '/api/system/holidays') return json([]);
+      if (url.pathname === '/cheongju/api/system/holidays') return json([]);
       return json({ today: '2026-08-02', year: 2026, month: 8, hasInventoryBaseline: true, days });
     }));
 
@@ -364,8 +364,8 @@ describe('G2 charts and daily management', () => {
     const response: G2RangeResponse = { today: todaySeoul(), from: todaySeoul(), to: todaySeoul(), days: [day()] };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/g2/days') return json(response);
-      if (url.pathname.startsWith('/api/g2/operations/')) { savedBody = JSON.parse(String(init?.body)) as Record<string, unknown>; return json({ saved: true }); }
+      if (url.pathname === '/cheongju/api/g2/days') return json(response);
+      if (url.pathname.startsWith('/cheongju/api/g2/operations/')) { savedBody = JSON.parse(String(init?.body)) as Record<string, unknown>; return json({ saved: true }); }
       return json({ title: 'not found' }, 404);
     }));
 
@@ -385,8 +385,8 @@ describe('G2 charts and daily management', () => {
     const response: G2RangeResponse = { today: todaySeoul(), from: todaySeoul(), to: todaySeoul(), days: [day()] };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/g2/days') return json(response);
-      if (url.pathname.startsWith('/api/g2/operations/')) { savedBody = JSON.parse(String(init?.body)) as Record<string, unknown>; return json({ saved: true }); }
+      if (url.pathname === '/cheongju/api/g2/days') return json(response);
+      if (url.pathname.startsWith('/cheongju/api/g2/operations/')) { savedBody = JSON.parse(String(init?.body)) as Record<string, unknown>; return json({ saved: true }); }
       return json([]);
     }));
 
@@ -441,8 +441,8 @@ describe('G2 charts and daily management', () => {
     const response: G2RangeResponse = { today: '2026-08-19', from: '2026-08-01', to: '2026-08-31', days: [attendanceDay] };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/g2/days') return json(response);
-      if (url.pathname === '/api/system/holidays') return json([{ holidayDate: '2026-08-17', name: '광복절 대체공휴일' }]);
+      if (url.pathname === '/cheongju/api/g2/days') return json(response);
+      if (url.pathname === '/cheongju/api/system/holidays') return json([{ holidayDate: '2026-08-17', name: '광복절 대체공휴일' }]);
       return json({ title: 'not found' }, 404);
     }));
 
@@ -477,7 +477,7 @@ describe('G2 charts and daily management', () => {
     ];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/system/holidays') return json([{ holidayDate: '2026-08-17', name: '광복절 대체공휴일' }]);
+      if (url.pathname === '/cheongju/api/system/holidays') return json([{ holidayDate: '2026-08-17', name: '광복절 대체공휴일' }]);
       return json({ today: '2026-08-18', year: 2026, month: 8, hasInventoryBaseline: true, days });
     }));
     const { container } = render(<G2HomePage developmentUserKey="dev-sales" canManageInventory canManageTargets mutationEnabled />);
@@ -558,8 +558,8 @@ describe('G2 charts and daily management', () => {
     let homeLoads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/system/holidays') return json([]);
-      if (url.pathname === '/api/g2/home') {
+      if (url.pathname === '/cheongju/api/system/holidays') return json([]);
+      if (url.pathname === '/cheongju/api/g2/home') {
         homeLoads += 1;
         const year = Number(url.searchParams.get('year'));
         const month = Number(url.searchParams.get('month'));
@@ -596,8 +596,8 @@ describe('G2 charts and daily management', () => {
     const writes: Array<{ path: string; method: string; body: unknown; query: string }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/system/holidays') return json([]);
-      if (url.pathname === '/api/g2/home') return json({ today: date, year: 2026, month: 9, hasInventoryBaseline: true, days: [
+      if (url.pathname === '/cheongju/api/system/holidays') return json([]);
+      if (url.pathname === '/cheongju/api/g2/home') return json({ today: date, year: 2026, month: 9, hasInventoryBaseline: true, days: [
         { ...day(date), inventory: 100, physicalCount: { ...metric(100), quantity: 100, version: 7 }, defectInventory: count?.quantity ?? 3, defectInventoryCount: count }, day('2026-09-11', true)
       ] });
       writes.push({ path: url.pathname, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null, query: url.search });
@@ -616,7 +616,7 @@ describe('G2 charts and daily management', () => {
     fireEvent.change(within(dialog).getByLabelText('실사 수량'), { target: { value: '0' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '저장' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(writes[0]).toMatchObject({ path: `/api/g2/defect-inventory-counts/${date}`, method: 'PUT', body: { quantity: 0, expectedVersion: null } });
+    expect(writes[0]).toMatchObject({ path: `/cheongju/api/g2/defect-inventory-counts/${date}`, method: 'PUT', body: { quantity: 0, expectedVersion: null } });
     fireEvent.click(screen.getByRole('button', { name: '불량 상세 보기' }));
     const table = screen.getByRole('table', { name: '생산 현황' });
     expect(within(table).getByText('실사')).toBeInTheDocument();
@@ -643,7 +643,7 @@ describe('G2 charts and daily management', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(writes[3]).toMatchObject({ method: 'DELETE', query: '?expectedVersion=2' });
     expect(within(table).queryByText('실사')).toBeNull();
-    expect(writes.every(write => write.path === `/api/g2/defect-inventory-counts/${date}`)).toBe(true);
+    expect(writes.every(write => write.path === `/cheongju/api/g2/defect-inventory-counts/${date}`)).toBe(true);
   });
 
   it('hides defective count actions without permission and disables them in review-safe mode', async () => {
@@ -680,7 +680,7 @@ describe('G2 charts and daily management', () => {
     fireEvent.change(screen.getByLabelText('실사 수량'), { target: { value: '12' } });
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '저장' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(writes).toEqual([{ path: `/api/g2/inventory-counts/${date}`, body: { quantity: 12, expectedVersion: 8 } }]);
+    expect(writes).toEqual([{ path: `/cheongju/api/g2/inventory-counts/${date}`, body: { quantity: 12, expectedVersion: 8 } }]);
   });
 
   it('reuses the loaded month for same-month dates and fetches another month only once', async () => {
@@ -692,8 +692,8 @@ describe('G2 charts and daily management', () => {
     let dayLoads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/system/holidays') return json([]);
-      if (url.pathname === '/api/g2/days') {
+      if (url.pathname === '/cheongju/api/system/holidays') return json([]);
+      if (url.pathname === '/cheongju/api/g2/days') {
         dayLoads += 1;
         const from = url.searchParams.get('from')!;
         const to = url.searchParams.get('to')!;
@@ -728,8 +728,8 @@ describe('G2 charts and daily management', () => {
     let homeLoads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/system/holidays') return json([]);
-      if (url.pathname === '/api/g2/home') {
+      if (url.pathname === '/cheongju/api/system/holidays') return json([]);
+      if (url.pathname === '/cheongju/api/g2/home') {
         homeLoads += 1;
         return homeLoads === 1 ? olderResponse : currentResponse;
       }

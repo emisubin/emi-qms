@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
@@ -14,7 +15,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Procurement;
 
 public sealed class ProcurementStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     ProcurementExcelParser excelParser,
     TimeProvider timeProvider)
 {

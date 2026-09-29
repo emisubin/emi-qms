@@ -22,6 +22,11 @@ on:
         required: true
         default: false
         type: boolean
+      approve_business_schema_separation:
+        description: Approve C/O 0131 only (Cheongju 27 tables and 7 project columns; Osan 153 tables, 24 project columns and 3 notification columns)
+        required: true
+        default: false
+        type: boolean
       run_membership_backfill:
         description: Run the one-time approved Cheongju membership backfill after migration
         required: true
@@ -373,6 +378,7 @@ jobs:
       DEPLOY_BACKEND: ${{ needs.scope.outputs.deploy_backend == 'true' && !inputs.database_prepare_only }}
       DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend == 'true' && !inputs.database_prepare_only }}
       RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}
+      BUSINESS_SCHEMA_SEPARATION_APPROVED: ${{ inputs.approve_business_schema_separation }}
       RUN_DATABASE_BOOTSTRAP: ${{ inputs.run_database_bootstrap }}
       RUN_MEMBERSHIP_BACKFILL: ${{ inputs.run_membership_backfill }}
       INSPECT_MEMBERSHIP_BACKFILL: ${{ inputs.inspect_membership_backfill }}

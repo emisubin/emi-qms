@@ -76,13 +76,13 @@ public sealed class InteriorBusbarQrTests
         {
             ["ConnectionStrings:QmsDatabase"] = fixture.Connection
         }).Build();
-        var configured = new InteriorBusbarStore(new(configuration), fixture.Clock, Options);
+        var configured = new InteriorBusbarStore(new DatabaseConnectionStringProvider(configuration), fixture.Clock, Options);
         var results = await Task.WhenAll(configured.GetPrintableQr(product), configured.GetPrintableQr(product));
         Assert.Equal(results[0], results[1]);
         Assert.Equal(1L, await fixture.Scalar("select count(*) from busbar_product_qr"));
         Assert.Equal(completed["number"], (await configured.GetProduct(product))["number"]);
         Assert.Equal("Ready", (await configured.GetProduct(product))["qrState"]);
-        var movedSite = new InteriorBusbarStore(new(configuration), fixture.Clock,
+        var movedSite = new InteriorBusbarStore(new DatabaseConnectionStringProvider(configuration), fixture.Clock,
             Options with { PublicBaseUrl = new Uri("https://changed.example.test/") });
         Assert.Equal("qr_public_url_changed", (await Assert.ThrowsAsync<BusbarException>(() => movedSite.GetPrintableQr(product))).Code);
         Assert.Equal(results[0], await StoredPng(fixture, product));

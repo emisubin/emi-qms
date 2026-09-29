@@ -103,6 +103,20 @@ public sealed class DatabaseConnectionStringProvider
         return target?.ExternalNotificationsEnabled == true;
     }
 
+    internal async Task<IReadOnlyList<Guid>> ReadOverallAdministratorIdsAsync(CancellationToken ct)
+    {
+        if (!BusinessUnits.Enabled || BusinessUnits.Directory is not { } directory) return [];
+        await using var source = NpgsqlDataSource.Create(GetConnectionString(directory));
+        await using var command = source.CreateCommand("""
+            select distinct a.user_id from directory_overall_administrators a
+            join directory_identities i on i.user_id=a.user_id where a.is_active and i.is_active
+            """);
+        var result = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(reader.GetGuid(0));
+        return result;
+    }
+
     private string? GetLegacyConnectionString()
     {
         var configured = configuration.GetConnectionString("QmsDatabase");

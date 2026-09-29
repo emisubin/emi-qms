@@ -1,8 +1,9 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.Calendar;
 
-public sealed class BusinessCalendarStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class BusinessCalendarStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<BusinessCalendarResponse> GetCalendarAsync(
         string? countryCode,

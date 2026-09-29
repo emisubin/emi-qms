@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.OsanProjects;
@@ -14,7 +15,7 @@ public sealed record OsanPendingGateApproval(Guid ProjectId, string ProjectCode,
     Guid RequestId, Guid TargetId, int StageSequence, string RequestedByName, DateTimeOffset RequestedAt, string? Reason);
 public sealed record OsanPolicyWriteResult(int Status, string? Code = null, string? Message = null, object? Value = null);
 
-public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
+public sealed class OsanPolicyStore(OsanDatabase db)
 {
     private NpgsqlDataSource Source() => NpgsqlDataSource.Create(db.GetConnectionString()
         ?? throw new InvalidOperationException("QMS database connection string is not configured."));
@@ -82,7 +83,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
         await using var transaction = await connection.BeginTransactionAsync(ct);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "select id from projects where project_profile='Osan' and osan_customer_id=@id order by id for update";
+        command.CommandText = "select id from projects where osan_customer_id=@id order by id for update";
         command.Parameters.AddWithValue("id",id);
         await using (var reader = await command.ExecuteReaderAsync(ct))
             while (await reader.ReadAsync(ct)) { }
@@ -99,7 +100,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
                 customer = await reader.ReadAsync(ct)
                     ? new(reader.GetGuid(0),reader.GetString(1),reader.GetInt64(2)) : null;
             if (customer is null) return new(409,"osan_customer_stale","고객사 정보가 변경되었습니다. 다시 조회해 주세요.");
-            command.CommandText = "update projects set customer_name=@name where project_profile='Osan' and osan_customer_id=@id";
+            command.CommandText = "update projects set customer_name=@name where osan_customer_id=@id";
             await command.ExecuteNonQueryAsync(ct);
             await transaction.CommitAsync(ct);
             return new(200,Value:customer);
@@ -294,7 +295,7 @@ public sealed class OsanPolicyStore(DatabaseConnectionStringProvider db)
             from osan_photo_edit_requests r join projects p on p.id=r.project_id
             join osan_project_target_steps s on s.id=r.step_id
             join qms_users u on u.id=r.requested_by
-            where p.project_profile='Osan' and p.deleted_at_utc is null
+            where p.deleted_at_utc is null
               and r.approved_at is null and r.used_at is null and r.invalidated_at is null
               and not exists(select 1 from osan_stage_issues i where i.step_id=r.step_id and i.status='Open')
             order by r.requested_at,r.id

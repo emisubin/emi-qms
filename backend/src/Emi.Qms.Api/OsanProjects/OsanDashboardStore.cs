@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Emi.Qms.Api.Projects;
 using Npgsql;
@@ -6,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.OsanProjects;
 
 public sealed class OsanDashboardStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    OsanDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private static readonly TimeZoneInfo SeoulTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
@@ -279,7 +280,6 @@ public sealed class OsanDashboardStore(
     {
         var where = new List<string>
         {
-            "projects.project_profile = 'Osan'",
             "projects.deleted_at_utc is null"
         };
         var parameters = new List<NpgsqlParameter>();

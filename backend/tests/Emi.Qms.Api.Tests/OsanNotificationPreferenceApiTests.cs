@@ -22,10 +22,10 @@ public sealed partial class BusinessUnitIsolationTests
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
         var environment = new TestEnvironment(databases.RepositoryRoot);
         var catalog = new DatabaseMigrationCatalog(environment);
-        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
-        await new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
-            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            NullLogger<DatabaseRoleBootstrapper>.Instance), ct);
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
+            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance), ct);
         await new DevelopmentIdentitySeeder(provider, databases.Configuration, environment,
             NullLogger<DevelopmentIdentitySeeder>.Instance, new MigrationLedgerInspector(catalog)).SeedAsync(ct);
         databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
@@ -107,7 +107,7 @@ public sealed partial class BusinessUnitIsolationTests
         Assert.Equal(2L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_notification_global_preferences;", ct));
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
-            BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_notification_global_preferences;", ct));
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from information_schema.tables where table_schema='public' and table_name='osan_notification_global_preferences'", ct));
     }
 
     [Fact]
@@ -118,10 +118,10 @@ public sealed partial class BusinessUnitIsolationTests
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
         var environment = new TestEnvironment(databases.RepositoryRoot);
         var catalog = new DatabaseMigrationCatalog(environment);
-        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
-        await new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
-            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            NullLogger<DatabaseRoleBootstrapper>.Instance), ct);
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
+            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance), ct);
         await new DevelopmentIdentitySeeder(provider, databases.Configuration, environment,
             NullLogger<DevelopmentIdentitySeeder>.Instance, new MigrationLedgerInspector(catalog)).SeedAsync(ct);
 
@@ -131,12 +131,10 @@ public sealed partial class BusinessUnitIsolationTests
         await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration, $"""
             insert into osan_customers(id,name) values('{customerId}','Synthetic Customer');
             insert into osan_customer_assignments(user_id,customer_id) values('{SalesUserId}','{customerId}');
-            insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
-                project_title_normalized,delivery_date,sales_owner_user_id,status,created_by_user_id,
-                project_profile,osan_product_name,osan_quantity,osan_customer_id)
-            values('{projectId}','prefs-project','PREFS-PROJECT','Prefs Project','Synthetic Customer','UL891',
-                'PREFS-PROJECT','Prefs Project','PREFS PROJECT',current_date+30,'{SalesUserId}','Active',
-                '{SalesUserId}','Osan','Synthetic Product',1,'{customerId}');
+            insert into projects(id,project_key,customer_name,project_code,project_title,
+                delivery_date,status,created_by_user_id,osan_product_name,osan_quantity,osan_customer_id)
+            values('{projectId}','prefs-project','Synthetic Customer','PREFS-PROJECT','Prefs Project',
+                current_date+30,'Active','{SalesUserId}','Synthetic Product',1,'{customerId}');
             insert into web_push_subscriptions(id,user_id,endpoint,endpoint_hash,p256dh_key,auth_key,activated_at_utc)
             values('{subscriptionId}','{SalesUserId}','https://push.example.test/prefs','prefs-hash','p256dh','auth',now()-interval '1 day');
             insert into osan_notification_global_preferences(scope_id,event_kind,channel,stage_sequence,is_enabled)

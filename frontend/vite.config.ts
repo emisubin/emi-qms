@@ -173,7 +173,7 @@ export default defineConfig({
     },
     https: loadHttpsOptions(),
     proxy: {
-      '/api': {
+      '^/(api|cheongju/api|osan/api|access/api)(/|$)': {
         target: proxyTarget,
         changeOrigin: true
       },

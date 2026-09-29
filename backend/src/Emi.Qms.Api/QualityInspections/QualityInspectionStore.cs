@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +13,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.QualityInspections;
 
 public sealed class QualityInspectionStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     PendingStore pendingStore,
     QualityInspectionPdfRenderer pdfRenderer)
 {

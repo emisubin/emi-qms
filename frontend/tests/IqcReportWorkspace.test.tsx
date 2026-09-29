@@ -26,8 +26,8 @@ describe('IqcReportWorkspace', () => {
     let current = report([]);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/quality/iqc/${attemptId}/report`) return json(current);
-      if (url.pathname === `/api/quality/iqc/reports/${reportId}/responses`) {
+      if (url.pathname === `/cheongju/api/quality/iqc/${attemptId}/report`) return json(current);
+      if (url.pathname === `/cheongju/api/quality/iqc/reports/${reportId}/responses`) {
         const body = JSON.parse(String(init?.body)) as { responses: SaveIqcItemResponse[] };
         current = report(body.responses);
         return json(current);
@@ -55,12 +55,12 @@ describe('IqcReportWorkspace', () => {
     let current = scanReport();
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/quality/iqc/${attemptId}/report`) return json(current);
-      if (url.pathname === `/api/quality/iqc/${attemptId}/reports` && init?.method === 'POST') {
+      if (url.pathname === `/cheongju/api/quality/iqc/${attemptId}/report`) return json(current);
+      if (url.pathname === `/cheongju/api/quality/iqc/${attemptId}/reports` && init?.method === 'POST') {
         current = { ...current, reportId, reportStatus: 'Draft', reportVersion: 1 };
         return json(current);
       }
-      if (url.pathname === `/api/quality/iqc/scan-reports/${reportId}/attachments` && init?.method === 'POST') {
+      if (url.pathname === `/cheongju/api/quality/iqc/scan-reports/${reportId}/attachments` && init?.method === 'POST') {
         current = {
           ...current,
           reportVersion: 2,
@@ -74,7 +74,7 @@ describe('IqcReportWorkspace', () => {
         };
         return json(current);
       }
-      if (url.pathname === `/api/quality/iqc/scan-reports/${reportId}/finalize` && init?.method === 'POST') {
+      if (url.pathname === `/cheongju/api/quality/iqc/scan-reports/${reportId}/finalize` && init?.method === 'POST') {
         current = {
           ...current,
           reportStatus: 'Finalized',

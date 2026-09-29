@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Notifications;
@@ -7,7 +8,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Identity;
 
 public sealed class UserAdministrationStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     DbIdentityStore dbIdentityStore,
     TimeProvider timeProvider)
     : IUserAdministrationStore
@@ -204,14 +205,17 @@ public sealed class UserAdministrationStore(
             await insertRole.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await SynchronizeDepartmentHeadBindingAsync(
-            connection,
-            transaction,
-            userId,
-            selectedDepartment,
-            request.IsDepartmentHead,
-            currentUserId,
-            cancellationToken);
+        if (!connectionStringProvider.IsOsan)
+        {
+            await SynchronizeDepartmentHeadBindingAsync(
+                connection,
+                transaction,
+                userId,
+                selectedDepartment,
+                request.IsDepartmentHead,
+                currentUserId,
+                cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
         return UserAdministrationMutationResult.Success(await GetSnapshotAsync(cancellationToken));

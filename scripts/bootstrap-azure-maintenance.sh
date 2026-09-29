@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
 import subprocess
 import sys
 import tempfile
@@ -21,6 +20,12 @@ env = os.environ
 def require(condition, code):
     if not condition:
         raise RuntimeError(code)
+
+class JobTerminalFailure(RuntimeError):
+    pass
+
+class JobResultUncertain(RuntimeError):
+    pass
 
 def required(name):
     value = env.get(name, '')
@@ -36,17 +41,8 @@ try:
             'MAINTENANCE_TITLE', 'MAINTENANCE_BODY', 'MAINTENANCE_STARTS_AT_UTC',
             'MAINTENANCE_EXPECTED_ENDS_AT_UTC']
     cfg = {key: required(key) for key in keys}
-    # A trusted, operator-prepared read-only diagnostic is mandatory. It must
-    # inspect provider Processing/leases and open backend transactions; it must
-    # never clear state or repair data. Do not accept a shell command here.
-    drain_check = Path(required('FIRST_ROLLOUT_DRAIN_CHECK_FILE'))
-    require(drain_check.is_absolute() and drain_check.suffix == '.py'
-            and drain_check.is_file() and not drain_check.is_symlink(), 'INVALID_DRAIN_HELPER')
-    drain_stat = drain_check.stat()
-    require(drain_stat.st_uid == os.getuid()
-            and not drain_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH), 'UNTRUSTED_DRAIN_HELPER')
-    drain_source = drain_check.read_bytes()
-    compile(drain_source, str(drain_check), 'exec')
+    schema_approved = env.get('BUSINESS_SCHEMA_SEPARATION_APPROVED', 'false')
+    require(schema_approved in ['true', 'false'], 'INVALID_SCHEMA_APPROVAL')
     require(len({cfg[k] for k in ['BACKEND_APP_NAME', 'FRONTEND_APP_NAME']}) == 2
             and cfg['MIGRATION_JOB_NAME'] != cfg['MAINTENANCE_JOB_NAME'], 'DUPLICATE_TARGETS')
     require(bool(re.fullmatch('[0-9a-f]{40}', cfg['SOURCE_SHA'])), 'INVALID_SOURCE')
@@ -80,7 +76,7 @@ rg_args = ['--resource-group', cfg['AZURE_RESOURCE_GROUP']]
 baseline = {}
 quiescing = False
 migration_started = False
-maintenance_active = False
+maintenance_cleanup_required = False
 
 def record(event, **data):
     with (state_dir / 'events.jsonl').open('a') as stream:
@@ -152,25 +148,39 @@ def job(name):
     return value
 
 def wait_job(name, execution):
-    def finished():
-        value = azure('containerapp', 'job', 'execution', 'show', *rg_args,
-                      '--name', name, '--job-execution-name', execution)
-        status = value['properties'].get('status')
-        require(status not in ['Failed', 'Stopped'], 'JOB_FAILED')
-        return status == 'Succeeded'
-    poll(finished, 'JOB_TIMEOUT_INSPECT_EXISTING_EXECUTION')
+    for _ in range(attempts):
+        try:
+            value = azure('containerapp', 'job', 'execution', 'show', *rg_args,
+                          '--name', name, '--job-execution-name', execution)
+            status = value['properties'].get('status')
+        except Exception as error:
+            raise JobResultUncertain('JOB_STATUS_UNKNOWN') from error
+        if status == 'Succeeded':
+            return
+        if status in ['Failed', 'Stopped']:
+            raise JobTerminalFailure('JOB_FAILED')
+        if status not in ['Running', 'Pending', 'Processing', 'Waiting']:
+            raise JobResultUncertain('JOB_STATUS_UNKNOWN')
+        time.sleep(interval)
+    raise JobResultUncertain('JOB_TIMEOUT_INSPECT_EXISTING_EXECUTION')
 
 def start_job(name, *args):
     # The pre-start marker makes a lost Azure response explicitly non-retryable.
     record('job-start-requested', job=name)
-    value = azure('containerapp', 'job', 'start', *rg_args, '--name', name, *args)
-    execution = value.get('name', '')
-    require(bool(execution) and not any(c.isspace() for c in execution), 'EXECUTION_NAME_MISSING')
+    try:
+        value = azure('containerapp', 'job', 'start', *rg_args, '--name', name, *args)
+        execution = value.get('name', '')
+        if not execution or any(c.isspace() for c in execution):
+            raise JobResultUncertain('EXECUTION_NAME_MISSING')
+    except JobResultUncertain:
+        raise
+    except Exception as error:
+        raise JobResultUncertain('JOB_START_RESULT_UNKNOWN') from error
     record('job-started', job=name, execution=execution)
     wait_job(name, execution)
     record('job-succeeded', job=name, execution=execution)
 
-def maintenance(action):
+def maintenance_for_target(action, business_target):
     template = copy.deepcopy(maintenance_template)
     container = template['containers'][0]
     container['image'] = cfg['BACKEND_RELEASE_IMAGE']
@@ -179,15 +189,56 @@ def maintenance(action):
               'Body': 'BODY', 'StartsAtUtc': 'STARTS_AT_UTC', 'ExpectedEndsAtUtc': 'EXPECTED_ENDS_AT_UTC'}
     container['env'] += [{'name': 'Maintenance__' + k, 'value': cfg['MAINTENANCE_' + v]}
                          for k, v in fields.items()]
+    container['env'].append({'name': 'Maintenance__BusinessUnit', 'value': business_target})
     container['env'].append({'name': 'Maintenance__Verified', 'value': str(action == 'complete').lower()})
     # Azure CLI accepts JSON as YAML, with a JobExecutionTemplate root (containers, not properties).
     path = state_dir / 'maintenance-execution.json'
     path.write_text(json.dumps(template))
     try:
         start_job(cfg['MAINTENANCE_JOB_NAME'], '--yaml', str(path))
-        record('maintenance-' + action)
+        record('maintenance-' + action, businessUnit=business_target)
     finally:
         path.unlink(missing_ok=True)
+
+def maintenance(action):
+    for business_target in ['CHEONGJU', 'OSAN']:
+        maintenance_for_target(action, business_target)
+
+def fail_maintenance_best_effort():
+    cleanup_failed = False
+    cleanup_uncertain = False
+    for business_target in ['CHEONGJU', 'OSAN']:
+        try:
+            maintenance_for_target('fail', business_target)
+        except JobResultUncertain:
+            cleanup_failed = True
+            cleanup_uncertain = True
+            record('maintenance-fail-cleanup-uncertain-manual-reconciliation-required',
+                   businessUnit=business_target)
+            break
+        except Exception:
+            cleanup_failed = True
+            record('maintenance-fail-cleanup-failed', businessUnit=business_target)
+    return cleanup_failed, cleanup_uncertain
+
+def database_command(command):
+    for database_target in ['DIRECTORY', 'CHEONGJU', 'OSAN']:
+        template = copy.deepcopy(migration_job['properties']['template'])
+        container = template['containers'][0]
+        container['image'] = cfg['BACKEND_RELEASE_IMAGE']
+        container['args'] = [command]
+        container['env'].extend([
+            {'name': 'Database__MigrationTarget', 'value': database_target},
+            {'name': 'Database__BusinessSchemaSeparationApproved',
+             'value': schema_approved if command == '--migrate-only' and database_target != 'DIRECTORY' else 'false'},
+            {'name': 'DeploymentDrain__RequireMaintenance', 'value': 'false'}])
+        path = state_dir / 'migration-execution.json'
+        path.write_text(json.dumps(template))
+        try:
+            start_job(cfg['MIGRATION_JOB_NAME'], '--yaml', str(path))
+            record('drain-completed' if command == '--deployment-drain-check' else 'migration-completed', databaseTarget=database_target)
+        finally:
+            path.unlink(missing_ok=True)
 
 try:
     require(azure('account', 'show')['id'] == cfg['AZURE_SUBSCRIPTION_ID'], 'SUBSCRIPTION_MISMATCH')
@@ -216,6 +267,16 @@ try:
                 and configuration.get('manualTriggerConfig', {}).get('parallelism') == 1
                 and configuration.get('manualTriggerConfig', {}).get('replicaCompletionCount') == 1,
                 'UNSAFE_JOB_RETRY_OR_PARALLELISM')
+    for configured_job in [migration_job, prepared]:
+        job_containers = configured_job['properties']['template']['containers']
+        require(len(job_containers) == 1, 'INVALID_JOB_CONTAINER_COUNT')
+        job_entries = job_containers[0].get('env', [])
+        job_names = [entry['name'].replace('__', ':').lower() for entry in job_entries]
+        require(len(job_names) == len(set(job_names)) and not any(
+            name in ['database:migrationtarget', 'database:bootstraptarget', 'database:businessschemaseparationapproved']
+            or name.startswith(('deploymentdrain:', 'maintenance:')) for name in job_names), 'STALE_EXECUTION_CONFIG')
+        require(all(entry.get('secretRef') and not entry.get('value') for entry in job_entries
+                    if entry['name'].replace('__', ':').lower().startswith('connectionstrings:')), 'PLAINTEXT_DB_CONFIG_REJECTED')
     maintenance_template = prepared['properties']['template']
     containers = maintenance_template['containers']
     require(len(containers) == 1 and containers[0]['name'] == cfg['MAINTENANCE_JOB_NAME'], 'INVALID_MAINTENANCE_CONTAINER')
@@ -234,44 +295,49 @@ try:
     quiescing = True
     stop(frontend)
     stop(backend)
-    # Execute the exact helper inspected before mutations, from a private file,
-    # so replacing the configured path mid-rollout cannot change its behavior.
-    helper_copy = state_dir / 'drain-check.py'
-    helper_copy.write_bytes(drain_source)
-    try:
-        diagnostic = subprocess.run([sys.executable, str(helper_copy)], capture_output=True)
-        require(diagnostic.returncode == 0, 'PROVIDER_OR_TRANSACTION_DRAIN_NOT_VERIFIED')
-    finally:
-        helper_copy.unlink(missing_ok=True)
+    database_command('--deployment-drain-check')
     record('provider-and-transaction-drain-verified')
     azure('containerapp', 'job', 'update', *rg_args, '--name', cfg['MIGRATION_JOB_NAME'],
           '--image', cfg['BACKEND_RELEASE_IMAGE'])
     # From this point even an uncertain start must leave the outage intact.
     migration_started = True
     record('migration-boundary')
-    start_job(cfg['MIGRATION_JOB_NAME'])
+    database_command('--migrate-only')
+    # A lost prepare/transition response may already have changed one database.
+    # Terminal failures are closed; uncertain executions require manual reconciliation.
+    maintenance_cleanup_required = True
     maintenance('prepare')
     maintenance('activate')
-    maintenance_active = True
     for name, image in [(backend, cfg['BACKEND_RELEASE_IMAGE']), (frontend, cfg['FRONTEND_RELEASE_IMAGE'])]:
         azure('containerapp', 'update', *rg_args, '--name', name, '--image', image)
         poll(lambda: ready(name, image), 'NEW_REVISION_NOT_READY')
         record('app-ready', app=name)
     security_smoke()
     maintenance('complete')
-    maintenance_active = False
+    maintenance_cleanup_required = False
     record('complete')
-except Exception:
-    failed = False
+except Exception as error:
+    stop_failed = False
+    maintenance_cleanup_failed = False
+    maintenance_cleanup_uncertain = False
+    maintenance_result_uncertain = maintenance_cleanup_required and isinstance(error, JobResultUncertain)
     if migration_started:
         # Never run the previous image against an advanced ledger.
         for name in [frontend, backend]:
             try:
                 stop(name)
             except Exception:
-                failed = True
-        record('outage-forward-fix-required', stopVerificationFailed=failed)
+                stop_failed = True
+        if maintenance_result_uncertain:
+            record('maintenance-result-uncertain-manual-reconciliation-required')
+        elif maintenance_cleanup_required:
+            maintenance_cleanup_failed,maintenance_cleanup_uncertain = fail_maintenance_best_effort()
+        record('outage-forward-fix-required', stopVerificationFailed=stop_failed,
+               maintenanceCleanupFailed=maintenance_cleanup_failed,
+               maintenanceCleanupUncertain=maintenance_cleanup_uncertain,
+               maintenanceResultUncertain=maintenance_result_uncertain)
     elif quiescing:
+        failed = False
         for name in [backend, frontend]:
             for revision in baseline[name]['revisions']:
                 try:

@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +10,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Materials;
 
 public sealed class IqcReportStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     MaterialsStore materialsStore,
     IqcPdfRenderer pdfRenderer,
     TimeProvider timeProvider)

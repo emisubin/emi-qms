@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using Emi.Qms.Api.Identity;
@@ -8,7 +9,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Materials;
 
-public sealed class PanelKittingStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class PanelKittingStore(CheongjuDatabase connectionStringProvider)
 {
     private const int ReadinessPredicateVersion = 1;
     private const int MaxPanelCountPerOperation = 500;

@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Admin;
 
-public sealed class FormTemplateStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class FormTemplateStore(CheongjuDatabase connectionStringProvider)
 {
     private static readonly TemplateDescriptor[] Catalog =
     [

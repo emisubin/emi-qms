@@ -31,6 +31,22 @@ inspection_container="emi-qms-business-unit-production-catalog-${docker_run_id}"
 migration_container_fresh="emi-qms-production-migration-${docker_run_id}-fresh"
 migration_container_existing="emi-qms-production-migration-${docker_run_id}-existing"
 migration_containers=("${migration_container_fresh}" "${migration_container_existing}")
+for invalid_configuration in missing-target invalid-target missing-credentials migration-invalid-target; do
+  migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-configuration-${invalid_configuration}")
+done
+for fixture_phase in fresh upgrade; do
+  for target in DIRECTORY CHEONGJU OSAN; do
+    for operation in bootstrap apply existing drain; do
+      migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-${fixture_phase}-${target}-${operation}")
+    done
+    if [[ "${target}" != DIRECTORY ]]; then
+      migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-${fixture_phase}-${target}-drain-required")
+    fi
+    if [[ "${fixture_phase}" == upgrade && "${target}" != DIRECTORY ]]; then
+      migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-${fixture_phase}-${target}-unapproved")
+    fi
+  done
+done
 owner_label="com.emi-qms.test.owner"
 run_label="com.emi-qms.test.run-id"
 owner_value="business-unit-production-image"
@@ -504,7 +520,7 @@ fi
 temp_dir="$(mktemp -d "${temp_prefix}XXXXXX")"
 temp_scope_claimed=1
 printf '%s\n' "${run_id}" >"${temp_dir}/.ownership-run-id"
-mkdir -p "${temp_dir}/image-business-migrations" "${temp_dir}/image-directory-migrations"
+mkdir -p "${temp_dir}/image-common-migrations" "${temp_dir}/image-directory-migrations" "${temp_dir}/image-business-migrations"
 
 image_scope_claimed=1
 if ! docker build \
@@ -548,27 +564,34 @@ esac
 
 if ! docker cp \
   "${inspection_container}:/app/database/migrations/." \
-  "${temp_dir}/image-business-migrations" >/dev/null 2>&1 \
+  "${temp_dir}/image-common-migrations" >/dev/null 2>&1 \
   || ! docker cp \
   "${inspection_container}:/app/database/directory-migrations/." \
-  "${temp_dir}/image-directory-migrations" >/dev/null 2>&1; then
+  "${temp_dir}/image-directory-migrations" >/dev/null 2>&1 \
+  || ! docker cp \
+  "${inspection_container}:/app/database/business-migrations/." \
+  "${temp_dir}/image-business-migrations" >/dev/null 2>&1; then
   echo "Business-unit production image catalog extraction failed." >&2
   exit 1
 fi
 
 if ! diff -qr \
   "${repo_root}/database/migrations" \
-  "${temp_dir}/image-business-migrations" >/dev/null \
+  "${temp_dir}/image-common-migrations" >/dev/null \
   || ! diff -qr \
   "${repo_root}/database/directory-migrations" \
-  "${temp_dir}/image-directory-migrations" >/dev/null; then
+  "${temp_dir}/image-directory-migrations" >/dev/null \
+  || ! diff -qr \
+  "${repo_root}/database/business-migrations" \
+  "${temp_dir}/image-business-migrations" >/dev/null; then
   echo "Business-unit production image catalog verification failed." >&2
   exit 1
 fi
 
 compose_scope_claimed=1
 migration_container_scope_claimed=1
-if ! PRODUCTION_MIGRATION_CONTAINER_OWNER="${owner_value}" \
+if ! PRODUCTION_MIGRATION_TEST_BUSINESS_SCHEMAS=true \
+  PRODUCTION_MIGRATION_CONTAINER_OWNER="${owner_value}" \
   PRODUCTION_MIGRATION_CONTAINER_RUN_ID="${run_id}" \
   bash "${repo_root}/scripts/test-production-migration-image.sh" "${image_ref}" \
   >"${temp_dir}/business-migration-test.log" 2>&1; then
@@ -578,7 +601,10 @@ fi
 
 if ! grep -Fxq 'productionMigrationImageFreshApply=passed' "${temp_dir}/business-migration-test.log" \
   || ! grep -Fxq 'productionMigrationImageExistingApply=passed' "${temp_dir}/business-migration-test.log" \
-  || ! grep -Fxq 'productionMigrationLedgerExact=true' "${temp_dir}/business-migration-test.log"; then
+  || ! grep -Fxq 'productionMigrationLedgerExact=true' "${temp_dir}/business-migration-test.log" \
+  || ! grep -Fxq 'productionBusinessMigrationFreshApply=passed' "${temp_dir}/business-migration-test.log" \
+  || ! grep -Fxq 'productionBusinessMigrationUpgradeApply=passed' "${temp_dir}/business-migration-test.log" \
+  || ! grep -Fxq 'productionBusinessMigrationSchemaContracts=passed' "${temp_dir}/business-migration-test.log"; then
   echo "Business-unit production image migration evidence verification failed." >&2
   exit 1
 fi
@@ -588,3 +614,4 @@ echo "businessUnitProductionImageBusinessCatalogExact=true"
 echo "businessUnitProductionImageDirectoryCatalogExact=true"
 echo "businessUnitProductionImageFreshApply=passed"
 echo "businessUnitProductionImageExistingApply=passed"
+echo "businessUnitProductionImageReducedSchemas=passed"

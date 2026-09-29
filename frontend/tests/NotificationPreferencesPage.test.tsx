@@ -20,7 +20,7 @@ describe('NotificationPreferencesPage', () => {
       const method = init?.method ?? 'GET';
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       requests.push({ method, path: url.pathname, body });
-      if (url.pathname === '/api/my/web-push') return json(webPushConfiguration());
+      if (url.pathname === '/cheongju/api/my/web-push') return json(webPushConfiguration());
       if (method === 'PUT') return json(response(1, false, true));
       if (method === 'POST') return json(response(2, true, false));
       return json(response(0, true, false));
@@ -50,7 +50,7 @@ describe('NotificationPreferencesPage', () => {
 
     await screen.findByText('알림 설정을 저장했습니다.');
     const put = requests.find((request) => request.method === 'PUT');
-    expect(put?.path).toBe('/api/my/notification-preferences');
+    expect(put?.path).toBe('/cheongju/api/my/notification-preferences');
     expect(put?.body).toMatchObject({ expectedVersion: 0 });
     expect((put?.body as { items: unknown[] }).items).toHaveLength(3);
 
@@ -78,7 +78,7 @@ describe('NotificationPreferencesPage', () => {
     expect(await screen.findByRole('heading', { name: '사용자 알림 설정 지원' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '기기 푸시 알림' })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(requestedUrl).toContain('/api/admin/users/50000000-0000-0000-0000-000000000002/notification-preferences');
+    expect(requestedUrl).toContain('/cheongju/api/admin/users/50000000-0000-0000-0000-000000000002/notification-preferences');
   });
 });
 

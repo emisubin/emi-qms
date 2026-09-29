@@ -8,7 +8,7 @@
 - 유지보수 Manual job은 미리 준비한다. 기존 Backend의 Production 환경과 Key Vault secret 참조, runtime 연결, 기존 migration identity/연결을 재사용한다. identity·registry·secret 권한은 job 준비 담당자가 검증한다. container 이름은 job 이름과 같아야 하며 저장된 `Maintenance__*` 환경값은 없어야 한다.
 - job 실행은 CLI 분기에서 종료하므로 웹 서버와 hosted worker를 시작하지 않는다. `--maintenance-complete`는 runtime 연결과 Directory·청주·오산 exact ledger를 검증한다.
 - actor는 두 사업장에 존재하는 활성 사용자여야 한다. 구 worker의 provider 처리·lease 불확정 건이 있다면 사전에 확인한다. 임의 상태 reset이나 실제 시험 발송은 하지 않는다.
-- 운영자가 사전 검토한 읽기 전용 Python 진단 파일을 준비한다. 중단 후 provider Processing/유효 lease와 열린 backend transaction이 없음을 확인할 때만 종료 코드 0을 반환해야 한다. 연결 실패·조회 실패·알 수 없는 결과는 nonzero로 처리하고 SQL reset이나 데이터 보정을 하지 않는다. standalone 파일로 작성하고 필요한 설정은 환경변수에서 받는다.
+- 새 release image의 `--deployment-drain-check`를 기존 migration Job에서 사용한다. 세 DB에 대해 다른 client session·prepared transaction·처리 중/결과 불명확 provider 작업이 없음을 읽기 전용으로 검사한다. 연결/조회 실패도 차단하며 남은 작업이나 lease를 자동 삭제하지 않는다. pgAdmin 및 DB 중계 접속도 점검 전에 닫는다. 배포 창에는 다른 운영자·자동화의 수동 Job/DB 접속을 금지한다.
 - restore/PITR 기준선과 승인된 영향 범위를 확인한다. 이전 image는 migration 이후 복구 수단으로 가정하지 않는다.
 
 ## 입력과 실행
@@ -17,7 +17,7 @@
 
 ```
 FIRST_MAINTENANCE_ROLLOUT_APPROVED=true
-FIRST_ROLLOUT_DRAIN_CHECK_FILE=/absolute/private/path/read-only-drain-check.py
+BUSINESS_SCHEMA_SEPARATION_APPROVED=false # C/O0131 구조 변경을 명시 승인한 실행만 true
 SOURCE_SHA
 AZURE_SUBSCRIPTION_ID AZURE_RESOURCE_GROUP ACR_LOGIN_SERVER PUBLIC_HOSTNAME
 BACKEND_APP_NAME FRONTEND_APP_NAME MIGRATION_JOB_NAME MAINTENANCE_JOB_NAME
@@ -28,13 +28,15 @@ MAINTENANCE_STARTS_AT_UTC MAINTENANCE_EXPECTED_ENDS_AT_UTC
 
 이미지는 해당 registry의 `pms-backend@sha256:…`, `pms-frontend@sha256:…`만 허용한다. 시각은 timezone을 포함하며 종료 예정은 실행 시점보다 뒤여야 한다. `FIRST_ROLLOUT_POLL_ATTEMPTS` 기본값 90, 간격 기본값 10초다. 테스트 실행파일 교체는 별도 test flag와 synthetic hostname을 동시에 요구한다.
 
-drain helper는 필수다. 절대 경로의 실제 `.py` 파일이어야 하며 실행 사용자 소유이고 group/other 쓰기 권한이 없어야 한다. symlink·누락 파일·Python syntax 오류는 Azure 변경 전에 거절한다. shell 명령이나 임의 interpreter override는 받지 않는다. 사전 읽은 파일 내용을 private 임시 파일로 복사한 뒤 현재 Python interpreter로 실행하여 실행 중 경로 교체 영향을 막는다. 파일의 읽기 전용성과 진단 범위는 운영자가 검토해야 하며 소유권 검사가 내용을 보증하지는 않는다.
+저장된 Job template에는 `Database__MigrationTarget`, `Database__BootstrapTarget`, `Database__BusinessSchemaSeparationApproved`, `DeploymentDrain__*`, `Maintenance__*`를 두지 않는다. 대소문자와 .NET 설정 구분자 표기를 정규화해 중복·영구 저장된 실행값을 거부한다. 실행마다 명시적으로 전달하며 기존 secret 참조와 자원 크기는 보존한다. 임의 진단 파일은 더 이상 사용하지 않는다.
+
+`BUSINESS_SCHEMA_SEPARATION_APPROVED`는 기본 false이고 잘못된 문자열은 거부한다. true도 선택한 청주/오산의 정확한0131 트랜잭션에만 적용된다. Directory·역할 준비·종료 확인에는 false를 전달한다. SQL 직접 실행의 승인값과 별개로 runner가 실행 승인값을 덮어쓰므로 예전 연결 옵션에 남은 승인값으로 우회할 수 없다. common0001~0130과 이미 적용한0131 재실행은 기존 원장을 따른다.
 
 ## 실행 순서와 증거
 
 1. subscription·Single revision·immutable baseline·ready 상태·공개 `200/401/401`·Manual job과 실행 중복을 확인한다.
 2. frontend, backend 순으로 active revision을 deactivate하고 모든 revision의 replica가 0인지 확인한다. 단순 scale-to-zero를 사용하지 않는다. Azure는 SIGTERM 이후 제한 시간 내 종료되지 않는 컨테이너를 강제 종료할 수 있으므로 replica 0은 provider 처리의 성공을 보장하지 않는다.
-3. 양 앱 replica 0 확인 후 필수 drain helper를 실행한다. nonzero면 migration image update/start를 하지 않고 구 revision을 복구한다. 성공 시에만 기존 migration job의 image를 교체하고 단일 execution의 결과를 추적한다. 시작 요청 직전에 migration 경계를 기록한다. start 응답이 불확정해도 자동 재실행하지 않는다.
+3. 양 앱 replica 0 확인 후 기존 migration Job을 새 image의 읽기 전용 종료 확인 모드로 DIRECTORY→CHEONGJU→OSAN 한 번씩 실행한다. 모두 Succeeded인 경우에만 구조 변경으로 진행한다. 실패·시간 초과·시작/조회 응답 불명확 시 migration을 실행하지 않고 구 revision을 복구한다. 이 최초 도입 검사에서는 점검 표가 없거나 Idle/Completed인 경우만 허용한다. 이후 D/C/O migration도 각각 한 execution씩 실행하며, 첫 변경 실행 요청 직전에 경계를 기록한다. 응답이 불확정해도 자동 재실행하지 않는다.
 4. 새 digest의 유지보수 prepare/activate를 실행한다. 영구 공지는 중단 중 생성되어 재개 시 조회된다. 일반 공지 팝업은 켜지 않는다.
 5. Backend, Frontend image만 교체하고 각각 exact ready revision을 확인한다. Frontend 교체 시 조회·로그인은 재개될 수 있으며 저장은 유지보수 gate가 막는다. 공개 보안 smoke 후 complete가 exact ledger를 검사하고 저장을 재개한다.
 6. 출력된 private 임시 폴더의 `baseline.json`과 `events.jsonl`로 실행 SHA·이전 image/revision·job execution을 확인한다. baseline은 secret 값 없이 secretRef만 보존한다. 실행별 유지보수 payload는 성공·실패 모두 즉시 제거한다. 증거 폴더는 자동 삭제하지 않으며 필요 기간 보관 후 소유자가 정리한다.
@@ -49,3 +51,13 @@ Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTempl
 - 최종 성공 후 두 사업장의 공지 내용과 완료 상태, 사용자 로그인·관련 화면을 확인하고 실제 중단·재개 시각 및 남은 검수를 Task에 기록한다.
 
 관련 원칙: [배포 SOP](../../tasks/azure-deploy-001-sop.md), [Azure 종료 수명주기](https://learn.microsoft.com/en-us/azure/container-apps/application-lifecycle-management).
+
+## 구조 분리 이후 일반 release 연결
+
+일반 수동 workflow의 `approve_business_schema_separation`는 기본 false다. 청주27표/projects7열, 오산153표/projects24열/알림3열의 확정0131 제거를 실행할 때에만 별도 운영 승인 범위에 맞춰 선택한다. 이 선택은 이미지 게시·운영 배포 승인과 별개이며 로컬 코드 구현 승인이 실제 운영 실행 승인을 대체하지 않는다.
+
+일반 release는 양 사업부 점검을 같은 release ID로 활성화한 뒤 양 앱의 모든 revision/replica를 멈춘다. 동일한 읽기 전용 CLI를 D/C/O별로 실행하되 `DeploymentDrain__RequireMaintenance=true`로 두 업무 DB의 해당 release 상태가 Active/Delayed인지 확인한다. Directory는 업무용 점검 표를 조회하지 않는다. 최초 도입만 false를 사용한다. 검사 통과 뒤 명시 대상별 역할 준비/구조 변경을 진행한다. DB 변경 시작 이후에는 구 image를 자동 재기동하지 않고 중단 상태에서 승인된 보정을 결정한다. Job 결과가 불명확하면 기존 execution부터 확인하며 무조건 재실행하지 않는다.
+
+종료 검사는 해당 시점의 DB 상태를 확인한다. 외부 메일/EC 서비스에서 실제 처리가 끝났다고 단정하거나 진행 중 작업의 성공/실패를 추측하지 않는다. 불명확한 발송 시도 기록이 남으면 관리자 확인·목록 제외 또는 다음 재시도의 성공 여부와 무관하게 차단한다. 이런 기록은 외부 처리 결과 확인과 별도 정정 판단이 필요하며, 이번 구현에는 자동 해소·운영 이력 수정 기능이 없다. 실제 시험 발송이나 임의 reset을 하지 않는다. 검사와 migration 사이 새 접속을 막는 운영 통제도 유지한다.
+
+구현 근거: [Azure Container Apps Job 실행별 template override](https://learn.microsoft.com/en-us/azure/container-apps/jobs#start-a-job-execution-on-demand), [PostgreSQL 트랜잭션 한정 set_config](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-SET).

@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.G2;
 
-public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectionStringProvider, TimeProvider timeProvider)
+public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider, TimeProvider timeProvider)
 {
     private const int AdvisoryLockNamespace = 0x4732;
     private const int MetricsWriteLockKey = int.MinValue;

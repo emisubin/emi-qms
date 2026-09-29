@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class NotificationPreferenceAuditStore(
-    DatabaseConnectionStringProvider connectionStringProvider)
+    CheongjuDatabase connectionStringProvider)
 {
     private const string FilterPredicate = """
         event.occurred_at_utc >= @from_utc

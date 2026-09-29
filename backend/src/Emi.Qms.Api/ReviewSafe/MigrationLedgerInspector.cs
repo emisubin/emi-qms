@@ -24,14 +24,37 @@ public sealed partial class MigrationLedgerInspector(DatabaseMigrationCatalog mi
         return migrationCatalog.GetSnapshot();
     }
 
+    public MigrationCatalogSnapshot GetCatalogSnapshot(string businessUnitCode)
+    {
+        return migrationCatalog.GetSnapshot(businessUnitCode);
+    }
+
     public async Task<MigrationLedgerInspection> InspectAsync(
         NpgsqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        return await InspectCatalogAsync(connection, businessUnitCode: null, cancellationToken);
+    }
+
+    public async Task<MigrationLedgerInspection> InspectAsync(
+        NpgsqlConnection connection,
+        string businessUnitCode,
+        CancellationToken cancellationToken)
+    {
+        return await InspectCatalogAsync(connection, businessUnitCode, cancellationToken);
+    }
+
+    private async Task<MigrationLedgerInspection> InspectCatalogAsync(
+        NpgsqlConnection connection,
+        string? businessUnitCode,
         CancellationToken cancellationToken)
     {
         MigrationCatalogSnapshot catalog;
         try
         {
-            catalog = migrationCatalog.GetSnapshot();
+            catalog = businessUnitCode is null
+                ? migrationCatalog.GetSnapshot()
+                : migrationCatalog.GetSnapshot(businessUnitCode);
         }
         catch (MigrationCatalogException exception)
         {

@@ -27,6 +27,7 @@ test('three databases designate multiple overall administrators, keep tab contex
   await cheongjuPage.goto('/admin/business-unit-access');
   await expect(cheongjuPage.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
   await cheongjuPage.waitForLoadState('networkidle');
+  await expect(cheongjuPage.getByRole('alert').filter({ hasText: '실행 모드를 확인할 수 없어' })).toHaveCount(0);
   const pendingRow = cheongjuPage.getByRole('row').filter({ hasText: 'Synthetic Cheongju Approval' });
   await expect(pendingRow).toBeVisible();
   await expect(pendingRow.getByText('review-cheongju@example.invalid')).toBeVisible();
@@ -44,6 +45,7 @@ test('three databases designate multiple overall administrators, keep tab contex
   const cheongjuMembership = pendingRow.getByRole('checkbox', { name: 'Synthetic Cheongju Approval 활성 상태' });
   const saveMembership = pendingRow.getByRole('button', { name: '승인' });
   await expect(cheongjuMembership).not.toBeChecked();
+  await expect(cheongjuMembership).toBeEnabled();
   await cheongjuMembership.check();
   await pendingRow.getByRole('combobox', { name: 'Synthetic Cheongju Approval 부서' })
     .selectOption('10000000-0000-0000-0000-000000000005');

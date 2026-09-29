@@ -17,7 +17,7 @@ public static class OsanProjectEndpointExtensions
     {
         app.MapGet("/api/osan/dashboard", async (
             HttpRequest request,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             TimeProvider timeProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
@@ -54,7 +54,7 @@ public static class OsanProjectEndpointExtensions
 
         api.MapGet("/import/template", (
             OsanProjectStore store,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user) =>
         {
             var denied = GuardImportAccess(connectionStringProvider, user);
@@ -69,7 +69,7 @@ public static class OsanProjectEndpointExtensions
         api.MapPost("/import/preview", async (
             HttpRequest request,
             OsanProjectStore store,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -100,7 +100,7 @@ public static class OsanProjectEndpointExtensions
         api.MapPost("/import/apply", async (
             HttpRequest request,
             OsanProjectStore store,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -191,7 +191,7 @@ public static class OsanProjectEndpointExtensions
 
         api.MapGet("", async (
             OsanProjectStore store,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -216,7 +216,7 @@ public static class OsanProjectEndpointExtensions
         api.MapGet("/{projectId:guid}", async (
             Guid projectId,
             OsanProjectStore store,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -252,7 +252,7 @@ public static class OsanProjectEndpointExtensions
             Guid targetId,
             string? format,
             OsanProjectStore projectStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             QrScanUrlBuilder scanUrlBuilder,
             PanelQrRenderer renderer,
             ClaimsPrincipal user,
@@ -293,7 +293,7 @@ public static class OsanProjectEndpointExtensions
         api.MapPost("", async (
             CreateOsanProjectRequest request,
             OsanProjectStore store,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -431,7 +431,7 @@ public static class OsanProjectEndpointExtensions
         return value;
     }
 
-    internal static async Task<IResult> GetPersonalHomeAsync(DatabaseConnectionStringProvider db,
+    internal static async Task<IResult> GetPersonalHomeAsync(OsanDatabase db,
         TimeProvider clock, ClaimsPrincipal user, CancellationToken ct)
     {
         if (!IsSelectedOsan(db)) return BusinessUnitDenied();
@@ -442,7 +442,7 @@ public static class OsanProjectEndpointExtensions
             actor.Value, ProjectEndpointExtensions.GetProjectAccessScope(user), ct));
     }
 
-    private static bool IsSelectedOsan(DatabaseConnectionStringProvider connectionStringProvider) =>
+    private static bool IsSelectedOsan(OsanDatabase connectionStringProvider) =>
         string.Equals(
             connectionStringProvider.GetCurrentBusinessUnit()?.Code,
             BusinessUnitCodes.Osan,
@@ -460,7 +460,7 @@ public static class OsanProjectEndpointExtensions
         statusCode: StatusCodes.Status403Forbidden);
 
     private static IResult? GuardImportAccess(
-        DatabaseConnectionStringProvider connectionStringProvider,
+        OsanDatabase connectionStringProvider,
         ClaimsPrincipal user)
     {
         if (!IsSelectedOsan(connectionStringProvider))

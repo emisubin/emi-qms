@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,7 +14,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Manufacturing;
 
 public sealed class ManufacturingStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     PendingStore pendingStore)
 {
     private const int MaxReleasePanelCount = 500;

@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Emi.Qms.Api.Projects;
 using Npgsql;
@@ -6,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Sales;
 
 public sealed class SalesKpiStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private static readonly TimeZoneInfo SeoulTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");

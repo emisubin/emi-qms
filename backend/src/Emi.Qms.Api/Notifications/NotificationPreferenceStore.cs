@@ -1,9 +1,10 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class NotificationPreferenceStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private readonly record struct PreferenceKey(string DeliveryType, string Channel);

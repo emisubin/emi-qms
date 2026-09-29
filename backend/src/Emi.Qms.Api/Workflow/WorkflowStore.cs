@@ -1,9 +1,10 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Notifications;
 using Npgsql;
 
 namespace Emi.Qms.Api.Workflow;
 
-public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class WorkflowStore(BusinessDatabase connectionStringProvider)
 {
     private static readonly IReadOnlySet<string> ProgressImplicitCompletionStageCodes = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -160,7 +161,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         string? note,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -260,7 +261,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         string? correlationId,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -341,7 +342,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     public async Task<IReadOnlyList<WorkflowStageResponse>> ListStagesAsync(CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var command = dataSource.CreateCommand("""
             select stage_code, sequence_number, department_code, stage_name, is_optional, is_active
             from workflow_stages
@@ -368,7 +369,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     public async Task<ProjectWorkflowResponse?> GetProjectWorkflowAsync(Guid projectId, CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
         await using var projectCommand = connection.CreateCommand();
@@ -544,7 +545,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     public async Task<MyWorkSummaryResponse> GetMyWorkSummaryAsync(Guid userId, CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var command = dataSource.CreateCommand("""
             select
                 count(*) filter (where status = 'Requested'),
@@ -595,7 +596,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         int? rowLimit,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         var statusFilter = NormalizeWorkStatusFilter(status);
         await using var command = dataSource.CreateCommand($"""
             select
@@ -702,7 +703,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     public async Task<MyAssignedProjectsResponse> GetMyAssignedProjectsAsync(Guid userId, CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var command = dataSource.CreateCommand("""
             select
                 p.id,
@@ -788,7 +789,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private async Task MarkStageWorkItemsStartedAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await MarkStageWorkItemsStartedAsync(connection, null, projectId, stageCode, cancellationToken);
     }
@@ -816,7 +817,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         Guid actorUserId,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await MarkStageWorkItemsCompletedAsync(connection, transaction, projectId, stageCode, actorUserId, cancellationToken);
@@ -856,7 +857,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private async Task<bool> HasCompletedStageEventAsync(Guid projectId, string stageCode, CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var command = dataSource.CreateCommand("""
             select exists (
                 select 1
@@ -912,11 +913,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
                 n.project_id,
                 p.project_title,
                 p.project_code,
-                p.item,
-                n.work_item_id,
-                wi.title,
-                wi.workflow_stage_code,
-                ws.stage_name,
+                {NotificationBusinessColumns},
                 n.notification_type,
                 n.severity,
                 n.visibility_scope,
@@ -930,8 +927,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             left join notification_recipients nr on nr.notification_id = n.id
                 and nr.user_id = @user_id
             left join projects p on p.id = n.project_id
-            left join work_items wi on wi.id = n.work_item_id
-            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
+            {NotificationBusinessJoins}
             where exists (
                     select 1
                     from qms_users u
@@ -962,17 +958,13 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         CancellationToken cancellationToken)
     {
         await using var dataSource = CreateDataSource();
-        await using var command = dataSource.CreateCommand("""
+        await using var command = dataSource.CreateCommand($"""
             select
                 n.id,
                 n.project_id,
                 p.project_title,
                 p.project_code,
-                p.item,
-                n.work_item_id,
-                wi.title,
-                wi.workflow_stage_code,
-                ws.stage_name,
+                {NotificationBusinessColumns},
                 n.notification_type,
                 n.severity,
                 n.visibility_scope,
@@ -993,8 +985,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             left join notification_recipients nr on nr.notification_id = n.id
                 and nr.user_id = @user_id
             left join projects p on p.id = n.project_id
-            left join work_items wi on wi.id = n.work_item_id
-            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
+            {NotificationBusinessJoins}
             where n.id = @notification_id;
             """);
         command.Parameters.AddWithValue("notification_id", notificationId);
@@ -1188,7 +1179,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         string action,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         string? fallbackGroupKey = null;
@@ -1329,7 +1320,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
 
     private async Task<MyWorkItemResponse?> ReadAssignedWorkItemAsync(Guid workItemId, Guid userId, CancellationToken cancellationToken)
     {
-        await using var dataSource = CreateDataSource();
+        await using var dataSource = CreateCheongjuDataSource();
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadAssignedWorkItemAsync(connection, workItemId, userId, cancellationToken);
     }
@@ -2422,24 +2413,20 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
         }
     }
 
-    private static async Task<NotificationResponse?> ReadNotificationAsync(
+    private async Task<NotificationResponse?> ReadNotificationAsync(
         NpgsqlConnection connection,
         Guid notificationId,
         Guid userId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             select
                 n.id,
                 n.project_id,
                 p.project_title,
                 p.project_code,
-                p.item,
-                n.work_item_id,
-                wi.title,
-                wi.workflow_stage_code,
-                ws.stage_name,
+                {NotificationBusinessColumns},
                 n.notification_type,
                 n.severity,
                 n.visibility_scope,
@@ -2453,8 +2440,7 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             left join notification_recipients nr on nr.notification_id = n.id
                 and nr.user_id = @user_id
             left join projects p on p.id = n.project_id
-            left join work_items wi on wi.id = n.work_item_id
-            left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code
+            {NotificationBusinessJoins}
             where n.id = @notification_id
               and (nr.id is not null or n.visibility_scope = 'Authenticated');
             """;
@@ -3066,6 +3052,22 @@ public sealed class WorkflowStore(DatabaseConnectionStringProvider connectionStr
             "PendingAction" => "Pending 조치",
             _ => responsibilityType
         };
+    }
+
+    // Preserve the shared response shape without referring to Cheongju-only columns/tables.
+    private string NotificationBusinessColumns => connectionStringProvider.IsOsan
+        ? "''::text, null::uuid, null::text, null::text, null::text"
+        : "p.item, n.work_item_id, wi.title, wi.workflow_stage_code, ws.stage_name";
+
+    private string NotificationBusinessJoins => connectionStringProvider.IsOsan
+        ? ""
+        : "left join work_items wi on wi.id = n.work_item_id left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code";
+
+    private NpgsqlDataSource CreateCheongjuDataSource()
+    {
+        if (connectionStringProvider.IsOsan)
+            throw new InvalidOperationException("Cheongju workflow is unavailable in the Osan module.");
+        return CreateDataSource();
     }
 
     private NpgsqlDataSource CreateDataSource()

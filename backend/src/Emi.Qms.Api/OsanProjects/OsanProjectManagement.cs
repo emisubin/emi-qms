@@ -26,7 +26,7 @@ public sealed partial class OsanProjectStore
         command.Transaction = tx;
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("actor", actor);
-        command.CommandText = "select id from projects where id=@id and project_profile='Osan' and deleted_at_utc is null for update";
+        command.CommandText = "select id from projects where id=@id and deleted_at_utc is null for update";
         if (await command.ExecuteScalarAsync(ct) is null) return new(404);
         var current = await ReadDetailAsync(connection, tx, id, ct);
         if (current is null) return new(404);

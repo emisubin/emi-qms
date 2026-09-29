@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -6,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Admin;
 
 public sealed class MaterialCategoryStore(
-    DatabaseConnectionStringProvider connectionStringProvider)
+    CheongjuDatabase connectionStringProvider)
 {
     public async Task<MaterialCategoryCatalogResponse> ListAsync(
         Guid userId,

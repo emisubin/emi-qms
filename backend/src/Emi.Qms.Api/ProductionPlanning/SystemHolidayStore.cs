@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Globalization;
 using System.Xml.Linq;
 using Emi.Qms.Api.Calendar;
@@ -7,7 +8,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.ProductionPlanning;
 
 public sealed class SystemHolidayStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     IKoreanHolidayProvider koreanHolidayProvider,
     TimeProvider timeProvider)
 {

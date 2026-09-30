@@ -2,6 +2,8 @@
 
 > 최신 작업(2026-09-30 기준정보 정리): **오산 권한28개·미사용 역할1개 정리의 로컬 구현과 추가 전체 검증 완료(GO), 운영 전환은 보류(NO-GO)**. 유지 권한7개와 기존 역할 연결·사용자 배정·업무/감사 데이터를 보존하며, 모르는 정의나 사용 중인 삭제 대상 역할은 전환을 중단한다. Backend 전체1032건의 초기 실패25건과 skip92건을 각각 보정 재검증/전용 DB 검사로 해소했고 일반 browser64건의 초기 실패5건도 보정 후 통과했다. 운영은 마지막 조회 C209/O209/D8이고 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 보낸편지함 일치 기록0건까지 확인했으나 미발송 확정은 아니다. Backend1개·자원량을 유지했고 운영/메일 변경·원격 게시·배포는 하지 않았다. 과거 승인 대기 상태는 최신 사용자 승인으로 해소됐으며 최종 근거와 남은 범위는 마지막 절을 따른다.
 
+> 후속 최종 점검(2026-09-30): HEAD `9a86513`에서 표·권한·역할 및 요청 경계를 다시 대조했다. 새로 발견한 청주 부스바 worker2개의 exact ledger 검사 누락(P1)과 배포 승인 범위 설명 누락(P2)을 로컬 보정·독립 검토했다. 최종 backend 집중53/53, 부스바 관련 회귀35/35, frontend 요청 경계23/23 PASS다. 아래 최신 절이 후속 상태를 소유하며, 운영 전환 NO-GO는 유지한다.
+
 ## 상태
 
 - instructionChainRead: `true`
@@ -577,3 +579,16 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - 전체 검사 종료 뒤 이번 실행 소유 backend/browser/busbar/image 임시 환경이 정리됐음을 확인했다. 기존 `emi-qms-e2e-osan20260924` 컨테이너와 원본 checkout의 WIP는 유지했다. 변경16파일만 기존 `codex/business-schema-separation`의 로컬 commit 범위이며 push·PR·merge·배포는 하지 않는다.
 - 운영 전환 NO-GO는 유지한다. 별도 운영 판단이 필요한 불명확 발송1건의 처리 결과/근거, 복구 준비·적용 창 점검, 사용자 검수 및 원격 required CI/실제 게시 경로 검증이 남아 있다. 이번 승인을 운영 DB 실행이나 발송/상태 정정 승인으로 확대하지 않았다.
 - 따라서 현재 운영에 남은 C209/O209/D8 표나 기존 오산 권한 정의가 사라졌다고 표현하지 않는다. C182/O56/D8 및 O7권한/기본10역할은 검증된 전환 목표다. 앱 수·Azure 자원량·비용 구성은 변경하지 않았다.
+
+### 최종 전수 점검과 발견 사항 보정 — 2026-09-30
+
+- 사용자 요청: “좋아. 마지막으로 최종 점검 한번 해봐. 하나하나 꼼꼼하게”. 기존 branch의 clean HEAD `9a86513`을 기준으로 확정 목록·누적 구현·기존 검증 증거를 대조하고, 발견한 결함의 범위 내 로컬 보정과 합성 검증을 이어간다. 운영 DB·실제 provider·메일 상태·원격 게시·배포는 변경하지 않는다.
+- 표 소유 전수 대조: 문서에서209개 이름을 독립 추출해 양0131의 최종 목록과 비교했다. C182/O56, 양쪽 독립29/C전용153/O전용27이 정확히 일치한다. 삭제 C27표는 빈표23/초기값검사4, O153표는 빈표134/초기값검사19로 모두 사전 데이터 검사가 있다. common0001..0130·Directory migrations·Azure workload 자원 정의는 기존 배포 기준 `02028f2` 대비 변경0이다.
+- `final_schema_audit`은 새 맥락에서 표/열/함수/sequence·권한35→7·기본역할11→10·보존 snapshot·transaction/rollback·seed 반복·실제 기존 로그를 독립 확인하여 해당 범위 GO를 반환했다. `review_db_tunnel`은 기존 작성과 분리된 맥락에서 FE→route/capability→고정 DB, 공통관리 lease, 알림/파일/출력/worker·migration 경계를 재검토했다. 요청 모델은 신규 reviewer `gpt-6-astra/high`, 도구가 실제 모델을 반환하지 않아 관측값은 NOT_REPORTED다.
+- **FINAL-P1-01 / 해소:** 청주 `InteriorBusbarEcountWorker`와 `InteriorBusbarPublicationWorker`는 identity만 확인하여 정상 marker·Idle 상태에서0131 미적용/원장 불일치여도 외부 처리와 DB 변경을 시작할 수 있었다. HTTP 및 일반 알림/에스컬레이션/삭제의 boundary 검사는 유지되어 있고 이 finding에 포함하지 않는다. 두 worker에 필수 validator를 주입하고, enabled 확인→청주 maintenance lease→multiDB exact identity/ledger 확인→기존 업무 connection/mutex/첫 변경/provider 순서로 보정했다. legacy·disabled 동작을 보존한다. 실제 C/O/D 합성 fixture의 pending 작업으로 missing/extra ledger×두 worker를 각각 실행해 provider 인증/전송/게시0과 C/O 업무 snapshot 불변을 확인했다. 정상 경우 인증·전송·게시 각1회, 청주 완료 상태와 오산 불변을 확인했다.
+- **FINAL-P2-01 / 해소:** 배포 workflow의0131 승인 설명에 최신 오산 권한28개·해당 역할 연결·미사용 역할1개와 불필요 객체 정리가 빠져 있었다. workflow 설명과 database/Azure README·최초 전환 안내를 실제 삭제 범위와 맞췄다. 실행 gate·기본 false·운영 승인 범위는 바꾸지 않았고, 작성과 분리된 `final_schema_audit` 검토 GO 및 actionlint·diff 검사 PASS다.
+- 보정 전 기준선의 이번 집중 실행: backend48/48 PASS(표/보존/rollback/권한/점검 경쟁/3-DB/외부 작업 drain), frontend3파일23/23 PASS(고정 URL·사업부 전환·늦은 응답·알림 링크). 두 worker ledger 누락은 기존48개가 잡지 못한 새 반례로 구분한다. 로그는 `/private/tmp/business-schema-last-audit-backend.log`, `/private/tmp/business-schema-last-audit-frontend-complete.log`이며 임시 DB/Compose cleanup 정상 종료를 확인했다. 첫 backend 시도는 sandbox의 Docker socket 접근 제한으로 실행 전 실패했고 정상 escalation 허용 후 재실행했다. 첫 frontend 선택은 실제1파일3건만 실행되어 정확한3파일을 지정한23건으로 보충했다.
+- 결함 재현: 제품 보정 전 `/private/tmp/business-schema-last-workers-red-complete.log`에서 거부 반례4개가 모두 예외를 발생시키지 않아 FAIL, 정상1개 PASS, skip0이었다. 첫 예비 RED는 Ecount2반례를 재현했으나 정상 fixture의 등록자 표시명이30자를 넘어 전송이 보류됐다. 합성 이름만 기존 업무 계약에 맞게 보정하고, 두 worker를 독립 반례로 나눠 최종 RED5개를 실행했다. 제품 이름 제한·업무 기대값을 완화하지 않았다.
+- 보정 후 최종 집중 검사: `/private/tmp/business-schema-last-audit-backend-fixed.log` **53/53 PASS, skip0, 1분33초**. 새 worker5개와 기존48개를 같은 최종 빌드로 확인했다. 별도 disposable `busbar_test`를 준비하여 같은 빌드의 EcountWorker/Publication/Lifecycle3클래스는 `/private/tmp/business-schema-last-worker-regression.log` **35/35 PASS, skip0**다. 외부 provider는 fake만 사용했고 두 실행의 소유 DB/container/network cleanup이 exit0으로 완료됐다.
+- 독립 보정 검토: `review_db_tunnel`이 제품2파일·기존 ctor 시험3파일·신규 worker 경계시험1파일을 검토하여 GO, 추가 P1/P2 없음으로 판정했다. 기존 검사에 포함되지 않았던 두 worker의 거부/허용 분기를 실제 실행한 증거와 일치한다. P2 설명4파일은 별도 신규 reviewer가 확인했다. 최종 actionlint·diff 검사 PASS다.
+- 최종 범위: 이번 변경은 기존 branch의 로컬11파일이다. DB schema·권한 목록·앱 수·Azure 자원량은 추가 변경하지 않았다. 전체 backend/frontend/browser suite와 배포용 이미지의 이전 실행 기록은 위 절에 보존하며, 이번에 전체 회귀나 새 image 게시 검증을 다시 실행했다고 표현하지 않는다. 남은 운영 전환 조건은 불명확 발송1건 처리 근거, 복구/적용 창, 사용자 검수, 최종 source의 원격 required CI·게시/이미지 검증 및 명시 운영 승인이다. 원본 checkout WIP·기존 runtime·운영 DB·메일 상태·push/PR/merge/배포는 변경하지 않았다.

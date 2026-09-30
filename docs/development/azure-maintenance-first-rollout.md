@@ -54,7 +54,7 @@ Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTempl
 
 ## 구조 분리 이후 일반 release 연결
 
-일반 수동 workflow의 `approve_business_schema_separation`는 기본 false다. 청주27표/projects7열, 오산153표/projects24열/알림3열의 확정0131 제거를 실행할 때에만 별도 운영 승인 범위에 맞춰 선택한다. 이 선택은 이미지 게시·운영 배포 승인과 별개이며 로컬 코드 구현 승인이 실제 운영 실행 승인을 대체하지 않는다.
+일반 수동 workflow의 `approve_business_schema_separation`는 기본 false다. [확정0131 정리 범위](../../database/README.md#cheongjuosan-database-isolation)에 따라 청주27표/projects7열, 오산153표/projects24열/알림3열과 불필요 함수·연결·오산 독립 sequence2개, 오산 권한28개·해당 역할 연결·미사용 부스바 역할1개 제거를 실행할 때에만 별도 운영 승인 범위에 맞춰 선택한다. 이 선택은 이미지 게시·운영 배포 승인과 별개이며 로컬 코드 구현 승인이 실제 운영 실행 승인을 대체하지 않는다.
 
 일반 release는 양 사업부 점검을 같은 release ID로 활성화한 뒤 양 앱의 모든 revision/replica를 멈춘다. 동일한 읽기 전용 CLI를 D/C/O별로 실행하되 `DeploymentDrain__RequireMaintenance=true`로 두 업무 DB의 해당 release 상태가 Active/Delayed인지 확인한다. Directory는 업무용 점검 표를 조회하지 않는다. 최초 도입만 false를 사용한다. 검사 통과 뒤 명시 대상별 역할 준비/구조 변경을 진행한다. DB 변경 시작 이후에는 구 image를 자동 재기동하지 않고 중단 상태에서 승인된 보정을 결정한다. Job 결과가 불명확하면 기존 execution부터 확인하며 무조건 재실행하지 않는다.
 

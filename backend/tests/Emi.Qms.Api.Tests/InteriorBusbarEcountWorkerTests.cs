@@ -16,7 +16,10 @@ public sealed class InteriorBusbarEcountWorkerTests
         ["InteriorBusbar:Ecount:ApiKey"] = "synthetic-not-a-real-key", ["InteriorBusbar:Ecount:SessionIdleMinutes"] = "30"
     }).Build());
     private static DatabaseConnectionStringProvider Connections(string? connection) => new(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{["ConnectionStrings:QmsDatabase"]=connection}).Build());
-    private static InteriorBusbarEcountWorker Worker(InteriorBusbarStoreTests.Fixture f, FakeClient client, InteriorBusbarEcountOptions? options = null) => new(Connections(f.Connection),options??Options(),client,f.Clock,NullLogger<InteriorBusbarEcountWorker>.Instance);
+    private static BusinessUnitDatabaseBoundaryValidator Boundary(string? connection) =>
+        BusinessUnitIsolationTests.CreateWorkerBoundaryValidator(new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string,string?> { ["ConnectionStrings:QmsDatabase"] = connection }).Build());
+    private static InteriorBusbarEcountWorker Worker(InteriorBusbarStoreTests.Fixture f, FakeClient client, InteriorBusbarEcountOptions? options = null) => new(Connections(f.Connection),Boundary(f.Connection),options??Options(),client,f.Clock,NullLogger<InteriorBusbarEcountWorker>.Instance);
     private static async Task Identity(InteriorBusbarStoreTests.Fixture f, string code = "CHEONGJU")
     {
         await using var connection = new NpgsqlConnection(f.Connection);
@@ -35,7 +38,7 @@ public sealed class InteriorBusbarEcountWorkerTests
     public async Task DisabledDoesNotOpenDatabaseOrCallProvider()
     {
         var client = new FakeClient();
-        using var worker = new InteriorBusbarEcountWorker(Connections(null),Options(enabled:false),client,TimeProvider.System,NullLogger<InteriorBusbarEcountWorker>.Instance);
+        using var worker = new InteriorBusbarEcountWorker(Connections(null),Boundary(null),Options(enabled:false),client,TimeProvider.System,NullLogger<InteriorBusbarEcountWorker>.Instance);
         Assert.False(await worker.RunOnceAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0,client.Logins); Assert.Equal(0,client.Sends);
     }
@@ -102,7 +105,7 @@ public sealed class InteriorBusbarEcountWorkerTests
     public async Task ResumeIsRejectedDuringAuthenticationAndConcurrentWorkerDoesNotLogin()
     {
         await using var f=await InteriorBusbarStoreTests.Fixture.Create();await Identity(f);await Project(f);
-        var client=new BlockingClient();using var first=new InteriorBusbarEcountWorker(Connections(f.Connection),Options(),client,f.Clock,NullLogger<InteriorBusbarEcountWorker>.Instance);
+        var client=new BlockingClient();using var first=new InteriorBusbarEcountWorker(Connections(f.Connection),Boundary(f.Connection),Options(),client,f.Clock,NullLogger<InteriorBusbarEcountWorker>.Instance);
         var running=first.RunOnceAsync(TestContext.Current.CancellationToken);
         await client.Started.Task.WaitAsync(TimeSpan.FromSeconds(10),TestContext.Current.CancellationToken);
         try
@@ -142,7 +145,7 @@ public sealed class InteriorBusbarEcountWorkerTests
         await using var f=await InteriorBusbarStoreTests.Fixture.Create();await Identity(f);await Project(f);
         using var handler=new WireHandler();using var http=new HttpClient(handler);
         var adapter=new InteriorBusbarEcountClient(Options(),f.Clock,http);
-        using var worker=new InteriorBusbarEcountWorker(Connections(f.Connection),Options(),adapter,f.Clock,NullLogger<InteriorBusbarEcountWorker>.Instance);
+        using var worker=new InteriorBusbarEcountWorker(Connections(f.Connection),Boundary(f.Connection),Options(),adapter,f.Clock,NullLogger<InteriorBusbarEcountWorker>.Instance);
         Assert.True(await worker.RunOnceAsync(TestContext.Current.CancellationToken));
         Assert.Equal(3,handler.Requests);
         Assert.Equal(1,await f.Scalar("select count(*) from busbar_ecount_jobs where state='Succeeded'"));

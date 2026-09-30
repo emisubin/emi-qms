@@ -193,7 +193,8 @@ public sealed class AzureInteriorBusbarPublicationSink : IInteriorBusbarPublicat
 }
 
 public sealed class InteriorBusbarPublicationWorker(
-    CheongjuDatabase connections, InteriorBusbarPublicationOptions options,
+    CheongjuDatabase connections, BusinessUnitDatabaseBoundaryValidator boundaryValidator,
+    InteriorBusbarPublicationOptions options,
     IInteriorBusbarPublicationSink sink, ILogger<InteriorBusbarPublicationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -216,6 +217,8 @@ public sealed class InteriorBusbarPublicationWorker(
         await using var maintenanceLease = await Emi.Qms.Api.DeploymentMaintenance.DeploymentMaintenanceLease.AcquireAsync(
             connections, [target], cancellationToken);
         if (maintenanceLease is null) return false;
+        if (connections.BusinessUnits.Enabled)
+            await boundaryValidator.ValidateAsync(target, cancellationToken);
         await using var connection = new NpgsqlConnection(connections.GetConnectionString(target));
         await connection.OpenAsync(cancellationToken);
         if (connections.BusinessUnits.Enabled && !await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken))

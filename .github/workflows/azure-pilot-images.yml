@@ -23,7 +23,7 @@ on:
         default: false
         type: boolean
       approve_business_schema_separation:
-        description: Approve C/O 0131 only (Cheongju 27 tables and 7 project columns; Osan 153 tables, 24 project columns and 3 notification columns)
+        description: Approve C/O 0131 table, column and dependent-object cleanup plus Osan 28 permissions, their role links and 1 unused role; see database/README.md
         required: true
         default: false
         type: boolean

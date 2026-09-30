@@ -99,7 +99,7 @@ Foundation과 ACR이 실제로 생성되고 비용 실행을 결정한 뒤에만
 5. ACR image 두 개가 게시되어 비용이 발생할 수 있음을 확인하는 checkbox를 선택한다.
 6. Migration 실행과 운영 Backend·Frontend revision 교체를 승인하는 checkbox를 선택한다.
 7. bootstrap/backfill은 이번 실행에 실제로 필요한 경우에만 선택한다. `database_prepare_only=true`인 migration release는 거부된다. 기존 앱이 계속 동작하는 동안 축소 migration을 적용하는 준비 run은 사용하지 않는다.
-8. C/O 0131을 처음 적용하는 승인된 전환에만 `approve_business_schema_separation=true`를 선택한다. Directory·bootstrap·drain은 이 승인을 받지 않으며 영구 template에 승인값을 저장하지 않는다.
+8. C/O 0131을 처음 적용하는 승인된 전환에만 `approve_business_schema_separation=true`를 선택한다. [0131 정리 범위](../../database/README.md#cheongjuosan-database-isolation)의 표·열·불필요 객체와 오산 권한28개·해당 역할 연결·미사용 역할1개 제거까지 운영 승인이 포함하는지 확인한다. Directory·bootstrap·drain은 이 승인을 받지 않으며 영구 template에 승인값을 저장하지 않는다.
 9. 점검 release ID·공지·시작/종료 시각을 지정하고, 완료된 Summary의 image digest·migration·양쪽 app 및 별도 C/O 업무 검증을 확인한다. 최초 maintenance CLI 연결은 [최초 전환 runbook](../../docs/development/azure-maintenance-first-rollout.md)을 따른다.
 
 Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. Backend는 linux/amd64 OCI archive를 한 번 빌드하고, 원본 archive의 config/layer hash와 로컬 Docker image ID를 대조한 뒤 실제 packaged CLI의 catalog·fresh/upgrade·drain 합성 검증을 수행한다. 통과한 동일 archive만 원본 digest·SBOM·provenance를 유지하여 게시한다. 재빌드하지 않으며 게시된 digest가 검증한 root digest와 다르면 배포로 진행하지 않는다. Frontend도 SHA tag와 고정 digest를 사용하고 mutable latest tag는 만들지 않는다.
@@ -223,7 +223,7 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 6. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
 7. `activateWorkloads=false`, `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `enableExternalNotifications=false`로 workload와 세 manual job을 배치한다.
 8. `database-role-bootstrap` job의 실행별 `Database__BootstrapTarget`을 DIRECTORY/CHEONGJU/OSAN으로 지정해 각각 역할과 권한 probe를 확인한다.
-9. migration job의 실행별 `Database__MigrationTarget`을 DIRECTORY/CHEONGJU/OSAN으로 지정하고 각각 exact catalog와 runtime 권한을 확인한다. C/O0131 최초 적용의 구조 축소 승인은 해당 실행에만 명시한다.
+9. migration job의 실행별 `Database__MigrationTarget`을 DIRECTORY/CHEONGJU/OSAN으로 지정하고 각각 exact catalog와 runtime 권한을 확인한다. C/O0131 최초 적용의 [구조·오산 권한/역할 정리 승인](../../database/README.md#cheongjuosan-database-isolation)은 해당 실행에만 명시한다.
 10. PostgreSQL PITR restore rehearsal을 수행하고 1시간 안에 복구·연결·ledger 검증이 되는지 확인한다. 임시 restore server는 사용자 비용 경계에서 정리한다.
 11. 성공 시각을 `restoreVerifiedAtUtc`에 넣고 `configureServingBusinessUnits=true`, `activateWorkloads=true`로 workload를 배치한다. 공통 ready 응답 외에 C/O 각각 준비를 확인한다.
 12. Backend `/health/ready`가 성공한 뒤 edge를 배치하고 DNS TXT/CNAME, managed TLS를 확인한다. 공개 API가 `400`이면 Backend latest revision의 `AllowedHosts`가 public hostname과 exact internal Backend hostname 두 개를 포함하는지 확인한다.

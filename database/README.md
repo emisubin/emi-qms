@@ -16,6 +16,8 @@ Legacy 단일 DB의 Development 환경에서만 `Database:ApplyMigrationsOnStart
 
 `BusinessUnits:Enabled=true`에서는 같은 PostgreSQL 서버에 directory, Cheongju business, Osan business database를 각각 둡니다. Business DB는 변경하지 않는 공통 `migrations/0001..0130` 다음에 자기 `business-migrations/cheongju` 또는 `business-migrations/osan`의 `0131`을 적용합니다. 청주는 public 182표/projects 36열, 오산은 56표/projects 19열을 유지하며 `0086_business_unit_database_identity` marker로 사업장에 결속합니다. Directory는 별도 `directory-migrations/0001..0004`와 public 8표를 사용합니다. Database 이름, 역할, identity marker, exact migration ledger가 일치하지 않으면 요청과 worker가 다른 database로 대체하지 않고 중단합니다.
 
+C/O 0131 실행 승인에는 청주27표·projects7열, 오산153표·projects24열·알림3열 및 해당 사업부에 불필요한 함수·연결·오산 독립 sequence2개의 정리가 포함됩니다. 오산에서는 권한28개와 해당 `role_permissions` 연결, 미사용 `interior-busbar-manager` 역할1개도 제거하여 권한7개·기본역할10개를 남깁니다. 유지 권한의 기존 연결, 사용자 정의 역할과 유지 권한 연결, 모든 사용자 역할 배정·업무·감사·보존 설정은 유지합니다. 예상하지 못한 정의·데이터·의존 관계나 삭제 역할의 배정/권한 연결이 있으면 전환을 중단합니다. 정확한 표·권한 목록은 [확정 소유 목록](../tasks/azure-deploy-001-change-031-table-ownership.md)과 [오산 기준정보 승인·검증 기록](../tasks/azure-deploy-001-change-031.md#오산-기준정보-정리-승인과-추가-전체-검증--2026-09-30)을 따릅니다. 로컬 구현 승인은 이 범위의 운영 실행 승인과 구분합니다.
+
 설정 구조는 `backend/src/Emi.Qms.Api/appsettings.BusinessUnits.example.json`을 따릅니다. 정상 API runtime에는 세 runtime connection만 배포합니다. Migration job에는 세 migration connection을, role bootstrap job에는 runtime, migration, administrator connection을 해당 작업 동안에만 제공합니다. Runtime, migrator 역할은 database별로 모두 달라야 하며 runtime 역할은 다른 사업장 database에 연결할 수 없습니다. Directory runtime은 현재 표에 직접 DML을 수행하지 않으며, 승인된 사용자관리 변경은 제한된 SECURITY DEFINER 함수 계약을 통해 수행합니다. 향후 표의 기본 권한도 runtime 직접 쓰기를 허용하지 않아야 합니다.
 
 신규 환경의 적용 순서는 다음과 같습니다.

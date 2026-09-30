@@ -1,6 +1,6 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
-> 최신 작업(2026-09-30): **운영 구조 전환 보류(NO-GO)**. 사전점검에서 찾은 정상 NULL 검사 오류와 잔존 함수는 로컬0131 및 시험에서 보정했다. 결과 불명확 메일1건은 발생 시각의 서버 종료·재시작 로그까지 확인했으나 실제 발송 결과는 미확정이다. 이번 로컬 보정은 `092db40` 이후 변경이며 실제 운영 변경·원격 게시·배포는 미실행이다. 자세한 검증·남은 일은 문서 마지막 절을 따른다.
+> 최신 작업(2026-09-30 전체 재감사): **정리 미완료·운영 구조 전환 보류(NO-GO)**. `07153a3`까지의 보정을 다시 검사하여 공통 사용자관리의 점검 잠금 우회, Directory의 새 표 기본 쓰기 권한, 오산의 잔존 번호 생성기2개를 합성 DB에서 재현했다. 배포 설정·이미지 자동검증과 사업부별 기준정보 최소화에도 남은 범위가 있다. 운영은 아직 C209/O209/D8이며 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 Gmail 보낸편지함에서 일치 기록0건, 정상 발송 비교10건은 모두 일치했으나 미발송 확정은 아니다. 이번 재감사는 제품·운영·메일을 변경하지 않았으며 자세한 근거는 마지막 절을 따른다.
 
 ## 상태
 
@@ -424,3 +424,65 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - 현재 backend의 SMTP Host 설정 하나만 조회해 `smtp.gmail.com`을 확인했다. 자격증명·주소는 조회하지 않았다. 현재 운영 source의 SMTP adapter는 SMTP 서버의 실제 응답 식별자를 보관하지 않고 성공 시 자체 `smtp-sent` 표식을 반환한다. 해당 파일의 마지막 변경은2026-09-11이나, 과거revision의 정확한 배포 image/source를 이번에 대조한 것은 아니다. 문제 attempt/delivery에는 그 표식도 없다는 기존 DB 조사 결과가 유지된다.
 - **남은 운영 차단:** Gmail 발신 계정의 보낸편지/해당 서비스 발송 기록 등 외부 근거가 필요하다. 이번에 Gmail 계정에 접속하거나 외부 발송 결과를 확인하지 않았다. 기존 Azure/DB 기록만으로 성공·실패를 확정하지 않고 attempt의 상태·이력을 그대로 보존했다. drain의 불명확 발송 차단 조건도 완화하지 않았다. 발송 근거를 확보한 뒤 이력을 어떻게 판정·기록할지 별도로 확정해야 하며, 단순 관리자 확인 표시로 통과한다고 가정하지 않는다.
 - 상태: 코드 결함의 로컬 보정/집중 시험/독립 검토 완료. 운영 전환은 불명확 발송 판정과 기존에 남은 복구 준비·실제 적용 창의 재점검·사용자 검수·원격 검증/명시 승인 후에 가능하다. backend1개 및 비용/자원 구성은 그대로이며 운영 DB/메일/영구 설정 변경은 없다.
+
+### 발송 기록과 사업부 분리 전체 재감사 — 2026-09-30
+
+**범위와 판정**
+
+- 사용자 요청은 발송 기록을 포함하여 프론트엔드→백엔드→사업부 DB, 생성·참조·잔존 객체를 세세히 재검사하는 것이다. 기존 branch `codex/business-schema-separation`, 제품 기준 `07153a3`를 읽었으며 이번에는 제품 구현을 변경하지 않았다. 아래 합성 재현은 운영과 분리된 임시 DB에서만 수행했다.
+- 허용된 구조는 backend1개, 일반 청주 업무→C, 일반 오산 업무→O, 공통 로그인·소속→D, 총괄 사용자관리의 명시적 C/O local profile 변경이다. 공통 관리·상태 점검이 여러 DB를 읽는 것 자체와, 일반 업무가 다른 사업부 DB를 사용하는 오류를 구분했다. 같은 프로세스에 세 접속 정보가 존재한다는 승인된 한계도 그대로다.
+- **완료 판정 불가:** 아래 재현 결함3종과 배포 검증 공백, 기준정보 정리 범위가 남는다. 직전 보정의 집중 시험 통과를 전체 분리 완료로 확대하지 않는다. 추가 운영 변경·발송/재발송·DB 상태 정정·push/PR/merge/배포는 수행하지 않았다.
+
+**운영 DB에서 직접 확인한 사실**
+
+| 항목 | 청주 `emi_qms` | 오산 `emi_qms_osan` | Directory `emi_qms_directory` |
+| --- | ---: | ---: | ---: |
+| 현재 public 표 | 209 | 209 | 8 |
+| 로컬 분리 목표 표 | 182 | 56 | 8 |
+| 현재 view / sequence | 4 / 4 | 4 / 4 | 0 / 0 |
+| 자기 DB runtime CONNECT | 허용 | 허용 | 허용 |
+| 다른 두 업무/Directory DB CONNECT | 모두 거부 | 모두 거부 | 모두 거부 |
+
+- PostgreSQL catalog와 세 runtime 역할을 읽기 전용으로 조회했다. 업무 DB는 위3개뿐이며 나머지 조회된 이름은 `azure_maintenance`, `azure_sys`, `postgres`, `template1`이다. 새 업무 DB가 추가로 생성된 흔적은 없다. `template1`은 catalog의 template 표시도 확인했다. Bicep은 기존 C를 재사용하며 D/O만 생성하고, 제품/migration 코드에서 운영 `CREATE DATABASE` 경로는 찾지 못했다.
+- 세 DB 모두 업무용 schema는 public 하나이고 foreign server0이다. C/O extension은 plpgsql 및 uuid-ossp, D는 plpgsql이다. catalog에 dblink/FDW를 통한 별도 DB 연결은 없다. 이는 애플리케이션 프로세스의 여러 연결 보유와 다른 관찰이다.
+- D의 현재8표는 runtime 직접 INSERT/UPDATE/DELETE 가능 표0개다. 그러나 D migrator의 **default ACL**에는 runtime SELECT와 함께 INSERT/UPDATE/DELETE가 실제로 남아 있다. 현재 표 권한과 향후 생성 표의 기본 권한을 구분했다.
+- O의 `interior-busbar-manager` 역할은 현재 사용자 배정0, role_permission 연결0이다. 이 역할은 청주 부스바 정의이며 O 업무 코드에서 사용하지 않는다. 다른 역할 전체의 삭제 안전성을 이 한 건으로 추정하지 않는다.
+- 증거: `/private/tmp/pms-preflight-20260930-mail-control-result.json`, `/private/tmp/pms-preflight-20260930-final-metadata-result.json`. 모든 연결에서 `transaction_read_only=on`, 예상 DB/역할 일치, query error0을 확인했다. 비밀값·메일 주소·제목/본문·개인 ID는 기록하지 않았다. 조회용으로 연 전용 연결 통로는 정상 종료했고 사용자 기존 연결은 변경하지 않았다.
+
+**재현한 결함과 필요한 보정**
+
+1. **P1: 공통 사용자관리가 실제 수정 대상 사업부의 점검 잠금을 지키지 않는다.** `DeploymentMaintenanceMiddleware.cs:24`는 선택 사업부가 없으면 통과하고, 있으면 그 사업부만 잠근다. `BusinessUnitAccessAdministrationStore.cs:201` 이후 affectedUnits의 local profile을 바꾸지만 각 대상의 maintenance lease를 확보하지 않는다. 합성 HTTP 요청에서 `/access/api/admin/user-access/...`와 `/cheongju/api/admin/user-access/...` 두 경로가 모두 O의 Active/Delayed/Failed 상태에서200을 반환하고 O 사용자 활성 상태와 D access_version을 변경했다(2경로×3상태). 총괄 관리자의 정상 권한을 가진 요청에서 재현했으며 무권한 사용자의 침입으로 표현하지 않는다. 운영 전환 중 쓰기 차단/배수 계약을 위반한다.
+   - 실제 affectedUnits 전체의 lease를 정해진 순서로 한 번씩 확보하고, Directory 작업 시작 전부터 local 적용/Publish까지 유지해야 한다. 선택 사업부 middleware lease와 store lease를 단순 중첩하면 대기 중 exclusive lock 때문에 교착 가능성이 있으므로 해당 관리 endpoint에만 잠금 책임을 명확히 위임해야 한다.
+   - 공통 관리 endpoint가 C/O URL에서도 실행되는 별칭도 남아 있다(`BusinessUnitRouteMiddleware.cs:36`). FE는 이미 `/access`를 사용한다. 공통 관리3종은 `/access` 전용으로 제한하고 `/me`·`/runtime-mode`의 사업부 경로는 보존하는 보정이 필요하다. URL 제한만으로 maintenance 우회가 해결되지는 않는다.
+2. **P2: Directory에 새로 만드는 표가 runtime 직접 쓰기 권한을 상속한다.** `DatabaseRuntimePrivilegeManager.cs:78`의 bootstrap은 D에도 default DML을 주고, `:205` 이후 reconcile은 default SELECT를 추가하지만 이전 DML을 회수하지 않는다. 합성 D에서 모든 migration/reconcile을 마친 뒤 migrator로 새 표를 만들자 runtime INSERT→UPDATE→DELETE가 모두 성공했다. 현재8표의 직접 쓰기는 차단돼 있고, 새 표 생성 후 reconcile을 다시 실행하면 그 표의 현재 쓰기 권한은 회수되지만 잘못된 기본값은 계속 남는다. D bootstrap/reconcile 양쪽의 default table DML 회수와 실제 새 표 생성 반례 검사가 필요하다.
+3. **P2: 오산에 청주 전용 번호 생성기2개가 남는다.** `pending_issue_number_seq`, `busbar_product_number_seq`는 표에 소유된 sequence가 아니므로 표 제거로 없어지지 않는다. 실제 O0131 적용 후 sequence는 필요한 `audit_event_changes_id_seq`와 위2개, 총3개이며 O runtime은 불필요2개에도 USAGE가 있었다. 목표는 C4/O1/D0이다. O0131에서 정확한2개를 RESTRICT로 제거하고 목록/권한을 확인해야 한다. 현재 번호 생성기가 다른 DB 데이터를 읽거나 쓰는 것은 아니다.
+
+- 재현 소스 `/private/tmp/BusinessSchemaFullAuditProbe.cs`, 로그 `/private/tmp/business-schema-audit-reproduction-20260930.log`. 임시 partial test1개 안에서 위 모든 조건을 assertion으로 확인했다. **테스트 성공은 결함 재현 성공이며 제품 요구조건 통과가 아니다.** 첫 진단 실행은 누락 using으로 compile 실패했고 이를 시험 파일에서 보완한 다음 실행이1/1 성공했다. 두 실행 모두 전용 tmpfs DB/container/network를 정리했다. 제품 저장소에 복사한 임시 test는 원본과 동일함을 확인한 뒤 제거했으며 commit에 포함하지 않았다.
+
+**정적 검토에서 확인한 배포·최소화 공백**
+
+- **배포 직전 공개 backend 설정 검증 부족:** `deploy-azure-pilot-release.sh:200` 이후의 엄격한 split/connection 검사는 migration·maintenance job template에 적용된다. public backend template의 `BusinessUnits__Enabled=true`, 세 runtime secret 참조·대상 metadata를 같은 수준으로 확인하지 않는다. 최종 smoke(`:935`)도 live200/root401/api401이다. 앱은 의도적으로 legacy Qms 모드를 지원하므로 이 신호만으로3-DB serving 상태를 입증할 수 없다. 현재 운영이 legacy 모드라는 발견이 아니라, 잘못된 향후 template을 배포 전에 거부하는 장치가 빠진 것이다.
+- **이미지 검증이 자동 게시 경로에 연결되지 않음:** `.github/workflows/azure-pilot-images.yml:230`은 build/push하고 실제 packaged catalog·fresh/upgrade 검증인 `test-business-unit-production-image.sh`를 workflow가 호출하지 않는다. maintenance bootstrap 시험도 자동 경로에 없다. 직전 로컬 이미지 시험은 통과했지만 이후 변경을 같은 검증으로 보호하지 못한다. 검증한 동일 이미지에 대한 게시/배포 gate가 필요하다. 이번에는 registry나 workflow를 실행하지 않았다.
+- **객체 종류별 완료 검증 누락:** 기존 시험은 C/O exact 표 목록·projects 열과 일부 함수/notification 열 수를 검증하지만 sequence·view·trigger·FK·default ACL 전체 소유 계약, D exact8표를 일관되게 비교하지 않는다. packaged D 검사는 identity 확인 뒤 반환한다. 표 개수만 맞아도 불필요 객체가 남을 수 있다는 것이 이번 sequence 반례다. 독립 소유 기준에 필요한 객체/권한 검사를 추가해야 한다.
+- **기준정보는 아직 사업부별 최소 집합이 아님:** 확정 소유표는 양쪽 departments10/permissions35/roles11/role_permissions111 보존을 명시한다. 따라서 O에 청주 전용 역할·권한 정의가 남아도 현재 migration은 이를 지운다고 약속하지 않는다. 확인된 미사용 부스바 역할을 포함하여 O 업무/관리 UI에 필요한 코드와 기존 배정을 대조한 정리표가 더 필요하다. 기존 사용자 배정/감사 이력을 훼손하는 일괄 삭제는 하지 않는다. 빈 `busbar_ecount_employees`와 O 개인 알림 설정11행도 이전 보존 계약의 예외이며, 빈 표=불필요로 판정하지 않는다.
+- **현재 운영 문서가 구현과 다름:** Azure README의 prepare-only 절차 및 D0001..0002/C·O0001..0087 설명, database README의 세 DB 모두 ready 설명을 현행 target 실행/D0001..0004/C·O0001..0131 및 사업부별 degraded 상태 계약과 맞춰야 한다. 역사 Task의 당시 승인 기록을 지우는 것은 아니다.
+- 추가 방어 권고: 대상 DB 이름의 상호 중복뿐 아니라 system/template 이름 override도 명시 거부하는 편이 낫다. 현재 운영 이름은 정상이며 잘못된 설정을 실제 실행해 보지는 않았다. C 전용 향후0132가 O catalog를 깨뜨린다는 우려는 코드 재검토로 기각했다. common1..130 고정 guard도 결함으로 세지 않는다.
+
+**확인된 경계와 검증 범위**
+
+- FE의 실제 네트워크 호출은 api.ts의 fetch2곳으로 모이고 일반 API는 고정 C/O URL, 총괄 관리는 access로 변환된다. 이미지/QR/Excel도 공통 인증·사업부 요청 경로를 사용한다. URL/헤더는 토큰 대기 전 선택을 보존하며, 사업부 전환 시 이전 읽기와 본문 소비 결과를 폐기하고 쓰기 중 전환을 막는다. 화면은 사업부 선택/권한 확정 후 업무 데이터를 요청한다. FE 직접 DB 연결은 찾지 못했다.
+- backend276개 C# 파일의 연결/provider/module 참조, endpoint42파일, 업무 모듈/partial61파일의 SQL 및 공유 Identity·사용자관리·알림·감사·공지·사진·출력 경로를 독립 검토했다. 위 공통 관리 결함 외 일반 업무에서 다른 DB로 fallback하거나 제거 대상 표를 계속 사용하는 활성 경로는 찾지 못했다. 전체 C# 파일을 동일 깊이로 line-by-line 실행한 뜻은 아니다.
+- worker는 고정 C/O scope로 실행하고 다른 사업부 실패를 대체 DB로 우회하지 않는다. split 모드의 migration/bootstrap은 target 필수, startup 자동 migration은 실행하지 않는다. health의 D/C/O 조회는 공통 상태 점검 계약이고 일반 업무의 교차 DB 조회가 아니다.
+- C182/O56 exact 표, projects C36/O19, O notification12/delivery45 열, C에서 O27표/O에서 C153표 제거, O 제거함수41개(37+site-access4), 공통 audit 보존을 재대조했다. retained dependency는 RESTRICT로 중단한다. 공통0001..0130은 과거 upgrade 기반으로 보존하고 새 DB도 이력을 적용 후 해당0131로 축소한다. 원장에 과거 표 생성 이력이 남는 것과 현재 표가 남는 것은 다르다.
+- 이번 재실행: backend boundary/architecture/catalog/SQL **36/36 PASS**, frontend API/route/deep-link **23/23 PASS**, 추가 진단1개에서 결함3종 재현. 로그는 `/private/tmp/business-schema-full-boundary-20260930.log`, `/private/tmp/business-schema-frontend-boundary-20260930.log`이다. 변경 없는 `07153a3`의 직전 packaged image PASS는 재사용했다. 전체 UI 수동 조작·전체 회귀·운영 쓰기·실제 provider 발송을 수행했다고 주장하지 않는다.
+- 독립 검토는 `review_db_tunnel`(backend)과 `business_schema_migrations`(schema/infra/CI)이 읽기 전용으로 수행했다. 실제 관측 모델은 NOT_REPORTED이며 구현·운영 권한은 위임하지 않았다. Findings의 최종 우선순위는 parent가 실제 재현/현재 영향으로 정리했다. `review_db_tunnel`은 추가로 진단 소스/로그와 이번 기록의 주장–assert 연결을 검토해 추가 P1/P2 및 범위 과장 없음을 확인했다. 이 추가 검토에서 Gmail/운영 원자료를 독립 재조회한 것은 아니다.
+
+**Gmail 발송 기록 확인**
+
+- 현재 설정된 SMTP 발신 계정의 Gmail 보낸편지함을 EXAMINE(read-only)으로 열고 2026-09-22~23 검색 구간의1,036개 메일에서 날짜·수신자·제목·Message-ID 등 헤더만 읽었다. 본문은 조회하지 않았고 읽음 표시·발송·삭제를 변경하지 않았다. MIME 헤더와 공백/Unicode 정규화를 적용하여 DB의 당시 수신자 snapshot·제목과 메모리에서 비교했으며 원문은 저장하지 않았다.
+- 불명확 attempt1건의 provider 호출 시작은2026-09-22 13:21:29.850572 UTC(한국22:21:29)이며 완료 표시는13:27:24.302712 UTC, attempt_no3, `LeaseExpiredAfterProviderCallStarted`, delivery Failed다. 동일 발송건의 앞선2회는 RetryScheduled였다.
+- **문제 메일과 제목·수신자가 함께 일치하는 보낸편지 기록0건**이다. 같은 수신자만 맞는 것은32건, 제목이 맞는 것은0건이었다. 동일 검색/비교 방식으로 그 구간의 정상 Sent10건을 대조하여 **10/10 일치**했다. 검색이 전혀 작동하지 않은 경우와 구분했다.
+- DB 전체에서는 같은 제목/수신자 조합의 delivery가2개이며 둘 다 Failed, sent_at/provider ID 없음이다. 따라서 제목·수신자 조합을 영구 고유 식별자로 간주하지 않는다. 문제 attempt의 실제 SMTP 식별자도 없어 provider receipt로 직접 대조하지 못한다.
+- **결론은 ‘확인한 보낸편지함 구간에 일치 기록 없음’까지다.** 삭제된 메일·다른 보관함·수신자 측 기록을 검사하지 않았으므로 미발송을 확정하거나 발송 이력을 덮어쓰지 않았다. 기존 drain의 불명확 발송 차단은 유지되며 처리 결과/근거를 기록하는 별도 운영 결정을 거쳐야 한다.
+
+**남은 순서:** 공통 관리 잠금/URL 경계 → D 기본 권한과 O sequence 보정 → 실제 객체/권한 반례 및 배포 설정·이미지 gate → 사업부별 기준정보 최소 목록 확정 → 메일 판정·복구 준비·적용 창 재점검 → 사용자 검수/원격 검증/명시 운영 승인 범위에서 전환. 이번 상태는 **감사 완료, 추가 보정 미착수, 운영 미적용**이다. 앱 수와 비용 구성은 변경하지 않았다.

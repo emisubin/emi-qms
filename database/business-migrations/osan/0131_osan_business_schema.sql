@@ -264,6 +264,44 @@ declare
     actual_names text[];
     relation_name text;
     has_rows boolean;
+    actual_permissions jsonb;
+    expected_permissions constant jsonb := '[
+        ["30000000-0000-0000-0000-000000000001", "projects.read", "Read projects"],
+        ["30000000-0000-0000-0000-000000000002", "projects.manage", "Manage project basics"],
+        ["30000000-0000-0000-0000-000000000003", "projects.access.all", "Access every project"],
+        ["30000000-0000-0000-0000-000000000004", "production.plan", "Manage production plans"],
+        ["30000000-0000-0000-0000-000000000005", "manufacturing.update", "Update manufacturing records"],
+        ["30000000-0000-0000-0000-000000000006", "quality.inspect", "Record quality inspection"],
+        ["30000000-0000-0000-0000-000000000007", "quality.approve", "Approve quality release"],
+        ["30000000-0000-0000-0000-000000000008", "logistics.ship", "Manage packing and shipping"],
+        ["30000000-0000-0000-0000-000000000009", "users.manage", "Manage users and roles"],
+        ["30000000-0000-0000-0000-000000000010", "Project.Read.All", "Read all projects"],
+        ["30000000-0000-0000-0000-000000000011", "Project.SalesAmount.Read", "Read project sales amounts"],
+        ["30000000-0000-0000-0000-000000000012", "Manufacturing.WorkTime.Read", "Read manufacturing work time"],
+        ["30000000-0000-0000-0000-000000000013", "Project.Create", "Create sales projects"],
+        ["30000000-0000-0000-0000-000000000014", "Project.Update", "Update sales projects"],
+        ["30000000-0000-0000-0000-000000000015", "Project.Hold", "Hold sales projects"],
+        ["30000000-0000-0000-0000-000000000016", "Project.Cancel", "Cancel sales projects"],
+        ["30000000-0000-0000-0000-000000000017", "Project.Delete", "Soft delete sales projects"],
+        ["30000000-0000-0000-0000-000000000018", "Project.Deleted.Read", "Read soft deleted projects"],
+        ["30000000-0000-0000-0000-000000000019", "PanelInfo.Update", "Update panel information"],
+        ["30000000-0000-0000-0000-000000000020", "Audit.Read.All", "Read all audit history"],
+        ["30000000-0000-0000-0000-000000000021", "ProcurementPlan.Update", "Update procurement plan"],
+        ["30000000-0000-0000-0000-000000000022", "MaterialReceipt.Update", "Update material receipt completion"],
+        ["30000000-0000-0000-0000-000000000023", "ProductionPlan.Update", "Update production planning"],
+        ["30000000-0000-0000-0000-000000000025", "admin-history.read", "Read administrator history"],
+        ["30000000-0000-0000-0000-000000000026", "Pending.Read", "Read pending issues"],
+        ["30000000-0000-0000-0000-000000000027", "Pending.Manage", "Manage pending issues"],
+        ["30000000-0000-0000-0000-000000000028", "sales.settle", "Complete sales settlement"],
+        ["30000000-0000-0000-0000-000000000043", "Sales.Target.Manage", "Manage monthly sales targets"],
+        ["30000000-0000-0000-0000-000000000045", "PendingType.Manage", "Manage pending issue types"],
+        ["30000000-0000-0000-0000-000000000081", "G2.Read", "Read G2 operations"],
+        ["30000000-0000-0000-0000-000000000082", "G2.Production.Update", "Update G2 production quantities"],
+        ["30000000-0000-0000-0000-000000000083", "G2.Delivery.Update", "Update G2 delivery quantities"],
+        ["30000000-0000-0000-0000-000000000084", "G2.Attendance.Update", "Update G2 attendance quantities"],
+        ["30000000-0000-0000-0000-000000000085", "G2.Inventory.Manage", "Manage G2 physical inventory counts"],
+        ["30000000-0000-0000-0000-000000000086", "G2.Target.Manage", "Manage G2 production and inventory targets"]
+    ]'::jsonb;
 begin
     if current_setting('emi_qms.business_schema_separation', true) is distinct from 'OSAN' then
         raise exception using errcode = 'P0001', message = 'business_schema_explicit_consent_required';
@@ -290,6 +328,36 @@ begin
     where table_schema = 'public' and table_name = 'projects';
     if actual_names <> expected_project_columns then
         raise exception using errcode = 'P0001', message = 'business_schema_unexpected_projects_columns';
+    end if;
+
+    select coalesce(
+        jsonb_agg(jsonb_build_array(id::text, code, name) order by id),
+        '[]'::jsonb)
+    into actual_permissions
+    from permissions;
+    if actual_permissions <> expected_permissions then
+        raise exception using errcode = 'P0001', message = 'osan_unexpected_permission_catalog';
+    end if;
+
+    if (select count(*) from roles where code = 'interior-busbar-manager') <> 1
+       or not exists (
+           select 1 from roles
+           where id = '20000000-0000-0000-0000-000000000090'::uuid
+             and code = 'interior-busbar-manager'
+             and name = '인테리어 부스바 담당자'
+       ) then
+        raise exception using errcode = 'P0001', message = 'osan_unexpected_interior_busbar_role';
+    end if;
+    if exists (
+        select 1 from user_roles assignment
+        join roles role on role.id = assignment.role_id
+        where role.code = 'interior-busbar-manager'
+    ) or exists (
+        select 1 from role_permissions assignment
+        join roles role on role.id = assignment.role_id
+        where role.code = 'interior-busbar-manager'
+    ) then
+        raise exception using errcode = 'P0001', message = 'osan_interior_busbar_role_in_use';
     end if;
 
     foreach relation_name in array array[
@@ -741,6 +809,37 @@ on commit drop
 as
 select id, manual_payload_json
 from notification_deliveries;
+
+-- Remove only common baseline permissions that no retained Osan route uses.
+-- The exact catalog guard above rejects custom or changed permission metadata;
+-- retained permission assignments are not rewritten or expanded.
+delete from role_permissions assignment
+using permissions permission
+where assignment.permission_id = permission.id
+  and permission.code not in (
+      'projects.read',
+      'Project.Read.All',
+      'Project.Create',
+      'Project.Update',
+      'Project.Delete',
+      'manufacturing.update',
+      'users.manage'
+  );
+
+delete from permissions
+where code not in (
+    'projects.read',
+    'Project.Read.All',
+    'Project.Create',
+    'Project.Update',
+    'Project.Delete',
+    'manufacturing.update',
+    'users.manage'
+);
+
+delete from roles
+where id = '20000000-0000-0000-0000-000000000090'::uuid
+  and code = 'interior-busbar-manager';
 
 drop trigger if exists trg_guard_project_iqc_routing_policy_immutable on projects;
 drop function if exists guard_project_iqc_routing_policy_immutable();
@@ -1306,6 +1405,26 @@ begin
     where table_schema = 'public' and table_name = 'projects';
     if actual_names <> expected_project_columns then
         raise exception using errcode = 'P0001', message = 'business_schema_target_projects_columns_mismatch';
+    end if;
+
+    if (select count(*) from permissions) <> 7
+       or exists (
+           select 1 from permissions
+           where (id, code, name) not in (values
+               ('30000000-0000-0000-0000-000000000001'::uuid, 'projects.read', 'Read projects'),
+               ('30000000-0000-0000-0000-000000000005'::uuid, 'manufacturing.update', 'Update manufacturing records'),
+               ('30000000-0000-0000-0000-000000000009'::uuid, 'users.manage', 'Manage users and roles'),
+               ('30000000-0000-0000-0000-000000000010'::uuid, 'Project.Read.All', 'Read all projects'),
+               ('30000000-0000-0000-0000-000000000013'::uuid, 'Project.Create', 'Create sales projects'),
+               ('30000000-0000-0000-0000-000000000014'::uuid, 'Project.Update', 'Update sales projects'),
+               ('30000000-0000-0000-0000-000000000017'::uuid, 'Project.Delete', 'Soft delete sales projects')
+           )
+       ) then
+        raise exception using errcode = 'P0001', message = 'osan_target_permission_catalog_mismatch';
+    end if;
+
+    if exists (select 1 from roles where code = 'interior-busbar-manager') then
+        raise exception using errcode = 'P0001', message = 'osan_retired_interior_busbar_role_remains';
     end if;
 end
 $migration$;

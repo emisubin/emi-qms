@@ -407,6 +407,26 @@ assert_target_schema() {
     OSAN) expected=56:19:12:45:0 ;;
   esac
   [[ "${actual}" == "${expected}" ]] || { echo "Business migration schema contract failed for ${target}." >&2; return 1; }
+  # These are uncustomized synthetic fixtures. Production retains existing links
+  # for the seven approved Osan permissions rather than imposing a fixed count.
+  actual="$(fixture_sql "${database_name}" --command "select
+    (select count(*) from permissions)::text || ':' ||
+    (select count(*) from roles)::text || ':' ||
+    (select count(*) from departments)::text || ':' ||
+    (select count(*) from role_permissions)::text;")"
+  case "${target}" in
+    CHEONGJU) expected=35:11:10:111 ;;
+    OSAN) expected=7:10:10:29 ;;
+  esac
+  [[ "${actual}" == "${expected}" ]] || { echo "Packaged baseline permission/role contract failed for ${target}." >&2; return 1; }
+  if [[ "${target}" == OSAN ]]; then
+    actual="$(fixture_sql "${database_name}" --command "select
+      not exists(select code from permissions except values
+        ('projects.read'),('Project.Read.All'),('Project.Create'),('Project.Update'),
+        ('Project.Delete'),('manufacturing.update'),('users.manage'))
+      and not exists(select 1 from roles where code='interior-busbar-manager');")"
+    [[ "${actual}" == t ]] || { echo "Packaged Osan permission ownership mismatch." >&2; return 1; }
+  fi
   actual="$(fixture_sql "${database_name}" --command 'select business_unit_code from qms_database_identity;')"
   [[ "${actual}" == "${target}" ]] || return 1
 }

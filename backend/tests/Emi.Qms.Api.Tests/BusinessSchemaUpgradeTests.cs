@@ -187,6 +187,7 @@ public sealed partial class BusinessUnitIsolationTests
         foreach (var table in tables.Where(table => table != "schema_migrations"))
         {
             var projection = "to_jsonb(row_value)";
+            var predicate = "";
             if (table == "projects")
             {
                 var columns = code == BusinessUnitCodes.Osan ? OsanProjectColumns : CheongjuProjectColumns;
@@ -196,8 +197,15 @@ public sealed partial class BusinessUnitIsolationTests
                 projection += " - 'work_item_id' - 'generated_by_event_id'";
             else if (code == BusinessUnitCodes.Osan && table == "notification_deliveries")
                 projection += " - 'work_item_id'";
+            else if (code == BusinessUnitCodes.Osan && table == "permissions")
+                predicate = "where row_value.code = any(array['projects.read','Project.Read.All','Project.Create','Project.Update','Project.Delete','manufacturing.update','users.manage'])";
+            else if (code == BusinessUnitCodes.Osan && table == "role_permissions")
+                predicate = "where exists (select 1 from permissions retained_permission where retained_permission.id=row_value.permission_id " +
+                            "and retained_permission.code = any(array['projects.read','Project.Read.All','Project.Create','Project.Update','Project.Delete','manufacturing.update','users.manage']))";
+            else if (code == BusinessUnitCodes.Osan && table == "roles")
+                predicate = "where row_value.code <> 'interior-busbar-manager'";
             result[table] = await databases.ReadScalarAsync<string>(code, BusinessUnitConnectionPurpose.Migration,
-                $"select coalesce(jsonb_agg(value order by value::text),'[]'::jsonb)::text from (select {projection} value from {table} row_value) rows", ct);
+                $"select coalesce(jsonb_agg(value order by value::text),'[]'::jsonb)::text from (select {projection} value from {table} row_value {predicate}) rows", ct);
         }
         return result;
     }

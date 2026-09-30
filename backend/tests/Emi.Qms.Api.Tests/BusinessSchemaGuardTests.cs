@@ -84,6 +84,15 @@ public sealed partial class BusinessUnitIsolationTests
                 Assert.True(await databases.ReadScalarAsync<bool>(code, BusinessUnitConnectionPurpose.Migration,
                     "select to_regprocedure('public.qms_site_access_guard_updates()') is not null " +
                     "and to_regprocedure('public.guard_osan_progress_append_only()') is not null", ct));
+                if (code == BusinessUnitCodes.Osan)
+                {
+                    Assert.Equal(35L, await databases.ReadScalarAsync<long>(code,
+                        BusinessUnitConnectionPurpose.Migration, "select count(*) from permissions", ct));
+                    Assert.Equal(11L, await databases.ReadScalarAsync<long>(code,
+                        BusinessUnitConnectionPurpose.Migration, "select count(*) from roles", ct));
+                    Assert.Equal(111L, await databases.ReadScalarAsync<long>(code,
+                        BusinessUnitConnectionPurpose.Migration, "select count(*) from role_permissions", ct));
+                }
             }
         }
     }

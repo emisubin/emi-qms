@@ -23,8 +23,8 @@ test('TASK-QR-001: issue, preview, print, scan-route, and rotation use the real 
   await selectAll.check();
   await expect(page.locator('.panel-qr-select input:checked')).toHaveCount(3);
   const [batchIssued, refreshedList] = await Promise.all([
-    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === `/api/projects/${project.projectId}/qr/issue-batch`),
-    page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/projects/${project.projectId}/qr`),
+    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === `/cheongju/api/projects/${project.projectId}/qr/issue-batch`),
+    page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === `/cheongju/api/projects/${project.projectId}/qr`),
     page.getByRole('button', { name: '선택 3개 QR 발급' }).click()
   ]);
   expect(batchIssued.status(), await batchIssued.text()).toBe(200);

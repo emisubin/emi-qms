@@ -43,6 +43,9 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
     || tomorrowHolidays.some(holiday => holiday.holidayDate === tomorrow);
   const tomorrowForecastColor = tomorrowIsHoliday ? 'rgb(220, 38, 38)' : 'rgb(37, 99, 235)';
   const dayAfterTomorrow = addDays(today, 2);
+  const futureDatesShareMonth = tomorrow.slice(0, 7) === dayAfterTomorrow.slice(0, 7);
+  const futureRangeEnd = futureDatesShareMonth ? dayAfterTomorrow : tomorrow;
+  const firstWeekend = firstWeekendInMonth(today);
   const farFuture = '2200-01-02';
 
   await expectStatus(request.put(`${apiBaseUrl}/api/g2/operations/${today}`, {
@@ -201,6 +204,10 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(page.getByRole('dialog').getByRole('button', { name: '저장' })).toBeEnabled();
   await page.getByRole('dialog').getByRole('button', { name: '닫기' }).click();
 
+  await moveG2HomeMonth(page, today, tomorrow);
+  const desktopHomeRange = page.getByRole('group', { name: '홈 표시 기간' });
+  await setG2DateRange(desktopHomeRange, tomorrow, futureRangeEnd);
+  await desktopHomeRange.getByRole('button', { name: '전체 기간' }).click();
   const previewLabel = `${koreanDate(tomorrow)} 신규 불량 임시 예상값`;
   await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   const previewBefore = await getDay(request, tomorrow, 'dev-sales');
@@ -221,16 +228,34 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const tomorrowColumn = (await productionTable.locator('thead th').allTextContents()).findIndex(value => value.includes(koreanDate(tomorrow)));
   const dayAfterTomorrowColumn = (await productionTable.locator('thead th').allTextContents()).findIndex(value => value.includes(koreanDate(dayAfterTomorrow)));
   expect(tomorrowColumn).toBeGreaterThan(0);
-  expect(dayAfterTomorrowColumn).toBeGreaterThan(0);
   await expect(inventoryRow.locator('td').nth(tomorrowColumn - 1)).toHaveText('29');
-  await expect(inventoryRow.locator('td').nth(dayAfterTomorrowColumn - 1)).toHaveText('29');
+  if (futureDatesShareMonth) {
+    expect(dayAfterTomorrowColumn).toBeGreaterThan(0);
+    await expect(inventoryRow.locator('td').nth(dayAfterTomorrowColumn - 1)).toHaveText('29');
+  } else {
+    expect(dayAfterTomorrowColumn).toBe(-1);
+  }
   expect((await getDay(request, tomorrow, 'dev-sales')).defect!.quantity).toBe(previewBefore.defect!.quantity);
   await page.reload();
+  await moveG2HomeMonth(page, today, tomorrow);
+  await setG2DateRange(page.getByRole('group', { name: '홈 표시 기간' }), tomorrow, futureRangeEnd);
   await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   await expect(page.getByLabel(previewLabel)).toHaveValue('2');
   expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(29);
   expect((await getDay(request, dayAfterTomorrow, 'dev-sales')).inventory).toBe(32);
+  await page.getByRole('group', { name: '홈 표시 기간' }).getByRole('button', { name: '전체 기간' }).click();
   await capture(page, '01-g2-home-desktop-1440.png');
+  if (!futureDatesShareMonth) {
+    await moveG2HomeMonth(page, tomorrow, dayAfterTomorrow);
+    const dayAfterRange = page.getByRole('group', { name: '홈 표시 기간' });
+    await setG2DateRange(dayAfterRange, dayAfterTomorrow, dayAfterTomorrow);
+    const dayAfterTable = page.getByRole('table', { name: '생산 현황' });
+    const dayAfterColumn = (await dayAfterTable.locator('thead th').allTextContents())
+      .findIndex(value => value.includes(koreanDate(dayAfterTomorrow)));
+    expect(dayAfterColumn).toBeGreaterThan(0);
+    await expect(dayAfterTable.getByRole('rowheader', { name: '재고', exact: true })
+      .locator('..').locator('td').nth(dayAfterColumn - 1)).toHaveText('32');
+  }
 
   await page.goto('/g2/operations');
   await expect(page.getByRole('heading', { name: '생산/출하 관리' })).toBeVisible();
@@ -263,6 +288,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
 
   await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
   await page.goto('/g2/operations');
+  await page.getByLabel('입력 날짜').fill(tomorrow);
+  await expect(page.getByLabel('입력 날짜')).toHaveValue(tomorrow);
   await expect(page.getByLabel('오전 생산량')).toBeEnabled();
   await expect(page.getByLabel('일일 납품량')).toBeDisabled();
   await expect(page.getByLabel('일일 불량 수량')).toBeEnabled();
@@ -272,6 +299,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: '생산/출하 관리' })).toBeVisible();
   const operationsRange = page.getByRole('group', { name: '입력 현황 표시 기간' });
+  await setG2DateRange(operationsRange, tomorrow, futureRangeEnd);
+  await operationsRange.getByRole('button', { name: '전체 기간' }).click();
   await expectInputWidth(operationsRange.getByLabel('시작일'), 120);
   await expectInputWidth(operationsRange.getByLabel('종료일'), 120);
   await assertNoPageOverflow(page);
@@ -280,13 +309,18 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.goto('/g2');
   await expect(page.getByRole('heading', { name: 'G2 홈' })).toBeVisible();
   const homeRange = page.getByRole('group', { name: '홈 표시 기간' });
+  await setG2DateRange(homeRange, firstWeekend, firstWeekend);
   await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   await expectInputWidth(homeRange.getByLabel('시작일'), 120);
   await expectInputWidth(homeRange.getByLabel('종료일'), 120);
   await expectInputWidth(page.getByLabel('적용 시작일'), 136);
+  await expect(page.getByLabel(`${koreanDate(firstWeekend)} 신규 불량 임시 예상값`)).toHaveCSS('color', 'rgb(220, 38, 38)');
+  await page.getByRole('button', { name: '불량 상세 접기', exact: true }).click();
+  await moveG2HomeMonth(page, today, tomorrow);
+  await setG2DateRange(homeRange, tomorrow, futureRangeEnd);
+  await page.getByRole('button', { name: '불량 상세 보기', exact: true }).click();
   await expect(page.getByLabel(previewLabel).locator('..')).toHaveClass(/g2-forecast-column/u);
   await expect(page.getByLabel(previewLabel)).toHaveCSS('color', tomorrowForecastColor);
-  await expect(page.getByLabel(`${koreanDate(firstWeekendInMonth(today))} 신규 불량 임시 예상값`)).toHaveCSS('color', 'rgb(220, 38, 38)');
   await page.getByRole('button', { name: '수리 상세 보기', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByLabel(`${koreanDate(tomorrow)} 오전 수리 임시 예상값`)).toHaveValue('1');
@@ -294,15 +328,20 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   expect((await getDay(request, tomorrow, 'dev-sales')).morningRepair!.quantity).toBe(1);
   await page.getByRole('button', { name: `${koreanDate(tomorrow)} 수리 3대 상세 접기`, exact: true }).click();
   await expect(page.getByLabel(`${koreanDate(tomorrow)} 오전 수리 임시 예상값`)).toHaveCount(0);
+  await homeRange.getByRole('button', { name: '전체 기간' }).click();
   await assertNoPageOverflow(page);
   await capture(page, '03-g2-home-mobile-390.png');
 
   await page.goto('/g2/attendance');
   await expect(page.getByRole('heading', { name: '제조 인원 출근 관리' })).toBeVisible();
+  await page.getByLabel('입력 날짜').fill(tomorrow);
+  await expect(page.getByLabel('입력 날짜')).toHaveValue(tomorrow);
   const attendanceRange = page.getByRole('group', { name: '출근 현황 표시 기간' });
+  await setG2DateRange(attendanceRange, tomorrow, futureRangeEnd);
+  await expect(page.getByRole('button', { name: `${koreanDate(tomorrow)} 오전 합계 7명 세부 인원 보기` })).toHaveCSS('color', tomorrowForecastColor);
+  await attendanceRange.getByRole('button', { name: '전체 기간' }).click();
   await expectInputWidth(attendanceRange.getByLabel('시작일'), 120);
   await expectInputWidth(attendanceRange.getByLabel('종료일'), 120);
-  await expect(page.getByRole('button', { name: `${koreanDate(tomorrow)} 오전 합계 7명 세부 인원 보기` })).toHaveCSS('color', tomorrowForecastColor);
   await assertNoPageOverflow(page);
   await capture(page, '04-g2-attendance-mobile-390.png');
 
@@ -314,6 +353,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
     headers: devHeaders('dev-sales'), data: { quantity: 0, expectedVersion: null }
   }), 400);
   await page.goto('/g2');
+  await expect(page.getByRole('heading', { name: 'G2 홈' })).toBeVisible();
+  await setG2DateRange(page.getByRole('group', { name: '홈 표시 기간' }), today, today);
   await page.getByRole('button', { name: '실사 입력', exact: true }).click();
   await page.getByLabel('실사 구분').selectOption('defect');
   const countDialog = page.getByRole('dialog', { name: '불량재고 실사 입력' });
@@ -398,6 +439,33 @@ function firstWeekendInMonth(value: string) {
     if (candidate.getUTCDay() === 0 || candidate.getUTCDay() === 6) return candidate.toISOString().slice(0, 10);
   }
   throw new Error('The calendar month does not contain a weekend in its first seven days.');
+}
+
+async function moveG2HomeMonth(page: Page, currentDate: string, targetDate: string) {
+  const current = new Date(`${currentDate.slice(0, 7)}-01T00:00:00Z`);
+  const target = new Date(`${targetDate.slice(0, 7)}-01T00:00:00Z`);
+  const monthDifference = (target.getUTCFullYear() - current.getUTCFullYear()) * 12
+    + target.getUTCMonth() - current.getUTCMonth();
+  const direction = monthDifference < 0 ? '이전 달' : '다음 달';
+  for (let index = 0; index < Math.abs(monthDifference); index += 1) {
+    await page.getByRole('button', { name: direction }).click();
+  }
+  const [targetYear, targetMonth] = targetDate.split('-').map(Number);
+  await expect(page.getByText(`${targetYear}년 ${targetMonth}월`, { exact: true })).toBeVisible();
+}
+
+async function setG2DateRange(range: Locator, from: string, to: string) {
+  const monthStart = `${from.slice(0, 7)}-01`;
+  const [year, month] = from.split('-').map(Number);
+  const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const startInput = range.getByLabel('시작일');
+  const endInput = range.getByLabel('종료일');
+  await expect(startInput).toHaveAttribute('min', monthStart);
+  await expect(endInput).toHaveAttribute('max', monthEnd);
+  await startInput.fill(from);
+  await endInput.fill(to);
+  await expect(startInput).toHaveValue(from);
+  await expect(endInput).toHaveValue(to);
 }
 
 async function capture(page: Page, filename: string) {

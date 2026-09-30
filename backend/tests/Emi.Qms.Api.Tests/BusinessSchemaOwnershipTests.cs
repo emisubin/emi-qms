@@ -83,6 +83,36 @@ public sealed partial class BusinessUnitIsolationTests
         "osan_all_progress_photos",
         "osan_current_progress_photos",
     ];
+    private static readonly string[] OsanPermissionCatalog =
+    [
+        "30000000-0000-0000-0000-000000000001|projects.read|Read projects",
+        "30000000-0000-0000-0000-000000000005|manufacturing.update|Update manufacturing records",
+        "30000000-0000-0000-0000-000000000009|users.manage|Manage users and roles",
+        "30000000-0000-0000-0000-000000000010|Project.Read.All|Read all projects",
+        "30000000-0000-0000-0000-000000000013|Project.Create|Create sales projects",
+        "30000000-0000-0000-0000-000000000014|Project.Update|Update sales projects",
+        "30000000-0000-0000-0000-000000000017|Project.Delete|Soft delete sales projects",
+    ];
+    private static readonly string[] OsanBaselineRolePermissions =
+    [
+        "design|Project.Read.All", "design|projects.read",
+        "logistics|Project.Read.All", "logistics|projects.read",
+        "manufacturing|Project.Read.All", "manufacturing|manufacturing.update", "manufacturing|projects.read",
+        "materials|Project.Read.All", "materials|projects.read",
+        "procurement|Project.Read.All", "procurement|projects.read",
+        "production-planning|Project.Read.All", "production-planning|projects.read",
+        "quality|Project.Read.All", "quality|projects.read",
+        "read-only|Project.Read.All", "read-only|projects.read",
+        "sales|Project.Create", "sales|Project.Delete", "sales|Project.Read.All", "sales|Project.Update", "sales|projects.read",
+        "system-administrator|Project.Create", "system-administrator|Project.Delete",
+        "system-administrator|Project.Read.All", "system-administrator|Project.Update",
+        "system-administrator|manufacturing.update", "system-administrator|projects.read",
+        "system-administrator|users.manage",
+    ];
+    private static readonly string[] DefaultDepartmentAndRoleCodes =
+        "administration,design,logistics,manufacturing,materials,procurement,production-planning,quality,readonly,sales".Split(',');
+    private static readonly string[] DefaultRoleCodes =
+        "design,logistics,manufacturing,materials,procurement,production-planning,quality,read-only,sales,system-administrator".Split(',');
 
     // Approved 2026-09-29 ownership and column lists; not read from migration SQL.
     private static readonly string[] CheongjuOwnedTables = "admin_master_change_logs,audit_coverage_state,audit_event_changes,audit_events,authorization_audit_events,busbar_audit,busbar_bom_lines,busbar_boms,busbar_detached_pages,busbar_ecount_attempts,busbar_ecount_employees,busbar_ecount_jobs,busbar_ecount_runtime,busbar_label_events,busbar_label_requests,busbar_ledger,busbar_master_access,busbar_materials,busbar_operations,busbar_photo_history,busbar_photos,busbar_plans,busbar_product_families,busbar_product_qr,busbar_products,busbar_projects,busbar_publication_recovery,busbar_purchases,busbar_receipts,busbar_settings,busbar_shipment_products,busbar_shipments,busbar_stock,busbar_workers,data_export_events,departments,deployment_maintenance,deployment_maintenance_popup_receipts,form_template_audit_events,form_template_manager_bindings,g2_daily_metrics,g2_defect_inventory_counts,g2_inventory_counts,g2_targets,iqc_report_pdf_artifacts,iqc_report_photos,iqc_report_responses,iqc_report_template_items,iqc_report_template_versions,iqc_report_templates,iqc_reports,logistics_batch_panels,logistics_batch_units,logistics_batches,logistics_delivery_results,logistics_evidence,logistics_operations,logistics_packing_unit_panels,logistics_packing_units,lqc_item_setting_audit_events,lqc_item_settings,manufacturing_step_template_items,manufacturing_step_template_versions,manufacturing_step_templates,material_categories,material_category_audit_events,material_category_iqc_setting_audit_events,material_category_iqc_settings,material_iqc_attempts,material_iqc_scan_attachments,material_iqc_scan_reports,material_receipt_events,material_receipts,notice_attachments,notice_post_revisions,notice_posts,notice_reads,notification_deliveries,notification_delivery_attempts,notification_delivery_reprocess_events,notification_recipients,notifications,panel_information_excel_import_batches,panel_kitting_batches,panel_kitting_completions,panel_manufacturing_assembly_batch_operations,panel_manufacturing_completion_confirmations,panel_manufacturing_events,panel_manufacturing_execution_steps,panel_manufacturing_executions,panel_manufacturing_operations,panel_manufacturing_release_operations,panel_placeholders,panel_qr_codes,panel_qr_events,panel_quality_inspection_attempts,panel_quality_operations,panel_quality_report_pdf_artifacts,panel_quality_report_photos,panel_quality_report_responses,panel_quality_reports,panel_quality_template_items,panel_quality_template_versions,pending_action_photos,pending_comments,pending_history,pending_issue_type_audit_events,pending_issue_type_catalog,pending_issues,pending_photo_operations,permissions,procurement_excel_import_batch_projects,procurement_excel_import_batches,procurement_required_item_template_rows,procurement_required_item_templates,production_control_manufacturing_items,production_control_manufacturing_templates,production_control_manufacturing_versions,production_control_plan_connections,production_control_plan_items,production_control_plan_templates,production_control_plan_versions,production_plan_template_audit_events,production_plan_template_steps,production_plan_templates,production_planning_excel_import_batches,production_product_types,project_assignees,project_audit_events,project_manufacturing_step_snapshots,project_procurement_items,project_production_plan_connections,project_production_plan_items,project_production_plan_set_default_values,project_production_plan_set_defaults,project_production_plan_set_item_values,project_production_plan_set_scopes,project_production_plans,project_workflow_events,projects,qms_database_identity,qms_users,role_permissions,roles,sales_billing_request_batches,sales_billing_request_download_events,sales_billing_request_items,sales_billing_request_operations,sales_monthly_billing_confirmations,sales_monthly_billing_ledgers,sales_monthly_billing_operations,sales_monthly_billing_revision_cases,sales_monthly_billing_revision_panels,sales_monthly_billing_revisions,sales_monthly_target_audit_events,sales_monthly_targets,sales_settlement_operations,sales_settlements,schema_migrations,site_access_coverage_state,site_access_sessions,system_holidays,ul891_recovery_case_events,ul891_recovery_cases,ul891_set_design_slots,ul891_set_instances,ul891_set_operations,ul891_set_spec_components,ul891_set_spec_versions,ul891_set_specs,user_notification_preference_audit_events,user_notification_preference_profiles,user_notification_preferences,user_profile_photo_audit_events,user_profile_photos,user_project_access,user_roles,web_push_subscription_events,web_push_subscriptions,work_item_escalations,work_items,workflow_stages".Split(',');
@@ -148,6 +178,24 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(expectedSequences, runtimeSequences);
             Assert.Equal(code == BusinessUnitCodes.Osan ? OsanViews : [],
                 await ReadPublicViewsAsync(databases, code, ct));
+            if (code == BusinessUnitCodes.Osan)
+            {
+                Assert.Equal(OsanPermissionCatalog, await databases.ReadColumnAsync(
+                    code, BusinessUnitConnectionPurpose.Migration,
+                    "select id::text || '|' || code || '|' || name from permissions order by id", ct));
+                Assert.Equal(OsanBaselineRolePermissions, await databases.ReadColumnAsync(
+                    code, BusinessUnitConnectionPurpose.Migration,
+                    "select role.code || '|' || permission.code from role_permissions assignment " +
+                    "join roles role on role.id=assignment.role_id " +
+                    "join permissions permission on permission.id=assignment.permission_id " +
+                    "order by role.code collate \"C\",permission.code collate \"C\"", ct));
+                Assert.Equal(DefaultDepartmentAndRoleCodes, await databases.ReadColumnAsync(
+                    code, BusinessUnitConnectionPurpose.Migration,
+                    "select code from departments order by code collate \"C\"", ct));
+                Assert.Equal(DefaultRoleCodes, await databases.ReadColumnAsync(
+                    code, BusinessUnitConnectionPurpose.Migration,
+                    "select code from roles order by code collate \"C\"", ct));
+            }
         }
     }
 

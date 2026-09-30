@@ -112,7 +112,7 @@ async function mockSalesKpi(route: Route) {
     });
     return;
   }
-  if (url.pathname === '/api/sales/kpi') {
+  if (url.pathname === '/cheongju/api/sales/kpi') {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

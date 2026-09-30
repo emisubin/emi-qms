@@ -150,7 +150,9 @@ public sealed class DevelopmentIdentitySeeder(
 
     private const string SeedSql = IdentitySeedSql + CheongjuProjectSeedSql + RoleSeedSql
         + CheongjuAssignmentSeedSql + PermissionSeedSql + CheongjuProductionSeedSql;
-    private const string OsanSeedSql = IdentitySeedSql + RoleSeedSql + PermissionSeedSql;
+    // Osan 0131 keeps only its seven route permissions. Common permission seeds
+    // belong to Cheongju and must not recreate the retired Osan taxonomy.
+    private const string OsanSeedSql = IdentitySeedSql + RoleSeedSql;
 
     private const string IdentitySeedSql = """
         insert into departments (id, code, name, is_active, sort_order)

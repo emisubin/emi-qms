@@ -1,6 +1,6 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
-> 최신 작업(2026-09-30 감사 후 보정): **점검 잠금·DB 기본 권한·오산 잔존 sequence·배포 검사 보정의 로컬 구현/검증 완료, 전체 정리·운영 전환은 보류(NO-GO)**. 기준선 `f03c21c` 이후 보정은 합성 DB와 실제 로컬 배포 이미지에서 검증했다. 오산 권한 기준정보 삭제 파일 작성은 자동 승인 검토 거부 후 정확한 범위의 사용자 승인 대기이며 패치 미적용이다. 운영은 마지막 조회 C209/O209/D8 그대로이고 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 보낸편지함 일치 기록0건까지 확인했으나 미발송 확정은 아니다. Backend1개·자원량을 유지했고 운영/메일 변경·원격 게시·배포는 하지 않았다. 최종 근거와 남은 범위는 마지막 절을 따른다.
+> 최신 작업(2026-09-30 기준정보 정리): **오산 권한28개·미사용 역할1개 정리의 로컬 구현과 추가 전체 검증 완료(GO), 운영 전환은 보류(NO-GO)**. 유지 권한7개와 기존 역할 연결·사용자 배정·업무/감사 데이터를 보존하며, 모르는 정의나 사용 중인 삭제 대상 역할은 전환을 중단한다. Backend 전체1032건의 초기 실패25건과 skip92건을 각각 보정 재검증/전용 DB 검사로 해소했고 일반 browser64건의 초기 실패5건도 보정 후 통과했다. 운영은 마지막 조회 C209/O209/D8이고 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 보낸편지함 일치 기록0건까지 확인했으나 미발송 확정은 아니다. Backend1개·자원량을 유지했고 운영/메일 변경·원격 게시·배포는 하지 않았다. 과거 승인 대기 상태는 최신 사용자 승인으로 해소됐으며 최종 근거와 남은 범위는 마지막 절을 따른다.
 
 ## 상태
 
@@ -532,3 +532,48 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 3. 사용자 검수, 원격 required CI 및 실제 게시 경로 검증, 명시 승인된 운영 전환. 운영 C209/O209/D8과 앱1개를 변경하지 않았다.
 
 이번 완료 변경은 기존 branch에서 로컬 commit 대상으로만 묶는다. `main`/사용자 원본 checkout의 WIP, push/PR/merge/배포는 변경하지 않는다. 로컬 코드 보정 GO와 전체 정리/운영 전환 NO-GO를 구분한다.
+
+### 오산 기준정보 정리 승인과 추가 전체 검증 — 2026-09-30
+
+- 사용자 명시 승인: **“승인. 작업 완료 후 다시 한번 전체적으로 추가 검증 진행해.”** 직전 답변에 명시한 오산 권한28개·해당 role_permissions 연결·미사용 `interior-busbar-manager` 역할1개 삭제의 로컬 파일 작성/합성 DB 검증을 승인했다. 앞 절 자동 승인 검토의 승인 부족 사유를 이 사용자 답변으로 해소했다. 운영 실행·발송/메일 상태 정정·원격 게시/병합/배포 승인은 확대하지 않는다.
+- 기준선 `1f2fad4`, 기존 `codex/business-schema-separation` 작업 폴더 clean에서 재개했다. 목표는 O permissions7/roles10 및 기존7권한 연결·departments10·user_roles·업무/감사/설정 보존이다. C/D 및 backend1개/자원량, C182/O56/D8 표 계약은 유지한다.
+- 담당 경계: 기존 `business_schema_migrations`가 O0131/seeder/backend 시험을 작성하고, parent가 packaged 검사/문서/검증을 수행한다. 작성과 분리된 `review_db_tunnel`이 유지 권한의 실제 endpoint 사용과 최종 diff를 검토한다. 기존 agent 맥락을 재사용하며 실제 관측 모델은 NOT_REPORTED다.
+- 이번 변경을 포함하여 합성 DB의 fresh/upgrade·보존/rollback·권한 allow/deny·3-DB 경계/점검 경쟁, frontend 요청 경로, 실제 배포용 이미지와 release 검사를 추가 확인했다. 최종 결과와 제한은 아래와 같다.
+
+**구현과 독립 검토**
+
+- O0131은 기존35권한의 id/code/name을 정확히 검사한 뒤 승인된28권한과 그 연결만 제거한다. `interior-busbar-manager`는 정의가 예상과 같고 사용자 배정·권한 연결이 모두 없을 때만 제거한다. retained7의 기존 연결, 사용자 정의 역할/연결, 사용자 배정·부서·업무/감사/설정을 보존한다. 청주35권한/기본11역할은 그대로다.
+- O 개발 seed에서 공통 청주 권한 seed를 제외하여 반복 실행해도 삭제된 권한을 재생성하지 않는다. packaged fresh/upgrade/reapply 검사에 C35:11:10:111/O7:10:10:29의 순수 합성 기준을 추가했다. 운영/사용자 정의 역할의 연결 개수를29개로 강제하는 검사가 아니다.
+- 반례는 모르는 권한·이름 변경·부스바 역할 정의 변경·사용자 배정·권한 연결과 늦은 FK 실패를 실제로 실행하여 rollback을 확인한다. 정상 전환에서는 사용자 정의 역할과 유지 권한 연결을 넣고, 두 차례 seed 후 영업·품질·설계·관리자·사용자 정의 역할의 실제 profile 허용/거부를 검사한다.
+- 추가 전체 검사에서 발견한 예전 테스트 준비 방식도 보정했다. G2/부스바 권한 HTTP 시험은 명시 청주 bootstrap과 청주0131까지 준비한다. trusted Osan 반례17개는 `/osan/api/...` 경로를 거쳐 정확한 capability 거부를 확인한다. ReviewSafe의 일반 Development 등록 시험은 실제 scoped notification handler를 scope 안에서 조회한다. 제품 권한·응답 기대를 완화하지 않았다.
+- `review_db_tunnel`은 `1f2fad4` 대비 taxonomy/seeder/backend 검사의 고정 diff, parent의 packaged assertion·ReviewSafe 시험 보정, 추가 G2/부스바 준비/경로 보정을 독립 검토하여 GO, 추가 P1/P2 없음으로 판정했다. FE 호출 경로→고정 사업부 URL→endpoint 권한→DB/worker 연결도 다시 대조하여 새 교차 접근 경로를 찾지 못했다. trusted context 시험은 실제 Directory 인증/연결 추적을 대신하지 않으며, 이를 별도3-DB 브라우저 시험과 구분한다. 실제 관측 모델은 NOT_REPORTED다.
+
+**추가 전체 검증 중 발견한 브라우저 시험 보정**
+
+- 일반 full-stack의 QR 발급, Excel 패널 적용, 프로젝트 재활성 응답 대기와 영업 KPI mock이 옛 `/api/...` exact 경로를 사용했다. 현재 FE의 `/cheongju/api/...`로 맞췄으며 HTTP method·project ID·endpoint·성공 상태 및 DB/화면 검증은 유지했다. QR은 실제 발급 후 observer 대기에서 timeout이었음을 최종 stack으로 확인했다. 나머지도 전체 실행에서 동일 관찰/fixture 문제로 실패했고 수정본 재실행은 통과했다.
+- G2는9/30 기본9월 표에서10/1 요소를 찾았다. UI로 실제 월을 이동하고 해당 월의 min/max와 날짜 필터를 확인한다. tomorrow/모레가 같은 월이면 기존 임시 예상 재고29 두 열을, 다른 월이면 첫 월의 열 부재와 다음 월의 재고32를 각각 확인한다. 주말/미래 색상 검사 사이에는 상세 상태를 명시적으로 접어 확정한다. UI 제품·API·계산·권한 기대는 변경하지 않았다.
+- G2 첫 보충 실행은 좁힌2일 표의 가운데 정렬 오차1.015625가 기존1px 기준을 넘어서 실패했다. 실제 날짜 필터 검증 후 원래 월 전체 표로 돌아와 geometry와1440/390px 폭 검증을 수행하도록 보정했으며 tolerance/CSS는 그대로다. 좁힌 기간의 geometry까지 통과했다고 해석하지 않는다. 독립 검토에서 동일월 상세 상태·월말 전날 월 분리·월전체 폭 검증 유지 지적을 모두 보정한 뒤 최종 GO를 받았다.
+
+| 이번 추가 검증 | 결과·범위 |
+| --- | --- |
+| 오산 기준정보·schema 집중 | 5/5 PASS. fresh/upgrade/store/guard, exact 정의, 보존·rollback, 사용자 정의 연결, seed 반복 및 실제 권한 profile 반례. |
+| Backend 전체 | 1032건 중915 PASS/25 FAIL/92 skip,46분41초. 실패25건은 아래25/25 재검증으로 해소했고, skip92건은 모두 InteriorBusbar 계열이며 아래 전용 DB 실행의 통과 항목에 포함된다. 모든 대상의 최종 증거를 확보했지만 한 번에1032/1032 통과한 실행으로 기록하지 않는다. |
+| Backend 실패 보정 재검증 | 25/25 PASS, skip0. G2 권한3/부스바 기존 역할4/오산 capability17/Development 등록1. 전체 검사와 다른 빌드 출력 폴더 및 임시 DB에서 실행하여 진행 중인 DLL/DB를 덮어쓰지 않았다. |
+| 부스바 전용 DB 보충 | 별도 합성 `busbar_test`에서265건 중248 PASS/17 FAIL/skip0. 실패17은 위 경로 보정 재검증17/17로 해소했다. 첫 전체 검사의 전용 DB 미설정 skip은 이 실행으로 보충하며 skip을 PASS로 세지 않는다. |
+| Frontend 전체 | Vitest76파일586/586 PASS. 실제3-DB 브라우저 실행에서 production frontend build도 PASS. |
+| 일반 업무 브라우저 | 64건 중59 PASS/5 FAIL 후 영향받는5건 최종 재검증 PASS(QR1, G2최종1, Excel/재활성/KPI3). 한 번에64/64 통과한 실행으로 기록하지 않는다.12면 혼합자재·분할 입고·반복 Pending 완료 및18단계 부서별 프로젝트 전 과정 포함. 이 일반 suite는 legacy 단일 합성 DB이며 일부 명시 mock을 포함하므로 전부3-DB 실거래 검사라고 표현하지 않는다. |
+| 사업부 전용 브라우저 | 오산 등록·목록·상세1/1, 공통 사용자관리/탭 소속/권한·격리 초기화1/1 PASS. 실제 C/O/D 임시 DB와 제한된 역할 사용. 오산 등록 뒤 C 프로젝트 행 수 불변, O 프로젝트+1·대상1·단계7을 직접 조회했다. |
+| 실제 배포용 이미지 | 최종 taxonomy 포함 fresh/upgrade/reapply·drain·exact schema/객체/ACL/권한 집합 PASS. 해당 실행 소유 임시 자원 잔여0 확인. |
+| 배포 절차 검사 | release mock110/110, maintenance bootstrap mock55/55, OCI binding7 subcase, borrowed image cleanup6/6 PASS. 실제 Azure/registry/원격 CI 실행은 아니다. |
+| 정적 검사 | 변경 script Bash syntax·ShellCheck `-x`, 변경 browser4파일 ESLint, diff 검사 PASS. |
+
+- 증거: `/private/tmp/business-schema-taxonomy-focused.log`, `/private/tmp/business-schema-final-backend-all.log`, `/private/tmp/business-schema-final-backend-recheck.log`, `/private/tmp/business-schema-final-busbar-tests.log`, `/private/tmp/business-schema-final-frontend-tests.log`, `/private/tmp/business-schema-final-general-browser.log`, `/private/tmp/business-schema-final-browser-recheck.log`, `/private/tmp/business-schema-final-g2-browser.log`, `/private/tmp/business-schema-final-fixed-route-browser.log`, `/private/tmp/business-schema-final-osan-browser-ready.log`, `/private/tmp/business-schema-final-access-browser.log`, `/private/tmp/business-schema-final-production-image.log`, `/private/tmp/business-schema-final-release-tests.log`, `/private/tmp/business-schema-final-bootstrap-tests.log`, `/private/tmp/business-schema-final-browser-lint.log`.
+- 최초 오산 브라우저 실행은 테스트용 Chromium 미설치로 실행 전 실패했다. 프로젝트에 맞는 headless browser를 임시 폴더에 준비한 뒤 정상 재실행했다. 사용자 브라우저/설정은 변경하지 않았다. 일반/보충 브라우저의 임시 DB·process·Compose 자원은 각 wrapper cleanup을 통과했다. 새로 생성한 합성 screenshot/출력 workbook은 임시 증빙 폴더에 보관하고 tracked108개/untracked5개만 작업 폴더에서 원상 복구했다. 로그·browser cache·증빙 파일이 있는 임시 폴더 전체를 삭제했다고 주장하지 않는다.
+- 위 일반 browser4파일의 최종 diff도 작성과 분리된 reviewer가 검토했다. 제품 UI를 변경한 작업이 아니며 모든 화면을 사람이 직접 검수했다는 뜻은 아니다. 사용자 검수와 원격 required CI는 별도 남아 있다.
+
+**최종 판정과 남은 운영 범위**
+
+- 승인된 로컬 기준정보 정리·추가 전체 검증은 완료(GO)다. 최종 전체 backend의 추가 실패는 위 보정 대상25건뿐이며 전용 DB로 보충한 skip92건 외의 미실행 항목은 없다. 최초 실행·보정·보충 결과를 구분해 기록했고 검증 기대를 느슨하게 바꾸지 않았다.
+- 전체 검사 종료 뒤 이번 실행 소유 backend/browser/busbar/image 임시 환경이 정리됐음을 확인했다. 기존 `emi-qms-e2e-osan20260924` 컨테이너와 원본 checkout의 WIP는 유지했다. 변경16파일만 기존 `codex/business-schema-separation`의 로컬 commit 범위이며 push·PR·merge·배포는 하지 않는다.
+- 운영 전환 NO-GO는 유지한다. 별도 운영 판단이 필요한 불명확 발송1건의 처리 결과/근거, 복구 준비·적용 창 점검, 사용자 검수 및 원격 required CI/실제 게시 경로 검증이 남아 있다. 이번 승인을 운영 DB 실행이나 발송/상태 정정 승인으로 확대하지 않았다.
+- 따라서 현재 운영에 남은 C209/O209/D8 표나 기존 오산 권한 정의가 사라졌다고 표현하지 않는다. C182/O56/D8 및 O7권한/기본10역할은 검증된 전환 목표다. 앱 수·Azure 자원량·비용 구성은 변경하지 않았다.

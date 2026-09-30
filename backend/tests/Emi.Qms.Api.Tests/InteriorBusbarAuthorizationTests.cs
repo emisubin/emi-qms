@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.InteriorBusbar;
+using Emi.Qms.Api.ReviewSafe;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,12 +65,14 @@ public sealed class InteriorBusbarAuthorizationTests
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
         await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(TestContext.Current.CancellationToken);
+            .BootstrapAsync(BusinessUnitCodes.Cheongju, TestContext.Current.CancellationToken);
         await new DatabaseMigrationRunner(provider,
-            Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(Path.Combine(databases.RepositoryRoot, "database", "migrations")),
+            DatabaseMigrationCatalog.FromPaths(
+                Path.Combine(databases.RepositoryRoot, "database", "migrations"),
+                Path.Combine(databases.RepositoryRoot, "database", "business-migrations")),
             new DatabaseRuntimePrivilegeManager(), databases.Configuration,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+            .ApplyAndVerifyAsync(BusinessUnitCodes.Cheongju, TestContext.Current.CancellationToken);
         using var factory = QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
         {
             ["DevAuthentication:Enabled"] = "true",
@@ -118,7 +121,7 @@ public sealed class InteriorBusbarAuthorizationTests
             });
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-admin");
-        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        using var request = new HttpRequestMessage(new HttpMethod(method), "/osan" + path);
         if (method == "POST") request.Content = JsonContent.Create(new BusbarMasterRequest(null, "W", "Worker"));
         var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.True(response.StatusCode == HttpStatusCode.Forbidden, string.Join("\n", factory.Logs.Entries.Select(x => x.Message + " " + x.Exception)));

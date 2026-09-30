@@ -1,6 +1,6 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
-> 최신 작업(2026-09-29): 기존 backend 1개를 유지하는 청주·오산 업무/DB 구조 분리. 확정 SQL과 새 합성 DB에서의 검증 결과는 문서 끝에 기록한다. 아래 2026-09-07 배포 승인·상태는 당시 이력이며 이번 구조 변경의 운영 적용 승인이 아니다. 추가 승인 범위의 배포 연결 코드·합성 검증·독립 검토까지 완료했고 로컬 커밋으로 보관한다. 사용자 검수·원격 반영·운영 적용은 미실행이며 운영 DB는 변경하지 않았다.
+> 최신 작업(2026-09-30): **운영 구조 전환 보류(NO-GO)**. 실제 운영 DB 읽기 전용 사전점검에서 오산 정상 NULL을 거부하는0131 조건 오류, 제거표를 참조하는 잔존 DB 함수, 결과 불명확 메일 시도1건을 확인했다. 앞선 합성 시험 통과는 운영 전환 가능 판정이 아니며, 보정·확인이 필요하다. 구현 기준은 local commit `d70de69`, 실제 운영 변경·원격 게시·배포는 미실행이다. 자세한 결과는 문서 마지막 절을 따른다.
 
 ## 상태
 
@@ -356,3 +356,52 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - 커밋 대상160개 개별 경로를 대조했고 binary/기존 common·directory migration 변경0, private-key/token 패턴0을 확인했다. 새 SQL2개의 EOF 빈 줄만 최종 형식 검사에서 제거했다. 원래 checkout·다른 작업 WIP·공유 실행환경·pgAdmin 터널은 변경하지 않았다.
 - 최종 동결본 모의 배포 시험 **일반90/90 + 최초도입55/55 PASS**, 합계145개: `/private/tmp/release-drain-mock-tests.log`, `/private/tmp/bootstrap-drain-mock-tests.log`. D/C/O 실패·응답 불명확·계속 실행 중이면 구조 변경을 시작하지 않고, 구조 변경 요청 전/후의 복구 경계와 한 번만 실행하는 계약, 환경/secretRef 보존, 승인 기본false/대상별 전달, reserved/duplicate 설정 및 출력 비밀값 차단을 확인했다. 중간 bootstrap 확장 실행은 macOS 대소문자 비구분 임시 폴더 충돌로 멈춰 순번 폴더로 보정했다. 일반 중간 실행1회의 무출력 종료는 원인을 확정하지 않았으며, 최종 동결본 재실행은90개 전체 통과했다.
 - 완료 상태: 이번 승인 범위의 **로컬 구현·영향 자동 검증·독립 검토 완료**, `codex/business-schema-separation`에서 local commit으로 보관한다. 사용자 검수·전체 최종 회귀·원격 CI·push/PR/merge/운영 배포는 미실행이다. 기존 backend1개/1vCPU·2GiB·replica1 구성과 DB3개를 유지하며 Azure 리소스·비밀값·역할·운영 데이터 변경 및 추가 자원 생성은 없다. 운영 전환에는 실제 데이터 사전 점검, 불명확 발송 이력 판정, 복구·중단 계획과 해당 운영 실행 범위의 승인이 남아 있다.
+
+
+### 실제 운영 DB 읽기 전용 사전점검 — 2026-09-30
+
+- 사용자 요청: “좋아. 확인해봐. 꼼꼼하게 하나하나 다 검사해.” 직전 안내의 첫 단계인 **실제 운영 DB 사전점검**을 수행했다. 데이터 정정·구조 변경·배포·발송/재발송은 범위 밖이며 실행하지 않았다. 코드 수정도 하지 않았고 이 절에 확인 결과와 차단 사항만 기록한다.
+- 관측 구간: 2026-09-30 09:50~09:57 KST. C/O/Directory runtime credential을 승인된 Key Vault에서 메모리에만 수신하고, 인증서/호스트명을 검증하는 TLS1.3 통로를 사용했다. 기존15432 사용자 listener가 없어 검증된 기존 도구의 조사 소유 임시 통로1개를 생성·재사용하고 정상 종료했다. 새 Azure 자원·영구 설정·DB 변경 없음. 통로의 정상 종료 요청/exit0을 확인했으며 원격 임시 디렉터리의 별도 재조회는 하지 않았다.
+- 모든 정상 DB 조회에서 `default_transaction_read_only=on`, `transaction_read_only=on`, statement timeout8초/lock timeout1초를 확인했다. 운영 migration 파일/DO/DDL/consent GUC는 실행하지 않았다. canonical SQL의 조건식만 SELECT로 옮겨 평가했다. 출력/증거는 개수·상태·schema metadata·비식별 fingerprint이며 사용자/프로젝트/메일 원문과 비밀값은 보관하지 않았다.
+
+| 점검 | 청주 | 오산 | Directory / 판정 |
+| --- | --- | --- | --- |
+| 실제 DB identity | emi_qms / CHEONGJU | emi_qms_osan / OSAN | emi_qms_directory / directory; 모두 일치 |
+| public 기본 표 | 209 | 209 | 8; 총426표 COUNT 실패0 |
+| 기존 migration 원장 | canonical130 정확일치 | canonical130 정확일치 | directory4 정확일치;0131 미적용 |
+| projects 열 / 사전 목록 | 43 / 정확일치 | 43 / 정확일치 | 추가·누락0 |
+| public 열 metadata 가시성 | 2,011/2,011 | 2,011/2,011 | 53/53; C/O 전체 관측 열 metadata 동일 |
+| 비어 있지 않은 표 / 빈 표 | 102 / 107 | 70 / 139 | 8 / 0; RLS 적용0 |
+| 제거 대상 표 | 27: 빈23 + 초기값4(41행) | 153: 빈134 + 초기값19(159행) | empty 및 canonical literal/관계 guard 전부 통과 |
+| 제거 예정 프로젝트 열 조건 | 7열 조건 전부 통과 | normalized 열 조건496행 위반, 그 외 조건0 | 아래 P1-1 참조 |
+| 제거 예정 알림 참조열 | 해당 없음 | notifications2열/deliveries1열 모두 NULL | 보존해야 할 참조값0 |
+| 유지표→제거표 FK | projects.osan_customer_id 1개 | projects LQC/알림 work-item 등4개 | 전부 명시 제거 또는 제거열에 속한 FK; 예상 밖 종속 view0 |
+| invalid constraint / index | 0 / 0 | 0 / 0 | Directory도0/0 |
+| 권한 / 실제 다른 DB 로그인 | 자기 DB CONNECT만 허용 | 자기 DB CONNECT만 허용 | 3역할×다른2DB=6회 모두 database permission denied |
+| 진행 중 발송 / EC 불확정 | 모두0 | 현재 Processing0, 과거 불명확 메일1건 | prepared transaction0, 대기 lock0 |
+
+- 프로젝트 보존 기준: 청주3행(논리삭제1), 오산496행(Active424 중 논리삭제9, Completed72). 오산 targets496, 단계3472, 사진931, 단계기록916. 이전361행과의 증가는 운영 중 자연 변화이며 과거 행 수를 현재 정답으로 사용하지 않았다. 오산 중복 활성 project_code는16그룹/40행이고 기존 계약대로 보존 대상이다. 새 Osan retained registration/status check 위반0. 개인 알림 설정은 profile2+preference9=11행으로 기존 보존 계약과 일치하며 전행 fingerprint를 기록했다. 발송42,230행 중 manual_payload_json 비NULL29,822행의 보존 기준 fingerprint도 기록했다. 이는 전환 전 기준값이며 운영 전후 보존 확인은 아직 아니다.
+- FK·view뿐 아니라 제거열의 pg_depend와 함수 본문 참조를 조회했다. C normal dependency147, O840의 목록에서 제거표/열에 딸린 constraint·view·trigger와 명시 제거 목록을 대조했다. generic audit 함수의 JSON 키/문자열 일치는 삭제 대상으로 오판하지 않았다. 다른 schema에 사용자 table/view 없음. 정적 catalog/text scan이 동적 SQL의 모든 경로를 증명하는 것은 아니다.
+
+**전환을 막는 확인 사항**
+
+1. **P1-1: 새 오산0131 검사 조건이 정상 운영 저장 계약과 불일치한다.** 모든496행의 `project_title_normalized`는 NULL이다. 과거361행 조사에서도 nonnull0이고, 운영기준02028f2의 OsanProjectStore는 해당 열을 명시적으로NULL로 저장한다. migration0087도 정규화 제목 unique index를 청주에만 적용한다. 그런데 새0131의695행은 제목을 정규화한 값과 일치해야 한다고 요구해 정상496행을 모두 거부한다. 데이터 정정 대상이 아니라 **로컬 전환 코드와 합성 fixture의 보정 대상**이다. 최소 방향은 이 열에 `is not null`이 있을 때만 중단하게 바꾸고, 정상NULL/예상 밖nonNULL 반례를 검증하는 것이다. 다른 복제열(name/title, number/code) 보호 조건은 유지한다. 이번 점검에서는 수정하지 않았다.
+2. **P1-2: 오산에서 표 제거 후 실행 가능한 잔존 함수가 남는다.** `qms_record_site_access`와 `qms_end_site_access`는 현재 runtime 역할에 EXECUTE가 허용된 SECURITY DEFINER 함수이며 `site_access_sessions`를 참조한다. 새0131은 표만 제거하고 두 함수는 남긴다. 새 앱의 정상 Osan 경로는 IsOsan 검사로 해당 호출을 막지만 DB에 직접 호출 가능한 깨진 함수가 남는 정리 누락이다. 해당 함수2개와 전용 helper2개(`qms_site_access_guard_updates`, `qms_site_access_menu_codes_valid`)의 명시 제거/최종 부재 검사 및 나머지 제거표 전용 trigger helper 목록 검토가 필요하다. 실제 함수 호출이나 다른 DB 접근을 시험한 것은 아니며 운영 함수는 변경하지 않았다.
+3. **운영 차단: 결과 불명확한 메일 호출1건이 남아 있다.** 2026-09-22 22:21 KST에 생성된 OsanWorkflow/Mail attempt가 `LeaseExpiredAfterProviderCallStarted`이다. delivery는Failed, provider message ID는 없고 후속Sent/현재Processing도 없다. 이 결과는 “메일이 안 나갔다”는 증거가 아니며 새 drain 정책상 차단된다. 외부 발송 결과와 정정 근거를 별도로 확인해야 한다. 임의 상태 변경·삭제·재전송은 하지 않았다.
+
+**OSAN-G2-001 입력 경로 확인**
+
+- 오산의 G2 전용 표4개는 모두0행이다. 이름/title/key/code/number 중G2 문구가 있는 projects11개는 모두Osan이고 오산 생성operation/ProjectCreated event가 각각11개 있다.
+- audit_event_changes의 프로젝트Insert를 audit_events에 연결한 결과 **11개 모두 엑셀 등록 ApplyOsanProjectImport, 총3개 요청**이었다. Insert 감사 누락0. 생성기간은2026-09-10~09-18이며 현재Active10/Completed1이다. 후속 교집합 집계에서4개는 단계·사진 이력이 함께 있다.
+- 따라서 “어떤 경로로 저장됐는지”는 확인 완료다. 청주 G2 실적 표가 오산으로 복사됐다는 증거는 없고, G2 문구가 들어간 프로젝트를 오산 엑셀 등록으로 저장한 것이다. 업무상 해당 프로젝트를 오산에 등록한 이유·내용의 적절성은 별도 업무 판단으로 남긴다. 실제 이름/내용/등록자 개인정보를 출력하거나 데이터를 변경하지 않았다. 과거 OPEN 기록 중 입력경로 미확인은 이 결과로 해소한다.
+
+**운영 설정과 별도 확인 사항**
+
+- Backend는 기존backend--0000068/02028f2 기준 image로 동일하고1vCPU/2GiB/min=max replica1, Frontend도 기존0000059이다. 앱은Running/Single revision이며 DB 자동 migration=false이다. 신규 코드는 아직 운영에 없다.
+- 기존 migration/bootstrap/backfill/maintenance Job4개는 Manual/retry0/parallelism1/completion1/container1이고, 반환된 실행 목록에 현재Running 상태는 없었다. 저장 template에 이번 예약 target/approval/drain/maintenance 설정, 정규화 중복 키, 평문 DB connection setting은 없다. Job 저장image가 운영 backend와 다르지만 새 release는 실행별 정확한 새image를 덮어쓰는 계약이므로 기존image로 새CLI를 직접 실행하면 안 된다. 이번에는 Job을 실행하지 않았다.
+- DB는PostgreSQL16/Ready, public accessDisabled. 백업보존14일, 반환된 earliest restore 시각2026-09-16T23:38:23Z, geo redundancy/HA 비활성이다. 백업 설정 관측은 실제 복원 시험 성공을 뜻하지 않는다. 실제 복구 준비 확인은 운영 전환 전 남아 있다.
+- 오산에는 Mail Failed 누적15,821건(SmtpConnectionFailed9,317 / SmtpSendFailed6,467 / retry-limit37)이 있다. 최신 실패행 생성시각은2026-09-29 23:30 KST이다. 이는 별도 발송 운영 점검 대상이며, 이번 결과만으로 현재 SMTP가 고장이라고 단정하지 않는다. 청주Failed11건도 과거 누적 이력으로 관측했다. 실패행을 삭제하거나 재발송하지 않았다.
+- 앱이 가동 중인 여러 시점의 autocommit 조회다. C/O에idle client session3/1개가 관측되어 현재 상태는 배포 drain 완료가 아니다. 실제 적용 창에서 앱·수동 접속을 종료한 후 다시 확인해야 한다. runtime 역할로 점검했으며 실제 migration 역할의 접속/권한, 운영 새image drain, 실제0131 DDL/rollback, 운영 데이터 전후 비교는 실행하지 않았다.
+- 증거(비식별 임시 집계): `/private/tmp/pms-preflight-20260930-result.json`, `followup-result.json`, `final-result.json`, `cross-login-result.json`, `azure-result.json`(뒤4개도같은 `pms-preflight-20260930-` prefix). SELECT queryset의 오류0, 권한 음성시험6개 모두 DB권한거부 확인. 원문 SQL 오류/비밀값은 저장하지 않았다.
+- 독립 검토: `business_schema_migrations`가 migration 계약·정상NULL 저장코드·함수 정리 누락을 읽기 전용으로 확인했고, `review_db_tunnel`이 실제 조회 코드/집계 및 G2 감사 경로를 대조해 **NO-GO**에 동의했다. 각 reviewer는 본인이 운영 조회를 실행한 것으로 표시하지 않으며 실제 모델은NOT_REPORTED. 마지막 권한 오류 분류와 G2 단계/사진 교집합은 부모 후속 조회에서 확인했다.
+- **상태: 읽기 전용 사전점검 완료 / 운영 전환 보류.** 다음 작업은 정상 오산 계약에 맞는 로컬 guard·시험 보정, 잔존 함수 정리 보완, 불명확 메일 결과의 처리 근거 확인이다. 제품 코드·운영 DB·Azure 영구 설정·실제 provider·원격 Git은 변경하지 않았다. 이 점검 기록만 같은 branch의 별도 local documentation commit으로 보관한다.

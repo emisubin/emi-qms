@@ -692,7 +692,8 @@ begin
         where project_profile <> 'Osan'
            or project_number is distinct from project_code
            or name is distinct from project_title
-           or project_title_normalized is distinct from upper(regexp_replace(btrim(project_title), '\s+', ' ', 'g'))
+           -- OsanProjectStore writes NULL; normalization belongs to Cheongju only.
+           or project_title_normalized is not null
            or coalesce(item, '') <> ''
            or sales_owner_user_id is not null
            or sales_amount is not null
@@ -1026,6 +1027,107 @@ drop table
     site_access_sessions,
     admin_master_change_logs,
     system_holidays;
+
+-- The common catalog created these functions only for the retired Cheongju
+-- tables. Remove them after their triggers/checks; RESTRICT rejects unknown
+-- retained dependencies instead of removing dependent objects implicitly.
+drop function public.busbar_guard_final_photo() restrict;
+drop function public.busbar_prepare_panel_qr() restrict;
+drop function public.guard_append_only_form_template_audit() restrict;
+drop function public.guard_append_only_logistics_operation() restrict;
+drop function public.guard_append_only_pending_issue_type_audit() restrict;
+drop function public.guard_append_only_sales_monthly_target_audit() restrict;
+drop function public.guard_append_only_sales_settlement_operation() restrict;
+drop function public.guard_completed_sales_settlement() restrict;
+drop function public.guard_finalized_iqc_report_children() restrict;
+drop function public.guard_finalized_iqc_report_core() restrict;
+drop function public.guard_finalized_logistics_child() restrict;
+drop function public.guard_finalized_logistics_owner() restrict;
+drop function public.guard_finalized_material_iqc_scan_attachment() restrict;
+drop function public.guard_finalized_material_iqc_scan_report() restrict;
+drop function public.guard_finalized_panel_quality_report_children() restrict;
+drop function public.guard_finalized_panel_quality_report_core() restrict;
+drop function public.guard_form_template_version_lifecycle() restrict;
+drop function public.guard_iqc_report_pdf_artifact_immutable() restrict;
+drop function public.guard_iqc_template_item_mutation() restrict;
+drop function public.guard_lqc_item_setting_audit_append_only() restrict;
+drop function public.guard_manufacturing_template_item_mutation() restrict;
+drop function public.guard_material_category_audit_append_only() restrict;
+drop function public.guard_material_category_iqc_projection_write() restrict;
+drop function public.guard_material_category_iqc_setting_audit_append_only() restrict;
+drop function public.guard_material_receipt_projection_write() restrict;
+drop function public.guard_panel_qr_event_append_only() restrict;
+drop function public.guard_panel_quality_pdf_artifact_immutable() restrict;
+drop function public.guard_panel_quality_template_item_mutation() restrict;
+drop function public.guard_pending_action_photo_evidence() restrict;
+drop function public.guard_pending_issue_type_catalog() restrict;
+drop function public.guard_pending_photo_operation_append_only() restrict;
+drop function public.guard_pending_project_lifecycle() restrict;
+drop function public.guard_sales_billing_request_append_only() restrict;
+drop function public.guard_ul891_append_only() restrict;
+drop function public.guard_ul891_component_immutability() restrict;
+drop function public.guard_ul891_spec_version_immutability() restrict;
+drop function public.sync_material_category_iqc_projection() restrict;
+-- Remove callers before their dedicated site-access helpers.
+drop function public.qms_record_site_access(uuid, uuid, text, text, inet, text, text) restrict;
+drop function public.qms_end_site_access(uuid, uuid, uuid) restrict;
+drop function public.qms_site_access_guard_updates() restrict;
+drop function public.qms_site_access_menu_codes_valid(text[]) restrict;
+
+do $migration$
+begin
+    -- Include unexpected overloads in the final absence check.
+    if exists (
+        select 1 from pg_proc
+        where pronamespace = 'public'::regnamespace
+          and proname = any(array[
+              'busbar_guard_final_photo',
+              'busbar_prepare_panel_qr',
+              'guard_append_only_form_template_audit',
+              'guard_append_only_logistics_operation',
+              'guard_append_only_pending_issue_type_audit',
+              'guard_append_only_sales_monthly_target_audit',
+              'guard_append_only_sales_settlement_operation',
+              'guard_completed_sales_settlement',
+              'guard_finalized_iqc_report_children',
+              'guard_finalized_iqc_report_core',
+              'guard_finalized_logistics_child',
+              'guard_finalized_logistics_owner',
+              'guard_finalized_material_iqc_scan_attachment',
+              'guard_finalized_material_iqc_scan_report',
+              'guard_finalized_panel_quality_report_children',
+              'guard_finalized_panel_quality_report_core',
+              'guard_form_template_version_lifecycle',
+              'guard_iqc_report_pdf_artifact_immutable',
+              'guard_iqc_template_item_mutation',
+              'guard_lqc_item_setting_audit_append_only',
+              'guard_manufacturing_template_item_mutation',
+              'guard_material_category_audit_append_only',
+              'guard_material_category_iqc_projection_write',
+              'guard_material_category_iqc_setting_audit_append_only',
+              'guard_material_receipt_projection_write',
+              'guard_panel_qr_event_append_only',
+              'guard_panel_quality_pdf_artifact_immutable',
+              'guard_panel_quality_template_item_mutation',
+              'guard_pending_action_photo_evidence',
+              'guard_pending_issue_type_catalog',
+              'guard_pending_photo_operation_append_only',
+              'guard_pending_project_lifecycle',
+              'guard_sales_billing_request_append_only',
+              'guard_ul891_append_only',
+              'guard_ul891_component_immutability',
+              'guard_ul891_spec_version_immutability',
+              'qms_end_site_access',
+              'qms_record_site_access',
+              'qms_site_access_guard_updates',
+              'qms_site_access_menu_codes_valid',
+              'sync_material_category_iqc_projection'
+          ])
+    ) then
+        raise exception using errcode = 'P0001', message = 'osan_retired_functions_remain';
+    end if;
+end
+$migration$;
 
 do $migration$
 declare

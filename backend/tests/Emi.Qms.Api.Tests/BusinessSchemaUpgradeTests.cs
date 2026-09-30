@@ -1,4 +1,5 @@
 using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.Audit;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.ReviewSafe;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -50,9 +51,9 @@ public sealed partial class BusinessUnitIsolationTests
             insert into projects(id,project_key,project_number,name,project_code,project_title,project_title_normalized,
                 customer_name,delivery_date,created_by_user_id,project_profile,osan_product_name,osan_quantity,status,
                 deleted_at_utc,deleted_by_user_id,delete_reason,osan_customer_id)
-            values('{osanProjectId:D}','keep-osan-1','DUPLICATE','Synthetic O Project','DUPLICATE','Synthetic O Project','SYNTHETIC O PROJECT',
+            values('{osanProjectId:D}','keep-osan-1','DUPLICATE','Synthetic O Project','DUPLICATE','Synthetic O Project',null,
                 'Synthetic Customer',current_date+7,'{actor:D}','Osan','Rack',2,'Active',null,null,null,'{osanCustomerId:D}'),
-                ('{Guid.NewGuid():D}','keep-osan-2','DUPLICATE','Synthetic O Project','DUPLICATE','Synthetic O Project','SYNTHETIC O PROJECT',
+                ('{Guid.NewGuid():D}','keep-osan-2','DUPLICATE','Synthetic O Project','DUPLICATE','Synthetic O Project',null,
                 'Synthetic Customer',current_date+7,'{actor:D}','Osan','Rack',2,'Completed',now(),'{actor:D}','Synthetic archived project','{osanCustomerId:D}');
             insert into osan_notification_preference_profiles(user_id,version)
             values('{actor:D}',2),('{other:D}',3);
@@ -134,6 +135,25 @@ public sealed partial class BusinessUnitIsolationTests
             "select count(*) from projects where project_code='DUPLICATE'", ct));
         Assert.Equal(1L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
             "select count(*) from projects where status='Completed' and deleted_at_utc is not null", ct));
+
+        // The retained Cheongju functions must still work through the runtime role.
+        var cheongjuAudit = new AuditStore(new CheongjuDatabase(provider), TimeProvider.System,
+            NullLogger<AuditStore>.Instance);
+        var access = await cheongjuAudit.RecordSiteAccessAsync(actor, Guid.NewGuid(), "Projects", "Allowed",
+            null, "Safari", "macOS", ct);
+        Assert.True(access.Created);
+        Assert.True(await cheongjuAudit.EndSiteAccessAsync(actor, access.SessionId, access.IdempotencyReceipt, ct));
+        // Osan cannot call the retired SECURITY DEFINER functions even directly.
+        foreach (var sql in new[]
+                 {
+                     "select qms_record_site_access(null::uuid,null::uuid,null::text,null::text,null::inet,null::text,null::text)",
+                     "select qms_end_site_access(null::uuid,null::uuid,null::uuid)"
+                 })
+        {
+            var removed = await Assert.ThrowsAsync<PostgresException>(() => databases.ExecuteAsync(
+                BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Runtime, sql, ct));
+            Assert.Equal(PostgresErrorCodes.UndefinedFunction, removed.SqlState);
+        }
     }
 
     private static async Task ApplyCommonSchemaBeforeSeparationAsync(IsolationDatabaseSet databases,

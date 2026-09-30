@@ -1,6 +1,6 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
-> 최신 작업(2026-09-30): **운영 구조 전환 보류(NO-GO)**. 실제 운영 DB 읽기 전용 사전점검에서 오산 정상 NULL을 거부하는0131 조건 오류, 제거표를 참조하는 잔존 DB 함수, 결과 불명확 메일 시도1건을 확인했다. 앞선 합성 시험 통과는 운영 전환 가능 판정이 아니며, 보정·확인이 필요하다. 구현 기준은 local commit `d70de69`, 실제 운영 변경·원격 게시·배포는 미실행이다. 자세한 결과는 문서 마지막 절을 따른다.
+> 최신 작업(2026-09-30): **운영 구조 전환 보류(NO-GO)**. 사전점검에서 찾은 정상 NULL 검사 오류와 잔존 함수는 로컬0131 및 시험에서 보정했다. 결과 불명확 메일1건은 발생 시각의 서버 종료·재시작 로그까지 확인했으나 실제 발송 결과는 미확정이다. 이번 로컬 보정은 `092db40` 이후 변경이며 실제 운영 변경·원격 게시·배포는 미실행이다. 자세한 검증·남은 일은 문서 마지막 절을 따른다.
 
 ## 상태
 
@@ -405,3 +405,22 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - 증거(비식별 임시 집계): `/private/tmp/pms-preflight-20260930-result.json`, `followup-result.json`, `final-result.json`, `cross-login-result.json`, `azure-result.json`(뒤4개도같은 `pms-preflight-20260930-` prefix). SELECT queryset의 오류0, 권한 음성시험6개 모두 DB권한거부 확인. 원문 SQL 오류/비밀값은 저장하지 않았다.
 - 독립 검토: `business_schema_migrations`가 migration 계약·정상NULL 저장코드·함수 정리 누락을 읽기 전용으로 확인했고, `review_db_tunnel`이 실제 조회 코드/집계 및 G2 감사 경로를 대조해 **NO-GO**에 동의했다. 각 reviewer는 본인이 운영 조회를 실행한 것으로 표시하지 않으며 실제 모델은NOT_REPORTED. 마지막 권한 오류 분류와 G2 단계/사진 교집합은 부모 후속 조회에서 확인했다.
 - **상태: 읽기 전용 사전점검 완료 / 운영 전환 보류.** 다음 작업은 정상 오산 계약에 맞는 로컬 guard·시험 보정, 잔존 함수 정리 보완, 불명확 메일 결과의 처리 근거 확인이다. 제품 코드·운영 DB·Azure 영구 설정·실제 provider·원격 Git은 변경하지 않았다. 이 점검 기록만 같은 branch의 별도 local documentation commit으로 보관한다.
+
+
+### 사전점검 결함의 로컬 보정과 메일 기록 후속 확인 — 2026-09-30
+
+- 사용자 “진행해”에 따라 앞 절 P1-1/P1-2의 로컬 코드·합성 시험 보정과 기존 메일 기록의 읽기 전용 후속 조사를 진행했다. `codex/business-schema-separation`, base `092db40`을 이어가며 common0001..0130은 변경하지 않았다. 새0131은 main/운영 미적용이므로 이 파일 안에서 보정했다. 운영 DB 정정·실제 발송/재발송·자원 변경·push/PR/merge/배포는 이번 범위가 아니다.
+- **P1-1 해소:** OsanProjectStore의 기존 NULL 저장 계약에 맞춰 `project_title_normalized is not null`일 때 전환을 거부한다. 운영496행을 정정하지 않았다. 합성 upgrade fixture도 정상NULL로 보정했고, 예상 밖nonNULL 및 name/title·number/code 불일치는 각각 실제 migration 실행에서 거부함을 확인했다.
+- **P1-2 해소 및 같은 누락 보완:** 오산에서 제거표 전용 함수41개(무인자 trigger37 + site-access 전용4)를 표 제거 뒤 정확한 signature와 RESTRICT로 제거한다. 청주에도 같은 종류의 누락인 `guard_osan_progress_append_only()` 1개를 추가 제거한다. 예상 밖 overload가 남으면 마지막 부재 검사에서 중단한다. 공용 감사 함수, 오산에서 사용하는 진행/알림 함수와 청주의 site-access 함수는 보존한다. 삭제 범위는 함수 전체나 이름 접두어에 대한 일괄 제거가 아니다.
+- 소유관계 근거: `business_schema_migrations`의 독립 읽기 전용 검토가 common catalog의 함수 정의·호출과 기존 운영 trigger snapshot을 대조했다. O41/C1에 retained-table trigger caller0, 제품 코드의 다른 활성 호출0을 확인했다. Site-access의 제품 호출은 AuditStore의 청주 경로에만 남는다. 함수가 retained 표를 읽는 방향의 참조와, retained trigger가 해당 함수를 호출하는 방향을 구분했다. 정적/catalog 검토는 알 수 없는 동적 SQL 전체의 증명이 아니며 RESTRICT는 catalog에 기록된 예상 밖 종속성을 거부한다.
+- 집중 검증 **7/7 PASS, 실패0/건너뜀0**: `/private/tmp/business-schema-preflight-fixes-tests.log`. 새 DB 및0130 기존 schema에서 실제 migration, 사업부별 표/열/함수 소유권, 보존 대상 전행 snapshot·개인설정11행·중복코드·완료/삭제 이력·manual payload 보존, 명시 승인 거부, migration 재실행을 확인했다. 청주 runtime 역할로 접속 기록 생성·종료가 성공했고 오산 runtime의 제거 함수 직접 호출2개는 `42883`으로 거부됐다. 예상 밖 retained trigger dependency와 overload를 포함한 실패 사례는 transaction rollback 후209표·43열·130원장 및 기존 함수 복원을 확인했다. 전용 합성 DB·tmpfs container/network의 실행 소유 범위를 정리했다.
+- 독립 diff 검토: `review_db_tunnel`이 base092db40 대비 SQL2개+시험3개와 기존 계약/함수 소유관계/집중시험 로그를 읽고 **로컬 보정 GO, 추가 P1/P2 없음**을 반환했다. reviewer는 파일을 편집하거나 시험·운영 조회를 실행하지 않았다. 에이전트 설정은 상속되었고 실제 관측 모델은 NOT_REPORTED이다.
+- 배포용 이미지 검증 **PASS**: `/private/tmp/business-schema-preflight-fixes-image.log`. build, business/directory catalog exact match, fresh apply, existing apply, reduced schemas 검증이 모두 통과했다. 전용 image/container/DB/Compose container/network/volume/임시 디렉터리 잔여 수가 모두0이며 wrapper exit0을 확인했다. 실제 운영 배포 성공을 뜻하지 않는다.
+
+**불명확한 메일의 추가 근거와 한계**
+
+- 기존 Azure Log Analytics(보존30일)의 2026-09-22 13:15~13:35 UTC backend console 로그3,174개를 서버 쪽에서 집계했다. 원문·수신 주소·제목/본문은 수집하지 않았다. 해당 구간은 revision0000063이며 `NotificationDeliveryFailed`/`NotificationDeliveryClaimLost`/SMTP 관련 문구는 각각0이다. 관련 문구가 없다는 것이 발송 성공 또는 실패의 증명은 아니다.
+- 문제 attempt 생성은13:21:29.615241 UTC였다. 같은 revision의 앱 시작13:21:30.8867774, 종료13:21:31.6605807, 시작13:21:52.8367825, 종료13:22:02.7230956 UTC 기록을 확인했다. 시스템 이벤트에도 같은 구간 ContainerStarted/Terminated, ContainerAppUpdate/RevisionUpdate 및 Key Vault 동기화 실패·성공 등이 있다. 이 시간적 연관은 처리 중단 가능성을 뒷받침하지만 특정 worker와의 직접 연결 또는 단일 원인 확정은 아니다.
+- 현재 backend의 SMTP Host 설정 하나만 조회해 `smtp.gmail.com`을 확인했다. 자격증명·주소는 조회하지 않았다. 현재 운영 source의 SMTP adapter는 SMTP 서버의 실제 응답 식별자를 보관하지 않고 성공 시 자체 `smtp-sent` 표식을 반환한다. 해당 파일의 마지막 변경은2026-09-11이나, 과거revision의 정확한 배포 image/source를 이번에 대조한 것은 아니다. 문제 attempt/delivery에는 그 표식도 없다는 기존 DB 조사 결과가 유지된다.
+- **남은 운영 차단:** Gmail 발신 계정의 보낸편지/해당 서비스 발송 기록 등 외부 근거가 필요하다. 이번에 Gmail 계정에 접속하거나 외부 발송 결과를 확인하지 않았다. 기존 Azure/DB 기록만으로 성공·실패를 확정하지 않고 attempt의 상태·이력을 그대로 보존했다. drain의 불명확 발송 차단 조건도 완화하지 않았다. 발송 근거를 확보한 뒤 이력을 어떻게 판정·기록할지 별도로 확정해야 하며, 단순 관리자 확인 표시로 통과한다고 가정하지 않는다.
+- 상태: 코드 결함의 로컬 보정/집중 시험/독립 검토 완료. 운영 전환은 불명확 발송 판정과 기존에 남은 복구 준비·실제 적용 창의 재점검·사용자 검수·원격 검증/명시 승인 후에 가능하다. backend1개 및 비용/자원 구성은 그대로이며 운영 DB/메일/영구 설정 변경은 없다.

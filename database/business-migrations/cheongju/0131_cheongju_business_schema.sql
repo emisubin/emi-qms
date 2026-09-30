@@ -456,6 +456,20 @@ drop table
     osan_notification_preference_profiles,
     osan_notification_preferences;
 
+-- All callers belonged to the retired Osan progress/history tables.
+drop function public.guard_osan_progress_append_only() restrict;
+
+do $migration$
+begin
+    if exists (
+        select 1 from pg_proc
+        where pronamespace = 'public'::regnamespace
+          and proname = 'guard_osan_progress_append_only'
+    ) then
+        raise exception using errcode = 'P0001', message = 'cheongju_retired_functions_remain';
+    end if;
+end
+$migration$;
 
 do $migration$
 declare

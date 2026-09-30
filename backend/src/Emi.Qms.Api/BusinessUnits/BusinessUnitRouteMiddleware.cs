@@ -35,6 +35,7 @@ public sealed class BusinessUnitRouteMiddleware(RequestDelegate next)
         }
         if ((!connections.BusinessUnits.Enabled && code == BusinessUnitCodes.Osan)
             || (common && !IsCommonPath(businessPath))
+            || (code is not null && IsCommonAdministrationPath(businessPath))
             || (code == BusinessUnitCodes.Cheongju && businessPath.StartsWithSegments("/api/osan")))
         {
             await DenyAsync(context, "business_unit_capability_disabled");
@@ -49,7 +50,10 @@ public sealed class BusinessUnitRouteMiddleware(RequestDelegate next)
     internal static bool IsCommonPath(PathString path) =>
         path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/api/business-units")
+        || IsCommonAdministrationPath(path);
+
+    private static bool IsCommonAdministrationPath(PathString path) =>
+        path.StartsWithSegments("/api/business-units")
         || path.StartsWithSegments("/api/admin/user-access")
         || path.StartsWithSegments("/api/admin/business-unit-access");
 

@@ -1,6 +1,6 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
-> 최신 작업(2026-09-30 전체 재감사): **정리 미완료·운영 구조 전환 보류(NO-GO)**. `07153a3`까지의 보정을 다시 검사하여 공통 사용자관리의 점검 잠금 우회, Directory의 새 표 기본 쓰기 권한, 오산의 잔존 번호 생성기2개를 합성 DB에서 재현했다. 배포 설정·이미지 자동검증과 사업부별 기준정보 최소화에도 남은 범위가 있다. 운영은 아직 C209/O209/D8이며 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 Gmail 보낸편지함에서 일치 기록0건, 정상 발송 비교10건은 모두 일치했으나 미발송 확정은 아니다. 이번 재감사는 제품·운영·메일을 변경하지 않았으며 자세한 근거는 마지막 절을 따른다.
+> 최신 작업(2026-09-30 감사 후 보정): **점검 잠금·DB 기본 권한·오산 잔존 sequence·배포 검사 보정의 로컬 구현/검증 완료, 전체 정리·운영 전환은 보류(NO-GO)**. 기준선 `f03c21c` 이후 보정은 합성 DB와 실제 로컬 배포 이미지에서 검증했다. 오산 권한 기준정보 삭제 파일 작성은 자동 승인 검토 거부 후 정확한 범위의 사용자 승인 대기이며 패치 미적용이다. 운영은 마지막 조회 C209/O209/D8 그대로이고 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 보낸편지함 일치 기록0건까지 확인했으나 미발송 확정은 아니다. Backend1개·자원량을 유지했고 운영/메일 변경·원격 게시·배포는 하지 않았다. 최종 근거와 남은 범위는 마지막 절을 따른다.
 
 ## 상태
 
@@ -486,3 +486,49 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - **결론은 ‘확인한 보낸편지함 구간에 일치 기록 없음’까지다.** 삭제된 메일·다른 보관함·수신자 측 기록을 검사하지 않았으므로 미발송을 확정하거나 발송 이력을 덮어쓰지 않았다. 기존 drain의 불명확 발송 차단은 유지되며 처리 결과/근거를 기록하는 별도 운영 결정을 거쳐야 한다.
 
 **남은 순서:** 공통 관리 잠금/URL 경계 → D 기본 권한과 O sequence 보정 → 실제 객체/권한 반례 및 배포 설정·이미지 gate → 사업부별 기준정보 최소 목록 확정 → 메일 판정·복구 준비·적용 창 재점검 → 사용자 검수/원격 검증/명시 운영 승인 범위에서 전환. 이번 상태는 **감사 완료, 추가 보정 미착수, 운영 미적용**이다. 앱 수와 비용 구성은 변경하지 않았다.
+
+### 전체 재감사 후 로컬 보정 시작 — 2026-09-30
+
+- 사용자 “진행해”를 앞 절의 코드·검증·배포 검사 및 기준정보 정리 보정 지시로 받아 기존 `codex/business-schema-separation`, base `f03c21c`를 이어간다. 운영 데이터/메일 판정 변경·실제 발송·원격 게시·배포는 포함하지 않는다.
+- 목표: 공통 사용자관리의 전체 대상 점검 잠금과 공통 URL, D future-table 최소 권한, O 잔존 객체, 실제 객체/권한 반례, serving 설정 및 검증한 이미지 게시 gate를 보완한다. 기준정보는 실제 업무 사용·배정·이력과 대조하여 필요한 범위만 남기며, 기존 부서/사용자 역할 체계의 변경은 별도 판단한다.
+- 불변조건: backend1개/현재 자원량, C182/O56/D8, common0001..0130 불변, 업무·감사·개인 설정 보존, Directory 작업 번호/버전/복구 계약, 불명확 발송 차단 유지. 새0131은 main/운영 미적용 파일로 이 안에서 보정할 수 있다.
+- 검증: 운영과 무관한 합성 DB에서 거부 시 무변경·정상/재시도·점검과 저장의 경쟁을 확인하고, schema/ACL 및 release mock/packaged image 검증 후 작성자와 분리된 검토를 받는다. 현재 구현 중이며 결과는 아래에 갱신한다.
+
+**기준정보 삭제안의 추가 승인 대기**
+
+- 자동 승인 검토가 아래 삭제를 포함하는 로컬 migration 파일 작성 패치를 거부했다. 기존의 포괄적인 구조 정리 지시만으로 권한28개·연결 행·역할1개의 영구 삭제 범위까지 명확히 승인됐다고 판단할 수 없다는 이유다. 거부된 패치는 적용되지 않았고 같은 삭제를 다른 방법으로 작성/실행하지 않는다. 점검 잠금·기본 ACL·sequence·배포 검사 등 독립 보정은 계속한다.
+- 대상은 **오산 DB만**이다. 공통 baseline의 permissions35개 중 아래28개와 해당 permission_id의 role_permissions 연결을 제거하고, user_roles 및 role_permissions의 연결이 모두0인 `interior-busbar-manager` 역할1개를 제거하는 0131 로컬 migration 파일 작성이다. 이번에 요청하는 승인은 운영에 migration을 실행하는 승인이 아니다.
+- 유지7개: `projects.read`, `Project.Read.All`, `Project.Create`, `Project.Update`, `Project.Delete`, `manufacturing.update`, `users.manage`. 이들의 기존 권한 연결, 부서10개·기본역할10개, 모든 사용자 역할 배정·업무·감사/과거 이력을 보존한다. 청주 DB는 이 정리 대상이 아니다.
+- 영향: 이후 별도 승인된 운영 적용 시 제거된 권한 정의와 그 연결은 DB에서 사라지며, 복원하려면 백업/명시 복구가 필요하다. 현재 오산에서 도달 가능한 기능은 유지7개로 권한 검사가 충족됨을 코드 추적으로 확인했다. 기능의 권한 확대나 사용자의 역할 재배정은 하지 않는다.
+- 적용 전 방어: known35의 id/code/name과 예상 부스바 역할 정의를 확인하고, 알 수 없는 권한 또는 부스바 역할의 사용자·권한 연결이 있으면 전체 전환을 중단한다. 합성 DB에서 기존7개 권한 연결·user_roles·업무/이력 보존, 반례 rollback, 개발 seed 재생성 방지를 확인한다.
+- 제거 후보28개: `projects.manage`, `projects.access.all`, `production.plan`, `quality.inspect`, `quality.approve`, `logistics.ship`, `Project.SalesAmount.Read`, `Manufacturing.WorkTime.Read`, `Project.Hold`, `Project.Cancel`, `Project.Deleted.Read`, `PanelInfo.Update`, `Audit.Read.All`, `ProcurementPlan.Update`, `MaterialReceipt.Update`, `ProductionPlan.Update`, `admin-history.read`, `Pending.Read`, `Pending.Manage`, `sales.settle`, `Sales.Target.Manage`, `PendingType.Manage`, `G2.Read`, `G2.Production.Update`, `G2.Delivery.Update`, `G2.Attendance.Update`, `G2.Inventory.Manage`, `G2.Target.Manage`.
+- common130 근거상 유지7개의 role_permissions는29개다. 현재 운영의 원래 연결 집합을 마음대로 재설정하지 않고 유지 대상의 기존 연결 자체를 보존한다. 일반 migration0001/0002/0003/0004/0005/0006/0008/0009/0020/0029/0037/0043/0045/0081이 known35 정의를 소유한다.
+
+**독립 보정 완료와 검증 결과 — 2026-09-30**
+
+- 공통 사용자관리: 실제 영향 사업부 전체의 maintenance lease를 Directory 작업 생성 전에 한 번씩 확보하고 local 적용·Directory Publish·응답 snapshot까지 유지한다. 이 endpoint만 middleware의 단일 사업부 lease 대신 store가 책임진다. C/O의 공통 관리 URL 별칭은 거부하고 사업부 `/me`·`/runtime-mode`는 유지했다. 소속 이동 뒤 재요청 및 과거 완료 작업 A→B→A 재요청은 원래 저장된 대상 집합으로 멱등성을 검증하며 현재 버전 반환/무변경을 확인한다.
+- 권한과 잔존 객체: D bootstrap/reconcile 모두 migrator의 global/public future-table DML·sequence 기본 권한을 회수하고 SELECT만 유지한다. future-function PUBLIC EXECUTE도 global/public 양쪽에서 회수한다. 실제 새 객체 생성과 runtime 쓰기 실패로 확인했다. O0131은 독립 sequence `pending_issue_number_seq`, `busbar_product_number_seq`만 RESTRICT로 제거하며 C4/O1/D0 목록과 USAGE/SELECT 각각을 검사한다. 시스템/template DB 이름도 구성 시 거부한다.
+- 객체 검사: backend 시험에서 D exact8표/7함수, C/O exact표·project/notification/delivery 열·sequence·view·반대 사업부 함수 부재를 검사한다. packaged 시험은 독립 ownership literal로 C182/O56/D8 표·C4/O1/D0 sequence·C0/O4/D0 view, foreign server/table0, 추가 업무 schema 없음, FK의 public 표 참조, 원장/identity 직접 쓰기 거부 및 D current/default ACL을 fresh/upgrade 각각의 최초 적용/재실행 후 확인한다. 전체 trigger/FK 정의를 한 벌의 snapshot으로 비교하는 검사는 아니며 기존 업무 제약·보존 시험과 함께 적용한다.
+- 배포 경로: 공개 backend의 split 설정·세 runtime secret 참조·대상 이름/역할/identity를 변경 전과 ready revision에서 확인한다. 공지 준비만으로 serving 검증 성공을 표시하지 않는다. CI는 backend OCI archive를 한 번 빌드하고 hash로 연결한 Docker image의 packaged 시험 통과 후 동일 archive만 게시하도록 변경했다. bootstrap/OCI binding/borrowed image 소유권 시험도 자동 경로에 연결했다. 현재 README를 target별 실행·사업부별 readiness·점검 release 계약에 맞췄다.
+
+| 검증 | 결과와 실제 범위 |
+| --- | --- |
+| Backend 집중·회귀 | 최종 제품 코드의 broad56에서50 PASS/6 FAIL. 실패6개는 reserved-name 시험 기대 key의 불필요한 `BusinessUnits:` prefix이며 해당 기대값만 고친 재실행6/6 PASS. 한 번의56/56 실행으로 기록하지 않는다. 잠금 거부 시 D/C/O 무변경, 단일/다중 소속, 정상 이동/재요청/과거 완료 재요청, 진행 중 Publish와 점검의 실제 경쟁, ACL/fresh/upgrade/boundary/catalog 검사가 포함된다. |
+| 실제 로컬 배포 이미지 | 새 packaged exact 검사까지 반영한 최종 실행 PASS. fresh/upgrade 적용·재실행·drain·catalog/객체/권한 검사 성공. 해당 실행 소유 temp/container/image/DB/network/volume 잔여 모두0. |
+| Release 설정 mock | 110/110 PASS. 실제 Azure release 실행은 아니다. |
+| 최초 maintenance bootstrap mock | 55/55 PASS. 실제 운영 template 변경은 아니다. |
+| 이미지 결속/소유권 | OCI config/layer/root 7가지 합성 경우 PASS(단일 unittest의7 subcase), borrowed image 실패/cleanup6/6 PASS. 실제 Skopeo→registry 게시/원격 CI는 미실행. |
+| 정적 검사 | Bash syntax·ShellCheck·actionlint·diff 검사 및 Azure aggregate validator PASS. Bicep 파일 변경 없음, compile은 NOT_REQUESTED. |
+
+- 로그: `/private/tmp/business-schema-audit-fixes-boundaries.log`, `/private/tmp/business-schema-reserved-name-tests.log`, `/private/tmp/business-schema-audit-fixes-image-exact.log`, `/private/tmp/business-schema-release-serving-tests.log`, `/private/tmp/business-schema-bootstrap-ci-tests.log`, `/private/tmp/business-schema-borrowed-image-tests.log`, `/private/tmp/business-schema-oci-binding-tests.log`, `/private/tmp/business-schema-azure-artifacts-debug.log`. 합성 fixture만 사용하고 실제 provider/운영 연결은 열지 않았다.
+- 발견/실패 이력: 첫 집중 실행31개 중 재요청2개 실패를 제품 보정 후3/3 및 최종 broad에서 해소했다. 초기 시험 파일 using 누락은 compile 전 보정했다. reviewer가 과거 완료 작업의 대상 변경 및 sequence 권한 문자열의 OR 의미를 추가 지적하여 코드/시험을 고쳤다. Azure aggregate 첫 exit1은 원인 미확정이지만 상세 trace 재실행은 PASS이며 재현되지 않았다. 실패를 성공 횟수에 포함하지 않는다.
+- 독립 검토: parent 작성 maintenance/route/config 및 `business_schema_migrations` 작성 ACL/sequence/tests는 작성과 분리된 `review_db_tunnel`이 `f03c21c` 대비 최종 backend/SQL/tests11파일과 위 결과를 검토하여 해당 범위 GO, 추가 P1/P2 없음으로 판정했다. 기존 reviewer 맥락을 재사용했으며 실제 관측 모델은 NOT_REPORTED다. `review_db_tunnel` 작성 CI/release/image/script/docs는 parent가 별도 검토했고 최신 packaged SQL assertion을 실제 이미지에서 실행했다. 자기 작성 부분을 독립 검토라고 세지 않는다.
+- 프론트엔드 파일은 이번 보정에서 변경하지 않았다. 앞선 API/route/deep-link23/23 결과를 재사용하며 전체 UI 수동 검수·전체 최종 회귀를 새로 완료했다고 주장하지 않는다.
+
+**남은 범위와 Git/운영 상태**
+
+1. 위 오산 권한28개·연결 행·미사용 역할1개 삭제 파일 작성의 명시 승인 또는 보류 결정. 현재 migration/seeder의 기준정보35권한/11역할 보존은 그대로이며 전체 최소화 완료가 아니다.
+2. 불명확 발송1건의 별도 처리 결정/근거 기록, 복구 준비·적용 창 재점검. 이 보정은 기존 drain 차단을 우회하거나 메일 상태를 변경하지 않는다.
+3. 사용자 검수, 원격 required CI 및 실제 게시 경로 검증, 명시 승인된 운영 전환. 운영 C209/O209/D8과 앱1개를 변경하지 않았다.
+
+이번 완료 변경은 기존 branch에서 로컬 commit 대상으로만 묶는다. `main`/사용자 원본 checkout의 WIP, push/PR/merge/배포는 변경하지 않는다. 로컬 코드 보정 GO와 전체 정리/운영 전환 NO-GO를 구분한다.

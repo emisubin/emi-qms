@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Emi.Qms.Api.Audit;
+using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ReviewSafe;
 using Npgsql;
@@ -198,7 +199,28 @@ public sealed partial class BusinessUnitAccessAdministrationStore(
             throw Error("directory_identity_read_only", StatusCodes.Status400BadRequest);
         }
 
-        var affectedUnits = directoryIdentity.Memberships
+        // Revoked memberships disappear after Publish. Keep the original operation's
+        // targets on retries so the effective payload and its idempotency hash stay stable.
+        string[]? previousOperationUnits;
+        await using (var previousOperation = operationLock.CreateCommand())
+        {
+            previousOperation.CommandText = """
+                select array(select profile->>'businessUnitCode'
+                             from jsonb_array_elements(operation.requested_profiles) profile)
+                from directory_user_access_operations operation
+                where operation.operation_id = @operation_id
+                  and operation.target_user_id = @target_user_id
+                  and operation.actor_user_id = @actor_user_id
+                  and operation.expected_version = @expected_version;
+                """;
+            previousOperation.Parameters.AddWithValue("operation_id", request.OperationId);
+            previousOperation.Parameters.AddWithValue("target_user_id", targetUserId);
+            previousOperation.Parameters.AddWithValue("actor_user_id", actorUserId);
+            previousOperation.Parameters.AddWithValue("expected_version", request.ExpectedVersion);
+            previousOperationUnits = (string[]?)await previousOperation.ExecuteScalarAsync(cancellationToken);
+        }
+
+        var affectedUnits = (previousOperationUnits ?? directoryIdentity.Memberships)
             .Concat(normalizedProfiles.Select(profile => profile.BusinessUnitCode))
             .Concat(request.IsOverallAdministrator
                 ? connectionStringProvider.BusinessUnits.Businesses.Select(unit => unit.Code)
@@ -207,6 +229,17 @@ public sealed partial class BusinessUnitAccessAdministrationStore(
             .OrderBy(code => directoryIdentity.Memberships.Contains(code, StringComparer.Ordinal))
             .ThenBy(code => code, StringComparer.Ordinal)
             .ToArray();
+        // This operation owns the maintenance leases for every DB it may change.
+        // Acquire them before Directory Begin so a blocked target leaves no partial operation.
+        await using var maintenance = await DeploymentMaintenanceLease.AcquireAsync(
+            connectionStringProvider,
+            affectedUnits.Select(connectionStringProvider.BusinessUnits.GetBusiness).ToArray(),
+            cancellationToken);
+        if (maintenance is null)
+        {
+            throw Error("release_maintenance", StatusCodes.Status503ServiceUnavailable);
+        }
+
         var preparedProfiles = new Dictionary<string, PreparedProfile>(StringComparer.Ordinal);
         foreach (var businessUnitCode in affectedUnits)
         {

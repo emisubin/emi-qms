@@ -314,6 +314,83 @@ assert_target_schema() {
   expected_versions="$(printf '%s' "${expected_versions}" | LC_ALL=C sort)"
   actual="$(fixture_sql "${database_name}" --command 'select version from schema_migrations order by version;')"
   [[ "${actual}" == "${expected_versions}" ]] || { echo "Business migration ledger differs from its selected catalog." >&2; return 1; }
+
+  # Approved ownership literals copied from BusinessSchemaOwnershipTests, not
+  # inferred from the packaged migrations or the database under test.
+  local expected_tables expected_sequences='' expected_views='' runtime migrator suffix
+  case "${target}" in
+    DIRECTORY)
+      suffix=directory
+      expected_tables='directory_business_unit_memberships,directory_business_units,directory_identities,directory_membership_audit_events,directory_overall_administrators,directory_user_access_operations,qms_database_identity,schema_migrations'
+      ;;
+    CHEONGJU)
+      suffix=cheongju
+      expected_tables='admin_master_change_logs,audit_coverage_state,audit_event_changes,audit_events,authorization_audit_events,busbar_audit,busbar_bom_lines,busbar_boms,busbar_detached_pages,busbar_ecount_attempts,busbar_ecount_employees,busbar_ecount_jobs,busbar_ecount_runtime,busbar_label_events,busbar_label_requests,busbar_ledger,busbar_master_access,busbar_materials,busbar_operations,busbar_photo_history,busbar_photos,busbar_plans,busbar_product_families,busbar_product_qr,busbar_products,busbar_projects,busbar_publication_recovery,busbar_purchases,busbar_receipts,busbar_settings,busbar_shipment_products,busbar_shipments,busbar_stock,busbar_workers,data_export_events,departments,deployment_maintenance,deployment_maintenance_popup_receipts,form_template_audit_events,form_template_manager_bindings,g2_daily_metrics,g2_defect_inventory_counts,g2_inventory_counts,g2_targets,iqc_report_pdf_artifacts,iqc_report_photos,iqc_report_responses,iqc_report_template_items,iqc_report_template_versions,iqc_report_templates,iqc_reports,logistics_batch_panels,logistics_batch_units,logistics_batches,logistics_delivery_results,logistics_evidence,logistics_operations,logistics_packing_unit_panels,logistics_packing_units,lqc_item_setting_audit_events,lqc_item_settings,manufacturing_step_template_items,manufacturing_step_template_versions,manufacturing_step_templates,material_categories,material_category_audit_events,material_category_iqc_setting_audit_events,material_category_iqc_settings,material_iqc_attempts,material_iqc_scan_attachments,material_iqc_scan_reports,material_receipt_events,material_receipts,notice_attachments,notice_post_revisions,notice_posts,notice_reads,notification_deliveries,notification_delivery_attempts,notification_delivery_reprocess_events,notification_recipients,notifications,panel_information_excel_import_batches,panel_kitting_batches,panel_kitting_completions,panel_manufacturing_assembly_batch_operations,panel_manufacturing_completion_confirmations,panel_manufacturing_events,panel_manufacturing_execution_steps,panel_manufacturing_executions,panel_manufacturing_operations,panel_manufacturing_release_operations,panel_placeholders,panel_qr_codes,panel_qr_events,panel_quality_inspection_attempts,panel_quality_operations,panel_quality_report_pdf_artifacts,panel_quality_report_photos,panel_quality_report_responses,panel_quality_reports,panel_quality_template_items,panel_quality_template_versions,pending_action_photos,pending_comments,pending_history,pending_issue_type_audit_events,pending_issue_type_catalog,pending_issues,pending_photo_operations,permissions,procurement_excel_import_batch_projects,procurement_excel_import_batches,procurement_required_item_template_rows,procurement_required_item_templates,production_control_manufacturing_items,production_control_manufacturing_templates,production_control_manufacturing_versions,production_control_plan_connections,production_control_plan_items,production_control_plan_templates,production_control_plan_versions,production_plan_template_audit_events,production_plan_template_steps,production_plan_templates,production_planning_excel_import_batches,production_product_types,project_assignees,project_audit_events,project_manufacturing_step_snapshots,project_procurement_items,project_production_plan_connections,project_production_plan_items,project_production_plan_set_default_values,project_production_plan_set_defaults,project_production_plan_set_item_values,project_production_plan_set_scopes,project_production_plans,project_workflow_events,projects,qms_database_identity,qms_users,role_permissions,roles,sales_billing_request_batches,sales_billing_request_download_events,sales_billing_request_items,sales_billing_request_operations,sales_monthly_billing_confirmations,sales_monthly_billing_ledgers,sales_monthly_billing_operations,sales_monthly_billing_revision_cases,sales_monthly_billing_revision_panels,sales_monthly_billing_revisions,sales_monthly_target_audit_events,sales_monthly_targets,sales_settlement_operations,sales_settlements,schema_migrations,site_access_coverage_state,site_access_sessions,system_holidays,ul891_recovery_case_events,ul891_recovery_cases,ul891_set_design_slots,ul891_set_instances,ul891_set_operations,ul891_set_spec_components,ul891_set_spec_versions,ul891_set_specs,user_notification_preference_audit_events,user_notification_preference_profiles,user_notification_preferences,user_profile_photo_audit_events,user_profile_photos,user_project_access,user_roles,web_push_subscription_events,web_push_subscriptions,work_item_escalations,work_items,workflow_stages'
+      expected_sequences='audit_event_changes_id_seq,busbar_product_number_seq,pending_issue_number_seq,sales_billing_request_batches_request_number_seq'
+      ;;
+    OSAN)
+      suffix=osan
+      expected_tables='audit_coverage_state,audit_event_changes,audit_events,authorization_audit_events,data_export_events,departments,deployment_maintenance,deployment_maintenance_popup_receipts,notice_attachments,notice_popup_receipts,notice_post_revisions,notice_posts,notice_reads,notice_setting_events,notification_deliveries,notification_delivery_attempts,notification_recipients,notifications,osan_customer_assignment_versions,osan_customer_assignments,osan_customers,osan_gate_configuration,osan_gate_departments,osan_notification_events,osan_notification_global_preference_profiles,osan_notification_global_preferences,osan_notification_preference_profiles,osan_notification_preferences,osan_photo_edit_requests,osan_photo_revision_files,osan_progress_operations,osan_progress_photos,osan_progress_step_photos,osan_project_completion_notifications,osan_project_create_operations,osan_project_events,osan_project_management_history,osan_project_target_steps,osan_project_targets,osan_stage_issues,osan_stage_records,osan_stage_work_request_recipients,osan_stage_work_requests,permissions,projects,qms_database_identity,qms_users,role_permissions,roles,schema_migrations,user_profile_photo_audit_events,user_profile_photos,user_project_access,user_roles,web_push_subscription_events,web_push_subscriptions'
+      expected_sequences='audit_event_changes_id_seq'
+      expected_views='osan_active_project_target_steps,osan_active_project_targets,osan_all_progress_photos,osan_current_progress_photos'
+      ;;
+    *) echo "Unknown packaged schema target." >&2; return 1 ;;
+  esac
+  runtime="image_${fixture_phase}_${suffix}_runtime"
+  migrator="image_${fixture_phase}_${suffix}_migrator"
+  actual="$(fixture_sql "${database_name}" --command "select coalesce(string_agg(tablename, ',' order by tablename), '') from pg_tables where schemaname='public';")"
+  [[ "${actual}" == "${expected_tables}" ]] || { echo "Packaged table ownership mismatch for ${target}." >&2; return 1; }
+  actual="$(fixture_sql "${database_name}" --command "select coalesce(string_agg(relname, ',' order by relname), '') from pg_class where relnamespace='public'::regnamespace and relkind='S';")"
+  [[ "${actual}" == "${expected_sequences}" ]] || { echo "Packaged sequence ownership mismatch for ${target}." >&2; return 1; }
+  actual="$(fixture_sql "${database_name}" --command "select coalesce(string_agg(relname, ',' order by relname), '') from pg_class where relnamespace='public'::regnamespace and relkind in ('v','m');")"
+  [[ "${actual}" == "${expected_views}" ]] || { echo "Packaged view ownership mismatch for ${target}." >&2; return 1; }
+
+  # A PostgreSQL FK's OIDs are local to this database. Require public ordinary
+  # retained tables at both ends; disallow foreign tables/servers and extra schemas.
+  actual="$(fixture_sql "${database_name}" --command "select
+    not exists(select 1 from pg_foreign_server)
+    and not exists(select 1 from pg_foreign_table)
+    and not exists(select 1 from pg_namespace where nspname not in ('public','pg_catalog','information_schema') and nspname !~ '^pg_')
+    and not exists(
+      select 1 from pg_constraint fk
+      join pg_class child on child.oid=fk.conrelid
+      join pg_class parent on parent.oid=fk.confrelid
+      where fk.contype='f' and child.relnamespace='public'::regnamespace
+        and (parent.relnamespace<>'public'::regnamespace or child.relkind not in ('r','p') or parent.relkind not in ('r','p')))
+    and not exists(
+      select 1 from pg_class where relnamespace='public'::regnamespace and relkind='S'
+        and (not has_sequence_privilege('${runtime}', oid, 'USAGE')
+          or not has_sequence_privilege('${runtime}', oid, 'SELECT')))
+    and has_database_privilege('${runtime}', current_database(), 'CONNECT')
+    and not has_table_privilege('${runtime}', 'public.schema_migrations', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    and not has_table_privilege('${runtime}', 'public.qms_database_identity', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    and not exists(
+      select 1 from pg_default_acl defaults cross join lateral aclexplode(defaults.defaclacl) privilege
+      where defaults.defaclrole='${migrator}'::regrole and defaults.defaclnamespace='public'::regnamespace
+        and defaults.defaclobjtype='f' and privilege.grantee=0 and privilege.privilege_type='EXECUTE')
+    and not exists(
+      select 1 from aclexplode(coalesce(
+        (select defaclacl from pg_default_acl where defaclrole='${migrator}'::regrole and defaclnamespace=0 and defaclobjtype='f'),
+        acldefault('f','${migrator}'::regrole))) privilege
+      where privilege.grantee=0 and privilege.privilege_type='EXECUTE');")"
+  [[ "${actual}" == t ]] || { echo "Packaged dependency/runtime/default-function privilege contract failed for ${target}." >&2; return 1; }
+  if [[ "${target}" == DIRECTORY ]]; then
+    actual="$(fixture_sql "${database_name}" --command "select
+      not exists(select 1 from pg_tables where schemaname='public'
+        and (not has_table_privilege('${runtime}', quote_ident(schemaname)||'.'||quote_ident(tablename), 'SELECT')
+          or has_table_privilege('${runtime}', quote_ident(schemaname)||'.'||quote_ident(tablename), 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')))
+      and not exists(
+        select 1 from pg_default_acl defaults cross join lateral aclexplode(defaults.defaclacl) privilege
+        where defaults.defaclrole='${migrator}'::regrole
+          and defaults.defaclnamespace in (0,'public'::regnamespace)
+          and privilege.grantee in (0,'${runtime}'::regrole)
+          and ((defaults.defaclobjtype='r' and privilege.privilege_type<>'SELECT') or defaults.defaclobjtype='S'))
+      and exists(
+        select 1 from pg_default_acl defaults cross join lateral aclexplode(defaults.defaclacl) privilege
+        where defaults.defaclrole='${migrator}'::regrole and defaults.defaclnamespace='public'::regnamespace
+          and defaults.defaclobjtype='r' and privilege.grantee='${runtime}'::regrole and privilege.privilege_type='SELECT');")"
+    [[ "${actual}" == t ]] || { echo "Packaged Directory read-only/default privilege contract failed." >&2; return 1; }
+  fi
   if [[ "${target}" == DIRECTORY ]]; then
     actual="$(fixture_sql "${database_name}" --command "select database_kind || ':' || coalesce(business_unit_code, '') from qms_database_identity;")"
     [[ "${actual}" == directory: ]] || return 1

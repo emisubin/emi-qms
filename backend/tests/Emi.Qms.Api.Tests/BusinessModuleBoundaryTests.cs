@@ -17,6 +17,12 @@ public sealed class BusinessModuleBoundaryTests
     [InlineData("/api/osan/projects", "OSAN")]
     [InlineData("/cheongju/api/osan/projects", "CHEONGJU")]
     [InlineData("/osan/api/me", "CHEONGJU")]
+    [InlineData("/cheongju/api/admin/user-access/users", "CHEONGJU")]
+    [InlineData("/osan/api/admin/user-access/users", "OSAN")]
+    [InlineData("/cheongju/api/admin/business-unit-access/users", "CHEONGJU")]
+    [InlineData("/osan/api/admin/business-unit-access/users", "OSAN")]
+    [InlineData("/cheongju/api/business-units", "CHEONGJU")]
+    [InlineData("/osan/api/business-units", "OSAN")]
     public async Task Wrong_route_or_selector_is_denied_before_any_business_handler(string path, string header)
     {
         var context = new DefaultHttpContext();
@@ -32,6 +38,10 @@ public sealed class BusinessModuleBoundaryTests
     }
 
     [Theory]
+    [InlineData("/cheongju/api/me", BusinessUnitCodes.Cheongju, "/api/me")]
+    [InlineData("/osan/api/me", BusinessUnitCodes.Osan, "/api/me")]
+    [InlineData("/cheongju/api/runtime-mode", BusinessUnitCodes.Cheongju, "/api/runtime-mode")]
+    [InlineData("/osan/api/runtime-mode", BusinessUnitCodes.Osan, "/api/runtime-mode")]
     [InlineData("/cheongju/api/notices", BusinessUnitCodes.Cheongju, "/api/notices")]
     [InlineData("/osan/api/osan/projects", BusinessUnitCodes.Osan, "/api/osan/projects")]
     public async Task URL_alone_fixes_the_business_before_authentication(string path, string code, string endpointPath)
@@ -121,6 +131,25 @@ public sealed class BusinessModuleBoundaryTests
     }
 
     private static DatabaseConnectionStringProvider Provider() => new(Configuration());
+
+    [Theory]
+    [InlineData("postgres")]
+    [InlineData("POSTGRES")]
+    [InlineData("template0")]
+    [InlineData("template1")]
+    [InlineData("azure_sys")]
+    [InlineData("azure_maintenance")]
+    public void System_database_names_are_rejected_before_opening_a_target(string databaseName)
+    {
+        var configuration = new ConfigurationBuilder().AddConfiguration(Configuration())
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["BusinessUnits:Units:Osan:ExpectedDatabaseName"] = databaseName
+            }).Build();
+        var targets = BusinessUnitConfiguration.Read(configuration);
+        Assert.False(targets.IsValid);
+        Assert.Contains("Units:Osan:database_name_reserved", targets.Errors);
+    }
 
     private static IConfiguration Configuration()
     {

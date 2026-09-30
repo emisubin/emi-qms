@@ -2,6 +2,9 @@ namespace Emi.Qms.Api.DeploymentMaintenance;
 
 public sealed record DeploymentMaintenanceLockedResponse(string ErrorCode,string Message);
 
+// Only integrated user-access writes acquire all affected business leases in their store.
+public sealed record IntegratedUserAccessMaintenance;
+
 public sealed class DeploymentMaintenanceMiddleware(RequestDelegate next)
 {
     private static readonly HashSet<string> SafeMethods=new(StringComparer.OrdinalIgnoreCase)
@@ -21,7 +24,8 @@ public sealed class DeploymentMaintenanceMiddleware(RequestDelegate next)
         {
             await next(context);return;
         }
-        if(provider.GetCurrentBusinessUnit() is null)
+        if(context.GetEndpoint()?.Metadata.GetMetadata<IntegratedUserAccessMaintenance>() is not null
+            || provider.GetCurrentBusinessUnit() is null)
         {
             await next(context);return;
         }

@@ -180,6 +180,11 @@ public sealed class BusinessUnitConfiguration
         {
             errors.Add($"{section}:database_roles_not_distinct");
         }
+        if (new[] { "postgres", "template0", "template1", "azure_sys", "azure_maintenance" }
+            .Contains(expectedDatabaseName, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add($"{section}:database_name_reserved");
+        }
 
         return new BusinessUnitDatabaseTarget(
             expectedCode,

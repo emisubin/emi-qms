@@ -164,7 +164,7 @@ cleanup() {
     stop_app "${BACKEND_APP_NAME}" || printf 'azurePilotReleaseStop=BACKEND_FAILED\n' >&2
     printf 'azurePilotReleaseMaintenance=EXECUTION_UNCERTAIN_MANUAL_RECONCILIATION_REQUIRED\n' >&2
   fi
-  rm -f "${task_tmp_dir}/command-output" "${task_tmp_dir}/command-error"
+  rm -f "${task_tmp_dir}/command-output" "${task_tmp_dir}/command-error" "${task_tmp_dir}/backend-template.json"
   rmdir "${task_tmp_dir}" 2>/dev/null || true
 }
 if [[ -n "${MAINTENANCE_PREPARATION_IMAGE:-}" && ( "$MAINTENANCE_PREPARATION_IMAGE" != "${ACR_LOGIN_SERVER}/pms-backend@"* || ! "$MAINTENANCE_PREPARATION_IMAGE" =~ @${digest_pattern}$ ) ]]; then
@@ -331,6 +331,78 @@ load_job_execution_override() {
     done
   fi
   job_override_configuration_error='none'
+}
+
+# Inspect configuration metadata only; never resolve or print secret values.
+validate_backend_serving_configuration() {
+  local revision="${1:-}"
+  local configuration_file="${task_tmp_dir}/backend-template.json"
+  local read_command=(containerapp show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${BACKEND_APP_NAME}")
+  if [[ -n "${revision}" ]]; then
+    read_command=(containerapp revision show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${BACKEND_APP_NAME}" --revision "${revision}")
+  fi
+  if ! "${azure_cli_bin}" "${read_command[@]}" --query properties.template -o json \
+    >"${configuration_file}" 2>"${task_tmp_dir}/command-error"; then
+    return 1
+  fi
+  python3 - "${configuration_file}" <<'PY_BACKEND'
+import json, re, sys
+# Assertions are validation here; an optimized Python must fail closed.
+if sys.flags.optimize:
+    sys.exit(1)
+try:
+    template = json.load(open(sys.argv[1], encoding="utf-8"))
+    containers = template["containers"]
+    assert len(containers) == 1
+    container = containers[0]
+    assert not container.get("command") and not container.get("args")
+    env = {}
+    for item in container["env"]:
+        name = item["name"]
+        assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:]*", name)
+        key = name.replace("__", ":").lower()
+        assert key not in env
+        assert (item.get("value") is not None) != (item.get("secretRef") is not None)
+        env[key] = item
+        assert key not in {"database:migrationtarget", "database:bootstraptarget", "database:businessschemaseparationapproved"}
+        assert not key.startswith(("deploymentdrain:", "maintenance:"))
+        if key.startswith("connectionstrings:"):
+            assert re.fullmatch(r"[a-z0-9-]+", item.get("secretRef", ""))
+            assert key in {"connectionstrings:qmsdatabase", "connectionstrings:qmsdirectoryruntime", "connectionstrings:qmscheongjuruntime", "connectionstrings:qmsosanruntime"}
+    def value(key):
+        return env[key]["value"]
+    def secret(key):
+        return env[key]["secretRef"]
+    assert value("aspnetcore_environment") == "Production"
+    assert value("businessunits:enabled") == "true"
+    assert value("database:applymigrationsonstartup") == "false"
+    databases, runtime_roles, migration_roles, references = [], [], [], []
+    for branch, code, connection, marker in (
+        ("directory", "DIRECTORY", "QmsDirectoryRuntime", "0001_business_unit_directory"),
+        ("units:cheongju", "CHEONGJU", "QmsCheongjuRuntime", "0086_business_unit_database_identity"),
+        ("units:osan", "OSAN", "QmsOsanRuntime", "0086_business_unit_database_identity")):
+        prefix = "businessunits:" + branch + ":"
+        assert value(prefix + "code") == code
+        assert value(prefix + "runtimeconnection") == connection
+        assert value(prefix + "expectedschemaversion") == marker
+        database = value(prefix + "expecteddatabasename")
+        assert re.fullmatch(r"[a-z][a-z0-9_]{0,62}", database)
+        assert database not in {"postgres", "template0", "template1", "azure_sys", "azure_maintenance"}
+        databases.append(database)
+        for field, values in (("runtimerolename", runtime_roles), ("migrationrolename", migration_roles)):
+            role = value(prefix + field)
+            assert re.fullmatch(r"[a-z][a-z0-9_]{0,62}", role)
+            values.append(role)
+        references.append(secret("connectionstrings:" + connection.lower()))
+    assert len(set(databases)) == len(set(references)) == 3
+    assert len(set(runtime_roles + migration_roles)) == 6
+    # The current workload retains this legacy alias. It must be the same C
+    # runtime reference and cannot substitute for the explicit split binding.
+    if "connectionstrings:qmsdatabase" in env:
+        assert secret("connectionstrings:qmsdatabase") == secret("connectionstrings:qmscheongjuruntime")
+except (AssertionError, AttributeError, KeyError, TypeError, ValueError, OSError):
+    sys.exit(1)
+PY_BACKEND
 }
 
 public_status() {
@@ -682,6 +754,14 @@ if [[ "${backend_revision_mode}" != 'Single' \
   exit 68
 fi
 
+# Announcement-only preparation does not certify or change public serving mode.
+if [[ "${MAINTENANCE_PREPARE_ONLY}" != true && "${maintenance_release}" == true ]]; then
+  if ! validate_backend_serving_configuration; then
+    printf 'azurePilotRelease=BACKEND_SERVING_CONFIGURATION_INVALID\n' >&2
+    exit 68
+  fi
+fi
+
 previous_backend_image="$(azure_read containerapp show \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --name "${BACKEND_APP_NAME}" \
@@ -769,6 +849,7 @@ if [[ "${maintenance_release}" == 'true' ]]; then
     exit 79
   fi
   if [[ "$MAINTENANCE_PREPARE_ONLY" == true ]]; then
+    printf 'azurePilotReleaseBackendServing=NOT_VERIFIED_PREPARE_ONLY\n'
     printf 'azurePilotRelease=ANNOUNCED\n'
     exit 0
   fi
@@ -930,6 +1011,14 @@ final_frontend_image="${previous_frontend_image}"
 if ! wait_for_app "${BACKEND_APP_NAME}" "${final_backend_image}" \
   || ! wait_for_app "${FRONTEND_APP_NAME}" "${final_frontend_image}"; then
   fail_after_mutation 'FINAL_APP_NOT_READY'
+fi
+
+if [[ "${maintenance_release}" == true ]]; then
+  serving_revision="$(azure_read containerapp show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${BACKEND_APP_NAME}" --query properties.latestReadyRevisionName)" || serving_revision=''
+  if [[ -z "${serving_revision}" ]] || ! validate_backend_serving_configuration "${serving_revision}"; then
+    fail_after_mutation 'BACKEND_SERVING_CONFIGURATION_INVALID'
+  fi
 fi
 
 final_live_status="$(public_status '/health/live')" || final_live_status=''

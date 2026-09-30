@@ -343,6 +343,9 @@ jobs:
           scripts/test-change-scope.sh
           scripts/test-main-pr-ci.sh
           scripts/test-ci-gate.sh
+          bash scripts/test-bootstrap-azure-maintenance.sh
+          python3 scripts/test-verify-oci-runtime-image.py
+          scripts/test-business-unit-production-image-borrowed.sh
       - name: Validate Azure release contracts
         if: ${{ needs.changes.outputs.run_azure_validation == 'true' }}
         shell: bash

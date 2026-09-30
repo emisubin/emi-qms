@@ -100,6 +100,53 @@ for ((index = 1; index <= $#; index++)); do
   esac
 done
 
+backend_template() {
+  python3 - "${AZURE_RELEASE_TEST_SCENARIO}" "${1:-template}" <<'PY_TEMPLATE'
+import json, sys
+scenario, phase = sys.argv[1:]
+env = [{"name": "ASPNETCORE_ENVIRONMENT", "value": "Production"},
+       {"name": "BusinessUnits__Enabled", "value": "true"},
+       {"name": "Database__ApplyMigrationsOnStartup", "value": "false"},
+       {"name": "SyntheticPrivateMarker", "value": "synthetic-secret-value-must-not-log"}]
+for branch, code, connection, marker, db, role in (
+    ("Directory", "DIRECTORY", "QmsDirectoryRuntime", "0001_business_unit_directory", "synthetic_directory", "directory"),
+    ("Units__Cheongju", "CHEONGJU", "QmsCheongjuRuntime", "0086_business_unit_database_identity", "synthetic_cheongju", "cheongju"),
+    ("Units__Osan", "OSAN", "QmsOsanRuntime", "0086_business_unit_database_identity", "synthetic_osan", "osan")):
+    for field, value in (("Code", code), ("RuntimeConnection", connection), ("ExpectedSchemaVersion", marker), ("ExpectedDatabaseName", db), ("RuntimeRoleName", role + "_app"), ("MigrationRoleName", role + "_migrator")):
+        env.append({"name": "BusinessUnits__" + branch + "__" + field, "value": value})
+    env.append({"name": "ConnectionStrings__" + connection, "secretRef": "qms-" + role + "-runtime"})
+env.append({"name": "ConnectionStrings__QmsDatabase", "secretRef": "qms-cheongju-runtime"})
+def set_value(name, value):
+    next(item for item in env if item["name"] == name)["value"] = value
+if scenario.startswith("backend-config-") or (scenario == "backend-final-invalid" and phase == "revision"):
+    failure = scenario.removeprefix("backend-config-")
+    if failure in ("disabled", "backend-final-invalid"): set_value("BusinessUnits__Enabled", "false")
+    elif failure == "missing-enabled": env = [x for x in env if x["name"] != "BusinessUnits__Enabled"]
+    elif failure == "duplicate-case": env.append({"name": "businessunits__enabled", "value": "true"})
+    elif failure == "duplicate-colon": env.append({"name": "BusinessUnits:Enabled", "value": "true"})
+    elif failure == "missing-runtime": env = [x for x in env if x["name"] != "ConnectionStrings__QmsOsanRuntime"]
+    elif failure == "plaintext-runtime":
+        item = next(x for x in env if x["name"] == "ConnectionStrings__QmsOsanRuntime")
+        item.pop("secretRef"); item["value"] = "synthetic-secret-value-must-not-log"
+    elif failure == "swapped-target": set_value("BusinessUnits__Units__Osan__Code", "CHEONGJU")
+    elif failure == "wrong-binding": set_value("BusinessUnits__Units__Osan__RuntimeConnection", "QmsCheongjuRuntime")
+    elif failure == "duplicate-db": set_value("BusinessUnits__Units__Osan__ExpectedDatabaseName", "synthetic_cheongju")
+    elif failure == "system-db": set_value("BusinessUnits__Directory__ExpectedDatabaseName", "postgres")
+    elif failure == "duplicate-role": set_value("BusinessUnits__Units__Osan__RuntimeRoleName", "cheongju_app")
+    elif failure == "schema-marker": set_value("BusinessUnits__Directory__ExpectedSchemaVersion", "wrong")
+    elif failure == "startup-migration": set_value("Database__ApplyMigrationsOnStartup", "true")
+    elif failure == "privileged-secret": env.append({"name": "ConnectionStrings__QmsOsanMigration", "secretRef": "osan-migration"})
+    elif failure == "reserved": env.append({"name": "database:businessschemaseparationapproved", "value": "true"})
+    elif failure == "legacy-alias": next(x for x in env if x["name"] == "ConnectionStrings__QmsDatabase")["secretRef"] = "other-runtime"
+    elif failure == "duplicate-secret": next(x for x in env if x["name"] == "ConnectionStrings__QmsOsanRuntime")["secretRef"] = "qms-cheongju-runtime"
+container = {"env": env}
+if scenario == "backend-config-command": container["args"] = ["--migrate-only"]
+containers = [container]
+if scenario == "backend-config-containers": containers.append(container)
+print(json.dumps({"containers": containers}))
+PY_TEMPLATE
+}
+
 command_group="${1:-} ${2:-} ${3:-}"
 case "${command_group}" in
   'account show --query')
@@ -108,6 +155,7 @@ case "${command_group}" in
   'containerapp show --resource-group')
     image_file="${AZURE_RELEASE_TEST_STATE}/${name}-image"
     case "${query}" in
+      properties.template) backend_template ;;
       properties.configuration.activeRevisionsMode)
         printf 'Single\n'
         ;;
@@ -177,6 +225,7 @@ case "${command_group}" in
     ;;
   'containerapp revision show')
     case "${query}" in
+      properties.template) backend_template revision ;;
       properties.healthState)
         printf 'Healthy\n'
         ;;
@@ -575,6 +624,8 @@ run_case() {
     expected_calls='maintenance-prepare,maintenance-activate,maintenance-fail'
   elif [[ "${scenario}" == 'maintenance-prepare-osan-failed' ]]; then
     expected_calls='maintenance-prepare,maintenance-fail'
+  elif [[ "${scenario}" == backend-config-* ]]; then
+    expected_calls=''
   elif [[ "${scenario}" == maintenance-stale-* || "${scenario}" == malformed-approval || "${scenario}" == unsafe-retry || "${scenario}" == unsafe-parallel || "${scenario}" == unsafe-completion || "${scenario}" == unsafe-containers ]]; then
     expected_calls=''
   elif [[ "${scenario}" == 'maintenance-activate-osan-failed' ]]; then
@@ -709,6 +760,10 @@ run_case() {
   printf 'azurePilotReleaseTest=%s:%s:PASS\n' "${case_number}" "${scenario}"
 }
 
+for failure in disabled missing-enabled duplicate-case duplicate-colon missing-runtime plaintext-runtime swapped-target wrong-binding duplicate-db system-db duplicate-role schema-marker startup-migration privileged-secret reserved legacy-alias duplicate-secret command containers; do
+  run_case "backend-config-${failure}" 68 BACKEND_SERVING_CONFIGURATION_INVALID ''
+done
+run_case backend-final-invalid 1 BACKEND_SERVING_CONFIGURATION_INVALID 'migration-update,migration-start,backend-update,frontend-update'
 run_case 'popup-only-prepare' 0 '' ''
 run_case 'popup-only-prepared' 0 '' 'migration-update,migration-start,backend-update,frontend-update'
 run_case 'popup-only-prepared' 0 '' 'frontend-update' false true false

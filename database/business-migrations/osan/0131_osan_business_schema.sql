@@ -1074,6 +1074,11 @@ drop function public.qms_end_site_access(uuid, uuid, uuid) restrict;
 drop function public.qms_site_access_guard_updates() restrict;
 drop function public.qms_site_access_menu_codes_valid(text[]) restrict;
 
+-- These sequences were created independently of their Cheongju tables, so the
+-- table drops above do not remove them automatically.
+drop sequence public.pending_issue_number_seq restrict;
+drop sequence public.busbar_product_number_seq restrict;
+
 do $migration$
 begin
     -- Include unexpected overloads in the final absence check.
@@ -1125,6 +1130,28 @@ begin
           ])
     ) then
         raise exception using errcode = 'P0001', message = 'osan_retired_functions_remain';
+    end if;
+end
+$migration$;
+
+do $migration$
+begin
+    if exists (
+        (select sequence_row.relname
+         from pg_class sequence_row
+         where sequence_row.relnamespace = 'public'::regnamespace
+           and sequence_row.relkind = 'S')
+        except
+        (values ('audit_event_changes_id_seq'))
+    ) or exists (
+        (values ('audit_event_changes_id_seq'))
+        except
+        (select sequence_row.relname
+         from pg_class sequence_row
+         where sequence_row.relnamespace = 'public'::regnamespace
+           and sequence_row.relkind = 'S')
+    ) then
+        raise exception using errcode = 'P0001', message = 'osan_unexpected_sequence_set';
     end if;
 end
 $migration$;

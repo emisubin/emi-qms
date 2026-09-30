@@ -1,3 +1,4 @@
+import { mockApiPath } from './mock-api-path';
 import { expect, type Page, type Route, test } from '@playwright/test';
 
 const customerId = '95000000-0000-0000-0000-000000000001';
@@ -367,9 +368,9 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
   let applied = false;
   let releaseApply!: () => void;
   const submitted: number[][] = [];
-  await page.route('**/api/osan/projects', route => fulfillJson(route, { items: applied ? [projectDetail()] : [] }));
-  await page.route('**/api/osan/projects/import/*', async route => {
-    const path = new URL(route.request().url()).pathname;
+  await page.route('**/osan/api/osan/projects', route => fulfillJson(route, { items: applied ? [projectDetail()] : [] }));
+  await page.route('**/osan/api/osan/projects/import/*', async route => {
+    const path = mockApiPath(route.request(), ['OSAN']);
     const body = route.request().postData() ?? '';
     const edited = body.match(/name="rows"\r\n\r\n([\s\S]*?)\r\n--/);
     const rows = edited ? JSON.parse(edited[1]) as Array<Record<string, unknown>> : [
@@ -436,9 +437,9 @@ test('Osan Excel edits missing cells, saves valid rows and confirms duplicates',
 
 async function installBackend(page: Page, postedBodies: Array<Record<string, unknown>>, unexpectedRequests: string[]) {
   let projectCreated = false;
-  await page.route(url => url.pathname.startsWith('/api/') || url.pathname === '/health/ready', async (route) => {
+  await page.route(url => /^(?:\/(?:access|cheongju|osan))?\/api\//.test(url.pathname) || url.pathname === '/health/ready', async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const path = mockApiPath(request, ['CHEONGJU', 'OSAN']);
     const businessUnit = request.headers()['x-qms-business-unit'] === 'CHEONGJU' ? 'CHEONGJU' : 'OSAN';
     if (path === '/health/ready') return fulfillJson(route, { status: 'ready', database: { reason: 'reachable' } });
     if (path === '/api/runtime-mode') {

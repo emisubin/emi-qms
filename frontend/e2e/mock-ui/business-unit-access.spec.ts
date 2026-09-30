@@ -1,3 +1,4 @@
+import { mockApiPath } from './mock-api-path';
 import { expect, type Route, test } from '@playwright/test';
 
 const adminUserId = '50000000-0000-0000-0000-000000000001';
@@ -18,7 +19,7 @@ test('overall administrator switches units and designates another overall admini
 
   await page.route('http://localhost:5080/**', async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const path = mockApiPath(request, ['CHEONGJU', 'OSAN']);
     const selectedBusinessUnit = request.headers()['x-qms-business-unit'];
 
     if (path === '/health/ready') {
@@ -147,7 +148,7 @@ test('overall administrator switches units and designates another overall admini
 
 test('each tab keeps and restores its own business-unit selection', async ({ page }) => {
   const installBackend = (target: typeof page) => target.route('http://localhost:5080/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
+    const path = mockApiPath(route.request(), ['CHEONGJU', 'OSAN']);
     const selectedBusinessUnit = route.request().headers()['x-qms-business-unit'] as 'CHEONGJU' | 'OSAN' | undefined;
     if (path === '/health/ready') {
       return fulfillJson(route, { status: 'ready', database: { reason: 'reachable' } });
@@ -189,7 +190,7 @@ test('single-business overall administrator sees no selector on desktop or mobil
   let localProfileReady = false;
 
   await page.route('http://localhost:5080/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
+    const path = mockApiPath(route.request(), ['CHEONGJU', 'OSAN']);
     if (path === '/health/ready') {
       return fulfillJson(route, { status: 'ready', database: { reason: 'reachable' } });
     }
@@ -263,7 +264,7 @@ test('integrated approval-pending filter shows its matching title, rows, and emp
   let hasPendingUser = true;
 
   await page.route('http://localhost:5080/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
+    const path = mockApiPath(route.request(), ['CHEONGJU', 'OSAN']);
     if (path === '/health/ready') {
       return fulfillJson(route, { status: 'ready', database: { reason: 'reachable' } });
     }

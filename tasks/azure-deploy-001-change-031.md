@@ -24,7 +24,7 @@
 - gitPublicationApproved: `true`
 - mainMergeApproved: `false`
 - selectorUserValidation: `PENDING`
-- status: `LOCAL_VALIDATION_COMPLETE_AWAITING_DRAFT_PR_CI`
+- status: `DRAFT_PR_REMOTE_VALIDATION`
 
 ## 승인과 목적
 
@@ -613,3 +613,12 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - 사용자는 직전의 “작업 브랜치를 GitHub에 올리고, 초안 PR을 만들어 자동 검사(CI)까지 진행” 요청에 **“시작해”**로 승인했다. 대상은 `emisubin/emi-qms`의 `codex/business-schema-separation`→`main` Draft PR이다. main 병합·운영 DB 정리·메일 상태 정정·이미지 게시/운영 배포는 이번 승인에 포함하지 않는다. 앞 절까지의 로컬 한정 승인을 이 원격 게시 승인으로 갱신하며 별도 재승인을 반복하지 않는다.
 - 게시 전 clean `c85b20a`, 원격 main `02028f2739af3da197a047008f448b3f3e95d230`, 동일 원격 branch/PR 없음 및 누적181파일의 대상 경로·diff 검사를 확인했다. 실제 secret/token/private key의 고신뢰 패턴과 환경파일·dump·로그·생성물 경로 검사에서 발견0이다. 이는 제한된 패턴 검사이며 모든 비밀값 부재를 자동 증명한다고 표현하지 않는다.
 - 기존 제품 코드와 독립 검토/검증 증거를 유지하고 이 승인 기록만 추가해 게시한다. CI는 PR에서 backend/frontend/full-stack/workflow 검사를 실행하며, Azure 배포는 별도 수동 workflow이므로 이번에 실행하지 않는다. 실제 원격 결과의 기준은 게시한 exact head와 연결된 PR Checks/Actions이며, 실패 시 해당 실행의 근거를 확인하고 승인된 범위의 보정·관련 검증을 진행한다. 사용자 검수와 운영 전환 미완료 조건은 유지한다.
+
+### Draft PR 게시와 mock 브라우저 경로 보정 — 2026-10-01
+
+- `codex/business-schema-separation`의 `6ab8fc5389e78e87cdbe88f77e9a97a4f5925f48`를 원격에 게시하고 [Draft PR159](https://github.com/emisubin/emi-qms/pull/159)를 생성·현재 대화에 연결했다. [최초 CI run](https://github.com/emisubin/emi-qms/actions/runs/36792522450)이 시작됐고 Change Classification·Workflow Validation은 통과했다. main의 classic branch protection은 없지만 별도 branch ruleset이 PR과 `CI Gate`를 필수로 요구함을 읽기 전용 API로 확인했다. 보호 설정은 변경하지 않았다.
+- **CI-MOCK-P2-01 / 로컬 해소:** CI의 화면 검사 진행 중 mock UI6개 파일이 예전 `/api/...`를 응답 조회 키로 사용해 새 `/access/api/...`, `/cheongju/api/...`, `/osan/api/...` 요청을 받지 못하는 공백을 확인했다. 수정 전 공통 관리자 사례1개에서 초기 사용자 응답을 받지 못해 사업부 선택 UI가 나타나지 않는 실패를 실제 재현했다. 제품 코드·서버 경계를 예전 주소로 되돌리지 않았다.
+- mock 공통 helper는 고정 URL·선택 헤더·fixture 허용 사업부가 일치하는지 먼저 검사한 뒤 기존 합성 응답 조회용 경로로 변환한다. 무접두사 주소·다른 사업부 주소·업무 요청의 `/access` 사용·선택 전 identity의 업무 URL을 거부하는4반례와 의도한3경로를 직접 확인했다. 개별 mock override와 response wait도 명시적인 청주/오산 주소로 변경했고 기존 payload·저장 결과·경쟁 요청·오류·화면 assertion을 유지한다. 이 fixture 검사를 실제 서버의 권한/DB 거부 시험으로 확대하지 않는다.
+- 보정 전1FAIL(`/private/tmp/business-schema-pr159-mock-red.log`)→동일 사례1PASS(`-mock-green.log`)→전체 mock 브라우저 **71/71 PASS, retry0, 1분48초**(`-mock-all.log`, 모두 같은 prefix)다. 변경7개 TypeScript 파일 ESLint와 diff 검사도 통과했다. 최초 시험 이름 필터 실행은 사례0개여서 재현 증거에서 제외했다. 최초 pnpm lint 시도는 package-manager 사전 확인 오류로 실행되지 않았고 기존 설치된 ESLint를 직접 실행해 통과했다.
+- 작성과 분리된 신규 `review_pr159_mock_routes`가 HEAD `6ab8fc5` 위의6개 spec과 신규 helper를 검토하여 GO/P1·P2 없음으로 판정했다. helper 검토 hash는 `2e3e2dcfb936fd622640571541568b7468e190817207af92dca914633415d0cb`이며 payload/경쟁/업무 기대값이 약화되지 않았음을 확인했다. 요청 모델은 `gpt-6-astra/high`, 실제 모델 식별값은 NOT_REPORTED다. 검토 당시 전체 suite는 진행 중이었고 완료 결과71/71은 이후 책임 실행 결과로 구분한다.
+- 실행이 생성한 합성 screenshot14개는 조사 소유 임시 폴더에 보존하고 해당 tracked 원본만 복구했으며 시험용5173 listener 종료를 확인했다. 후속 게시 범위는 시험 코드7개와 이 기록1개다. 제품·DB migration·Azure 설정 변경0이며 기존 원격 게시 승인 범위에서 같은 PR에 반영한다. 수정된 exact head의 필수 CI 결과는 [PR159 Checks](https://github.com/emisubin/emi-qms/pull/159/checks)에서 확인하며 이전 head의 미완료 실행을 통과 근거로 사용하지 않는다. main 병합·운영 DB/메일 상태 변경·배포 및 사용자 검수는 여전히 미완료다.

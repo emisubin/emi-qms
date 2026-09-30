@@ -1,3 +1,4 @@
+import { mockApiPath } from './mock-api-path';
 import { expect, type Page, type Route, test } from '@playwright/test';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
@@ -105,7 +106,7 @@ test('mock UI smoke: Pending starts with my department and open, then clearly sh
 
   const openRequest = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return url.pathname === '/api/pending'
+    return url.pathname === '/cheongju/api/pending'
       && url.searchParams.get('scope') === 'Department'
       && url.searchParams.get('statusGroup') === 'Open';
   });
@@ -118,7 +119,7 @@ test('mock UI smoke: Pending starts with my department and open, then clearly sh
 
   const closedRequest = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return url.pathname === '/api/pending'
+    return url.pathname === '/cheongju/api/pending'
       && url.searchParams.get('scope') === 'Department'
       && url.searchParams.get('statusGroup') === 'Closed';
   });
@@ -128,7 +129,7 @@ test('mock UI smoke: Pending starts with my department and open, then clearly sh
   await expect(page.getByLabel('조회 범위')).toHaveValue('All');
   const projectClosedRequest = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return url.pathname === '/api/pending'
+    return url.pathname === '/cheongju/api/pending'
       && url.searchParams.get('projectId') === projectId
       && url.searchParams.get('statusGroup') === 'Closed';
   });
@@ -172,7 +173,7 @@ async function routeApi(page: Page, store: ReturnType<typeof createStore>) {
   await page.route('http://localhost:5080/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const path = url.pathname;
+    const path = mockApiPath(request);
     const method = request.method();
     const userKey = request.headers()['x-dev-user'] ?? 'dev-sales';
 

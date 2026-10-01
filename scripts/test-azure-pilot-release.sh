@@ -230,7 +230,11 @@ case "${command_group}" in
       '[?properties.active].name')
         [[ "$(cat "${AZURE_RELEASE_TEST_STATE}/${name}-active")" == '0' ]] || printf '%s-old\n' "${name}" ;;
       'length([?properties.active])') cat "${AZURE_RELEASE_TEST_STATE}/${name}-active" ;;
-      '[].name') printf '%s-old\n' "${name}" ;;
+      '[].name')
+        [[ "${AZURE_RELEASE_TEST_SCENARIO}" != stop-empty-revisions ]] || exit 0
+        if [[ " $* " == *' --all '* || "$(cat "${AZURE_RELEASE_TEST_STATE}/${name}-active")" != '0' ]]; then
+          printf '%s-old\n' "${name}"
+        fi ;;
       *) exit 2 ;;
     esac
     ;;
@@ -731,9 +735,9 @@ run_case() {
   if [[ "${run_migration}" == true ]]; then
     # Quiesce before the first database operation, and leave every revision
     # stopped after crossing that boundary when release/health fails.
-    if [[ "${scenario}" == stop-backend-failed || "${scenario}" == drain-* || "${scenario}" == stale-* || "${scenario}" == duplicate-* || "${scenario}" == replicas-not-drained ]]; then
+    if [[ "${scenario}" == stop-backend-failed || "${scenario}" == stop-empty-revisions || "${scenario}" == drain-* || "${scenario}" == stale-* || "${scenario}" == duplicate-* || "${scenario}" == replicas-not-drained ]]; then
       expected_calls='maintenance-prepare,maintenance-activate,frontend-stop'
-      [[ "${scenario}" == replicas-not-drained ]] || expected_calls="${expected_calls},backend-stop"
+      [[ "${scenario}" == replicas-not-drained || "${scenario}" == stop-empty-revisions ]] || expected_calls="${expected_calls},backend-stop"
       if [[ "${scenario}" == drain-* ]]; then expected_calls="${expected_calls},drain-start"; fi
       expected_calls="${expected_calls},backend-resume,frontend-resume,maintenance-fail"
     elif [[ ",${expected_calls}," == *,migration-update,* || ",${expected_calls}," == *,bootstrap-update,* ]]; then
@@ -893,6 +897,7 @@ run_case 'maintenance-complete-osan-status-unknown' 80 MAINTENANCE_RELEASE_FAILE
 run_case 'cleanup-fail-running' 79 MAINTENANCE_ACTIVATION_FAILED ''
 run_case 'maintenance-prepare-osan-failed' 79 MAINTENANCE_PREPARE_FAILED ''
 run_case 'stop-backend-failed' 79 QUIESCENCE_OR_DRAIN_FAILED ''
+run_case 'stop-empty-revisions' 79 QUIESCENCE_OR_DRAIN_FAILED ''
 run_case 'replicas-not-drained' 79 QUIESCENCE_OR_DRAIN_FAILED ''
 for target in DIRECTORY CHEONGJU OSAN; do
   for failure in failed unknown running start-uncertain; do
@@ -978,7 +983,7 @@ run_case 'success' 0 '' '' false false false
 run_case recovery-no-certificate 79 RECOVERY_PREFLIGHT_FAILED ''
 run_case recovery-wrong-server 79 RECOVERY_PREFLIGHT_FAILED ''
 run_case recovery-missing-endtime 79 QUIESCENCE_OR_DRAIN_FAILED ''
-for scenario in recovery-timeout recovery-read-failed recovery-foreign-backup recovery-future-backup recovery-missing-time recovery-incomplete-list recovery-evidence-failed recovery-active-app recovery-job-running recovery-terminal-job recovery-final-drain-failed recovery-final-backup-missing; do
+for scenario in recovery-timeout recovery-read-failed recovery-foreign-backup recovery-future-backup recovery-missing-time recovery-incomplete-list recovery-evidence-failed recovery-active-app recovery-mixed-active-revision recovery-replica-running recovery-revision-read-failed recovery-job-running recovery-terminal-job recovery-final-drain-failed recovery-final-backup-missing; do
   run_case "$scenario" 79 RECOVERY_CHECKPOINT_FAILED ''
 done
 

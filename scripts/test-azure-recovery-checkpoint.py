@@ -12,6 +12,8 @@ from types import SimpleNamespace
 import subprocess
 import sys
 import unittest
+import threading
+import time
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("checkpoint", Path(__file__).with_name("azure-recovery-checkpoint.py"))
@@ -65,6 +67,8 @@ class CheckpointTests(unittest.TestCase):
         if args[:4] == ("postgres", "flexible-server", "backup", "list"):
             return copy.deepcopy(self.backups)
         if args[:3] == ("containerapp", "revision", "list"):
+            if not self.active and "--all" not in args:
+                return []
             return [{"name": "synthetic-revision", "properties": {"active": self.active}}]
         if args[:3] == ("containerapp", "replica", "list"):
             return [{}] if self.replicas else []
@@ -227,8 +231,8 @@ class CheckpointTests(unittest.TestCase):
         self.verify()
         self.assertEqual(2, len(verified))
         remaining = driver._instant(verified[-1].deadline_utc, "INVALID") - self.now
-        self.assertGreater(remaining, timedelta(0))
-        self.assertLessEqual(remaining, timedelta(seconds=120))
+        self.assertGreater(remaining, timedelta(seconds=299))
+        self.assertLessEqual(remaining, timedelta(seconds=300))
 
     def test_logical_backup_wrong_binding_or_old_time_rejected(self):
         evidence = self.logical_mode()
@@ -346,6 +350,95 @@ class CheckpointTests(unittest.TestCase):
         self.active = True
         with self.assertRaises(RuntimeError):
             self.verify()
+
+    def quiet_state(self):
+        self.checkpoint.allowed_drains = set(self.initial_drains)
+        self.checkpoint.deadline = time.monotonic() + 5
+        return json.loads(self.path.read_text())
+
+    def test_quiet_reads_all_inactive_revisions_and_rejects_each_unsafe_state(self):
+        state = self.quiet_state()
+        original = self.checkpoint.read
+        revision_list_calls = []
+
+        def revisions(*args):
+            if args[:3] == ("containerapp", "revision", "list"):
+                revision_list_calls.append(args)
+                self.assertIn("--all", args)
+                return [
+                    {"name": "inactive-one", "properties": {"active": False}},
+                    {"name": "inactive-two", "properties": {"active": False}},
+                ]
+            return original(*args)
+
+        self.checkpoint.read = revisions
+        self.checkpoint.quiet(state)
+        self.assertEqual(len(self.checkpoint.binding["apps"]), len(revision_list_calls))
+
+        for revisions_value, replicas, error in (
+                ([], set(), "REVISION_LIST_INVALID"),
+                ([{"name": "inactive", "properties": {"active": False}},
+                  {"name": "active", "properties": {"active": True}}], set(), "APP_REACTIVATED"),
+                ([{"name": "inactive-one", "properties": {"active": False}},
+                  {"name": "inactive-two", "properties": {"active": False}}],
+                 {"inactive-two"}, "REPLICA_STILL_RUNNING")):
+            with self.subTest(error=error):
+                def unsafe(*args, revisions_value=revisions_value, replicas=replicas):
+                    if args[:3] == ("containerapp", "revision", "list"):
+                        return copy.deepcopy(revisions_value)
+                    if args[:3] == ("containerapp", "replica", "list"):
+                        revision = args[args.index("--revision") + 1]
+                        return [{}] if revision in replicas else []
+                    return original(*args)
+                self.checkpoint.read = unsafe
+                with self.assertRaisesRegex(RuntimeError, f"^{error}$"):
+                    self.checkpoint.quiet(state)
+
+        def read_failure(*args):
+            if args[:3] == ("containerapp", "revision", "list"):
+                return [{"name": "inactive", "properties": {"active": False}}]
+            if args[:3] == ("containerapp", "replica", "list"):
+                raise RuntimeError("AZURE_READ_FAILED")
+            return original(*args)
+        self.checkpoint.read = read_failure
+        with self.assertRaisesRegex(RuntimeError, "^AZURE_READ_FAILED$"):
+            self.checkpoint.quiet(state)
+
+    def test_replica_reads_are_bounded_to_eight_and_all_workers_are_awaited(self):
+        state = self.quiet_state()
+        original = self.checkpoint.read
+        lock = threading.Lock()
+        current = 0
+        maximum = 0
+        completed = 0
+        revision_count = 20
+
+        def concurrent(*args):
+            nonlocal current, maximum, completed
+            if args[:3] == ("containerapp", "revision", "list"):
+                app = args[args.index("--name") + 1]
+                return [{"name": f"{app}-{index}", "properties": {"active": False}}
+                        for index in range(revision_count)]
+            if args[:3] == ("containerapp", "replica", "list"):
+                revision = args[args.index("--revision") + 1]
+                with lock:
+                    current += 1
+                    maximum = max(maximum, current)
+                time.sleep(0.01)
+                with lock:
+                    current -= 1
+                    completed += 1
+                if revision.endswith("-0"):
+                    raise RuntimeError("AZURE_READ_FAILED")
+                return []
+            return original(*args)
+
+        self.checkpoint.read = concurrent
+        with self.assertRaisesRegex(RuntimeError, "^AZURE_READ_FAILED$"):
+            self.checkpoint.quiet(state)
+        self.assertGreater(maximum, 1)
+        self.assertLessEqual(maximum, 8)
+        self.assertEqual(revision_count * len(self.checkpoint.binding["apps"]), completed)
 
     def test_selected_backup_disappearance_or_range_change_blocks_verification(self):
         self.candidate()

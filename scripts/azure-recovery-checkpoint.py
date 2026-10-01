@@ -103,6 +103,12 @@ def safe_failure_reason(error):
     return "UNEXPECTED_FAILURE"
 
 
+class AzureReadError(RuntimeError):
+    def __init__(self, code, diagnostic):
+        super().__init__(code)
+        self.diagnostic = diagnostic
+
+
 class Checkpoint:
     def __init__(self, environment, az="az"):
         self.env, self.az, self.deadline = environment, az, None
@@ -172,16 +178,43 @@ class Checkpoint:
         self.rg = ["--resource-group", environment["AZURE_RESOURCE_GROUP"]]
 
     def read(self, *args):
-        remaining = 30 if self.deadline is None else min(30, self.deadline - time.monotonic())
-        require(remaining > 0, "BACKUP_WAIT_EXPIRED")
-        try:
-            result = subprocess.run([self.az, *args, "--subscription", self.env["AZURE_SUBSCRIPTION_ID"],
-                                     "--output", "json", "--only-show-errors"],
-                                    capture_output=True, text=True, timeout=remaining)
-        except subprocess.TimeoutExpired as error:
-            raise RuntimeError("AZURE_READ_TIMEOUT") from error
-        require(result.returncode == 0, "AZURE_READ_FAILED")
-        return json.loads(result.stdout)
+        started = time.monotonic()
+        deadline = min(started + 30, self.deadline) if self.deadline is not None else started + 30
+        commands = (("postgres", "flexible-server", "show"),
+                    ("postgres", "flexible-server", "backup", "list"),
+                    ("containerapp", "revision", "list"), ("containerapp", "replica", "list"),
+                    ("containerapp", "job", "execution", "list"), ("containerapp", "job", "list"))
+        command = next((" ".join(prefix) for prefix in commands if args[:len(prefix)] == prefix), "other-read")
+        transient = {"TooManyRequests": 429, "InternalServerError": 500, "BadGateway": 502,
+                     "ServiceUnavailable": 503, "GatewayTimeout": 504}
+        for attempt in range(1, 4):
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, "BACKUP_WAIT_EXPIRED")
+            diagnostic = {"command": command, "atUtc": utc_now().isoformat(), "attempt": attempt}
+            retry_after = 2 ** attempt
+            try:
+                result = subprocess.run([self.az, *args, "--subscription", self.env["AZURE_SUBSCRIPTION_ID"],
+                                         "--output", "json", "--only-show-errors"],
+                                        capture_output=True, text=True, timeout=remaining)
+                if result.returncode == 0:
+                    return json.loads(result.stdout)
+                diagnostic["exitCode"] = result.returncode
+                match = re.search(r"(?m)^ERROR: \((TooManyRequests|InternalServerError|BadGateway|ServiceUnavailable|GatewayTimeout)\)", result.stderr)
+                diagnostic["errorClass"] = match[1] if match else "UNCLASSIFIED"
+                if match:
+                    diagnostic["httpStatus"] = transient[match[1]]
+                failure = AzureReadError("AZURE_READ_FAILED", diagnostic)
+                if not match:
+                    raise failure
+                delay = re.search(r"(?im)^\s*Retry-After:\s*([0-9]+)\s*$", result.stderr)
+                if delay:
+                    retry_after = max(retry_after, int(delay[1]))
+            except subprocess.TimeoutExpired:
+                diagnostic["errorClass"] = "TRANSPORT_TIMEOUT"
+                failure = AzureReadError("AZURE_READ_TIMEOUT", diagnostic)
+            if attempt == 3 or deadline - time.monotonic() <= retry_after:
+                raise failure
+            time.sleep(retry_after)
 
     def server(self):
         value = self.read("postgres", "flexible-server", "show", *self.rg,
@@ -400,26 +433,35 @@ class Checkpoint:
         # The fixed backup implementation only reads production and restores into
         # its own offline local cluster. Keep watching the existing write freeze
         # while that work runs; an observation failure never produces a candidate.
-        with ThreadPoolExecutor(max_workers=1) as worker:
-            future = worker.submit(self.logical_module.create_backup, config)
-            while True:
-                try:
-                    evidence = future.result(timeout=min(30, max(0.01, self.deadline - time.monotonic())))
-                    break
-                except FutureTimeout:
-                    require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
-                    self.quiet(state)
-                except Exception as error:
-                    # Retain only the fixed code emitted by the bundled driver.
-                    # Raw exceptions may contain connection details or paths.
-                    code = "UNEXPECTED_FAILURE"
-                    if (isinstance(error, self.logical_module.RecoveryError)
-                            and len(error.args) == 1 and isinstance(error.args[0], str)
-                            and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", error.args[0])):
-                        code = error.args[0]
-                    state["logicalBackupFailureCode"] = code
-                    self.save(path, state)
+        future = None
+        try:
+            with ThreadPoolExecutor(max_workers=1) as worker:
+                future = worker.submit(self.logical_module.create_backup, config)
+                while True:
+                    try:
+                        evidence = future.result(timeout=min(30, max(0.01, self.deadline - time.monotonic())))
+                        break
+                    except FutureTimeout:
+                        if future.done():
+                            evidence = future.result()
+                            break
+                        require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
+                        self.quiet(state)
+        except Exception as observation_error:
+            # Executor exit joins the bounded worker. Preserve its fixed failure
+            # even when a simultaneous monitoring error was raised first.
+            error = future.exception() if future is not None and future.done() else None
+            if error is not None:
+                code = "UNEXPECTED_FAILURE"
+                if (isinstance(error, self.logical_module.RecoveryError)
+                        and len(error.args) == 1 and isinstance(error.args[0], str)
+                        and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", error.args[0])):
+                    code = error.args[0]
+                state["logicalBackupFailureCode"] = code
+                self.save(path, state)
+                if observation_error is error:
                     raise RuntimeError("LOGICAL_BACKUP_FAILED") from None
+            raise
         require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
         self.validate_logical_evidence(evidence, config)
         self.quiet(state)
@@ -485,6 +527,13 @@ def main():
             print("recoveryCheckpoint=VERIFIED_LOGICAL_DATABASE_BACKUP" if checkpoint.logical_config is not None
                   else "recoveryCheckpoint=VERIFIED_AVAILABLE_FULL_BACKUP")
     except Exception as error:
+        if isinstance(error, AzureReadError):
+            try:
+                state = checkpoint.load(args.state)
+                state["azureReadFailure"] = error.diagnostic
+                checkpoint.save(args.state, state)
+            except Exception:
+                pass  # Failure to persist diagnostics must never open the gate.
         # Provider stderr, secrets and private identifiers never become release logs.
         print("recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED"
               f" phase={args.mode} reason={safe_failure_reason(error)}", file=sys.stderr)

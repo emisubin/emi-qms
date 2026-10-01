@@ -472,11 +472,11 @@ class PostgresLogicalRecovery:
             "\\pset tuples_only on",
             "\\pset format unaligned",
             "select 'bootstrapRole|' || rolname from pg_roles where oid=10;",
-            "select 'identity|' || coalesce((select jsonb_agg(to_jsonb(identity) order by to_jsonb(identity)::text)::text from qms_database_identity identity), '[]');",
-            "select 'ledger|' || coalesce((select jsonb_agg(to_jsonb(ledger) order by version)::text from schema_migrations ledger), '[]');",
+            "select 'identity|' || coalesce((select jsonb_agg(to_jsonb(identity) order by to_jsonb(identity)::text)::text from public.qms_database_identity identity), '[]');",
+            "select 'ledger|' || coalesce((select jsonb_agg(to_jsonb(ledger) order by version)::text from public.schema_migrations ledger), '[]');",
         ]
         if target.code != "DIRECTORY":
-            lines.append("select 'maintenance|' || coalesce((select jsonb_agg(to_jsonb(maintenance) order by to_jsonb(maintenance)::text)::text from deployment_maintenance maintenance), '[]');")
+            lines.append("select 'maintenance|' || coalesce((select jsonb_agg(to_jsonb(maintenance) order by to_jsonb(maintenance)::text)::text from public.deployment_maintenance maintenance), '[]');")
         else:
             lines.append("select 'maintenance|[]';")
         lines.extend([

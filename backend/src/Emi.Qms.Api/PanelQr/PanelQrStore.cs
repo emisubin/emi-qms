@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Npgsql;
@@ -6,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.PanelQr;
 
 public sealed partial class PanelQrStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     QrScanUrlBuilder scanUrlBuilder,
     TimeProvider timeProvider)
 {
@@ -424,7 +425,8 @@ public sealed partial class PanelQrStore(
     internal async Task RecordResolveAsync(PanelQrSnapshot snapshot, string status, Guid actorUserId, string correlationId, CancellationToken cancellationToken)
         => await RecordEventAsync(snapshot, status is "Ok" or "OkCompletedProject" ? "ResolveSucceeded" : "ResolveStateViewed", status, null, actorUserId, correlationId, cancellationToken);
 
-    public string BuildScanUrl(string token) => scanUrlBuilder.BuildForPath($"/q/{token}");
+    public string BuildScanUrl(string token) =>
+        scanUrlBuilder.BuildForPath($"/q/{token}?businessUnit={BusinessUnitCodes.Cheongju}");
 
     private async Task RecordEventAsync(PanelQrSnapshot snapshot, string eventType, string? outcomeStatus, int? itemCount, Guid actorUserId, string correlationId, CancellationToken cancellationToken)
     {
@@ -515,11 +517,11 @@ public sealed partial class PanelQrStore(
         try { await transaction.RollbackAsync(cancellationToken); } catch (InvalidOperationException) { }
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private const string ActiveQrSelect = """

@@ -38,7 +38,7 @@ describe('QualityInspectionsPage', () => {
     const operationIds: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/quality/inspections/reconcile') {
+      if (url.pathname === '/cheongju/api/quality/inspections/reconcile') {
         reconciliationCalls += 1;
         return json({
           recoveredLqcHandoffCount: 0,
@@ -48,10 +48,10 @@ describe('QualityInspectionsPage', () => {
           unresolvedAssigneeCount: 0
         });
       }
-      if (url.pathname === '/api/quality/inspections/queue') return json(queue(started));
-      if (url.pathname === `/api/quality/inspections/panels/${panelId}`) return json(detail(started));
-      if (url.pathname === '/api/quality/inspections/action-departments') return json([]);
-      if (url.pathname === '/api/quality/inspections/start') {
+      if (url.pathname === '/cheongju/api/quality/inspections/queue') return json(queue(started));
+      if (url.pathname === `/cheongju/api/quality/inspections/panels/${panelId}`) return json(detail(started));
+      if (url.pathname === '/cheongju/api/quality/inspections/action-departments') return json([]);
+      if (url.pathname === '/cheongju/api/quality/inspections/start') {
         attempts += 1;
         const body = JSON.parse(String(init?.body)) as { operationId: string };
         operationIds.push(body.operationId);
@@ -111,7 +111,7 @@ describe('QualityInspectionsPage', () => {
   it('shows the existing read-only design and prevents new work when LQC is suspended', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/quality/inspections/reconcile') {
+      if (url.pathname === '/cheongju/api/quality/inspections/reconcile') {
         return json({
           recoveredLqcHandoffCount: 0,
           recoveredOqcHandoffCount: 0,
@@ -120,15 +120,15 @@ describe('QualityInspectionsPage', () => {
           unresolvedAssigneeCount: 0
         });
       }
-      if (url.pathname === '/api/quality/inspections/queue') {
+      if (url.pathname === '/cheongju/api/quality/inspections/queue') {
         return json({
           ...queue(false),
           isOperational: false,
           operationalMessage: 'LQC는 현재 운영 중지 상태입니다. 제조 완료 후 OQC로 바로 인계됩니다.'
         });
       }
-      if (url.pathname === `/api/quality/inspections/panels/${panelId}`) return json(detail(false));
-      if (url.pathname === '/api/quality/inspections/action-departments') return json([]);
+      if (url.pathname === `/cheongju/api/quality/inspections/panels/${panelId}`) return json(detail(false));
+      if (url.pathname === '/cheongju/api/quality/inspections/action-departments') return json([]);
       return json({ title: 'not found' }, 404);
     }));
 
@@ -160,7 +160,7 @@ describe('QualityInspectionsPage', () => {
     const submittedResponseCounts: number[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/quality/inspections/reconcile') {
+      if (url.pathname === '/cheongju/api/quality/inspections/reconcile') {
         return json({
           recoveredLqcHandoffCount: 0,
           recoveredOqcHandoffCount: 0,
@@ -169,8 +169,8 @@ describe('QualityInspectionsPage', () => {
           unresolvedAssigneeCount: 0
         });
       }
-      if (url.pathname === '/api/quality/inspections/queue') return json(queue(true));
-      if (url.pathname === `/api/quality/inspections/panels/${panelId}`) {
+      if (url.pathname === '/cheongju/api/quality/inspections/queue') return json(queue(true));
+      if (url.pathname === `/cheongju/api/quality/inspections/panels/${panelId}`) {
         return json({
           ...detail(true),
           reportStatus: finalized ? 'Finalized' : 'Draft',
@@ -179,12 +179,12 @@ describe('QualityInspectionsPage', () => {
           pdfStatus: finalized ? 'Ready' : null
         });
       }
-      if (url.pathname === '/api/quality/inspections/action-departments') return json([]);
+      if (url.pathname === '/cheongju/api/quality/inspections/action-departments') return json([]);
       if (url.pathname.endsWith('/responses')) {
         responseSaveCalls += 1;
         return json({ title: '판정 확정에서 별도 저장 요청을 보내면 안 됩니다.' }, 500);
       }
-      if (url.pathname === `/api/quality/inspections/reports/${reportId}/finalize`) {
+      if (url.pathname === `/cheongju/api/quality/inspections/reports/${reportId}/finalize`) {
         finalizeCalls += 1;
         const body = JSON.parse(String(init?.body)) as {
           operationId: string;
@@ -268,7 +268,7 @@ describe('QualityInspectionsPage', () => {
     const finalizeBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/quality/inspections/reconcile') {
+      if (url.pathname === '/cheongju/api/quality/inspections/reconcile') {
         return json({
           recoveredLqcHandoffCount: 0,
           recoveredOqcHandoffCount: 0,
@@ -277,7 +277,7 @@ describe('QualityInspectionsPage', () => {
           unresolvedAssigneeCount: 0
         });
       }
-      if (url.pathname === '/api/quality/inspections/queue') {
+      if (url.pathname === '/cheongju/api/quality/inspections/queue') {
         const response = queue(true);
         response.projects[0].panels[0] = {
           ...response.projects[0].panels[0],
@@ -287,7 +287,7 @@ describe('QualityInspectionsPage', () => {
         };
         return json(response);
       }
-      if (url.pathname === `/api/quality/inspections/panels/${panelId}`) {
+      if (url.pathname === `/cheongju/api/quality/inspections/panels/${panelId}`) {
         const response = detail(true);
         response.panel = { ...response.panel, pendingId, pendingNumber: 14, actionDepartmentCode: 'manufacturing' };
         response.items = [{
@@ -306,9 +306,9 @@ describe('QualityInspectionsPage', () => {
         }];
         return json(response);
       }
-      if (url.pathname === '/api/quality/inspections/action-departments') return json([]);
-      if (url.pathname === `/api/pending/${pendingId}`) return json({ title: 'not found' }, 404);
-      if (url.pathname === `/api/quality/inspections/reports/${reportId}/finalize`) {
+      if (url.pathname === '/cheongju/api/quality/inspections/action-departments') return json([]);
+      if (url.pathname === `/cheongju/api/pending/${pendingId}`) return json({ title: 'not found' }, 404);
+      if (url.pathname === `/cheongju/api/quality/inspections/reports/${reportId}/finalize`) {
         const finalizeBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         finalizeBodies.push(finalizeBody);
         return json({

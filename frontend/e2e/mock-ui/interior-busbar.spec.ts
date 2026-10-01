@@ -1,3 +1,4 @@
+import { mockApiPath } from './mock-api-path';
 import { expect, test, type Page } from "@playwright/test";
 import type { BusbarWorkspace } from "../../src/interiorBusbar";
 const familyId = "00000000-0000-0000-0000-000000000001",
@@ -116,7 +117,7 @@ async function mock(page: Page, data: BusbarWorkspace, denied = false, commercia
   await page.route("http://localhost:5080/**", async (route) => {
     const req = route.request(),
       url = new URL(req.url()),
-      path = url.pathname;
+      path = mockApiPath(req);
     const json = (body: unknown, status = 200) =>
       route.fulfill({
         status,
@@ -578,7 +579,7 @@ test("calendar plan retry retains ID and saves without leaving selected date", a
     quantity: number;
   }> = [];
   await page.route(
-    "http://localhost:5080/api/interior-busbar/plans",
+    "http://localhost:5080/cheongju/api/interior-busbar/plans",
     async (route) => {
       const body = route.request().postDataJSON();
       submitted.push(body);
@@ -663,7 +664,7 @@ for (const navigation of ["filter", "plan row"] as const) {
     await mock(page, data);
     const workspacePlans: string[] = [];
     await page.route(
-      "http://localhost:5080/api/interior-busbar/workspace?**",
+      "http://localhost:5080/cheongju/api/interior-busbar/workspace?**",
       async (route) => {
         const selected =
           new URL(route.request().url()).searchParams.get("planDateFrom") ?? "";
@@ -686,7 +687,7 @@ for (const navigation of ["filter", "plan row"] as const) {
       releaseUpload = resolve;
     });
     await page.route(
-      `http://localhost:5080/api/interior-busbar/products/${productId}/photos/front`,
+      `http://localhost:5080/cheongju/api/interior-busbar/products/${productId}/photos/front`,
       async (route) => {
         await uploadGate;
         data.products[0].hasFront = true;
@@ -942,7 +943,7 @@ test("camera start lazy-loads ZXing and decodes a synthetic QR stream", async ({
   }, qrDataUrl);
   await mock(page, data);
   const decoded: string[] = [];
-  await page.route(`**/api/interior-busbar/projects/${projectId}/scan?**`, async (route) => {
+  await page.route(`**/cheongju/api/interior-busbar/projects/${projectId}/scan?**`, async (route) => {
     decoded.push(new URL(route.request().url()).searchParams.get("code") ?? "");
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(data.products[0]) });
   });
@@ -976,7 +977,7 @@ test("shipment reversal retry keeps its request ID and first reason", async ({ p
   data.projects[0].shippedQuantity = 1;
   await mock(page, data);
   const attempts: Array<{ requestId: string; reason: string }> = [];
-  await page.route(`**/api/interior-busbar/ledger/${shipmentId}/reverse`, async (route) => {
+  await page.route(`**/cheongju/api/interior-busbar/ledger/${shipmentId}/reverse`, async (route) => {
     attempts.push(route.request().postDataJSON());
     await route.fulfill({
       status: attempts.length === 1 ? 409 : 200,
@@ -1035,7 +1036,7 @@ test("monthly calendar selection and photo filters send server-side conditions",
 test("completing a Draft-filtered product preserves its number after it leaves the list", async ({ page }) => {
   const data = fixture();
   await mock(page, data);
-  await page.route("http://localhost:5080/api/interior-busbar/workspace?**", async (route) => {
+  await page.route("http://localhost:5080/cheongju/api/interior-busbar/workspace?**", async (route) => {
     const status = new URL(route.request().url()).searchParams.get("status");
     const products = data.products.filter((product) => !status || product.status === status);
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...data, products, pagination: { ...data.pagination, productCount: products.length } }) });
@@ -1061,7 +1062,7 @@ test("calendar month boundaries and new plans preserve selected family and date"
   const data = fixture();
   await mock(page, data);
   const submitted: Array<{ id: string; productFamilyId: string; planDate: string; quantity: number }> = [];
-  await page.route("http://localhost:5080/api/interior-busbar/plans", async (route) => {
+  await page.route("http://localhost:5080/cheongju/api/interior-busbar/plans", async (route) => {
     const body = route.request().postDataJSON();
     submitted.push(body);
     const existing = data.plans.findIndex((plan) => plan.id === body.id);
@@ -1123,7 +1124,7 @@ test("plan popup traps focus and retains errors while blocking close during save
   const data = fixture(); await mock(page, data);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  await page.route("http://localhost:5080/api/interior-busbar/plans", async (route) => {
+  await page.route("http://localhost:5080/cheongju/api/interior-busbar/plans", async (route) => {
     await gate;
     await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ message: "합성 계획 저장 오류" }) });
   });
@@ -1319,12 +1320,12 @@ test("late product detail response cannot replace a different photo popup", asyn
   await mock(page, data);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  await page.route(`http://localhost:5080/api/interior-busbar/products/${productId}`, async (route) => {
+  await page.route(`http://localhost:5080/cheongju/api/interior-busbar/products/${productId}`, async (route) => {
     await gate; await route.fulfill({ contentType: "application/json", body: JSON.stringify(data.products[0]) });
   });
   await page.goto("/interior-busbar");
   await selectSection(page, "생산·사진·QR");
-  const firstResponse = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/interior-busbar/products/${productId}`);
+  const firstResponse = page.waitForResponse((response) => new URL(response.url()).pathname === `/cheongju/api/interior-busbar/products/${productId}`);
   await page.getByRole("button", { name: "사진등록", exact: true }).first().click();
   await page.getByRole("button", { name: "사진 팝업 닫기" }).click();
   await page.getByRole("button", { name: "사진등록", exact: true }).nth(1).click();
@@ -1460,7 +1461,7 @@ test("commercial price is family only and preview stays read only", async ({page
 test("ecount status blocks uncertain retries and records a reason for definite failure", async ({page}) => {
   const writes = await mock(page, fixture());
   let retried = false;
-  await page.route("**/api/interior-busbar/projects/*/ecount-status", route => route.fulfill({contentType:"application/json", body:JSON.stringify({transmissionEnabled:false,jobs:[
+  await page.route("**/cheongju/api/interior-busbar/projects/*/ecount-status", route => route.fulfill({contentType:"application/json", body:JSON.stringify({transmissionEnabled:false,jobs:[
     {id:projectId,kind:"Order",state:retried?"Pending":"Failed",needsReview:false,message:retried?null:"전표 미생성 확인",slipNumber:null,attemptCount:1},
     {id:familyId,kind:"Sale",state:"Unknown",needsReview:false,message:"전표 생성 여부 확인 필요",slipNumber:null,attemptCount:1}
   ]})}));
@@ -1488,8 +1489,8 @@ test("ecount status blocks uncertain retries and records a reason for definite f
 
 test("ecount connection resumes separately and manual verification records checked slip", async ({page}) => {
   const writes=await mock(page,fixture());
-  await page.route("**/api/interior-busbar/projects/*/commercial-preview",route=>route.fulfill({contentType:"application/json",body:JSON.stringify({unitPrice:12500,quantity:60,supplyAmount:750000,vatAmount:75000,totalAmount:825000,missingFields:[],transmissionEnabled:true})}));
-  await page.route("**/api/interior-busbar/projects/*/ecount-status",route=>route.fulfill({contentType:"application/json",body:JSON.stringify({transmissionEnabled:true,environment:"Test",paused:true,connectionMessage:"전표 생성 여부 확인 필요 · 자동 전송 중지",jobs:[
+  await page.route("**/cheongju/api/interior-busbar/projects/*/commercial-preview",route=>route.fulfill({contentType:"application/json",body:JSON.stringify({unitPrice:12500,quantity:60,supplyAmount:750000,vatAmount:75000,totalAmount:825000,missingFields:[],transmissionEnabled:true})}));
+  await page.route("**/cheongju/api/interior-busbar/projects/*/ecount-status",route=>route.fulfill({contentType:"application/json",body:JSON.stringify({transmissionEnabled:true,environment:"Test",paused:true,connectionMessage:"전표 생성 여부 확인 필요 · 자동 전송 중지",jobs:[
     {id:projectId,kind:"Order",state:"Unknown",needsReview:false,message:"전표 생성 여부 확인 필요",slipNumber:null,attemptCount:1}
   ]})}));
   await page.goto("/interior-busbar");
@@ -1550,7 +1551,7 @@ test("independent busbar URLs survive reload and browser history", async ({ page
 
 test("shipment sales show individual quantities and ERP slips on desktop and mobile", async ({page}) => {
   await mock(page, fixture());
-  await page.route("**/api/interior-busbar/projects/*/ecount-status", route => route.fulfill({contentType:"application/json",body:JSON.stringify({transmissionEnabled:true,environment:"Test",paused:false,jobs:[
+  await page.route("**/cheongju/api/interior-busbar/projects/*/ecount-status", route => route.fulfill({contentType:"application/json",body:JSON.stringify({transmissionEnabled:true,environment:"Test",paused:false,jobs:[
     {id:projectId,kind:"Order",state:"Succeeded",needsReview:false,message:null,slipNumber:"2026/09/15 -1",attemptCount:1},
     {id:"sale-one",kind:"Sale",shipmentId:"shipment-one",shipmentQuantity:20,shippedAtUtc:"2026-09-15T00:00:00Z",state:"Succeeded",needsReview:false,message:null,slipNumber:"2026/09/15 -2",attemptCount:1},
     {id:"sale-two",kind:"Sale",shipmentId:"shipment-two",shipmentQuantity:15,shippedAtUtc:"2026-09-15T01:00:00Z",state:"Pending",needsReview:false,message:null,slipNumber:null,attemptCount:0}
@@ -1677,7 +1678,7 @@ test("shipment button stays visible with its unavailable reason", async ({ page 
 test("project Excel menu and monthly family totals", async ({ page }) => {
   const data = fixture();
   await mock(page, data);
-  await page.route("**/api/interior-busbar/projects/import/preview", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [{name: "합성 업로드", requestedQuantity: 2}], errors: [] }) }));
+  await page.route("**/cheongju/api/interior-busbar/projects/import/preview", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ rows: [{name: "합성 업로드", requestedQuantity: 2}], errors: [] }) }));
   await page.goto("/interior-busbar/projects");
   const menu = page.getByRole("button", { name: "프로젝트 엑셀", exact: false });
   await expect(menu).toBeVisible();
@@ -1767,7 +1768,7 @@ test("master access popup toggles immediately and keeps a hundred users out of t
   const users=Array.from({length:100},(_,i)=>({userId:`user-${i}`,displayName:`합성 사용자 ${i}`,departmentName:"합성 부서",access:i===1 ? "Read" : "None",automatic:i===0}));
   const writes:Array<{userId:string;access:string;reason:string}>=[];
   let failAfterSave=false;
-  await page.route("**/api/interior-busbar/master-access",async route=>{
+  await page.route("**/cheongju/api/interior-busbar/master-access",async route=>{
     if(route.request().method()==="PUT") {
       const body=route.request().postDataJSON();writes.push(body);
       users.find(u=>u.userId===body.userId)!.access=body.access;
@@ -1820,7 +1821,7 @@ test("purchase workspace shows remaining receipts and opens Excel beside registr
   data.pagination!.ledgerCount = 8;
   data.purchases = [{ id: "synthetic-order", orderNumber: "SYN-PO-30", materialId, orderDate: "2026-09-09", quantity: 30, receivedQuantity: 20 }];
   await mock(page, data);
-  await page.route("**/api/interior-busbar/purchases/import/preview", route => route.fulfill({contentType:"application/json", body:JSON.stringify({rows:[{orderNumber:"SYN-IMPORT",materialId,quantity:5}],errors:[]})}));
+  await page.route("**/cheongju/api/interior-busbar/purchases/import/preview", route => route.fulfill({contentType:"application/json", body:JSON.stringify({rows:[{orderNumber:"SYN-IMPORT",materialId,quantity:5}],errors:[]})}));
   await page.goto("/interior-busbar/purchases");
   await expect(page.getByRole("heading", { name:"발주·입고 현황" })).toBeVisible();
   await expect(page.getByRole("group", { name:"기록 페이지" })).toHaveCount(0);
@@ -1915,7 +1916,7 @@ test("deletion controls cover plans purchases and master records", async ({page}
 
 test("deletion failure stays visible and preserves the record", async ({page}) => {
   const data = fixture(); await mock(page,data);
-  await page.route(`**/api/interior-busbar/projects/${projectId}/delete`, route => route.fulfill({status:400,contentType:"application/json",body:JSON.stringify({message:"이카운트 전송 중입니다. 결과 확인 후 다시 시도하세요."})}));
+  await page.route(`**/cheongju/api/interior-busbar/projects/${projectId}/delete`, route => route.fulfill({status:400,contentType:"application/json",body:JSON.stringify({message:"이카운트 전송 중입니다. 결과 확인 후 다시 시도하세요."})}));
   await page.goto(`/interior-busbar/projects/${projectId}`);
   await page.getByRole("button",{name:`${data.projects[0].name} 삭제`,exact:true}).click();
   const dialog=page.getByRole("dialog",{name:"삭제 확인",exact:true});
@@ -1965,7 +1966,7 @@ test("stock cancellation retry preserves request and reason", async ({page}) => 
   const data=fixture(); data.ledger=[{id:'retry-receipt',kind:'Receipt',reason:'합성 입고',createdAtUtc:'2026-09-17T01:00:00Z'}];
   await mock(page,data);
   const requests:unknown[]=[];
-  await page.route('**/api/interior-busbar/ledger/retry-receipt/reverse', route => {
+  await page.route('**/cheongju/api/interior-busbar/ledger/retry-receipt/reverse', route => {
     requests.push(route.request().postDataJSON());
     return route.fulfill({status:requests.length===1 ? 503 : 200,contentType:'application/json',body:JSON.stringify(requests.length===1 ? {message:'합성 응답 지연'} : {id:'reversal'})});
   });
@@ -2001,7 +2002,7 @@ test("photo upload supports HEIC previews and rejects unsupported input without 
 test("quality inspection is available through panel QR landing on desktop and mobile", async ({ page }) => {
  const data=publishedFixture(); data.permissions={...data.permissions!, production:false, administration:false, inspection:true};
  await mock(page,data);
- await page.route("http://localhost:5080/api/interior-busbar/products/published-1/inspection", async route => {
+ await page.route("http://localhost:5080/cheongju/api/interior-busbar/products/published-1/inspection", async route => {
    expect(route.request().method()).toBe("POST"); expect(route.request().postDataJSON()).toEqual({});
    Object.assign(data.products[0],{inspectedAtUtc:"2026-09-21T03:00:00Z",inspectedByDisplayName:"합성 검사자"});
    await route.fulfill({json:{id:"published-1"}});

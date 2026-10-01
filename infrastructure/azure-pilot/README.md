@@ -98,11 +98,15 @@ Foundation과 ACR이 실제로 생성되고 비용 실행을 결정한 뒤에만
 4. `source_sha`에 실행 시점 `main`의 최신 full 40자리 commit SHA를 입력한다.
 5. ACR image 두 개가 게시되어 비용이 발생할 수 있음을 확인하는 checkbox를 선택한다.
 6. Migration 실행과 운영 Backend·Frontend revision 교체를 승인하는 checkbox를 선택한다.
-7. 최초 다중 DB 전환의 DB 준비 run에서는 role bootstrap과 membership backfill을 선택하고 `database_prepare_only=true`로 실행한다.
-8. 새 3-DB 상태의 PITR restore rehearsal을 통과한 뒤 같은 exact main SHA를 `force_full_release=true`로 다시 실행한다. 이 두 번째 run에서는 bootstrap·backfill을 반복하지 않는다.
-9. 완료된 run의 Summary에서 source SHA, Backend·Frontend digest, migration·두 앱·공개 보안 검사가 모두 성공인지 확인한다.
+7. bootstrap/backfill은 이번 실행에 실제로 필요한 경우에만 선택한다. `database_prepare_only=true`인 migration release는 거부된다. 기존 앱이 계속 동작하는 동안 축소 migration을 적용하는 준비 run은 사용하지 않는다.
+8. C/O 0131을 처음 적용하는 승인된 전환에만 `approve_business_schema_separation=true`를 선택한다. [0131 정리 범위](../../database/README.md#cheongjuosan-database-isolation)의 표·열·불필요 객체와 오산 권한28개·해당 역할 연결·미사용 역할1개 제거까지 운영 승인이 포함하는지 확인한다. Directory·bootstrap·drain은 이 승인을 받지 않으며 영구 template에 승인값을 저장하지 않는다.
+9. 점검 release ID·공지·시작/종료 시각을 지정하고, 완료된 Summary의 image digest·migration·양쪽 app 및 별도 C/O 업무 검증을 확인한다. 최초 maintenance CLI 연결은 [최초 전환 runbook](../../docs/development/azure-maintenance-first-rollout.md)을 따른다.
 
-Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. `latest` tag를 만들지 않고 SHA tag만 push한 뒤 digest를 고정한다. 최초 다중 DB 준비 run은 role bootstrap → migration → membership backfill까지만 실행해 기존 앱 traffic을 유지한다. Restore rehearsal 뒤 `force_full_release=true` run이 전체 scope를 다시 계산하고 migration을 idempotent하게 확인한 뒤 Backend, Frontend 순서로 single revision image를 교체한다. 각 revision은 exact `Healthy`이면서 running state가 `Running` 또는 `RunningAtMaxScale`이어야 하고, `Stopped`, `ScaleToZero`, `Degraded`, `Unknown`과 빈 값은 차단한다. 공개 `/health/live` `200`, 익명 root·API `401`도 확인한다. DB job 실패 시 앱은 바뀌지 않으며, 앱 교체나 최종 공개 검사 실패 시 직전 image로 best-effort rollback한다.
+Workflow는 입력 SHA가 실행 시점 `origin/main`의 정확한 최신 commit이 아니면 Azure 로그인 전에 실패한다. Backend는 linux/amd64 OCI archive를 한 번 빌드하고, 원본 archive의 config/layer hash와 로컬 Docker image ID를 대조한 뒤 실제 packaged CLI의 catalog·fresh/upgrade·drain 합성 검증을 수행한다. 통과한 동일 archive만 원본 digest·SBOM·provenance를 유지하여 게시한다. 재빌드하지 않으며 게시된 digest가 검증한 root digest와 다르면 배포로 진행하지 않는다. Frontend도 SHA tag와 고정 digest를 사용하고 mutable latest tag는 만들지 않는다.
+
+일반 release는 공개 Backend의 split 설정과 세 runtime secret 참조·target metadata를 사전에 검사하고, 교체 후 실제 ready revision에서도 재확인한다. `configureServingBusinessUnits=false`는 job 준비 상태일 뿐 실제 3-DB serving 완료가 아니다. `MAINTENANCE_PREPARE_ONLY=true`는 공지만 준비하며 serving 상태를 인증하지 않는다. health/live200·익명 root/API401만으로 사업부 분리 준비를 입증하지 않는다.
+
+점검 준비/활성화 후 구조 변경 release는 양 app의 모든 active revision을 종료하고 replica0을 확인한다. 기존 migration job에서 새 image의 read-only drain을 D/C/O에 각각 실행해 모두 성공한 뒤 명시 target bootstrap/migration/backfill을 진행한다. ready revision은 exact Healthy 및 Running/RunningAtMaxScale이어야 한다. 구조 변경 전 확정 실패는 기존 revision 복구를 시도할 수 있지만, 구조 변경 진입 후 실패는 양 app 정지와 forward-fix를 유지한다. 실행 결과가 불명확하면 추가 maintenance fail job도 보내지 않고 정지 상태에서 수동 근거 대조를 요구한다.
 
 이 workflow source를 `main`에 게시하는 것만으로 실제 운영 release가 실행되지는 않는다. 실제 run은 별도 명시 실행으로 남긴다.
 
@@ -199,19 +203,15 @@ scripts/validate-azure-pilot-artifacts.sh --compile
 
 ## 실제 배포 순서
 
-### 기존 운영 환경의 오산 1단계 전환
+### 기존 운영 환경의 사업부 schema 분리
 
-1. exact current-main SHA, 기존 두 app의 immutable rollback image, server 상태·14일 PITR·private network, 기존 user DB 1개와 두 manual job 상태를 먼저 기록한다.
-2. 기존 DB를 Cheongju canonical DB로 그대로 유지하고 Directory·Osan 빈 DB만 같은 Flexible Server에 추가한다. 기존 DB rename·copy·overwrite는 하지 않는다.
-3. 새 connection secret 6개와 backfill private ID secret 2개를 만든다. 일반 사용자는 Cheongju 또는 Osan 한 곳만 넣고, 다중 membership은 지정 총괄 관리자에만 사용한다.
-4. `identity-access`를 `enableBusinessUnits=true`로 적용하고 secret-scope assignment `26`, vault-scope assignment `0`을 확인한다.
-5. `workloads`를 기존 immutable image와 `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `activateWorkloads=true`, 현재 청주 provider 활성 상태로 적용한다. 이 단계는 Directory·Osan DB와 새 membership job을 만들되 공개 Backend의 connection/env를 바꾸지 않는다. Job 3개가 모두 `Manual`, Backend/Frontend가 `Single`, Backend max replica가 `1`인지 확인한다.
-6. GitHub release를 `run_database_bootstrap=true`, `run_membership_backfill=true`, `database_prepare_only=true`로 실행한다. 세 DB role bootstrap, Directory `0001..0002`, Cheongju·Osan `0001..0087`, 승인 Cheongju membership backfill 성공 뒤 기존 public app이 그대로 응답하는지 확인한다.
-7. 이 새 3-DB restore point로 별도 PITR server를 만들고 세 DB 존재, identity·ledger, privacy-safe aggregate와 bounded role 연결을 확인한다. 운영 server를 덮어쓰지 않으며 rehearsal 실패 시 application 교체를 중단한다.
-8. 성공 시각을 `restoreVerifiedAtUtc`에 반영하고 `configureServingBusinessUnits=true`로 workload를 적용한다. 직전 legacy image가 기존 Cheongju 연결로 응답하는지 확인한 뒤 같은 exact main SHA를 `force_full_release=true`로 실행한다. 두 번째 run은 bootstrap·backfill을 선택하지 않는다.
-9. Backend ready 뒤 Frontend ready, public `200/401/401`, Cheongju regression, 제한된 Osan account의 local profile/role과 create/list/detail 준비를 확인한다. 정정 경로가 승인되기 전에는 fake 운영 프로젝트를 만들지 않는다.
+현재 운영 DB·기존 자원과 승인 범위를 먼저 대조한다. 이미 존재하는 Directory·Osan을 다시 만들거나 청주 DB를 rename/copy하지 않는다. 현재 전환의 기준은 Directory 0001..0004 및 C/O 공통0001..0130 + 각 업무0131이며, 과거 0087 준비 절차를 재사용하지 않는다.
 
-DB job 또는 restore가 실패하면 새 application revision을 만들지 않는다. Directory·Osan은 public 접근에 연결되지 않은 상태로 두고 기존 Cheongju app health를 다시 확인한다. Application 이상은 직전 immutable image로 되돌리며 이미 적용된 additive migration은 down하지 않고 forward-fix한다.
+1. exact current-main SHA, 검증한 image digest, 대상별 현재 identity/ledger·권한·예상 제거 데이터, PITR 복구 근거와 전환 창을 확인한다. 불명확한 외부 발송이 남으면 drain을 우회하지 않는다.
+2. public Backend의 실제 serving template을 `configureServingBusinessUnits=true`에 해당하는 구성으로 확인한다. 하나의 Backend를 유지하며 일반 API runtime에는 D/C/O runtime secret 참조만 제공한다. job metadata가 준비됐다는 사실로 public serving을 대신하지 않는다.
+3. 최초 점검 CLI 연결이 필요한 경우 별도 [최초 전환 runbook](../../docs/development/azure-maintenance-first-rollout.md)을 먼저 완료한다. 일반 release workflow는 maintenance job이 이미 준비됐다는 전제다.
+4. 승인된 release에서 양쪽 점검을 활성화하고 양 app replica0 → D/C/O read-only drain → 명시 target DB 작업 → 새 Backend/Frontend 준비 → C/O 각각 검증 → 점검 완료 순서를 지킨다. bootstrap과 membership backfill은 필요한 경우에만 실행한다.
+5. 실제 기능 검수와 복구 근거를 남긴다. 운영 fake 프로젝트나 메일 재발송을 자동 검증 수단으로 만들지 않는다. DB 작업 진입 후 실패하면 기존 image를 재활성화하지 않고 정지/forward-fix 상태로 둔다.
 
 ### 새 환경 생성
 
@@ -222,10 +222,10 @@ DB job 또는 restore가 실패하면 새 application revision을 만들지 않�
 5. `identity-access.bicep`을 적용하고 business-unit mode의 26개 role assignment가 모두 secret scope인지 확인한다. RBAC 전파가 끝나기 전에는 다음 단계로 가지 않는다.
 6. 같은 Git commit에서 Backend·Frontend image를 build하고 ACR에 push한 뒤 digest를 고정한다.
 7. `activateWorkloads=false`, `enableBusinessUnits=true`, `configureServingBusinessUnits=false`, `enableExternalNotifications=false`로 workload와 세 manual job을 배치한다.
-8. `database-role-bootstrap` job을 한 번 실행해 `pms_migrator`와 `pms_app`을 만들고 권한 probe를 통과시킨다.
-9. migration job을 한 번 실행하고 migration ledger가 Exact인지 확인한다. 이 job이 신규 DB object의 runtime 권한도 재조정한다.
+8. `database-role-bootstrap` job의 실행별 `Database__BootstrapTarget`을 DIRECTORY/CHEONGJU/OSAN으로 지정해 각각 역할과 권한 probe를 확인한다.
+9. migration job의 실행별 `Database__MigrationTarget`을 DIRECTORY/CHEONGJU/OSAN으로 지정하고 각각 exact catalog와 runtime 권한을 확인한다. C/O0131 최초 적용의 [구조·오산 권한/역할 정리 승인](../../database/README.md#cheongjuosan-database-isolation)은 해당 실행에만 명시한다.
 10. PostgreSQL PITR restore rehearsal을 수행하고 1시간 안에 복구·연결·ledger 검증이 되는지 확인한다. 임시 restore server는 사용자 비용 경계에서 정리한다.
-11. 성공 시각을 `restoreVerifiedAtUtc`에 넣고 `activateWorkloads=true`로 workload를 다시 배치한다.
+11. 성공 시각을 `restoreVerifiedAtUtc`에 넣고 `configureServingBusinessUnits=true`, `activateWorkloads=true`로 workload를 배치한다. 공통 ready 응답 외에 C/O 각각 준비를 확인한다.
 12. Backend `/health/ready`가 성공한 뒤 edge를 배치하고 DNS TXT/CNAME, managed TLS를 확인한다. 공개 API가 `400`이면 Backend latest revision의 `AllowedHosts`가 public hostname과 exact internal Backend hostname 두 개를 포함하는지 확인한다.
 13. 익명 비브라우저 Front Door root·핵심 asset·manifest·API는 `401`, 브라우저는 EMI PMS shell·bundle 없는 인증 화면, `/health/live`와 Teams 실행 전용 정적 파일만 `200`인지 확인한다. Teams 실행 화면이 핵심 app bundle을 참조하지 않는지 확인하고 Direct origin도 인증 전 EMI PMS shell을 제공하지 않아야 한다.
 14. Entra API·SPA·Frontend access gate redirect URI와 Teams manifest를 최종 주소로 갱신한다.
@@ -245,3 +245,7 @@ DB job 또는 restore가 실패하면 새 application revision을 만들지 않�
 - 외부 알림 이상: `enableExternalNotifications=false`로 되돌려 in-app 알림만 유지한다.
 
 Resource 삭제, PITR server 삭제와 scale 변경도 비용·복구에 영향을 주므로 사용자가 직접 수행한다.
+
+### 이미지 gate 구현 근거
+
+[Docker OCI exporter](https://docs.docker.com/build/exporters/oci-docker/)의 archive 출력을 사용한다. [Skopeo copy](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md)의 `--all`은 index와 모든 manifest를 복사하며 `--preserve-digests`는 digest 보존이 불가능하면 실패한다. CI runner에만 Skopeo를 설치한다. Docker 적재 과정의 manifest 표현이 달라도 검증기는 원본 runtime config digest, 압축 해제 layer hash, Docker image ID/RootFS를 비교한다. [OCI config 명세](https://github.com/opencontainers/image-spec/blob/main/config.md)의 ImageID(config SHA256)와 DiffID(압축 해제 layer SHA256) 정의에 따른다. 빌드 archive는 다시 생성하지 않고 게시 시 원본 전체를 전달한다.

@@ -180,6 +180,11 @@ public sealed class BusinessUnitConfiguration
         {
             errors.Add($"{section}:database_roles_not_distinct");
         }
+        if (new[] { "postgres", "template0", "template1", "azure_sys", "azure_maintenance" }
+            .Contains(expectedDatabaseName, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add($"{section}:database_name_reserved");
+        }
 
         return new BusinessUnitDatabaseTarget(
             expectedCode,
@@ -299,6 +304,12 @@ public sealed class BusinessUnitConfiguration
         try
         {
             var builder = new NpgsqlConnectionStringBuilder(value);
+            var recoveryHost = configuration["Database:RecoveryPostgresHost"];
+            if (recoveryHost is not null && (string.IsNullOrWhiteSpace(recoveryHost)
+                || !string.Equals(builder.Host, recoveryHost, StringComparison.OrdinalIgnoreCase)))
+            {
+                errors.Add($"{target.Code}:{purpose}:recovery_server_mismatch");
+            }
             if (string.IsNullOrWhiteSpace(builder.Host)
                 || string.IsNullOrWhiteSpace(builder.Database)
                 || string.IsNullOrWhiteSpace(builder.Username)

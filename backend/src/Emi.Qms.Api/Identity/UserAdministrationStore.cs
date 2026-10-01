@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using Emi.Qms.Api.Admin;
 using Emi.Qms.Api.Notifications;
@@ -7,7 +8,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Identity;
 
 public sealed class UserAdministrationStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     DbIdentityStore dbIdentityStore,
     TimeProvider timeProvider)
     : IUserAdministrationStore
@@ -204,14 +205,17 @@ public sealed class UserAdministrationStore(
             await insertRole.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await SynchronizeDepartmentHeadBindingAsync(
-            connection,
-            transaction,
-            userId,
-            selectedDepartment,
-            request.IsDepartmentHead,
-            currentUserId,
-            cancellationToken);
+        if (!connectionStringProvider.IsOsan)
+        {
+            await SynchronizeDepartmentHeadBindingAsync(
+                connection,
+                transaction,
+                userId,
+                selectedDepartment,
+                request.IsDepartmentHead,
+                currentUserId,
+                cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
         return UserAdministrationMutationResult.Success(await GetSnapshotAsync(cancellationToken));
@@ -741,7 +745,7 @@ public sealed class UserAdministrationStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -749,6 +753,6 @@ public sealed class UserAdministrationStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

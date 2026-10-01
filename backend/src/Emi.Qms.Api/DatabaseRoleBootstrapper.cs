@@ -23,106 +23,55 @@ public sealed class DatabaseRoleBootstrapper(
             return;
         }
 
+        throw new InvalidOperationException("business_unit_bootstrap_target_required");
+    }
+
+    public async Task BootstrapAsync(string targetCode, CancellationToken cancellationToken)
+    {
+        if (ReviewSafeMode.IsEnabled(configuration))
+            throw new InvalidOperationException("Database role bootstrap is disabled in review-safe UAT mode.");
+        var businessUnits = BusinessUnitConfiguration.Read(configuration);
+        if (!businessUnits.Enabled)
+            throw new InvalidOperationException("business_unit_bootstrap_target_not_enabled");
         businessUnits.ThrowIfInvalid();
-        var purposes = new[]
-        {
-            BusinessUnitConnectionPurpose.Runtime,
-            BusinessUnitConnectionPurpose.Migration,
-            BusinessUnitConnectionPurpose.Administrator
-        };
-        var errors = purposes
-            .SelectMany(purpose => businessUnits.ValidateOperationConnections(configuration, purpose))
-            .Concat(businessUnits.ValidateSameServerAcrossPurposes(configuration, purposes))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var target = businessUnits.AllTargets().SingleOrDefault(candidate =>
+            candidate.Code == targetCode.Trim().ToUpperInvariant())
+            ?? throw new InvalidOperationException("business_unit_bootstrap_target_invalid");
+        var purposes = new[] { BusinessUnitConnectionPurpose.Runtime,
+            BusinessUnitConnectionPurpose.Migration, BusinessUnitConnectionPurpose.Administrator };
+        var errors = purposes.SelectMany(purpose =>
+                businessUnits.ValidateOperationConnections(configuration, purpose, [target]))
+            .Concat(businessUnits.ValidateSameServerAcrossPurposes(configuration, purposes, [target]))
+            .Distinct(StringComparer.Ordinal).ToList();
         if (errors.Count > 0)
+            throw new InvalidOperationException($"Business-unit database role bootstrap configuration is invalid ({errors.Count} validation error(s)).");
+        var credentials = new[] {
+            ReadRoleCredential(target, BusinessUnitConnectionPurpose.Migration),
+            ReadRoleCredential(target, BusinessUnitConnectionPurpose.Runtime) };
+        var boundedNames = businessUnits.AllTargets()
+            .SelectMany(unit => new[] { unit.MigrationRoleName, unit.RuntimeRoleName })
+            .Distinct(StringComparer.Ordinal).ToArray();
+        var administrator = ReadConnection(target, BusinessUnitConnectionPurpose.Administrator);
+        await WithMaintenanceLockAsync(administrator.ConnectionString, async (connection, transaction) =>
         {
-            throw new InvalidOperationException(
-                $"Business-unit database role bootstrap configuration is invalid ({errors.Count} validation error(s)).");
-        }
-
-        var targets = businessUnits.AllTargets();
-        var roleCredentials = targets
-            .SelectMany(target => new[]
+            await ThrowIfBoundedRoleMembershipExistsAsync(connection, transaction,
+                credentials.Select(credential => credential.RoleName).ToList(), cancellationToken);
+            foreach (var credential in credentials)
+                await EnsureLoginRoleAsync(connection, transaction, credential.RoleName, credential.Password, cancellationToken);
+            // Other roles may not have been created yet. Revoke only existing roles on this selected database.
+            var existingNames = new List<string>();
+            await using (var command = connection.CreateCommand())
             {
-                ReadRoleCredential(target, BusinessUnitConnectionPurpose.Migration),
-                ReadRoleCredential(target, BusinessUnitConnectionPurpose.Runtime)
-            })
-            .ToList();
-        var allBoundedRoleNames = roleCredentials
-            .Select(credential => credential.RoleName)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        // Roles are cluster-scoped, so create every bounded role before revoking its
-        // access to databases owned by another target.
-        var roleAdministrator = ReadConnection(targets[0], BusinessUnitConnectionPurpose.Administrator);
-        await WithMaintenanceLockAsync(
-            roleAdministrator.ConnectionString,
-            async (connection, transaction) =>
-            {
-                await ThrowIfBoundedRoleMembershipExistsAsync(
-                    connection,
-                    transaction,
-                    allBoundedRoleNames,
-                    cancellationToken);
-                foreach (var credential in roleCredentials)
-                {
-                    await EnsureLoginRoleAsync(
-                        connection,
-                        transaction,
-                        credential.RoleName,
-                        credential.Password,
-                        cancellationToken);
-                }
-            },
-            cancellationToken);
-
-        var failures = new List<string>();
-        foreach (var target in targets)
-        {
-            try
-            {
-                var administrator = ReadConnection(target, BusinessUnitConnectionPurpose.Administrator);
-                await WithMaintenanceLockAsync(
-                    administrator.ConnectionString,
-                    async (connection, transaction) =>
-                    {
-                        await privilegeManager.ConfigureBootstrapPrivilegesAsync(
-                            connection,
-                            transaction,
-                            target.ExpectedDatabaseName,
-                            target.MigrationRoleName,
-                            target.RuntimeRoleName,
-                            target.Kind,
-                            allBoundedRoleNames,
-                            cancellationToken);
-                    },
-                    cancellationToken);
+                command.Transaction = transaction;
+                command.CommandText = "select rolname from pg_roles where rolname = any(@names)";
+                command.Parameters.AddWithValue("names", boundedNames);
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken)) existingNames.Add(reader.GetString(0));
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures.Add(target.Code);
-                logger.LogError(
-                    "Database role bootstrap target failed. Target={Target} ExceptionType={ExceptionType}.",
-                    target.Code,
-                    exception.GetType().Name);
-            }
-        }
-
-        if (failures.Count > 0)
-        {
-            throw new InvalidOperationException(
-                $"Business-unit database role bootstrap failed for {failures.Count} target(s); no target fallback was used.");
-        }
-
-        logger.LogInformation(
-            "Database roles were bootstrapped for {TargetCount} isolated database targets.",
-            targets.Count);
+            await privilegeManager.ConfigureBootstrapPrivilegesAsync(connection, transaction, target,
+                existingNames, cancellationToken);
+        }, cancellationToken);
+        logger.LogInformation("Database roles bootstrapped for selected target {Target}.", target.Code);
     }
 
     private static async Task ThrowIfBoundedRoleMembershipExistsAsync(

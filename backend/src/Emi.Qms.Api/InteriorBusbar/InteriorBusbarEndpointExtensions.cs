@@ -25,7 +25,7 @@ public static class InteriorBusbarEndpointExtensions
         api.AddEndpointFilter(async (context, next) =>
         {
             var http = context.HttpContext;
-            var provider = http.RequestServices.GetRequiredService<DatabaseConnectionStringProvider>();
+            var provider = http.RequestServices.GetRequiredService<CheongjuDatabase>();
             if (provider.GetCurrentBusinessUnit()?.Code != BusinessUnitCodes.Cheongju) return Results.Json(new
             {
                 code = "business_unit_forbidden",

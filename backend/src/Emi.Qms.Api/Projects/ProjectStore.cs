@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Emi.Qms.Api.Logistics;
 using Emi.Qms.Api.Manufacturing;
@@ -48,7 +49,7 @@ public sealed record ProjectMutationResult<T>(
 }
 
 public sealed class ProjectStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     IEnumerable<IProjectDeletionGuard> deletionGuards,
     ProjectExcelParser projectExcelParser)
 {
@@ -871,19 +872,26 @@ public sealed class ProjectStore(
             """);
         command.Parameters.AddWithValue("project_id", projectId);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        ProjectListItemResponse baseItem;
+        string? statusReason;
+        int manufacturingStepCount;
+        int oqcStepCount;
+        string iqcRoutingPolicy;
+        string? lseTaskNumber;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
-        }
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
 
-        var baseItem = ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights);
-        var statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
-        var manufacturingStepCount = reader.GetInt32(31);
-        var oqcStepCount = reader.GetInt32(32);
-        var iqcRoutingPolicy = reader.GetString(33);
-        var lseTaskNumber = reader.IsDBNull(34) ? null : reader.GetString(34);
-        await reader.DisposeAsync();
+            baseItem = ReadProjectListItem(reader, includeSalesAmount, 20, includePendingInsights);
+            statusReason = reader.IsDBNull(19) ? null : reader.GetString(19);
+            manufacturingStepCount = reader.GetInt32(31);
+            oqcStepCount = reader.GetInt32(32);
+            iqcRoutingPolicy = reader.GetString(33);
+            lseTaskNumber = reader.IsDBNull(34) ? null : reader.GetString(34);
+        }
         var panelInfoSummary = await ReadPanelInformationSummaryAsync(dataSource, projectId, cancellationToken);
         return new ProjectDetailResponse
         {
@@ -1900,15 +1908,18 @@ public sealed class ProjectStore(
             """);
         command.Parameters.AddWithValue("project_id", projectId);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        DeletedProjectListItemResponse item;
+        string? statusReason;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
-        }
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
 
-        var item = ReadDeletedProjectListItem(reader, includeSalesAmount);
-        var statusReason = reader.IsDBNull(23) ? null : reader.GetString(23);
-        await reader.DisposeAsync();
+            item = ReadDeletedProjectListItem(reader, includeSalesAmount);
+            statusReason = reader.IsDBNull(23) ? null : reader.GetString(23);
+        }
         var detail = new DeletedProjectDetailResponse
         {
             ProjectId = item.ProjectId,
@@ -3088,7 +3099,7 @@ public sealed class ProjectStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -3096,7 +3107,7 @@ public sealed class ProjectStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static void AddAccessScope(
@@ -3215,7 +3226,7 @@ public sealed class ProjectStore(
     }
 
     private static async Task<IReadOnlyList<PanelPlaceholderResponse>> ListDeletedProjectPanelsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -3266,7 +3277,7 @@ public sealed class ProjectStore(
     }
 
     private static async Task<IReadOnlyList<ProjectAuditEventResponse>> ListDeletedProjectAuditHistoryAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         bool includeSensitive,
         CancellationToken cancellationToken)
@@ -3672,7 +3683,7 @@ public sealed class ProjectStore(
     }
 
     private static async Task<ProjectPanelInformationSummary> ReadPanelInformationSummaryAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         CancellationToken cancellationToken)
     {

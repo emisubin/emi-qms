@@ -6,10 +6,9 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Admin;
 
 public sealed class AdminScheduledDeletionService(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider,
-    BusinessUnitDatabaseBoundaryValidator boundaryValidator,
-    ILogger<AdminScheduledDeletionService> logger) : IAdminDeletionPurgeService
+    BusinessUnitDatabaseBoundaryValidator boundaryValidator) : IAdminDeletionPurgeService
 {
     private static readonly string[] UserReferenceColumns =
     [
@@ -39,47 +38,14 @@ public sealed class AdminScheduledDeletionService(
             return await PurgeDueTargetAsync(target: null, cancellationToken);
         }
 
-        var purgedUsers = 0;
-        var purgedDepartments = 0;
-        var purgedHolidays = 0;
-        var blocked = 0;
-        var failures = 0;
-        foreach (var target in connectionStringProvider.BusinessUnits.Businesses
-                     .Where(candidate => candidate.AdminDeletionWorkerEnabled))
+        var target = connectionStringProvider.BusinessUnits.Businesses.Single();
+        if (!target.AdminDeletionWorkerEnabled)
         {
-            try
-            {
-                await boundaryValidator.ValidateAsync(target, cancellationToken);
-                var result = await PurgeDueTargetAsync(target, cancellationToken);
-                purgedUsers += result.PurgedUserCount;
-                purgedDepartments += result.PurgedDepartmentCount;
-                purgedHolidays += result.PurgedHolidayCount;
-                blocked += result.BlockedCount;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures++;
-                logger.LogError(
-                    "Scheduled deletion target failed. Target={Target} ExceptionType={ExceptionType}.",
-                    target.Code,
-                    exception.GetType().Name);
-            }
+            return new AdminScheduledDeletionPurgeResult(0, 0, 0, 0);
         }
 
-        if (failures > 0)
-        {
-            throw new InvalidOperationException(
-                $"Scheduled deletion failed for {failures} target(s); no target fallback was used.");
-        }
-        return new AdminScheduledDeletionPurgeResult(
-            purgedUsers,
-            purgedDepartments,
-            purgedHolidays,
-            blocked);
+        await boundaryValidator.ValidateAsync(target, cancellationToken);
+        return await PurgeDueTargetAsync(target, cancellationToken);
     }
 
     private async Task<AdminScheduledDeletionPurgeResult> PurgeDueTargetAsync(
@@ -503,7 +469,7 @@ public sealed class AdminScheduledDeletionService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    private RuntimeDataSourceLease CreateDataSource(BusinessUnitDatabaseTarget? target = null)
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
@@ -513,7 +479,7 @@ public sealed class AdminScheduledDeletionService(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static string QuoteIdentifier(string value)

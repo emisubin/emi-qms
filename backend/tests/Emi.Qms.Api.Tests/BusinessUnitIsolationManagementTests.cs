@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Security;
 using Xunit;
 
@@ -324,6 +325,11 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
             using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
             deleteProjectId = body.RootElement.GetProperty("project").GetProperty("projectId").GetGuid();
+            Assert.Equal($"/osan/api/osan/projects/{deleteProjectId:D}", response.Headers.Location?.ToString());
+            using var followLocation = new HttpRequestMessage(HttpMethod.Get, response.Headers.Location);
+            followLocation.Headers.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-admin");
+            using var followed = await client.SendAsync(followLocation, cancellationToken);
+            Assert.Equal(HttpStatusCode.OK, followed.StatusCode);
         }
         string deleteToken;
         using (var management = Request(

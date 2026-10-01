@@ -11,7 +11,7 @@ public static class OsanNotificationPreferenceEndpointExtensions
     {
         app.MapGet("/api/osan/my/notification-preferences", async (
             ClaimsPrincipal principal,
-            DatabaseConnectionStringProvider connectionStrings,
+            OsanDatabase connectionStrings,
             OsanNotificationPreferenceStore store,
             CancellationToken cancellationToken) =>
         {
@@ -24,7 +24,7 @@ public static class OsanNotificationPreferenceEndpointExtensions
         app.MapPut("/api/osan/my/notification-preferences", async (
             UpdateOsanNotificationPreferencesRequest request,
             ClaimsPrincipal principal,
-            DatabaseConnectionStringProvider connectionStrings,
+            OsanDatabase connectionStrings,
             OsanNotificationPreferenceStore store,
             CancellationToken cancellationToken) =>
         {
@@ -37,7 +37,7 @@ public static class OsanNotificationPreferenceEndpointExtensions
         return app;
     }
 
-    private static bool IsOsan(DatabaseConnectionStringProvider connectionStrings) =>
+    private static bool IsOsan(OsanDatabase connectionStrings) =>
         string.Equals(connectionStrings.GetCurrentBusinessUnit()?.Code, BusinessUnitCodes.Osan, StringComparison.Ordinal);
 
     private static Guid? CurrentUserId(ClaimsPrincipal principal) =>

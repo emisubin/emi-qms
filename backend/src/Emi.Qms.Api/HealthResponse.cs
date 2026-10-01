@@ -8,4 +8,5 @@ public sealed record ReadyHealthResponse(
     DatabaseHealthResult Database,
     DateTimeOffset CheckedAtUtc);
 
-public sealed record DatabaseHealthResult(bool IsReady, string Reason);
+public sealed record DatabaseHealthResult(bool IsReady, string Reason,
+    IReadOnlyDictionary<string, bool>? BusinessUnits = null);

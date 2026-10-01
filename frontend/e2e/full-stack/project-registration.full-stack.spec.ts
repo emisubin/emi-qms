@@ -1144,7 +1144,7 @@ test('TASK-003B-1 C: partial Excel preview/apply skips blank rows and admin sees
   await expect(desktopPreview.getByText('PNL-3')).toBeVisible();
   const appliedResponse = page.waitForResponse(response =>
     response.request().method() === 'POST'
-    && new URL(response.url()).pathname === `/api/projects/${projectId}/panel-information/import/apply`);
+    && new URL(response.url()).pathname === `/cheongju/api/projects/${projectId}/panel-information/import/apply`);
   await excelDialog.getByRole('button', { name: 'Excel 저장' }).click();
   expect((await appliedResponse).ok()).toBe(true);
   await expect(excelDialog).toBeHidden();
@@ -1295,10 +1295,10 @@ test('full-stack: project registration, permissions, status, and panel count use
   await page.getByLabel('사유*').fill('Full-stack 재활성');
   const reactivationMutation = page.waitForResponse((response) =>
     response.request().method() === 'POST'
-      && new URL(response.url()).pathname === `/api/projects/${projectId}/reactivate`);
+      && new URL(response.url()).pathname === `/cheongju/api/projects/${projectId}/reactivate`);
   const reactivationRefresh = page.waitForResponse((response) =>
     response.request().method() === 'GET'
-      && new URL(response.url()).pathname === `/api/projects/${projectId}`);
+      && new URL(response.url()).pathname === `/cheongju/api/projects/${projectId}`);
   await page.getByRole('button', { name: '확인' }).click();
   expect((await reactivationMutation).ok()).toBeTruthy();
   expect((await reactivationRefresh).ok()).toBeTruthy();

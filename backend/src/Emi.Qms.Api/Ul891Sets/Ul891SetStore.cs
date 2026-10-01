@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -13,7 +14,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Ul891Sets;
 
-public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class Ul891SetStore(CheongjuDatabase connectionStringProvider)
 {
     internal static async Task CreateInitialStructureAsync(
         NpgsqlConnection connection,
@@ -1036,11 +1037,11 @@ public sealed class Ul891SetStore(DatabaseConnectionStringProvider connectionStr
         command.Parameters.AddWithValue("project_id",projectId); await using var reader=await command.ExecuteReaderAsync(token); while(await reader.ReadAsync(token)) result.Add(reader.GetGuid(0)); return result;
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static async Task<IReadOnlyList<Ul891SetSpecResponse>> ReadSpecsAsync(NpgsqlConnection connection, Guid projectId, CancellationToken token)

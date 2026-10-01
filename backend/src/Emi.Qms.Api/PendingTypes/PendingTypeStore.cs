@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.PendingTypes;
 
-public sealed class PendingTypeStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class PendingTypeStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<PendingTypeCatalogResponse> GetCatalogAsync(CancellationToken cancellationToken)
     {
@@ -437,14 +438,14 @@ public sealed class PendingTypeStore(DatabaseConnectionStringProvider connection
             ["items"] = [message]
         });
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)

@@ -29,7 +29,7 @@ describe('SalesSettlementPage', () => {
     let completed = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === `/api/projects/${projectId}/settlement` && (!init?.method || init.method === 'GET')) {
+      if (url.pathname === `/cheongju/api/projects/${projectId}/settlement` && (!init?.method || init.method === 'GET')) {
         return json(detail(completed));
       }
       if (url.pathname.endsWith('/complete')) {

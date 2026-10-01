@@ -32,17 +32,17 @@ describe('LogisticsPage', () => {
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/logistics/queue') return json(queue());
-      if (url.pathname === '/api/logistics/packing-units') {
+      if (url.pathname === '/cheongju/api/logistics/queue') return json(queue());
+      if (url.pathname === '/cheongju/api/logistics/packing-units') {
         calls.push('create');
         requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'packing', status: 'Draft', version: 1, nextStage: 'evidence', replayed: false });
       }
-      if (url.pathname === `/api/logistics/packing/${draftId}/evidence`) {
+      if (url.pathname === `/cheongju/api/logistics/packing/${draftId}/evidence`) {
         calls.push('evidence');
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'packing', status: 'Draft', version: 2, nextStage: 'confirm', replayed: false });
       }
-      if (url.pathname === `/api/logistics/packing/${draftId}/finalize`) {
+      if (url.pathname === `/cheongju/api/logistics/packing/${draftId}/finalize`) {
         calls.push('finalize');
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'packing', status: 'Finalized', version: 3, nextStage: 'departure', replayed: false });
       }
@@ -76,7 +76,7 @@ describe('LogisticsPage', () => {
     const requests: Array<Record<string, unknown>> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/logistics/queue') {
+      if (url.pathname === '/cheongju/api/logistics/queue') {
         return json({
           stage: 'departure', todayCount: 2, blockedCount: 0, drafts: [],
           projects: [{
@@ -96,14 +96,14 @@ describe('LogisticsPage', () => {
           }]
         });
       }
-      if (url.pathname === '/api/logistics/departure-batches') {
+      if (url.pathname === '/cheongju/api/logistics/departure-batches') {
         requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'departure', status: 'Draft', version: 1, nextStage: 'evidence', replayed: false });
       }
-      if (url.pathname === `/api/logistics/departure/${draftId}/evidence`) {
+      if (url.pathname === `/cheongju/api/logistics/departure/${draftId}/evidence`) {
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'departure', status: 'Draft', version: 2, nextStage: 'confirm', replayed: false });
       }
-      if (url.pathname === `/api/logistics/departure/${draftId}/finalize`) {
+      if (url.pathname === `/cheongju/api/logistics/departure/${draftId}/finalize`) {
         return json({ operationId: crypto.randomUUID(), projectId, targetId: draftId, stage: 'departure', status: 'Finalized', version: 3, nextStage: 'delivery', replayed: false });
       }
       return json({ title: 'not found' }, 404);
@@ -131,7 +131,7 @@ describe('LogisticsPage', () => {
   it('recovers a draft from the queue when the original item and URL draft are unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/logistics/queue') return json({
+      if (url.pathname === '/cheongju/api/logistics/queue') return json({
         ...queue(),
         todayCount: 0,
         projects: [],
@@ -147,7 +147,7 @@ describe('LogisticsPage', () => {
           createdAtUtc: '2026-07-18T00:00:00Z'
         }]
       });
-      if (url.pathname === `/api/logistics/packing/${draftId}`) return json({
+      if (url.pathname === `/cheongju/api/logistics/packing/${draftId}`) return json({
         ...draft(),
         version: 2,
         evidence: [{
@@ -177,7 +177,7 @@ describe('LogisticsPage', () => {
     const firstQueue = new Promise<Response>((resolve) => { resolveFirstQueue = resolve; });
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname !== '/api/logistics/queue') return json({ title: 'not found' }, 404);
+      if (url.pathname !== '/cheongju/api/logistics/queue') return json({ title: 'not found' }, 404);
       queueRequestCount += 1;
       return queueRequestCount === 1 ? firstQueue : json(queue());
     }));

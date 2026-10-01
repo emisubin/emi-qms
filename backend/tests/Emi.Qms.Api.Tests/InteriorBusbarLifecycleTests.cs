@@ -1,4 +1,5 @@
 using System.Text;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.InteriorBusbar;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,6 +17,8 @@ public sealed class InteriorBusbarLifecycleTests
         PmsBaseUrl: new("https://pms.example.test/"));
     private static IConfiguration Config(Fixture f) => new ConfigurationBuilder().AddInMemoryCollection(
         new Dictionary<string,string?> { ["ConnectionStrings:QmsDatabase"] = f.Connection }).Build();
+    private static BusinessUnitDatabaseBoundaryValidator Boundary(IConfiguration configuration) =>
+        BusinessUnitIsolationTests.CreateWorkerBoundaryValidator(configuration);
     private sealed class Sink : IInteriorBusbarPublicationSink
     {
         public string Html = "";
@@ -41,7 +44,8 @@ public sealed class InteriorBusbarLifecycleTests
         Assert.Equal("Draft", before["status"]);
         Assert.StartsWith("IB-", (string)before["number"]!);
         var sink = new Sink();
-        using var publisher = new InteriorBusbarPublicationWorker(new(Config(f)), Options, sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        var config = Config(f);
+        using var publisher = new InteriorBusbarPublicationWorker(new DatabaseConnectionStringProvider(config), Boundary(config), Options, sink, NullLogger<InteriorBusbarPublicationWorker>.Instance);
         Assert.True(await publisher.PublishNextAsync(TestContext.Current.CancellationToken));
         Assert.Contains("https://pms.example.test/interior-busbar/production?productId="+id, sink.Html);
         Assert.DoesNotContain("data:image", sink.Html);
@@ -70,13 +74,14 @@ public sealed class InteriorBusbarLifecycleTests
         var request = await f.ShipmentRequest(project,1);
         var product = request.ProductIds![0];
         var sink = new Sink { FailAfterWrite = true };
-        var store = new InteriorBusbarStore(new(Config(f)),f.Clock,Options,publicationSink:sink);
+        var store = new InteriorBusbarStore(new DatabaseConnectionStringProvider(Config(f)),f.Clock,Options,publicationSink:sink);
         var failure = await Assert.ThrowsAsync<BusbarException>(()=>store.Shipment(request,f.Actor));
         Assert.Equal("publication_failed",failure.Code);
         Assert.Equal(0L,await f.Scalar("select count(*) from busbar_shipments"));
         Assert.Equal(1L,await f.Scalar("select count(*) from busbar_publication_recovery"));
         sink.FailAfterWrite=false;
-        using var publisher = new InteriorBusbarPublicationWorker(new(Config(f)),Options,sink,NullLogger<InteriorBusbarPublicationWorker>.Instance);
+        var config = Config(f);
+        using var publisher = new InteriorBusbarPublicationWorker(new DatabaseConnectionStringProvider(config),Boundary(config),Options,sink,NullLogger<InteriorBusbarPublicationWorker>.Instance);
         Assert.True(await publisher.PublishNextAsync(TestContext.Current.CancellationToken));
         Assert.Contains("pms.example.test",sink.Html);
         Assert.Equal(0L,await f.Scalar("select count(*) from busbar_publication_recovery"));

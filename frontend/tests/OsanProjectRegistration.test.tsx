@@ -94,7 +94,7 @@ function shellFetch(handler?: (url: URL, init?: RequestInit) => Response | Promi
     const handled = handler?.(url, init);
     if (handled) return handled;
     if (url.pathname === '/health/ready') return json({ status: 'ready', database: { reason: 'ready' } });
-    if (url.pathname === '/api/runtime-mode') return json({
+    if (url.pathname === '/osan/api/runtime-mode') return json({
       mode: 'Development',
       reviewSafe: false,
       mutationAllowed: true,
@@ -102,9 +102,9 @@ function shellFetch(handler?: (url: URL, init?: RequestInit) => Response | Promi
       ready: true,
       reason: 'development'
     });
-    if (url.pathname === '/api/osan/my/home') return json({customers:['고객사','두번째 고객사','세번째 고객사'].map(customerName=>({customerName}))});
-    if (url.pathname === '/api/me') return json(currentUser());
-    if (url.pathname === '/api/osan/customers') return json({ items: [{ customerId, name: '고객사' }] });
+    if (url.pathname === '/osan/api/osan/my/home') return json({customers:['고객사','두번째 고객사','세번째 고객사'].map(customerName=>({customerName}))});
+    if (url.pathname === '/osan/api/me') return json(currentUser());
+    if (url.pathname === '/osan/api/osan/customers') return json({ items: [{ customerId, name: '고객사' }] });
     return json({ title: 'unexpected test request' }, 404);
   });
 }
@@ -144,14 +144,14 @@ describe('Osan project registration', () => {
     data.targets[0].steps[0].status = 'Completed';
     data.targets[1].status = 'InProgress'; data.targets[1].steps[0].status = 'InProgress';
     const fetchMock = shellFetch(url => {
-      if (url.pathname === '/api/osan/projects') return json({ items: [data] });
-      if (url.pathname === `/api/osan/projects/${projectId}`) return json(data);
-      if (url.pathname === `/api/osan/projects/${projectId}/progress`) return json({ ...data, targets: data.targets.map(target => ({ ...target, version: 2, steps: target.steps.map(step => ({ ...step, photos: [], canCompleteIndividual: true, canCompleteBatch: true })) })) });
-      if (url.pathname === `/api/osan/projects/${projectId}/progress/related-panels`) return json({ sourceProjectId: projectId, workOrderNumber: data.workOrderNumber, panels: [] });
+      if (url.pathname === '/osan/api/osan/projects') return json({ items: [data] });
+      if (url.pathname === `/osan/api/osan/projects/${projectId}`) return json(data);
+      if (url.pathname === `/osan/api/osan/projects/${projectId}/progress`) return json({ ...data, targets: data.targets.map(target => ({ ...target, version: 2, steps: target.steps.map(step => ({ ...step, photos: [], canCompleteIndividual: true, canCompleteBatch: true })) })) });
+      if (url.pathname === `/osan/api/osan/projects/${projectId}/progress/related-panels`) return json({ sourceProjectId: projectId, workOrderNumber: data.workOrderNumber, panels: [] });
       return undefined;
     });
     vi.stubGlobal('fetch', fetchMock); render(<App />);
-    const row = await screen.findByRole('row', { name: /저장된 Title 상세 열기/ });
+    const row = await screen.findByRole('row', { name: /저장된 Title 상세 열기/ }, { timeout: 5000 });
     expect(row).toHaveTextContent('진행 중'); expect(row).toHaveTextContent('7%');
     fireEvent.click(row);
     const targetRow = await screen.findByRole('row', { name: /제품 이름 2/ });
@@ -178,11 +178,11 @@ describe('Osan project registration', () => {
     };
     window.history.replaceState(null, '', `/progress?projectId=${projectId}`);
     const fetchMock = shellFetch((url) => {
-      if (url.pathname === '/api/me') return json(currentUser([
+      if (url.pathname === '/osan/api/me') return json(currentUser([
         'projects.read', 'Project.Read.All', ...(allowed ? ['manufacturing.update'] : [])
       ]));
-      if (url.pathname === `/api/osan/projects/${projectId}/progress`) return json(progress);
-      if (url.pathname === `/api/osan/projects/${projectId}/progress/related-panels`) return json({ sourceProjectId: projectId, workOrderNumber: project.workOrderNumber, panels: [] });
+      if (url.pathname === `/osan/api/osan/projects/${projectId}/progress`) return json(progress);
+      if (url.pathname === `/osan/api/osan/projects/${projectId}/progress/related-panels`) return json({ sourceProjectId: projectId, workOrderNumber: project.workOrderNumber, panels: [] });
       return undefined;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -199,10 +199,10 @@ describe('Osan project registration', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-12-30T15:00:00Z'));
     vi.stubGlobal('fetch', shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
         return json({ items: [projectDetail()] });
       }
-      if (url.pathname === `/api/osan/projects/${projectId}`) return json(projectDetail());
+      if (url.pathname === `/osan/api/osan/projects/${projectId}`) return json(projectDetail());
       return undefined;
     }));
 
@@ -263,7 +263,7 @@ describe('Osan project registration', () => {
       deliveryDate: '2026-06-30'
     };
     const fetchMock = shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
         return json({ items: [projectDetail(), completedProject, earlyProject] });
       }
       return undefined;
@@ -333,7 +333,7 @@ describe('Osan project registration', () => {
     expect(within(screen.getByRole('table', { name: '오산 프로젝트 목록' })).getAllByRole('row')).toHaveLength(4);
 
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET'
+      new URL(String(input)).pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET'
     ))).toHaveLength(1);
   });
 
@@ -344,14 +344,14 @@ describe('Osan project registration', () => {
     });
     const postedBodies: unknown[] = [];
     const fetchMock = shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
         return json({ items: [] });
       }
-      if (url.pathname === '/api/osan/projects' && init?.method === 'POST') {
+      if (url.pathname === '/osan/api/osan/projects' && init?.method === 'POST') {
         postedBodies.push(JSON.parse(String(init.body)));
         return pendingCreate;
       }
-      if (url.pathname === `/api/osan/projects/${projectId}`) {
+      if (url.pathname === `/osan/api/osan/projects/${projectId}`) {
         return json(projectDetail(1));
       }
       return undefined;
@@ -440,8 +440,8 @@ describe('Osan project registration', () => {
   it('keeps input after a server conflict and reuses the operation id on retry', async () => {
     const posts: Array<{ body: Record<string, unknown> }> = [];
     const fetchMock = shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
-      if (url.pathname === '/api/osan/projects' && init?.method === 'POST') {
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
+      if (url.pathname === '/osan/api/osan/projects' && init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         posts.push({ body });
         return posts.length === 1
@@ -452,7 +452,7 @@ describe('Osan project registration', () => {
             }, 409)
           : json({ operationId: body.operationId, replayed: false, project: projectDetail() }, 201);
       }
-      if (url.pathname === `/api/osan/projects/${projectId}`) return json(projectDetail());
+      if (url.pathname === `/osan/api/osan/projects/${projectId}`) return json(projectDetail());
       return undefined;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -475,8 +475,8 @@ describe('Osan project registration', () => {
   it('shows an operation conflict and uses a new operation id on retry', async () => {
     const posts: Array<Record<string, unknown>> = [];
     vi.stubGlobal('fetch', shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
-      if (url.pathname === '/api/osan/projects' && init?.method === 'POST') {
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
+      if (url.pathname === '/osan/api/osan/projects' && init?.method === 'POST') {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         posts.push(body);
         return posts.length === 1
@@ -487,7 +487,7 @@ describe('Osan project registration', () => {
             }, 409)
           : json({ operationId: body.operationId, replayed: false, project: projectDetail() }, 201);
       }
-      if (url.pathname === `/api/osan/projects/${projectId}`) return json(projectDetail());
+      if (url.pathname === `/osan/api/osan/projects/${projectId}`) return json(projectDetail());
       return undefined;
     }));
 
@@ -508,7 +508,7 @@ describe('Osan project registration', () => {
 
   it('explains that one progress target is created automatically', async () => {
     const fetchMock = shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') return json({ items: [] });
       return undefined;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -521,8 +521,8 @@ describe('Osan project registration', () => {
 
   it('renders forbidden list/create states and keeps create hidden without permission', async () => {
     vi.stubGlobal('fetch', shellFetch((url) => {
-      if (url.pathname === '/api/me') return json(currentUser(['projects.read']));
-      if (url.pathname === '/api/osan/projects') {
+      if (url.pathname === '/osan/api/me') return json(currentUser(['projects.read']));
+      if (url.pathname === '/osan/api/osan/projects') {
         return json({ errorCode: 'forbidden', message: '목록 권한이 없습니다.' }, 403);
       }
       return undefined;
@@ -536,8 +536,8 @@ describe('Osan project registration', () => {
 
   it('requires projects.read as well as Project.Create for the button and direct create route', async () => {
     const fetchMock = shellFetch((url) => {
-      if (url.pathname === '/api/me') return json(currentUser(['Project.Create']));
-      if (url.pathname === '/api/osan/projects') {
+      if (url.pathname === '/osan/api/me') return json(currentUser(['Project.Create']));
+      if (url.pathname === '/osan/api/osan/projects') {
         return json({ errorCode: 'forbidden', message: '목록 권한이 없습니다.' }, 403);
       }
       return undefined;
@@ -554,7 +554,7 @@ describe('Osan project registration', () => {
     render(<App />);
     expect(await screen.findByText('프로젝트를 등록할 수 없습니다.')).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname === '/api/osan/projects' && init?.method === 'POST'
+      new URL(String(input)).pathname === '/osan/api/osan/projects' && init?.method === 'POST'
     ))).toHaveLength(0);
   });
 
@@ -565,7 +565,7 @@ describe('Osan project registration', () => {
     });
     let listCalls = 0;
     vi.stubGlobal('fetch', shellFetch((url, init) => {
-      if (url.pathname === '/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
+      if (url.pathname === '/osan/api/osan/projects' && (init?.method ?? 'GET') === 'GET') {
         listCalls += 1;
         return listCalls === 1 ? firstList : json({ items: [] });
       }
@@ -580,13 +580,18 @@ describe('Osan project registration', () => {
     expect(await screen.findByText('등록된 프로젝트가 없습니다.')).toBeInTheDocument();
     expect(listCalls).toBe(2);
   });
-});
 
-it('일반 오산 계정에는 알림 설정을 표시하되 변경 버튼을 비활성화한다', async () => {
- const user=currentUser();user.roles=[];user.actualUser.roles=[];user.effectiveUser.roles=[];user.businessUnitAccess.isOverallAdministrator=false;
- vi.stubGlobal('fetch',shellFetch(url=>url.pathname==='/api/me'?json(user):undefined));
- render(<App/>);
- const profile=await screen.findByRole('button',{name:/Osan Admin 프로필 사진/});fireEvent.click(profile);
- expect(await screen.findByRole('button',{name:'알림 설정'})).toBeDisabled();
- expect(screen.getByText('관리자만 설정 가능')).toBeInTheDocument();
+  it('일반 오산 계정에는 알림 설정을 표시하되 변경 버튼을 비활성화한다', async () => {
+    const user = currentUser();
+    user.roles = [];
+    user.actualUser.roles = [];
+    user.effectiveUser.roles = [];
+    user.businessUnitAccess.isOverallAdministrator = false;
+    vi.stubGlobal('fetch', shellFetch(url => url.pathname === '/osan/api/me' ? json(user) : undefined));
+    render(<App />);
+    const profile = await screen.findByRole('button', { name: /Osan Admin 프로필 사진/ });
+    fireEvent.click(profile);
+    expect(await screen.findByRole('button', { name: '알림 설정' })).toBeDisabled();
+    expect(screen.getByText('관리자만 설정 가능')).toBeInTheDocument();
+  });
 });

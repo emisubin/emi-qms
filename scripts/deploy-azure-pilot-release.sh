@@ -27,7 +27,16 @@ for variable_name in "${required_environment[@]}"; do
   fi
 done
 
+BUSINESS_SCHEMA_SEPARATION_APPROVED="${BUSINESS_SCHEMA_SEPARATION_APPROVED:-false}"
+ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256:-}"
+if [[ -n "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" \
+  && ! "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  printf 'azurePilotRelease=INVALID_HISTORICAL_MAIL_SNAPSHOT\n' >&2
+  exit 65
+fi
+
 for release_flag in \
+  "${BUSINESS_SCHEMA_SEPARATION_APPROVED}" \
   "${DEPLOY_BACKEND}" \
   "${DEPLOY_FRONTEND}" \
   "${RUN_MIGRATION}" \
@@ -141,12 +150,27 @@ fi
 task_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pms-azure-release.XXXXXX")"
 cleanup() {
   local exit_status="$?"
-  if [[ "${maintenance_active:-false}" == 'true' && "${exit_status}" -ne 0 ]]; then
+  if [[ "${exit_status}" -ne 0 && ( "${quiescing:-false}" == 'true' || "${maintenance_uncertain:-false}" == 'true' ) ]]; then
+    if [[ "${migration_started:-false}" == 'true' || "${maintenance_uncertain:-false}" == 'true' ]]; then
+      stop_app "${FRONTEND_APP_NAME}" || printf 'azurePilotReleaseStop=FRONTEND_FAILED\n' >&2
+      stop_app "${BACKEND_APP_NAME}" || printf 'azurePilotReleaseStop=BACKEND_FAILED\n' >&2
+    else
+      restore_baseline_revisions || printf 'azurePilotReleaseRestore=FAILED\n' >&2
+    fi
+  fi
+  if [[ "${maintenance_active:-false}" == 'true' && "${exit_status}" -ne 0 && "${maintenance_uncertain:-false}" != 'true' ]]; then
     if ! run_maintenance_job fail; then
       printf 'azurePilotReleaseMaintenance=FAILURE_STATE_UPDATE_FAILED\n' >&2
     fi
   fi
-  rm -f "${task_tmp_dir}/command-output" "${task_tmp_dir}/command-error"
+  if [[ "${maintenance_uncertain:-false}" == 'true' ]]; then
+    # A delayed prepare/complete/fail may still mutate its database. Keep every
+    # entry point stopped and never race it with another maintenance execution.
+    stop_app "${FRONTEND_APP_NAME}" || printf 'azurePilotReleaseStop=FRONTEND_FAILED\n' >&2
+    stop_app "${BACKEND_APP_NAME}" || printf 'azurePilotReleaseStop=BACKEND_FAILED\n' >&2
+    printf 'azurePilotReleaseMaintenance=EXECUTION_UNCERTAIN_MANUAL_RECONCILIATION_REQUIRED\n' >&2
+  fi
+  rm -f "${task_tmp_dir}/command-output" "${task_tmp_dir}/command-error" "${task_tmp_dir}/backend-template.json"
   rmdir "${task_tmp_dir}" 2>/dev/null || true
 }
 if [[ -n "${MAINTENANCE_PREPARATION_IMAGE:-}" && ( "$MAINTENANCE_PREPARATION_IMAGE" != "${ACR_LOGIN_SERVER}/pms-backend@"* || ! "$MAINTENANCE_PREPARATION_IMAGE" =~ @${digest_pattern}$ ) ]]; then
@@ -155,6 +179,7 @@ fi
 
 
 trap cleanup EXIT
+
 
 azure_read() {
   "${azure_cli_bin}" "$@" -o tsv \
@@ -175,17 +200,56 @@ maintenance_job_environment=()
 maintenance_job_cpu=''
 maintenance_job_memory=''
 maintenance_active='false'
+maintenance_uncertain='false'
+job_terminal='false'
+recovery_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/azure-recovery-checkpoint.py"
+recovery_state=''
+recovery_postgres_host=''
+recovery_drained_at=''
+recovery_drains=()
+
+run_recovery_checkpoint() {
+  local output status phase
+  if output="$(python3 "${recovery_helper}" "$@" 2>&1)"; then
+    printf '%s\n' "${output}"
+    return 0
+  else
+    status=$?
+  fi
+  if [[ "${output}" =~ ^recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED[[:space:]]phase=(preflight|arm|wait|verify)[[:space:]]reason=([A-Z][A-Z0-9_]{0,63})$ ]]; then
+    phase="${BASH_REMATCH[1]}"
+    if [[ "${1:-}" == "${phase}" ]]; then
+      printf '%s\n' "${output}" >&2
+    fi
+  fi
+  return "${status}"
+}
 
 load_job_execution_override() {
-  local job_name="$1"
+  local job_name="$1" purpose="${2:-backfill}"
+  local retry_limit parallelism completion_count container_count
   local environment_values environment_secret_refs environment_name environment_value
   local required_environment_name configured_environment_name found
+  local normalized_environment_name seen_environment_names=$'\n'
   local production_environment='false' business_units_enabled='false'
 
   job_override_environment=()
   job_override_cpu=''
   job_override_memory=''
   job_override_configuration_error='read-values'
+
+  retry_limit="$(azure_read containerapp job show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" --query properties.configuration.replicaRetryLimit)" || return 1
+  parallelism="$(azure_read containerapp job show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" --query properties.configuration.manualTriggerConfig.parallelism)" || return 1
+  completion_count="$(azure_read containerapp job show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" --query properties.configuration.manualTriggerConfig.replicaCompletionCount)" || return 1
+  container_count="$(azure_read containerapp job show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${job_name}" --query 'length(properties.template.containers)')" || return 1
+  if [[ "${retry_limit}" != 0 || "${parallelism}" != 1 || "${completion_count}" != 1 || "${container_count}" != 1 ]]; then
+    job_override_configuration_error='unsafe-job-execution-shape'
+    return 1
+  fi
 
   # shellcheck disable=SC2016 # Backticks are JMESPath JSON literals.
   environment_values="$(azure_read containerapp job show \
@@ -239,6 +303,18 @@ load_job_execution_override() {
   done <<<"${environment_secret_refs}"
 
   for configured_environment_name in "${job_override_environment[@]}"; do
+    normalized_environment_name="$(printf '%s' "${configured_environment_name%%=*}" | tr '[:upper:]' '[:lower:]')"
+    normalized_environment_name="${normalized_environment_name//__/:}"
+    if [[ "${seen_environment_names}" == *$'\n'"${normalized_environment_name}"$'\n'* ]]; then
+      job_override_configuration_error='duplicate-environment-key'
+      return 1
+    fi
+    seen_environment_names+="${normalized_environment_name}"$'\n'
+    case "${normalized_environment_name}" in
+      database:migrationtarget|database:bootstraptarget|database:businessschemaseparationapproved|database:recoverypostgreshost|deploymentdrain:*|maintenance:*)
+        job_override_configuration_error='stale-execution-configuration'
+        return 1 ;;
+    esac
     [[ "${configured_environment_name}" == 'ASPNETCORE_ENVIRONMENT=Production' ]] \
       && production_environment='true'
     [[ "${configured_environment_name}" == 'BusinessUnits__Enabled=true' ]] \
@@ -254,9 +330,7 @@ load_job_execution_override() {
     BusinessUnits__Enabled \
     ConnectionStrings__QmsDirectoryMigration \
     ConnectionStrings__QmsCheongjuMigration \
-    ConnectionStrings__QmsOsanMigration \
-    BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited \
-    BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited; do
+    ConnectionStrings__QmsOsanMigration; do
     found='false'
     for configured_environment_name in "${job_override_environment[@]}"; do
       if [[ "${configured_environment_name%%=*}" == "${required_environment_name}" ]]; then
@@ -270,7 +344,93 @@ load_job_execution_override() {
     fi
   done
 
+  if [[ "${purpose}" == 'backfill' ]]; then
+    for required_environment_name in \
+      BusinessUnits__MembershipBackfill__ApprovedUserIdsDelimited \
+      BusinessUnits__MembershipBackfill__OverallAdministratorUserIdsDelimited; do
+      found='false'
+      for configured_environment_name in "${job_override_environment[@]}"; do
+        [[ "${configured_environment_name%%=*}" == "${required_environment_name}" ]] && found='true'
+      done
+      if [[ "${found}" != 'true' ]]; then
+        job_override_configuration_error='missing-required-environment'
+        return 1
+      fi
+    done
+  fi
   job_override_configuration_error='none'
+}
+
+# Inspect configuration metadata only; never resolve or print secret values.
+validate_backend_serving_configuration() {
+  local revision="${1:-}"
+  local configuration_file="${task_tmp_dir}/backend-template.json"
+  local read_command=(containerapp show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${BACKEND_APP_NAME}")
+  if [[ -n "${revision}" ]]; then
+    read_command=(containerapp revision show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${BACKEND_APP_NAME}" --revision "${revision}")
+  fi
+  if ! "${azure_cli_bin}" "${read_command[@]}" --query properties.template -o json \
+    >"${configuration_file}" 2>"${task_tmp_dir}/command-error"; then
+    return 1
+  fi
+  python3 - "${configuration_file}" <<'PY_BACKEND'
+import json, re, sys
+# Assertions are validation here; an optimized Python must fail closed.
+if sys.flags.optimize:
+    sys.exit(1)
+try:
+    template = json.load(open(sys.argv[1], encoding="utf-8"))
+    containers = template["containers"]
+    assert len(containers) == 1
+    container = containers[0]
+    assert not container.get("command") and not container.get("args")
+    env = {}
+    for item in container["env"]:
+        name = item["name"]
+        assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:]*", name)
+        key = name.replace("__", ":").lower()
+        assert key not in env
+        assert (item.get("value") is not None) != (item.get("secretRef") is not None)
+        env[key] = item
+        assert key not in {"database:migrationtarget", "database:bootstraptarget", "database:businessschemaseparationapproved", "database:recoverypostgreshost"}
+        assert not key.startswith(("deploymentdrain:", "maintenance:"))
+        if key.startswith("connectionstrings:"):
+            assert re.fullmatch(r"[a-z0-9-]+", item.get("secretRef", ""))
+            assert key in {"connectionstrings:qmsdatabase", "connectionstrings:qmsdirectoryruntime", "connectionstrings:qmscheongjuruntime", "connectionstrings:qmsosanruntime"}
+    def value(key):
+        return env[key]["value"]
+    def secret(key):
+        return env[key]["secretRef"]
+    assert value("aspnetcore_environment") == "Production"
+    assert value("businessunits:enabled") == "true"
+    assert value("database:applymigrationsonstartup") == "false"
+    databases, runtime_roles, migration_roles, references = [], [], [], []
+    for branch, code, connection, marker in (
+        ("directory", "DIRECTORY", "QmsDirectoryRuntime", "0001_business_unit_directory"),
+        ("units:cheongju", "CHEONGJU", "QmsCheongjuRuntime", "0086_business_unit_database_identity"),
+        ("units:osan", "OSAN", "QmsOsanRuntime", "0086_business_unit_database_identity")):
+        prefix = "businessunits:" + branch + ":"
+        assert value(prefix + "code") == code
+        assert value(prefix + "runtimeconnection") == connection
+        assert value(prefix + "expectedschemaversion") == marker
+        database = value(prefix + "expecteddatabasename")
+        assert re.fullmatch(r"[a-z][a-z0-9_]{0,62}", database)
+        assert database not in {"postgres", "template0", "template1", "azure_sys", "azure_maintenance"}
+        databases.append(database)
+        for field, values in (("runtimerolename", runtime_roles), ("migrationrolename", migration_roles)):
+            role = value(prefix + field)
+            assert re.fullmatch(r"[a-z][a-z0-9_]{0,62}", role)
+            values.append(role)
+        references.append(secret("connectionstrings:" + connection.lower()))
+    assert len(set(databases)) == len(set(references)) == 3
+    assert len(set(runtime_roles + migration_roles)) == 6
+    # The current workload retains this legacy alias. It must be the same C
+    # runtime reference and cannot substitute for the explicit split binding.
+    if "connectionstrings:qmsdatabase" in env:
+        assert secret("connectionstrings:qmsdatabase") == secret("connectionstrings:qmscheongjuruntime")
+except (AssertionError, AttributeError, KeyError, TypeError, ValueError, OSError):
+    sys.exit(1)
+PY_BACKEND
 }
 
 public_status() {
@@ -339,6 +499,7 @@ wait_for_job() {
   local job_name="$1"
   local execution_name="$2"
   local attempt execution_status
+  job_terminal='false'
 
   for ((attempt = 1; attempt <= poll_attempts; attempt++)); do
     execution_status="$(azure_read containerapp job execution show \
@@ -348,9 +509,11 @@ wait_for_job() {
       --query properties.status)" || execution_status=''
 
     if [[ "${execution_status}" == 'Succeeded' ]]; then
+      job_terminal='true'
       return 0
     fi
-    if [[ "${execution_status}" == 'Failed' ]]; then
+    if [[ "${execution_status}" == 'Failed' || "${execution_status}" == 'Stopped' ]]; then
+      job_terminal='true'
       return 1
     fi
     if [[ "${poll_interval_seconds}" -gt 0 ]]; then
@@ -361,9 +524,65 @@ wait_for_job() {
   return 1
 }
 
-run_maintenance_job() {
-  local action="$1"
+stop_app() {
+  local app_name="$1" active_revisions all_revisions revision count attempt stopped
+  active_revisions="$(azure_read containerapp revision list --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${app_name}" --query '[?properties.active].name')" || return 1
+  while IFS= read -r revision; do
+    [[ -n "${revision}" ]] || continue
+    [[ "${revision}" =~ ^[a-zA-Z0-9-]+$ ]] || return 1
+    azure_mutate containerapp revision deactivate --resource-group "${AZURE_RESOURCE_GROUP}" \
+      --name "${app_name}" --revision "${revision}" || return 1
+  done <<<"${active_revisions}"
+  for ((attempt = 1; attempt <= poll_attempts; attempt++)); do
+    count="$(azure_read containerapp revision list --resource-group "${AZURE_RESOURCE_GROUP}" \
+      --name "${app_name}" --query 'length([?properties.active])')" || return 1
+    stopped='true'
+    [[ "${count}" == '0' ]] || stopped='false'
+    all_revisions="$(azure_read containerapp revision list --resource-group "${AZURE_RESOURCE_GROUP}" \
+      --name "${app_name}" --query '[].name')" || return 1
+    while IFS= read -r revision; do
+      [[ -n "${revision}" ]] || continue
+      [[ "${revision}" =~ ^[a-zA-Z0-9-]+$ ]] || return 1
+      count="$(azure_read containerapp replica list --resource-group "${AZURE_RESOURCE_GROUP}" \
+        --name "${app_name}" --revision "${revision}" --query 'length(@)')" || return 1
+      [[ "${count}" == '0' ]] || stopped='false'
+    done <<<"${all_revisions}"
+    [[ "${stopped}" == 'true' ]] && return 0
+    [[ "${poll_interval_seconds}" -eq 0 ]] || sleep "${poll_interval_seconds}"
+  done
+  return 1
+}
+
+restore_baseline_revisions() {
+  azure_mutate containerapp revision activate --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${BACKEND_APP_NAME}" --revision "${previous_backend_revision}" || return 1
+  azure_mutate containerapp revision activate --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${FRONTEND_APP_NAME}" --revision "${previous_frontend_revision}" || return 1
+  wait_for_app "${BACKEND_APP_NAME}" "${previous_backend_image}" \
+    && wait_for_app "${FRONTEND_APP_NAME}" "${previous_frontend_image}"
+}
+
+quiesce_apps() {
+  previous_backend_revision="$(azure_read containerapp show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${BACKEND_APP_NAME}" --query properties.latestReadyRevisionName)" || return 1
+  previous_frontend_revision="$(azure_read containerapp show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${FRONTEND_APP_NAME}" --query properties.latestReadyRevisionName)" || return 1
+  [[ "${previous_backend_revision}" =~ ^[a-zA-Z0-9-]+$ \
+    && "${previous_frontend_revision}" =~ ^[a-zA-Z0-9-]+$ ]] || return 1
+  quiescing='true'
+  stop_app "${FRONTEND_APP_NAME}" && stop_app "${BACKEND_APP_NAME}" \
+    && run_drain_check
+}
+
+run_maintenance_job_for_target() {
+  local action="$1" business_target="$2"
   local execution_name='' verified='false' maintenance_image="${MAINTENANCE_PREPARATION_IMAGE:-${previous_backend_image}}"
+  # The new release CLI understands fixed targets, including preparation before
+  # migration. An older multi-target CLI must not be invoked once per target.
+  if [[ "${DEPLOY_BACKEND}" == 'true' && -z "${MAINTENANCE_PREPARATION_IMAGE:-}" ]]; then
+    maintenance_image="${BACKEND_RELEASE_IMAGE}"
+  fi
   if [[ "${action}" == 'complete' ]]; then
     maintenance_image="${previous_backend_image}"
     verified='true'
@@ -379,6 +598,7 @@ run_maintenance_job() {
     --cpu "${maintenance_job_cpu}" \
     --memory "${maintenance_job_memory}" \
     --env-vars "${maintenance_job_environment[@]}" \
+      "Maintenance__BusinessUnit=${business_target}" \
       "Maintenance__ReleaseId=${MAINTENANCE_RELEASE_ID}" \
       "Maintenance__ActorUserId=${MAINTENANCE_ACTOR_USER_ID}" \
       "Maintenance__Title=${MAINTENANCE_TITLE}" \
@@ -389,10 +609,97 @@ run_maintenance_job() {
       "Maintenance__PublishNotice=${MAINTENANCE_PUBLISH_NOTICE}" \
     --args="--maintenance-${action}" \
     --query name)" || execution_name=''
-  [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
-    && wait_for_job "${MAINTENANCE_JOB_NAME}" "${execution_name}"
+  if [[ -z "${execution_name}" || "${execution_name}" =~ [[:space:]] ]]; then
+    maintenance_uncertain='true'
+    printf 'azurePilotReleaseMaintenance=START_UNCERTAIN target=%s\n' "${business_target}" >&2
+    return 1
+  fi
+  if wait_for_job "${MAINTENANCE_JOB_NAME}" "${execution_name}"; then
+    return 0
+  fi
+  if [[ "${job_terminal}" != 'true' ]]; then
+    maintenance_uncertain='true'
+    printf 'azurePilotReleaseMaintenance=STATUS_UNCERTAIN target=%s execution=%s\n' "${business_target}" "${execution_name}" >&2
+  fi
+  return 1
 }
 
+run_maintenance_job() {
+  local action="$1" business_target failed='false'
+  for business_target in CHEONGJU OSAN; do
+    if ! run_maintenance_job_for_target "${action}" "${business_target}"; then
+      failed='true'
+      # Failure marking must still reach the other business after a partial
+      # activation/completion. Ordinary actions stop on the first uncertainty.
+      [[ "${action}" == 'fail' && "${maintenance_uncertain}" != 'true' ]] || return 1
+    fi
+  done
+  [[ "${failed}" == 'false' ]]
+}
+
+run_drain_check() {
+  local database_target execution_name
+  recovery_drains=()
+  local -a accepted_snapshot_environment
+  load_job_execution_override "${MIGRATION_JOB_NAME}" database || return 1
+  for database_target in DIRECTORY CHEONGJU OSAN; do
+    accepted_snapshot_environment=()
+    if [[ "${database_target}" == 'OSAN' && -n "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" ]]; then
+      accepted_snapshot_environment+=("DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256=${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}")
+    fi
+    execution_name="$(azure_read containerapp job start \
+      --resource-group "${AZURE_RESOURCE_GROUP}" --name "${MIGRATION_JOB_NAME}" \
+      --container-name "${MIGRATION_JOB_NAME}" --image "${BACKEND_RELEASE_IMAGE}" \
+      --cpu "${job_override_cpu}" --memory "${job_override_memory}" \
+      --env-vars "${job_override_environment[@]}" \
+      "Database__MigrationTarget=${database_target}" \
+      "Database__BusinessSchemaSeparationApproved=false" \
+      "DeploymentDrain__RequireMaintenance=true" \
+      "DeploymentDrain__ReleaseId=${MAINTENANCE_RELEASE_ID}" \
+      "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
+      ${accepted_snapshot_environment[@]+"${accepted_snapshot_environment[@]}"} \
+      --args=--deployment-drain-check --query name)" || execution_name=''
+    [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
+      && wait_for_job "${MIGRATION_JOB_NAME}" "${execution_name}" || return 1
+    recovery_drained_at="$(azure_read containerapp job execution show \
+      --resource-group "${AZURE_RESOURCE_GROUP}" --name "${MIGRATION_JOB_NAME}" \
+      --job-execution-name "${execution_name}" --query properties.endTime)" || return 1
+    [[ -n "${recovery_drained_at}" ]] || return 1
+    recovery_drains+=(--drain-execution "${execution_name}")
+  done
+}
+
+run_database_job() {
+  local job_name="$1" setting="$2" command="$3" database_target execution_name configured schema_approved
+  load_job_execution_override "${job_name}" database || return 1
+  for configured in "${job_override_environment[@]}"; do
+    [[ "${configured%%=*}" != "${setting}" ]] || return 1
+  done
+  for database_target in DIRECTORY CHEONGJU OSAN; do
+    # Preserve the whole configured environment and secret references; only this
+    # execution receives the selected target. The stored template has no default.
+    migration_started='true'
+    schema_approved='false'
+    if [[ "${command}" == '--migrate-only' && "${database_target}" != DIRECTORY ]]; then
+      schema_approved="${BUSINESS_SCHEMA_SEPARATION_APPROVED}"
+    fi
+    execution_name="$(azure_read containerapp job start \
+      --resource-group "${AZURE_RESOURCE_GROUP}" --name "${job_name}" \
+      --container-name "${job_name}" --image "${BACKEND_RELEASE_IMAGE}" \
+      --cpu "${job_override_cpu}" --memory "${job_override_memory}" \
+      --env-vars "${job_override_environment[@]}" "${setting}=${database_target}" \
+      "Database__BusinessSchemaSeparationApproved=${schema_approved}" \
+      "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
+      --args="${command}" --query name)" || execution_name=''
+    [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
+      && wait_for_job "${job_name}" "${execution_name}" || return 1
+  done
+}
+
+migration_started='false'
+quiescing='false'
+previous_backend_revision=''
+previous_frontend_revision=''
 previous_backend_image=''
 previous_frontend_image=''
 backend_changed='false'
@@ -400,6 +707,13 @@ frontend_changed='false'
 
 rollback_apps() {
   local rollback_failed='false'
+
+  if [[ "${migration_started}" == 'true' ]]; then
+    # The selected schema may already have advanced, including after a lost
+    # start response. Keep maintenance closed for a forward fix.
+    printf 'azurePilotReleaseRollback=FORWARD_FIX_REQUIRED\n' >&2
+    return 1
+  fi
 
   if [[ "${frontend_changed}" == 'true' && -n "${previous_frontend_image}" ]]; then
     if ! azure_mutate containerapp update \
@@ -482,6 +796,14 @@ if [[ "${backend_revision_mode}" != 'Single' \
   exit 68
 fi
 
+# Announcement-only preparation does not certify or change public serving mode.
+if [[ "${MAINTENANCE_PREPARE_ONLY}" != true && "${maintenance_release}" == true ]]; then
+  if ! validate_backend_serving_configuration; then
+    printf 'azurePilotRelease=BACKEND_SERVING_CONFIGURATION_INVALID\n' >&2
+    exit 68
+  fi
+fi
+
 previous_backend_image="$(azure_read containerapp show \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --name "${BACKEND_APP_NAME}" \
@@ -534,7 +856,26 @@ if [[ "${baseline_live_status}" != '200' \
 fi
 
 if [[ "${maintenance_release}" == 'true' ]]; then
-  if ! load_job_execution_override "${MAINTENANCE_JOB_NAME}"; then
+  if [[ "${RUN_MIGRATION}" == true && "${MAINTENANCE_PREPARE_ONLY}" != true ]]; then
+    recovery_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-recovery-checkpoint.XXXXXX")"
+    recovery_state="${recovery_directory}/recovery.json"
+    printf 'azurePilotRecoveryEvidence=%s\n' "${recovery_directory}"
+    if ! recovery_postgres_host="$(run_recovery_checkpoint preflight \
+      --state "${recovery_state}" --az-bin "${azure_cli_bin}")"; then
+      printf 'azurePilotRelease=RECOVERY_PREFLIGHT_FAILED\n' >&2
+      exit 79
+    fi
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      # Never expose raw identifiers through an Actions artifact, even if a
+      # caller accidentally omits the workflow's encryption-required flag.
+      [[ -f "${recovery_directory}/recovery.p7m" ]] || {
+        printf 'azurePilotRelease=RECOVERY_ENCRYPTED_EVIDENCE_REQUIRED\n' >&2
+        exit 79
+      }
+      printf 'recovery_evidence=%s\n' "${recovery_directory}/recovery.p7m" >>"${GITHUB_OUTPUT}"
+    fi
+  fi
+  if ! load_job_execution_override "${MAINTENANCE_JOB_NAME}" maintenance; then
     printf 'azurePilotRelease=MAINTENANCE_JOB_CONFIGURATION_INVALID\n' >&2
     exit 79
   fi
@@ -563,19 +904,37 @@ if [[ "${maintenance_release}" == 'true' ]]; then
   maintenance_job_memory="${job_override_memory}"
   preparation_action=prepare
   [[ "$MAINTENANCE_PREPARED" == true ]] && preparation_action=verify-prepared
+  maintenance_active='true'
   if ! run_maintenance_job "$preparation_action"; then
     printf 'azurePilotRelease=MAINTENANCE_PREPARE_FAILED\n' >&2
     exit 79
   fi
   if [[ "$MAINTENANCE_PREPARE_ONLY" == true ]]; then
+    printf 'azurePilotReleaseBackendServing=NOT_VERIFIED_PREPARE_ONLY\n'
     printf 'azurePilotRelease=ANNOUNCED\n'
     exit 0
   fi
+  maintenance_active='true'
   if ! run_maintenance_job activate; then
     printf 'azurePilotRelease=MAINTENANCE_ACTIVATION_FAILED\n' >&2
     exit 79
   fi
   maintenance_active='true'
+fi
+
+if [[ "${RUN_MIGRATION}" == 'true' ]]; then
+  if ! run_recovery_checkpoint arm --state "${recovery_state}" --az-bin "${azure_cli_bin}" \
+    || ! quiesce_apps; then
+    printf 'azurePilotRelease=QUIESCENCE_OR_DRAIN_FAILED\n' >&2
+    exit 79
+  fi
+  if ! run_recovery_checkpoint wait --state "${recovery_state}" \
+    --az-bin "${azure_cli_bin}" --drained-at "${recovery_drained_at}" "${recovery_drains[@]}" \
+    || ! run_drain_check \
+    || ! run_recovery_checkpoint verify --state "${recovery_state}" --az-bin "${azure_cli_bin}" "${recovery_drains[@]}"; then
+    printf 'azurePilotRelease=RECOVERY_CHECKPOINT_FAILED\n' >&2
+    exit 79
+  fi
 fi
 
 if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
@@ -587,12 +946,7 @@ if [[ "${RUN_DATABASE_BOOTSTRAP}" == 'true' ]]; then
     exit 72
   fi
 
-  database_bootstrap_execution="$(azure_read containerapp job start \
-    --resource-group "${AZURE_RESOURCE_GROUP}" \
-    --name "${DATABASE_BOOTSTRAP_JOB_NAME}" \
-    --query name)" || database_bootstrap_execution=''
-  if [[ -z "${database_bootstrap_execution}" || "${database_bootstrap_execution}" =~ [[:space:]] ]] \
-    || ! wait_for_job "${DATABASE_BOOTSTRAP_JOB_NAME}" "${database_bootstrap_execution}"; then
+  if ! run_database_job "${DATABASE_BOOTSTRAP_JOB_NAME}" Database__BootstrapTarget --bootstrap-database-roles; then
     printf 'azurePilotRelease=DATABASE_BOOTSTRAP_FAILED\n' >&2
     exit 73
   fi
@@ -607,12 +961,7 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
     exit 72
   fi
 
-  migration_execution="$(azure_read containerapp job start \
-    --resource-group "${AZURE_RESOURCE_GROUP}" \
-    --name "${MIGRATION_JOB_NAME}" \
-    --query name)" || migration_execution=''
-  if [[ -z "${migration_execution}" || "${migration_execution}" =~ [[:space:]] ]] \
-    || ! wait_for_job "${MIGRATION_JOB_NAME}" "${migration_execution}"; then
+  if ! run_database_job "${MIGRATION_JOB_NAME}" Database__MigrationTarget --migrate-only; then
     printf 'azurePilotRelease=MIGRATION_FAILED\n' >&2
     exit 74
   fi
@@ -673,6 +1022,10 @@ if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
 fi
 
 if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  if ! load_job_execution_override "${MEMBERSHIP_BACKFILL_JOB_NAME}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_CONFIGURATION_INVALID\n' >&2
+    exit 75
+  fi
   if ! azure_mutate containerapp job update \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
@@ -684,6 +1037,11 @@ if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
   membership_backfill_execution="$(azure_read containerapp job start \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --container-name "${MEMBERSHIP_BACKFILL_JOB_NAME}" --image "${BACKEND_RELEASE_IMAGE}" \
+    --cpu "${job_override_cpu}" --memory "${job_override_memory}" \
+    --env-vars "${job_override_environment[@]}" \
+    "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
+    --args=--backfill-business-unit-memberships \
     --query name)" || membership_backfill_execution=''
   if [[ -z "${membership_backfill_execution}" || "${membership_backfill_execution}" =~ [[:space:]] ]] \
     || ! wait_for_job "${MEMBERSHIP_BACKFILL_JOB_NAME}" "${membership_backfill_execution}"; then
@@ -714,8 +1072,16 @@ if [[ "${DEPLOY_FRONTEND}" == 'true' ]]; then
   fi
 fi
 
-# Migration-only releases keep the old app image. Recheck both running revisions
-# after every mutation, then let the completion CLI verify live database ledgers.
+# A schema release stopped both entry points. Reactivate the unchanged frontend
+# only after the selected backend image is healthy; never restore an old backend.
+if [[ "${quiescing}" == 'true' && "${DEPLOY_FRONTEND}" == 'false' ]]; then
+  if ! azure_mutate containerapp revision activate --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${FRONTEND_APP_NAME}" --revision "${previous_frontend_revision}"; then
+    fail_after_mutation 'FRONTEND_RESUME_FAILED'
+  fi
+fi
+
+# Recheck running revisions and exact ledgers before releasing maintenance.
 final_backend_image="${previous_backend_image}"
 final_frontend_image="${previous_frontend_image}"
 [[ "${DEPLOY_BACKEND}" == 'true' ]] && final_backend_image="${BACKEND_RELEASE_IMAGE}"
@@ -723,6 +1089,14 @@ final_frontend_image="${previous_frontend_image}"
 if ! wait_for_app "${BACKEND_APP_NAME}" "${final_backend_image}" \
   || ! wait_for_app "${FRONTEND_APP_NAME}" "${final_frontend_image}"; then
   fail_after_mutation 'FINAL_APP_NOT_READY'
+fi
+
+if [[ "${maintenance_release}" == true ]]; then
+  serving_revision="$(azure_read containerapp show --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --name "${BACKEND_APP_NAME}" --query properties.latestReadyRevisionName)" || serving_revision=''
+  if [[ -z "${serving_revision}" ]] || ! validate_backend_serving_configuration "${serving_revision}"; then
+    fail_after_mutation 'BACKEND_SERVING_CONFIGURATION_INVALID'
+  fi
 fi
 
 final_live_status="$(public_status '/health/live')" || final_live_status=''

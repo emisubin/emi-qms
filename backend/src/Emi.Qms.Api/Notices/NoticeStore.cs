@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.RegularExpressions;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Notices;
 
-public sealed partial class NoticeStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed partial class NoticeStore(BusinessDatabase connectionStringProvider)
 {
     public async Task<NoticeListResponse> ListAsync(
         Guid actorUserId,
@@ -625,14 +626,14 @@ public sealed partial class NoticeStore(DatabaseConnectionStringProvider connect
         return collapsed.Length <= 100 ? collapsed : collapsed[..100];
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)

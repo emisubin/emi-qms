@@ -19,13 +19,14 @@ public sealed partial class OsanProjectRegistrationApiTests
         var ct = TestContext.Current.CancellationToken;
         var legacy = new DatabaseConnectionStringProvider(new ConfigurationBuilder().Build());
         var reader = new ClaimsPrincipal(new ClaimsIdentity([new Claim(QmsClaimTypes.Permission, QmsPermissions.ProjectRead)], "test"));
-        var wrong = await OsanProjectEndpointExtensions.GetPersonalHomeAsync(legacy,TimeProvider.System,reader,ct);
-        Assert.Equal(403,Assert.IsAssignableFrom<IStatusCodeHttpResult>(wrong).StatusCode);
-        var context = new DefaultHttpContext();
-        var osan = legacy.GetCurrentBusinessUnit()! with { Code = BusinessUnitCodes.Osan };
+        var rejected = await Assert.ThrowsAsync<BusinessUnitContextUnavailableException>(() =>
+            OsanProjectEndpointExtensions.GetPersonalHomeAsync(legacy,TimeProvider.System,reader,ct));
+        Assert.Equal("business_unit_unknown", rejected.Reason);
+        var provider = CreateOsanGuardProvider();
+        var context = provider.GetCurrentBusinessUnit() is { } osan
+            ? new DefaultHttpContext()
+            : throw new InvalidOperationException("Synthetic Osan target was not selected.");
         BusinessUnitRequestContextFeature.Set(context,new(BusinessUnitAccessStatuses.Selected,UserId,osan,[BusinessUnitCodes.Osan],false,"synthetic"));
-        var provider = new DatabaseConnectionStringProvider(new ConfigurationBuilder().AddInMemoryCollection(
-            new Dictionary<string,string?> { ["BusinessUnits:Enabled"]="true" }).Build(),new HttpContextAccessor { HttpContext=context });
         Assert.IsType<ForbidHttpResult>(await OsanProjectEndpointExtensions.GetPersonalHomeAsync(provider,TimeProvider.System,
             new ClaimsPrincipal(new ClaimsIdentity([],"test")),ct));
         Assert.IsType<UnauthorizedHttpResult>(await OsanProjectEndpointExtensions.GetPersonalHomeAsync(provider,TimeProvider.System,reader,ct));

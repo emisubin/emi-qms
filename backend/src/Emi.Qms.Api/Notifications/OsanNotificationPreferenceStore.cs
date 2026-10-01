@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 using System.Data;
 
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class OsanNotificationPreferenceStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    OsanDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private sealed record Definition(string Kind, string Label);
@@ -203,9 +204,9 @@ public sealed class OsanNotificationPreferenceStore(
         return OsanNotificationPreferenceResult.Success(new(version, items, stages));
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
-        var builder = new NpgsqlDataSourceBuilder(connectionStringProvider.GetConnectionString());
-        return builder.Build();
+        return connectionStringProvider.RentDataSource(connectionStringProvider.GetConnectionString()
+            ?? throw new InvalidOperationException("Database connection is not configured."));
     }
 }

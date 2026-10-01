@@ -19,7 +19,7 @@ public static class OsanProgressEndpointExtensions
             Guid projectId,
             OsanProgressStore store,
             OsanProjectStore projectStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -46,7 +46,7 @@ public static class OsanProgressEndpointExtensions
             Guid projectId,
             OsanProgressStore store,
             OsanProjectStore projectStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -76,7 +76,7 @@ public static class OsanProgressEndpointExtensions
             HttpRequest request,
             OsanProgressStore store,
             OsanProjectStore projectStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -121,7 +121,7 @@ public static class OsanProgressEndpointExtensions
             var resolve = route.EndsWith("/resolve", StringComparison.Ordinal);
             var requireOpen = route.EndsWith("/records", StringComparison.Ordinal);
             progress.MapPost(route, async (Guid projectId, HttpRequest request, OsanProgressStore store,
-                OsanProjectStore projectStore, DatabaseConnectionStringProvider connectionStringProvider,
+                OsanProjectStore projectStore, OsanDatabase connectionStringProvider,
                 ClaimsPrincipal user, CancellationToken cancellationToken) =>
             {
                 var denied = await AuthorizeProjectAsync(projectId,
@@ -146,7 +146,7 @@ public static class OsanProgressEndpointExtensions
         }
 
         progress.MapPost("/photo-preview", async (Guid projectId, HttpRequest request,
-            OsanProjectStore projectStore, DatabaseConnectionStringProvider connectionStringProvider,
+            OsanProjectStore projectStore, OsanDatabase connectionStringProvider,
             ClaimsPrincipal user, CancellationToken cancellationToken) =>
         {
             var denied = await AuthorizeProjectAsync(projectId, QmsPermissions.ProjectRead, projectStore,
@@ -183,7 +183,7 @@ public static class OsanProgressEndpointExtensions
             bool? preview,
             OsanProgressStore store,
             OsanProjectStore projectStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            OsanDatabase connectionStringProvider,
             ClaimsPrincipal user,
             CancellationToken cancellationToken) =>
         {
@@ -215,7 +215,7 @@ public static class OsanProgressEndpointExtensions
     }
 
     private static async Task<OsanProgressResponse> WithPermissionsAsync(OsanProgressResponse progress,
-        ClaimsPrincipal user,DatabaseConnectionStringProvider db,CancellationToken ct)
+        ClaimsPrincipal user,OsanDatabase db,CancellationToken ct)
     {
         var canUpdate = ProjectEndpointExtensions.HasPermission(user, QmsPermissions.ManufacturingUpdate);
         var admin=user.IsInRole(QmsRoles.SystemAdministrator);
@@ -242,7 +242,7 @@ public static class OsanProgressEndpointExtensions
         Guid projectId,
         string permission,
         OsanProjectStore projectStore,
-        DatabaseConnectionStringProvider connectionStringProvider,
+        OsanDatabase connectionStringProvider,
         ClaimsPrincipal user,
         CancellationToken cancellationToken)
     {

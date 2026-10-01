@@ -17,7 +17,7 @@ public static class IdentityEndpointExtensions
             ClaimsPrincipal principal,
             IIdentityStore identityStore,
             UserProfilePhotoStore profilePhotoStore,
-            DatabaseConnectionStringProvider connectionStringProvider,
+            BusinessDatabase connectionStringProvider,
             IConfiguration configuration,
             IHostEnvironment environment,
             CancellationToken cancellationToken) =>

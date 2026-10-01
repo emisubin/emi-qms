@@ -137,7 +137,6 @@ import {
   getMyTeamsActivityDelivery,
   getMyWorkSummary,
   getNotificationSummary,
-  exportOsanNotificationsExcel,
   removeOwnProfilePhoto,
   reprocessFailedAdminNotificationDeliveries,
   getMaterialReceipts,
@@ -192,6 +191,7 @@ import {
   setAuditSessionHeaders,
   setRuntimeMutationAllowed,
   getBusinessUnitRequestState,
+  requireBusinessUnitSelection,
   resetBusinessUnitRequestContext,
   selectBusinessUnit,
   subscribeBusinessUnitRequestState,
@@ -205,7 +205,6 @@ import {
   updateProjectProductionPlanning,
   updateProductionTemplateSettings,
   updateProcurementRequiredItemSettings,
-  updateMaterialReceipts,
   updatePanelInformation,
   updateProjectProcurement,
   updateProject
@@ -1101,6 +1100,23 @@ function isLikelyTeamsContext() {
 }
 
 function extractNotificationIdFromTeamsActivityLocation() {
+  return extractNotificationTargetFromTeamsActivityLocation()?.notificationId ?? null;
+}
+
+type TeamsNotificationTarget = {
+  notificationId: string;
+  businessUnit: BusinessUnitCode | null;
+};
+
+type TeamsContextResolution =
+  | { kind: 'idle' }
+  | { kind: 'pending' }
+  | { kind: 'settled' }
+  | { kind: 'resolved'; target: TeamsNotificationTarget }
+  | { kind: 'switching' }
+  | { kind: 'denied' };
+
+function extractNotificationTargetFromTeamsActivityLocation(): TeamsNotificationTarget | null {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -1108,12 +1124,12 @@ function extractNotificationIdFromTeamsActivityLocation() {
   const params = new URLSearchParams(window.location.search);
   const notificationId = normalizeNotificationId(params.get('notificationId'));
   if (notificationId) {
-    return notificationId;
+    return { notificationId, businessUnit: normalizeBusinessUnitCode(params.get('businessUnit')) };
   }
 
-  const subEntityId = normalizeNotificationSubEntityId(params.get('subEntityId') ?? params.get('subPageId'));
-  if (subEntityId) {
-    return subEntityId;
+  const subEntity = normalizeNotificationSubEntityId(params.get('subEntityId') ?? params.get('subPageId'));
+  if (subEntity) {
+    return subEntity;
   }
 
   const context = params.get('context');
@@ -1122,26 +1138,26 @@ function extractNotificationIdFromTeamsActivityLocation() {
   }
 
   try {
-    return extractNotificationIdFromTeamsContext(JSON.parse(context));
+    return extractNotificationTargetFromTeamsContext(JSON.parse(context));
   } catch {
     return null;
   }
 }
 
-async function resolveTeamsContextNotificationId() {
+async function resolveTeamsContextNotificationTarget() {
   if (!isLikelyTeamsContext()) {
     return null;
   }
 
   try {
     await teamsApp.initialize();
-    return extractNotificationIdFromTeamsContext(await teamsApp.getContext());
+    return extractNotificationTargetFromTeamsContext(await teamsApp.getContext());
   } catch {
     return null;
   }
 }
 
-function extractNotificationIdFromTeamsContext(context: unknown) {
+function extractNotificationTargetFromTeamsContext(context: unknown): TeamsNotificationTarget | null {
   const candidates = [
     readNestedString(context, ['page', 'subPageId']),
     readNestedString(context, ['page', 'subEntityId']),
@@ -1150,9 +1166,9 @@ function extractNotificationIdFromTeamsContext(context: unknown) {
   ];
 
   for (const candidate of candidates) {
-    const notificationId = normalizeNotificationSubEntityId(candidate);
-    if (notificationId) {
-      return notificationId;
+    const target = normalizeNotificationSubEntityId(candidate);
+    if (target) {
+      return target;
     }
   }
 
@@ -1172,7 +1188,7 @@ function readNestedString(value: unknown, path: string[]) {
   return typeof current === 'string' ? current : null;
 }
 
-function normalizeNotificationSubEntityId(value: string | null) {
+function normalizeNotificationSubEntityId(value: string | null): TeamsNotificationTarget | null {
   if (!value) {
     return null;
   }
@@ -1180,10 +1196,26 @@ function normalizeNotificationSubEntityId(value: string | null) {
   const prefix = 'notification:';
   const trimmed = value.trim();
   if (!trimmed.toLowerCase().startsWith(prefix)) {
-    return normalizeNotificationId(trimmed);
+    const notificationId = normalizeNotificationId(trimmed);
+    return notificationId ? { notificationId, businessUnit: null } : null;
   }
 
-  return normalizeNotificationId(trimmed.slice(prefix.length));
+  const segments = trimmed.slice(prefix.length).split(':');
+  if (segments.length === 1) {
+    const notificationId = normalizeNotificationId(segments[0]);
+    return notificationId ? { notificationId, businessUnit: null } : null;
+  }
+  if (segments.length === 2) {
+    const businessUnit = normalizeBusinessUnitCode(segments[0]);
+    const notificationId = normalizeNotificationId(segments[1]);
+    return businessUnit && notificationId ? { notificationId, businessUnit } : null;
+  }
+  return null;
+}
+
+function normalizeBusinessUnitCode(value: string | null): BusinessUnitCode | null {
+  const normalized = value?.trim().toUpperCase();
+  return normalized === 'CHEONGJU' || normalized === 'OSAN' ? normalized : null;
 }
 
 function normalizeNotificationId(value: string | null) {
@@ -1915,6 +1947,10 @@ function QmsAppShellContent({
       : defaultDevelopmentUserKey ?? 'dev-sales';
   });
   const [view, setViewState] = useState<View>(() => initialViewFromLocation());
+  const [teamsContextResolution, setTeamsContextResolution] = useState<TeamsContextResolution>(() =>
+    initialViewFromLocation().kind === 'teams-activity' && isLikelyTeamsContext()
+      ? { kind: 'pending' }
+      : { kind: 'idle' });
   const [health, setHealth] = useState<LoadState<ReadyHealth>>({ kind: 'loading' });
   const [runtimeMode, setRuntimeMode] = useState<LoadState<RuntimeMode>>({ kind: 'loading' });
   const [currentUser, setCurrentUser] = useState<LoadState<CurrentUser>>({ kind: 'loading' });
@@ -1931,6 +1967,7 @@ function QmsAppShellContent({
   } | null>(null);
   const mobileStatusTriggerRef = useRef<HTMLButtonElement>(null);
   const profilePhotoGeneration = useRef(0);
+  const teamsContextResolutionPromise = useRef<Promise<TeamsNotificationTarget | null> | null>(null);
   const restoredAdminTestUser = useRef(false);
   const user = currentUser.kind === 'ready' ? currentUser.data : null;
   const businessUnitAccess = resolveBusinessUnitAccess(user);
@@ -2215,15 +2252,19 @@ function QmsAppShellContent({
 
   useEffect(() => {
     if (view.kind !== 'teams-activity') {
+      teamsContextResolutionPromise.current = null;
+      if (teamsContextResolution.kind !== 'idle') {
+        setTeamsContextResolution({ kind: 'idle' });
+      }
       return undefined;
     }
 
-    const notificationIdFromUrl = extractNotificationIdFromTeamsActivityLocation();
+    const targetFromUrl = extractNotificationTargetFromTeamsActivityLocation();
     let cancelled = false;
-    if (notificationIdFromUrl) {
+    if (targetFromUrl) {
       queueMicrotask(() => {
         if (!cancelled) {
-          setView({ kind: 'teams-notification-detail', notificationId: notificationIdFromUrl });
+          setView({ kind: 'teams-notification-detail', notificationId: targetFromUrl.notificationId });
         }
       });
 
@@ -2232,18 +2273,79 @@ function QmsAppShellContent({
       };
     }
 
-    resolveTeamsContextNotificationId()
-      .then((notificationId) => {
-        if (!cancelled && notificationId) {
-          setView({ kind: 'teams-notification-detail', notificationId });
+    if (!isLikelyTeamsContext()) {
+      if (teamsContextResolution.kind !== 'idle') {
+        setTeamsContextResolution({ kind: 'idle' });
+      }
+      return undefined;
+    }
+
+    if (teamsContextResolution.kind === 'idle') {
+      setTeamsContextResolution({ kind: 'pending' });
+      return undefined;
+    }
+    if (teamsContextResolution.kind !== 'pending') {
+      return undefined;
+    }
+
+    const resolutionPromise = teamsContextResolutionPromise.current
+      ?? resolveTeamsContextNotificationTarget();
+    teamsContextResolutionPromise.current = resolutionPromise;
+    resolutionPromise
+      .then((target) => {
+        if (cancelled) {
+          return;
         }
+        teamsContextResolutionPromise.current = null;
+        setTeamsContextResolution(target ? { kind: 'resolved', target } : { kind: 'settled' });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) {
+          teamsContextResolutionPromise.current = null;
+          setTeamsContextResolution({ kind: 'settled' });
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [setView, view.kind]);
+  }, [setView, teamsContextResolution.kind, view.kind]);
+
+  useEffect(() => {
+    if (view.kind !== 'teams-activity' || teamsContextResolution.kind !== 'resolved') {
+      return;
+    }
+
+    const target = teamsContextResolution.target;
+    if (!target.businessUnit) {
+      requireBusinessUnitSelection();
+      setView({ kind: 'teams-notification-detail', notificationId: target.notificationId });
+      return;
+    }
+    if (currentUser.kind !== 'ready') {
+      return;
+    }
+    if (businessUnitAccess.selectedBusinessUnit === target.businessUnit) {
+      setView({ kind: 'teams-notification-detail', notificationId: target.notificationId });
+      return;
+    }
+    if (!businessUnitAccess.allowedBusinessUnits.includes(target.businessUnit)) {
+      setTeamsContextResolution({ kind: 'denied' });
+      return;
+    }
+    if (businessUnitRequestState.inFlightMutationCount === 0) {
+      setTeamsContextResolution({ kind: 'switching' });
+      selectBusinessUnit(target.businessUnit);
+    }
+  }, [
+    businessUnitAccess.allowedBusinessUnits,
+    businessUnitAccess.selectedBusinessUnit,
+    businessUnitRequestState.inFlightMutationCount,
+    currentUser.kind,
+    setView,
+    teamsContextResolution,
+    view.kind
+  ]);
 
   useEffect(() => {
     if (view.kind === 'osan-qr' && currentUser.kind === 'ready' && !isAccessBlocked
@@ -2262,6 +2364,11 @@ function QmsAppShellContent({
     if (currentUser.kind !== 'ready' || !isOsan) {
       return;
     }
+    if (view.kind === 'teams-activity'
+      && teamsContextResolution.kind !== 'idle'
+      && teamsContextResolution.kind !== 'settled') {
+      return;
+    }
     if (isAdminWorkspace(view)) {
       const access = resolveBusinessUnitAccess(currentUser.data);
       if (access.isOverallAdministrator && access.allowedBusinessUnits.includes('CHEONGJU')) {
@@ -2275,7 +2382,7 @@ function QmsAppShellContent({
       return;
     }
     replaceView({ kind: 'home' });
-  }, [currentUser, isOsan, replaceView, view]);
+  }, [currentUser, isOsan, replaceView, teamsContextResolution.kind, view]);
 
   if (!isDevMode
     && (view.kind === 'teams-activity'
@@ -2313,6 +2420,31 @@ function QmsAppShellContent({
         message={loadStateMessage(currentUser)}
         onLogout={onLogout}
       />
+    );
+  }
+
+  if (currentUser.kind === 'ready' && view.kind === 'teams-activity'
+    && teamsContextResolution.kind !== 'idle'
+    && teamsContextResolution.kind !== 'settled') {
+    if (teamsContextResolution.kind === 'denied') {
+      return (
+        <AuthGateMessage
+          state="access"
+          context="notification"
+          title="이 알림의 사업부를 볼 권한이 없습니다."
+          message="서버에서 허용된 사업부에 이 알림의 사업부가 포함되어 있지 않습니다."
+        />
+      );
+    }
+    const message = teamsContextResolution.kind === 'pending'
+      ? '알림 사업부를 확인하는 중…'
+      : teamsContextResolution.kind === 'switching'
+        ? '알림 사업부로 전환하는 중…'
+        : '알림 상세 화면을 준비하는 중…';
+    return (
+      <AuthGateMessage state="access" context="notification" title="알림을 준비하고 있습니다.">
+        <p className="auth-status-message" role="status">{message}</p>
+      </AuthGateMessage>
     );
   }
 
@@ -2362,6 +2494,28 @@ function QmsAppShellContent({
   }
 
   if (currentUser.kind === 'ready' && businessUnitAccess.status !== 'selected') {
+    const linkedBusinessUnits = new URLSearchParams(window.location.search).getAll('businessUnit');
+    const requiresBusinessUnitForNotification = view.kind === 'teams-notification-detail'
+      && businessUnitAccess.allowedBusinessUnits.length > 0
+      && (linkedBusinessUnits.length !== 1
+        || (linkedBusinessUnits[0] !== 'CHEONGJU' && linkedBusinessUnits[0] !== 'OSAN'));
+    if (requiresBusinessUnitForNotification) {
+      return (
+        <AuthGateMessage
+          state="access"
+          context="notification"
+          title="알림을 열 사업부를 선택해 주세요."
+          message="이 알림 주소에는 사업부 정보가 없습니다. 알림이 생성된 사업부를 선택하면 서버가 접근 권한을 확인한 뒤 상세 화면을 엽니다."
+        >
+          <BusinessUnitSelector
+            access={businessUnitAccess}
+            mutationInFlight={businessUnitRequestState.inFlightMutationCount > 0}
+            onSelect={selectBusinessUnit}
+            compact
+          />
+        </AuthGateMessage>
+      );
+    }
     return (
       <main className="auth-gate">
         <ApprovalPendingPage
@@ -3225,7 +3379,6 @@ function QmsAppShellContent({
         isOsan ? <OsanNotificationsPage key={currentUser.data.userId} scopeKey={currentUser.data.userId}
           developmentUserKey={developmentUserKey} onBadgeRefresh={refreshShellBadges}
           onOpen={(projectId, linkUrl) => {notificationOrigin.current = true; setView(viewFromProjectLink(projectId, linkUrl));}} /> : <NotificationsPage
-          osan={false}
           developmentUserKey={developmentUserKey}
           onOpenPreferences={() => setView({ kind: 'notification-preferences' })}
           onOpenNotification={(notificationId) => setView({ kind: 'teams-notification-detail', notificationId })}
@@ -4165,6 +4318,7 @@ export function AuthStatusScreen({ state, message, onAction }: {
 
 function AuthGateMessage({
   state,
+  context,
   title,
   message,
   helperText,
@@ -4176,6 +4330,7 @@ function AuthGateMessage({
   children
 }: {
   state: AuthGateVisualState;
+  context?: 'notification';
   title: string;
   message?: string;
   helperText?: string;
@@ -4269,7 +4424,12 @@ function AuthGateMessage({
   );
 
   return (
-    <main className="auth-gate" data-auth-state={state} data-auth-layout={usesLoginLayout ? 'login' : 'default'}>
+    <main
+      className="auth-gate"
+      data-auth-state={state}
+      data-auth-layout={usesLoginLayout ? 'login' : 'default'}
+      data-auth-context={context}
+    >
       {usesLoginLayout ? (
         <div
           className="auth-login-canvas"
@@ -4379,6 +4539,7 @@ function BusinessUnitSelector({
         title={mutationInFlight ? '저장 작업이 끝난 뒤 사업부를 변경할 수 있습니다.' : undefined}
         onChange={(event) => onSelect(event.target.value as BusinessUnitCode)}
       >
+        {access.selectedBusinessUnit === null ? <option value="" disabled>사업부 선택</option> : null}
         {access.allowedBusinessUnits.map((businessUnit) => (
           <option key={businessUnit} value={businessUnit}>{businessUnitLabel(businessUnit)}</option>
         ))}
@@ -9942,14 +10103,12 @@ const notificationTabs: Array<{ key: NotificationTab; label: string }> = [
 ];
 
 function NotificationsPage({
-  osan = false,
   developmentUserKey,
   onOpenPreferences,
   onOpenNotification,
   onOpenProject,
   onBadgeRefresh
 }: {
-  osan?: boolean;
   developmentUserKey: string;
   onOpenPreferences: () => void;
   onOpenNotification: (notificationId: string) => void;
@@ -10080,46 +10239,6 @@ function NotificationsPage({
   const allNotificationsBusy = actions.isBusy('notifications:all');
   const anyNotificationBusy = actions.hasBusyPrefix('notification:');
   const notificationGroups = itemsState.kind === 'ready' ? groupNotificationsByProject(itemsState.data.items) : [];
-
-  const pageFeedback = allNotificationsFeedback ?? latestRowFeedback ?? (
-    actions.latestFeedback?.scope.startsWith('notifications:project:')
-      && !notificationGroups.some(group => actions.latestFeedback?.scope === `notifications:project:${group.projectId}`)
-      ? actions.latestFeedback : null
-  );
-
-  if (osan) return <section className="osan-page osan-notifications">
-    <OsanMenuHeading title="알림" description="프로젝트와 진행 단계에 대한 알림을 확인합니다." actions={<>
-      <OsanButton type="button" disabled={allNotificationsBusy || anyNotificationBusy} onClick={() => void readAll()}>{allNotificationsBusy ? '전체 읽음 처리 중' : '전체 읽음'}</OsanButton><OsanButton type="button" onClick={refresh}>새로고침</OsanButton>
-    </>} />
-    <div className="on-summary" aria-label="알림 요약"><div><span>읽지 않음</span><strong>{summary?.unreadCount ?? '-'}</strong></div><div><span>긴급/차단</span><strong>{summary?.blockingCount ?? '-'}</strong></div></div>
-    <div className="on-filters" role="tablist" aria-label="알림 읽음 상태">{(['unread','All','read'] as NotificationTab[]).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} className={activeTab === tab ? 'is-active' : undefined} onClick={() => selectTab(tab)}>{tab === 'unread' ? '읽지 않음' : tab === 'All' ? '전체' : '읽음'}</button>)}</div>
-    {summaryState.kind !== 'ready' && summaryState.kind !== 'loading' && <StateMessage state={summaryState}/>}
-    {pageFeedback && <ActionFeedback message={pageFeedback.message} tone={pageFeedback.tone} focusOnAttention/>}
-    {itemsState.kind === 'ready' && <SelectedExportTray compact exportFile={() => exportOsanNotificationsExcel(developmentUserKey, [...notificationSelection.selectedIds], activeTab === 'All' ? undefined : activeTab)} developmentUserKey={developmentUserKey} screen="notifications" label="선택 내보내기" visibleIds={visibleNotificationIds} selectedIds={notificationSelection.selectedIds} allSelected={notificationSelection.allSelected} busy={notificationSelection.busy} filters={{readStatus: activeTab === 'All' ? undefined : activeTab}} onBusyChange={notificationSelection.setBusy} onToggleAll={notificationSelection.toggleAll} onClear={notificationSelection.clear}/>}
-    {itemsState.kind === 'loading' && <p className="on-empty" role="status">알림을 불러오는 중입니다.</p>}
-    {itemsState.kind === 'empty' && <p className="on-empty">표시할 알림이 없습니다.</p>}
-    {itemsState.kind !== 'ready' && itemsState.kind !== 'loading' && itemsState.kind !== 'empty' && <StateMessage state={itemsState}/>}
-    {notificationGroups.map(group => {
-      const expanded = expandedGroups.has(group.groupKey);
-      const projectFeedback = actions.feedbackFor(`notifications:project:${group.projectId}`);
-      return <section className="on-group" key={group.groupKey} aria-label={`${group.projectTitle} 알림`}>
-        <header className="on-grouphead"><div><strong>{group.projectTitle}</strong><div className="on-meta">{group.projectCode} · 알림 {group.items.length}건 · 읽지 않음 {group.unreadCount}건</div></div><div className="on-actions">
-          {group.projectId && group.unreadCount > 0 && <OsanButton type="button" disabled={actions.isBusy(`notifications:project:${group.projectId}`)} onClick={() => void readProject(group)}>{actions.isBusy(`notifications:project:${group.projectId}`) ? '정리 중' : '이 프로젝트 모두 읽음'}</OsanButton>}
-          {group.projectId && <OsanButton type="button" onClick={() => onOpenProject(group.projectId!)}>프로젝트로 이동</OsanButton>}
-        </div></header>
-        {projectFeedback && <div className="on-group-feedback"><ActionFeedback message={projectFeedback.message} tone={projectFeedback.tone} focusOnAttention/></div>}
-        {(expanded ? group.items : group.items.slice(0,3)).map(item => <article className="on-row" key={item.notificationId}>
-          <SelectionCheckbox label={`${item.title} 선택`} checked={notificationSelection.selectedIds.has(item.notificationId)} disabled={notificationSelection.busy} onChange={checked => notificationSelection.toggle(item.notificationId,checked)}/>
-          <div><button type="button" className="on-title" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>{!item.readAtUtc && <span className="on-dot"/>}{item.title}</button><div className="on-bodycopy"><span className="on-badge">{osanNotificationLabel(item)}</span>{osanNotificationBody(item)}</div></div>
-          <div className="on-time">{formatDateTime(item.createdAtUtc)}<br/>{item.readAtUtc ? '읽음' : '읽지 않음'}</div>
-          <div className="on-actions"><OsanButton type="button" onClick={() => void openNotification(item, () => onOpenNotification(item.notificationId))}>상세</OsanButton>{item.projectId && <OsanButton type="button" onClick={() => void openNotification(item, () => onOpenProject(item.projectId!,item.linkUrl))}>이동</OsanButton>}{!item.readAtUtc && <OsanButton type="button" disabled={allNotificationsBusy || actions.isBusy(`notification:${item.notificationId}`)} onClick={() => void read(item)}>{actions.isBusy(`notification:${item.notificationId}`) ? '처리 중' : '읽음'}</OsanButton>}</div>
-          {(() => { const feedback=actions.feedbackFor(`notification:${item.notificationId}`);return feedback && (feedback.tone === 'loading' || feedback.tone === 'error') ? <div className="on-row-feedback"><ActionFeedback message={feedback.message} tone={feedback.tone}/></div> : null; })()}
-        </article>)}
-        {group.items.length > 3 && <button type="button" className="on-more" aria-expanded={expanded} onClick={() => setExpandedGroups(current => {const next=new Set(current);if(next.has(group.groupKey))next.delete(group.groupKey);else next.add(group.groupKey);return next;})}>{expanded ? '접기' : '알림 더 보기'}</button>}
-      </section>;
-    })}
-    {itemsState.kind === 'ready' && <nav className="on-pagination" aria-label="알림 페이지"><OsanButton type="button" aria-label="이전 페이지" disabled>‹</OsanButton><span>1 / 1</span><OsanButton type="button" aria-label="다음 페이지" disabled>›</OsanButton></nav>}
-  </section>;
 
   return (
     <section className={isMobile ? 'page-surface workflow-page mobile-first-page' : 'page-surface workflow-page'}>
@@ -16069,169 +16188,6 @@ function DepartmentAssigneeEditPage({
   );
 }
 
-// Kept only as a source-compatible reference while older saved drafts are normalized by the unified editor.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function ProductionPlanningEditableList({
-  plan,
-  rows,
-  errors,
-  onChange,
-  onAddRow,
-  onDeleteRow
-}: {
-  plan: ProductionPlanningResponse;
-  rows: ProductionPlanRowForm[];
-  errors: Record<string, string>;
-  onChange: (index: number, next: Partial<ProductionPlanRowForm>) => void;
-  onAddRow: () => void;
-  onDeleteRow: (index: number) => void;
-}) {
-  const isMobile = useIsMobileViewport();
-  const visibleRows = sortProductionPlanItems(rows.filter((row) => !row.isDeleted));
-  const assigneeOptions = productionPlanAssigneeOptions(plan);
-  if (isMobile) {
-    return (
-      <section className="subsection">
-        <div className="subsection-header">
-          <div>
-            <h3>생산계획표</h3>
-            <p>이 화면에서 수정한 단계명과 필수 여부는 현재 프로젝트에만 적용됩니다.</p>
-          </div>
-          <button type="button" onClick={onAddRow}>행 추가</button>
-        </div>
-        <div className="procurement-cards">
-          {visibleRows.map((row) => {
-            const index = rows.indexOf(row);
-            return (
-            <article className="procurement-card" key={`${row.templateStepId ?? row.itemId ?? row.sequenceNumber}`}>
-              <label className={fieldError(errors, `items[${index}].stepName`) ? 'form-field has-error' : 'form-field'}>
-                <span>계획 항목</span>
-                <input name={`items[${index}].stepName`} value={row.stepName} onChange={(event) => onChange(index, { stepName: event.target.value })} />
-                <FieldErrorMessage field={`items[${index}].stepName`} message={fieldError(errors, `items[${index}].stepName`)} />
-              </label>
-              <label className="checkbox-row">
-                <input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />
-                <span>필수 항목</span>
-              </label>
-              <label className={fieldError(errors, `items[${index}].plannedDate`) ? 'form-field has-error' : 'form-field'}>
-                <span>예정일</span>
-                <input name={`items[${index}].plannedDate`} type="date" value={row.plannedDate} onChange={(event) => onChange(index, { plannedDate: event.target.value })} />
-                <FieldErrorMessage field={`items[${index}].plannedDate`} message={fieldError(errors, `items[${index}].plannedDate`)} />
-              </label>
-              <label className={fieldError(errors, `items[${index}].assignedUserId`) ? 'form-field has-error' : 'form-field'}>
-                <span>담당자</span>
-                <select name={`items[${index}].assignedUserId`} value={row.assignedUserId} onChange={(event) => onChange(index, { assignedUserId: event.target.value })}>
-                  <option value="">미지정</option>
-                  {assigneeOptions.map((user) => <option key={user.userId} value={user.userId}>{user.displayName}</option>)}
-                </select>
-                <FieldErrorMessage field={`items[${index}].assignedUserId`} message={fieldError(errors, `items[${index}].assignedUserId`)} />
-              </label>
-              <label className={fieldError(errors, `items[${index}].requiredHeadcount`) ? 'form-field has-error' : 'form-field'}>
-                <span>필요 인원</span>
-                <input name={`items[${index}].requiredHeadcount`} type="number" min="1" max="999" step="1" value={row.requiredHeadcount} onChange={(event) => onChange(index, { requiredHeadcount: event.target.value })} />
-                <FieldErrorMessage field={`items[${index}].requiredHeadcount`} message={fieldError(errors, `items[${index}].requiredHeadcount`)} />
-              </label>
-              <label className={fieldError(errors, `items[${index}].note`) ? 'form-field has-error' : 'form-field'}>
-                <span>생산관리 코멘트</span>
-                <textarea name={`items[${index}].note`} value={row.note} onChange={(event) => onChange(index, { note: event.target.value })} />
-                <FieldErrorMessage field={`items[${index}].note`} message={fieldError(errors, `items[${index}].note`)} />
-              </label>
-              {row.isCustom ? <button type="button" className="secondary-button" onClick={() => onDeleteRow(index)}>삭제</button> : null}
-            </article>
-            );
-          })}
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="subsection">
-      <div className="subsection-header">
-        <div>
-          <h3>생산계획표</h3>
-          <p>이 화면에서 수정한 단계명과 필수 여부는 현재 프로젝트에만 적용됩니다.</p>
-        </div>
-        <button type="button" onClick={onAddRow}>행 추가</button>
-      </div>
-      <div className="production-plan-table procurement-desktop" role="table" aria-label="생산계획 수정">
-        <div className="production-plan-head editable" role="row">
-          <span>계획 항목</span><span>필수</span><span>예정일</span><span>담당자</span><span>필요 인원</span><span>생산관리 코멘트</span><span>작업</span>
-        </div>
-        {visibleRows.map((row) => {
-          const index = rows.indexOf(row);
-          return (
-            <div className="production-plan-row editable" role="row" key={`${row.templateStepId ?? row.itemId ?? row.sequenceNumber}`}>
-              <div className="grid-field">
-                <input
-                  aria-label="계획 항목"
-                  className={fieldError(errors, `items[${index}].stepName`) ? 'field-invalid' : undefined}
-                  name={`items[${index}].stepName`}
-                  value={row.stepName}
-                  onChange={(event) => onChange(index, { stepName: event.target.value })}
-                />
-                <FieldErrorMessage field={`items[${index}].stepName`} message={fieldError(errors, `items[${index}].stepName`)} />
-              </div>
-              <label className="checkbox-row">
-                <input type="checkbox" checked={row.isRequired} onChange={(event) => onChange(index, { isRequired: event.target.checked })} />
-                <span>필수</span>
-              </label>
-              <div className="grid-field">
-                <input
-                  className={fieldError(errors, `items[${index}].plannedDate`) ? 'field-invalid' : undefined}
-                  name={`items[${index}].plannedDate`}
-                  type="date"
-                  value={row.plannedDate}
-                  onChange={(event) => onChange(index, { plannedDate: event.target.value })}
-                />
-                <FieldErrorMessage field={`items[${index}].plannedDate`} message={fieldError(errors, `items[${index}].plannedDate`)} />
-              </div>
-              <div className="grid-field">
-                <select
-                  aria-label="담당자"
-                  className={fieldError(errors, `items[${index}].assignedUserId`) ? 'field-invalid' : undefined}
-                  name={`items[${index}].assignedUserId`}
-                  value={row.assignedUserId}
-                  onChange={(event) => onChange(index, { assignedUserId: event.target.value })}
-                >
-                  <option value="">미지정</option>
-                  {assigneeOptions.map((user) => <option key={user.userId} value={user.userId}>{user.displayName}</option>)}
-                </select>
-                <FieldErrorMessage field={`items[${index}].assignedUserId`} message={fieldError(errors, `items[${index}].assignedUserId`)} />
-              </div>
-              <div className="grid-field">
-                <input
-                  aria-label="필요 인원"
-                  className={fieldError(errors, `items[${index}].requiredHeadcount`) ? 'field-invalid' : undefined}
-                  name={`items[${index}].requiredHeadcount`}
-                  type="number"
-                  min="1"
-                  max="999"
-                  step="1"
-                  value={row.requiredHeadcount}
-                  onChange={(event) => onChange(index, { requiredHeadcount: event.target.value })}
-                />
-                <FieldErrorMessage field={`items[${index}].requiredHeadcount`} message={fieldError(errors, `items[${index}].requiredHeadcount`)} />
-              </div>
-              <div className="grid-field">
-                <input
-                  aria-label="생산관리 코멘트"
-                  className={fieldError(errors, `items[${index}].note`) ? 'field-invalid' : undefined}
-                  name={`items[${index}].note`}
-                  value={row.note}
-                  onChange={(event) => onChange(index, { note: event.target.value })}
-                />
-                <FieldErrorMessage field={`items[${index}].note`} message={fieldError(errors, `items[${index}].note`)} />
-              </div>
-              <span>{row.isCustom ? <button type="button" className="secondary-button" onClick={() => onDeleteRow(index)}>삭제</button> : '-'}</span>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function ProductionControlSetScheduleEditableList({
   plan,
   rows,
@@ -17918,208 +17874,6 @@ function procurementMatchStatusLabel(status: string) {
     case 'Error': return '오류';
     default: return status;
   }
-}
-
-// Legacy pre-TASK-008A renderer retained temporarily for isolated fixture compatibility.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function MaterialReceiptsPage({
-  developmentUserKey,
-  canAccessMaterialReceipt,
-  canUpdateMaterialReceipt,
-  onBack
-}: {
-  developmentUserKey: string;
-  canAccessMaterialReceipt: boolean;
-  canUpdateMaterialReceipt: boolean;
-  onBack: () => void;
-}) {
-  const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [state, setState] = useState<LoadState<ProcurementItem[]>>({ kind: 'loading' });
-  const [items, setItems] = useState<ProcurementItem[]>([]);
-  const [reason, setReason] = useState('');
-  const [message, setMessage] = useState('');
-  const [includeCompleted, setIncludeCompleted] = useState(false);
-  const isMobile = useIsMobileViewport();
-
-  const load = useCallback(() => {
-    if (!canAccessMaterialReceipt) {
-      setState({ kind: 'forbidden', message: '권한이 없습니다.' });
-      return;
-    }
-
-    setState({ kind: 'loading' });
-    getMaterialReceipts(developmentUserKey, search, includeCompleted, dateFrom, dateTo)
-      .then((response) => {
-        const legacyItems = response.items as unknown as ProcurementItem[];
-        setItems(legacyItems);
-        setState(legacyItems.length === 0 ? { kind: 'empty' } : { kind: 'ready', data: legacyItems });
-      })
-      .catch((error: unknown) => setState(toLoadError(error, '자재 입고 처리 항목을 불러올 수 없습니다.')));
-  }, [canAccessMaterialReceipt, dateFrom, dateTo, developmentUserKey, includeCompleted, search]);
-
-  useEffect(() => {
-    queueMicrotask(load);
-  }, [load]);
-
-  if (!canAccessMaterialReceipt) {
-    return <section className="page-surface"><StateMessage state={{ kind: 'forbidden', message: '권한이 없습니다.' }} /></section>;
-  }
-
-  function setReceipt(itemId: string, next: Partial<ProcurementItem>) {
-    setItems((current) => current.map((item) => item.itemId === itemId ? { ...item, ...next } : item));
-  }
-
-  async function save() {
-    setMessage('');
-    try {
-      await updateMaterialReceipts(developmentUserKey, {
-        reason: reason.trim() || null,
-        items: items.map((item) => ({
-          itemId: item.itemId,
-          expectedRowVersion: item.rowVersion,
-          receiptCompleted: item.receiptCompleted,
-          receiptCompletedAtUtc: item.receiptCompletedAtUtc,
-          receiptCompletionNote: item.receiptCompletionNote
-        }))
-      });
-      setReason('');
-      onBack();
-    } catch (error) {
-      handleFormError(error, () => undefined, setMessage);
-    }
-  }
-
-  return (
-    <section className="page-surface procurement-section">
-      <div className="subsection-header">
-        <div>
-          <p className="eyebrow">Materials</p>
-          <h2>자재 입고 처리</h2>
-        </div>
-        <div className="button-row">
-          <button type="button" onClick={onBack}>프로젝트 목록</button>
-          {canUpdateMaterialReceipt ? <button type="button" className="primary-button" onClick={save}>저장</button> : null}
-        </div>
-      </div>
-      <form className="toolbar" onSubmit={(event) => { event.preventDefault(); load(); }}>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="프로젝트 또는 발주품목 검색" />
-        <label className="date-filter-field">
-          <span>입고예정 시작일</span>
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-        </label>
-        <label className="date-filter-field">
-          <span>입고예정 종료일</span>
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-        </label>
-        <button type="button" onClick={() => { setDateFrom(''); setDateTo(''); }}>필터 초기화</button>
-        <button type="submit">검색</button>
-      </form>
-      <div className="inline-help-row">
-        <p className="muted-text">
-          현재 구매품목 입고 처리 대상만 표시됩니다. 완료된 항목은 저장 후 기본 목록에서 사라집니다.
-          {!canUpdateMaterialReceipt ? ' System Administrator 조회 접근이며 입고 처리는 기존 담당 권한이 필요합니다.' : ''}
-        </p>
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={includeCompleted}
-            onChange={(event) => setIncludeCompleted(event.target.checked)}
-          />
-          완료 항목 포함
-        </label>
-      </div>
-      <label className="form-field panel-reason-field">
-        <span>수정사유</span>
-        <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
-      </label>
-      {state.kind === 'loading' ? <p className="muted-text">Loading</p> : null}
-      {state.kind === 'empty' ? <p className="empty-text">표시할 항목이 없습니다.</p> : null}
-      {state.kind !== 'ready' && state.kind !== 'loading' && state.kind !== 'empty' ? <StateMessage state={state} /> : null}
-      {state.kind === 'ready' ? (
-        <MaterialReceiptGroups items={items} onChange={setReceipt} isMobile={isMobile} canEdit={canUpdateMaterialReceipt} />
-      ) : null}
-      {message ? <p role="alert" className={successMessage(message) ? 'success-text' : 'error-text'}>{message}</p> : null}
-    </section>
-  );
-}
-
-function MaterialReceiptGroups({
-  items,
-  onChange,
-  isMobile,
-  canEdit
-}: {
-  items: ProcurementItem[];
-  onChange: (itemId: string, next: Partial<ProcurementItem>) => void;
-  isMobile: boolean;
-  canEdit: boolean;
-}) {
-  const groups = groupMaterialReceiptItems(items);
-  return (
-    <div className={isMobile ? 'material-receipt-groups procurement-mobile' : 'material-receipt-groups procurement-desktop'} data-testid="material-receipt-mobile">
-      {groups.map((group) => (
-        <section className="material-receipt-group" key={group.projectId}>
-          <div className="material-receipt-group-header">
-            <strong>{group.projectTitle}</strong>
-            <span>PJT Code: {group.projectCode}</span>
-            <span>납품예정일: {emptyDash(group.shipmentDisplayDate)}</span>
-          </div>
-          <div className="material-receipt-items" role="table" aria-label={`${group.projectTitle} 자재 입고 처리`}>
-            <div className="material-receipt-head" role="row">
-              <span>발주품목</span><span>업체</span><span>기술 담당자</span><span>입고예정일</span><span>입고 완료</span><span>완료일</span><span>완료 비고</span>
-            </div>
-            {group.items.map((item) => (
-              <div className="material-receipt-row" role="row" key={item.itemId}>
-                <span className="order-item-badge">{emptyDash(item.orderItem)}</span>
-                <span>{emptyDash(item.supplierName)}</span>
-                <span>{emptyDash(item.technicalOwner)}</span>
-                <span>{emptyDash(item.expectedReceiptDate)}</span>
-                <div className="receipt-input-cell">
-                  <label className="checkbox-field">
-                    <input type="checkbox" checked={item.receiptCompleted} disabled={!canEdit} onChange={(event) => onChange(item.itemId, { receiptCompleted: event.target.checked })} />
-                    입고 완료
-                  </label>
-                  <ReceiptCompletionBadge completed={item.receiptCompleted} completedAtUtc={item.receiptCompletedAtUtc} completionNote={item.receiptCompletionNote} />
-                </div>
-                <input type="datetime-local" value={toDateTimeLocal(item.receiptCompletedAtUtc ?? '')} disabled={!canEdit} onChange={(event) => onChange(item.itemId, { receiptCompletedAtUtc: fromDateTimeLocal(event.target.value) })} />
-                <textarea value={item.receiptCompletionNote ?? ''} disabled={!canEdit} onChange={(event) => onChange(item.itemId, { receiptCompletionNote: event.target.value })} />
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function groupMaterialReceiptItems(items: ProcurementItem[]) {
-  const groups: Array<{
-    projectId: string;
-    projectTitle: string;
-    projectCode: string;
-    shipmentDisplayDate: string | null;
-    items: ProcurementItem[];
-  }> = [];
-
-  for (const item of items) {
-    let group = groups.find((candidate) => candidate.projectId === item.projectId);
-    if (!group) {
-      group = {
-        projectId: item.projectId,
-        projectTitle: item.projectTitle,
-        projectCode: item.projectCode,
-        shipmentDisplayDate: formatShipmentDisplayDate(item),
-        items: []
-      };
-      groups.push(group);
-    }
-
-    group.items.push(item);
-  }
-
-  return groups;
 }
 
 function PanelInformationEditPage({
@@ -22151,23 +21905,6 @@ function procurementFormToRequest(row: ProcurementRowForm) {
 
 function isProcurementForm(value: ProcurementItem | ProcurementRowForm): value is ProcurementRowForm {
   return !('projectId' in value);
-}
-
-function toDateTimeLocal(value: string | null) {
-  if (!value) {
-    return '';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-}
-
-function fromDateTimeLocal(value: string) {
-  return value ? new Date(value).toISOString() : '';
 }
 
 function successMessage(message: string) {

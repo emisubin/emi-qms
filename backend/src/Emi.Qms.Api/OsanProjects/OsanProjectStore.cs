@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,16 +13,16 @@ namespace Emi.Qms.Api.OsanProjects;
 public sealed partial class OsanProjectStore
 {
     private const string OsanProjectCodeConstraint = "ux_projects_osan_project_code";
-    private readonly DatabaseConnectionStringProvider connectionStringProvider;
+    private readonly OsanDatabase connectionStringProvider;
     private readonly OsanProjectExcelParser excelParser;
 
-    public OsanProjectStore(DatabaseConnectionStringProvider connectionStringProvider)
+    public OsanProjectStore(OsanDatabase connectionStringProvider)
         : this(connectionStringProvider, new OsanProjectExcelParser())
     {
     }
 
     public OsanProjectStore(
-        DatabaseConnectionStringProvider connectionStringProvider,
+        OsanDatabase connectionStringProvider,
         OsanProjectExcelParser excelParser)
     {
         this.connectionStringProvider = connectionStringProvider;
@@ -280,7 +281,6 @@ public sealed partial class OsanProjectStore
         await using var dataSource = CreateDataSource();
         var where = new List<string>
         {
-            "projects.project_profile = 'Osan'",
             "projects.deleted_at_utc is null"
         };
         var parameters = new List<NpgsqlParameter>();
@@ -337,7 +337,6 @@ public sealed partial class OsanProjectStore
             select id, project_key
             from projects
             where id = @project_id
-              and project_profile = 'Osan'
               and deleted_at_utc is null;
             """);
         command.Parameters.AddWithValue("project_id", projectId);
@@ -804,8 +803,7 @@ public sealed partial class OsanProjectStore
         command.CommandText = """
             select project_title, project_code, customer_name, osan_product_name, osan_quantity
             from projects
-            where project_profile = 'Osan'
-              and deleted_at_utc is null
+            where deleted_at_utc is null
               and project_code = any(@project_codes);
             """;
         command.Parameters.Add(new NpgsqlParameter<string[]>("project_codes", codes));
@@ -835,8 +833,7 @@ public sealed partial class OsanProjectStore
             select exists (
                 select 1
                 from projects
-                where project_profile = 'Osan'
-                  and project_code = @project_code
+                where project_code = @project_code
             );
             """;
         command.Parameters.AddWithValue("project_code", projectCode);
@@ -1010,46 +1007,14 @@ public sealed partial class OsanProjectStore
         command.Transaction = transaction;
         command.CommandText = """
             insert into projects (
-                id,
-                project_key,
-                project_number,
-                name,
-                customer_name,
-                item,
-                project_code,
-                project_title,
-                project_title_normalized,
-                delivery_date,
-                status,
-                created_by_user_id,
-                updated_at_utc,
-                project_profile,
-                osan_po_number,
-                osan_work_order_number,
-                osan_product_name,
-                osan_quantity,
-                osan_customer_id
-            )
-            values (
-                @project_id,
-                @project_key,
-                @project_code,
-                @title,
-                @customer_name,
-                '',
-                @project_code,
-                @title,
-                null,
-                @delivery_date,
-                'Active',
-                @user_id,
-                now(),
-                'Osan',
-                @po_number,
-                @work_order_number,
-                @product_name,
-                @quantity,
-                @customer_id
+                id, project_key, customer_name, project_code, project_title,
+                delivery_date, status, created_by_user_id, updated_at_utc,
+                osan_po_number, osan_work_order_number, osan_product_name,
+                osan_quantity, osan_customer_id
+            ) values (
+                @project_id, @project_key, @customer_name, @project_code, @title,
+                @delivery_date, 'Active', @user_id, now(),
+                @po_number, @work_order_number, @product_name, @quantity, @customer_id
             );
             """;
         command.Parameters.AddWithValue("project_id", projectId);
@@ -1229,7 +1194,6 @@ public sealed partial class OsanProjectStore
                     where steps.project_id = projects.id
                 ) progress
                 where projects.id = @project_id
-                  and projects.project_profile = 'Osan'
                   and projects.deleted_at_utc is null;
                 """;
             projectCommand.Parameters.AddWithValue("project_id", projectId);
@@ -1365,7 +1329,7 @@ public sealed partial class OsanProjectStore
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -1373,7 +1337,7 @@ public sealed partial class OsanProjectStore
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static async Task RollbackQuietlyAsync(

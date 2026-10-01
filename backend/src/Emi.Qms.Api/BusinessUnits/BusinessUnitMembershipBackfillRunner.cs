@@ -28,6 +28,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("Business-unit membership backfill requires enabled multi-database mode.");
         }
 
+        var connectionErrors = businessUnits.ValidateOperationConnections(
+            configuration, BusinessUnitConnectionPurpose.Migration);
+        if (connectionErrors.Count > 0)
+            throw new InvalidOperationException("Business-unit membership backfill migration connections are invalid.");
+
         var approvedUserIds = ReadApprovedIds("ApprovedUserIds");
         if (approvedUserIds.Count == 0)
         {
@@ -353,7 +358,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken)
             || !(await migrationLedgerInspector.InspectAsync(
-                connection,
+                connection, target.Code,
                 cancellationToken)).MigrationLedgerReady)
         {
             throw new InvalidOperationException("Cheongju database is not ready for profile reconciliation.");
@@ -486,7 +491,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("Cheongju database identity is not bound to the approved source database.");
         }
         if (!(await migrationLedgerInspector.InspectAsync(
-                connection,
+                connection, cheongju.Code,
                 cancellationToken)).MigrationLedgerReady)
         {
             throw new InvalidOperationException("Cheongju database migration ledger is not ready for backfill.");
@@ -596,7 +601,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken)
-            || !(await migrationLedgerInspector.InspectAsync(connection, cancellationToken)).MigrationLedgerReady)
+            || !(await migrationLedgerInspector.InspectAsync(connection, target.Code, cancellationToken)).MigrationLedgerReady)
         {
             throw new InvalidOperationException("System Administrator permission target database is not ready.");
         }
@@ -628,7 +633,7 @@ public sealed class BusinessUnitMembershipBackfillRunner(
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken)
-            || !(await migrationLedgerInspector.InspectAsync(connection, cancellationToken)).MigrationLedgerReady)
+            || !(await migrationLedgerInspector.InspectAsync(connection, target.Code, cancellationToken)).MigrationLedgerReady)
         {
             throw new InvalidOperationException("Overall administrator target database is not ready for backfill.");
         }

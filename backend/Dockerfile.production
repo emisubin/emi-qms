@@ -7,6 +7,7 @@ RUN dotnet restore backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj
 COPY backend/src/Emi.Qms.Api backend/src/Emi.Qms.Api
 COPY database/migrations database/migrations
 COPY database/directory-migrations database/directory-migrations
+COPY database/business-migrations database/business-migrations
 RUN dotnet publish backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj \
     --configuration Release \
     --no-restore \
@@ -17,6 +18,7 @@ WORKDIR /app
 COPY --from=build /app/publish .
 COPY --from=build /src/database/migrations ./database/migrations
 COPY --from=build /src/database/directory-migrations ./database/directory-migrations
+COPY --from=build /src/database/business-migrations ./database/business-migrations
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080

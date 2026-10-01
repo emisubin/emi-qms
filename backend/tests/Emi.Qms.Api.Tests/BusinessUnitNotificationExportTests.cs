@@ -20,10 +20,10 @@ public sealed partial class BusinessUnitIsolationTests
         var provider=new DatabaseConnectionStringProvider(databases.Configuration);
         var environment=new TestEnvironment(databases.RepositoryRoot);
         var catalog=new DatabaseMigrationCatalog(environment);
-        await new DatabaseRoleBootstrapper(databases.Configuration,new DatabaseRuntimePrivilegeManager(),
-            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
-        await new DatabaseMigrationRunner(provider,catalog,new DatabaseRuntimePrivilegeManager(),
-            databases.Configuration,NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(databases.Configuration,new DatabaseRuntimePrivilegeManager(),
+            NullLogger<DatabaseRoleBootstrapper>.Instance), ct);
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(provider,catalog,new DatabaseRuntimePrivilegeManager(),
+            databases.Configuration,NullLogger<DatabaseMigrationRunner>.Instance), ct);
         await new DevelopmentIdentitySeeder(provider,databases.Configuration,environment,
             NullLogger<DevelopmentIdentitySeeder>.Instance,new MigrationLedgerInspector(catalog)).SeedAsync(ct);
         databases.ConfigurationValues["DevelopmentData:SeedEnabled"]="false";

@@ -208,6 +208,8 @@ import type {
   UpdateProjectRequest
 } from './projects';
 
+import { businessApiRoute } from './businessApiRoute';
+
 const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5080');
 export const defaultDevelopmentUserKey = import.meta.env.DEV
   ? (import.meta.env.VITE_DEV_USER_KEY ?? 'dev-sales')
@@ -608,9 +610,9 @@ const businessUnitContextDenialCodes = new Set([
 const businessUnitSubscribers = new Set<(state: BusinessUnitRequestState) => void>();
 const businessUnitReadControllers = new Set<AbortController>();
 let businessUnitGeneration = 0;
+let implicitBusinessUnitSelectionBlocked = isBusinessUnitSelectionBlockedByLocation();
 let selectedBusinessUnit = readStoredBusinessUnit();
 let inFlightMutationCount = 0;
-let implicitBusinessUnitSelectionBlocked = false;
 
 export type BusinessUnitRequestState = {
   selectedBusinessUnit: BusinessUnitCode | null;
@@ -651,8 +653,13 @@ export function selectBusinessUnit(businessUnit: BusinessUnitCode) {
 }
 
 export function resetBusinessUnitRequestContext(forceInvalidate = false) {
-  implicitBusinessUnitSelectionBlocked = false;
+  implicitBusinessUnitSelectionBlocked = isBusinessUnitSelectionBlockedByLocation();
   clearBusinessUnitSelection(forceInvalidate);
+}
+
+export function requireBusinessUnitSelection() {
+  implicitBusinessUnitSelectionBlocked = true;
+  clearBusinessUnitSelection(true);
 }
 
 function invalidateDeniedBusinessUnitContext() {
@@ -675,13 +682,85 @@ function clearBusinessUnitSelection(forceInvalidate: boolean) {
 
 function readStoredBusinessUnit(): BusinessUnitCode | null {
   if (typeof window === 'undefined') return null;
-  const linkedUnit = new URLSearchParams(window.location.search).get('businessUnit');
+  const params = new URLSearchParams(window.location.search);
+  const linkedUnits = params.getAll('businessUnit');
+  const linkedUnit = linkedUnits.length === 1 ? linkedUnits[0] : null;
   if (linkedUnit === 'CHEONGJU' || linkedUnit === 'OSAN') {
     window.sessionStorage.setItem(businessUnitStorageKey, linkedUnit);
     return linkedUnit;
   }
+  if (linkedUnits.length > 0) {
+    window.sessionStorage.removeItem(businessUnitStorageKey);
+    return null;
+  }
+  if (isNotificationId(params.get('notificationId'))) {
+    window.sessionStorage.removeItem(businessUnitStorageKey);
+    return null;
+  }
+  const teamsBusinessUnit = readTeamsNotificationBusinessUnit(params);
+  if (teamsBusinessUnit) {
+    window.sessionStorage.setItem(businessUnitStorageKey, teamsBusinessUnit);
+    return teamsBusinessUnit;
+  }
+  if (teamsBusinessUnit === null) {
+    window.sessionStorage.removeItem(businessUnitStorageKey);
+    return null;
+  }
+  if (/^\/q\/[A-Za-z0-9_-]{43}$/.test(window.location.pathname)) {
+    window.sessionStorage.setItem(businessUnitStorageKey, 'CHEONGJU');
+    return 'CHEONGJU';
+  }
+  if (/^\/teams\/activity\/notifications\/[0-9a-fA-F-]{36}$/.test(window.location.pathname)) {
+    window.sessionStorage.removeItem(businessUnitStorageKey);
+    return null;
+  }
   const value = window.sessionStorage.getItem(businessUnitStorageKey);
   return value === 'CHEONGJU' || value === 'OSAN' ? value : null;
+}
+
+function isBusinessUnitSelectionBlockedByLocation() {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  const linkedUnits = params.getAll('businessUnit');
+  const linkedUnit = linkedUnits.length === 1 ? linkedUnits[0] : null;
+  if (linkedUnits.length > 0) {
+    return linkedUnit !== 'CHEONGJU' && linkedUnit !== 'OSAN';
+  }
+  return isNotificationId(params.get('notificationId'))
+    || /^\/teams\/activity\/notifications\/[0-9a-fA-F-]{36}$/.test(window.location.pathname)
+    || readTeamsNotificationBusinessUnit(params) === null;
+}
+
+function isNotificationId(value: string | null) {
+  return value !== null && /^[0-9a-fA-F-]{36}$/.test(value);
+}
+
+function readTeamsNotificationBusinessUnit(params: URLSearchParams): BusinessUnitCode | null | undefined {
+  const candidates = [params.get('subEntityId'), params.get('subPageId')];
+  const context = params.get('context');
+  if (context) {
+    try {
+      const parsed = JSON.parse(context) as Record<string, unknown>;
+      const page = parsed.page && typeof parsed.page === 'object'
+        ? parsed.page as Record<string, unknown>
+        : null;
+      candidates.push(
+        typeof page?.subEntityId === 'string' ? page.subEntityId : null,
+        typeof page?.subPageId === 'string' ? page.subPageId : null,
+        typeof parsed.subEntityId === 'string' ? parsed.subEntityId : null,
+        typeof parsed.subPageId === 'string' ? parsed.subPageId : null);
+    } catch {
+      return null;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const match = candidate.trim().match(/^notification:(?:(CHEONGJU|OSAN):)?[0-9a-fA-F-]{36}$/i);
+    if (!match) return null;
+    return (match[1]?.toUpperCase() as BusinessUnitCode | undefined) ?? null;
+  }
+  return undefined;
 }
 
 function invalidateBusinessUnitReads() {
@@ -898,12 +977,13 @@ function normalizeApiBaseUrl(value: string) {
   return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }
 
-function buildApiUrl(path: string) {
+function buildApiUrl(path: string, businessUnit = selectedBusinessUnit) {
+  path = businessApiRoute(path, businessUnit);
   if (!apiBaseUrl) {
     return path;
   }
 
-  if (apiBaseUrl === '/api' && (path === '/api' || path.startsWith('/api/'))) {
+  if (apiBaseUrl === '/api' && /^\/(api|cheongju\/api|osan\/api|access\/api)(\/|$)/.test(path)) {
     return path;
   }
 
@@ -945,7 +1025,8 @@ export async function getCurrentUser(developmentUserKey?: string): Promise<Curre
   const status = currentUser.businessUnitAccess?.status;
   const resolvedBusinessUnit = currentUser.businessUnitAccess?.selectedBusinessUnit ?? null;
   if (status === 'selection_required'
-    && currentUser.businessUnitAccess?.isOverallAdministrator) {
+    && currentUser.businessUnitAccess?.isOverallAdministrator
+    && !implicitBusinessUnitSelectionBlocked) {
     const allowedBusinessUnits = currentUser.businessUnitAccess.allowedBusinessUnits;
     const fallbackBusinessUnit = allowedBusinessUnits.includes('CHEONGJU')
       ? 'CHEONGJU'
@@ -3793,10 +3874,10 @@ async function fetchWithAuth(
     }
 
     if (!controller) {
-      return fetch(buildApiUrl(path), { ...init, headers });
+      return fetch(buildApiUrl(path, requestBusinessUnit), { ...init, headers });
     }
 
-    const response = await fetch(buildApiUrl(path), { ...init, headers, signal: controller.signal });
+    const response = await fetch(buildApiUrl(path, requestBusinessUnit), { ...init, headers, signal: controller.signal });
     if (controller.signal.aborted || requestGeneration !== businessUnitGeneration) {
       throw new BusinessUnitRequestInvalidatedError();
     }

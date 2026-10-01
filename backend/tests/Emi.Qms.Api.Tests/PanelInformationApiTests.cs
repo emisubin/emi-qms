@@ -1292,6 +1292,7 @@ public sealed class PanelInformationApiTests
         var firstUrl = firstIssued.RootElement.GetProperty("scanUrl").GetString();
         var secondUrl = secondIssued.RootElement.GetProperty("scanUrl").GetString();
         Assert.Equal(firstUrl, secondUrl);
+        Assert.Equal("?businessUnit=CHEONGJU", new Uri(firstUrl!).Query);
         Assert.Equal(1, await context.CountActivePanelQrsAsync(panelId));
 
         using var issuedList = await designClient.GetAsync($"/api/projects/{projectId}/qr", TestContext.Current.CancellationToken);
@@ -1493,7 +1494,7 @@ public sealed class PanelInformationApiTests
     [Fact]
     public void PanelQrRenderer_PngDecodesToExactConfiguredScanUrl()
     {
-        const string scanUrl = "https://qms.example.test/q/0123456789abcdefghijklmnopqrstuvwxyz_ABCDEF";
+        const string scanUrl = "https://qms.example.test/q/0123456789abcdefghijklmnopqrstuvwxyz_ABCDEF?businessUnit=CHEONGJU";
         var renderer = new PanelQrRenderer();
         using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
         var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>

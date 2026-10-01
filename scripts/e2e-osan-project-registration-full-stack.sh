@@ -318,12 +318,17 @@ export E2E_FRONTEND_PORT
 export Frontend__Origin="http://127.0.0.1:${E2E_FRONTEND_PORT}"
 export FRONTEND_ORIGIN="http://127.0.0.1:${E2E_FRONTEND_PORT}"
 
-if ! dotnet build backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-restore --nologo >"${operation_log}" 2>&1 \
-  || ! dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --bootstrap-database-roles >>"${operation_log}" 2>&1 \
-  || ! dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --migrate-only >>"${operation_log}" 2>&1; then
+if ! dotnet build backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-restore --nologo >"${operation_log}" 2>&1; then
   cat "${operation_log}" >&2
   exit 1
 fi
+for database_target in DIRECTORY CHEONGJU OSAN; do
+  if ! Database__BootstrapTarget="${database_target}" dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --bootstrap-database-roles >>"${operation_log}" 2>&1 \
+    || ! Database__BusinessSchemaSeparationApproved=true Database__MigrationTarget="${database_target}" dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --migrate-only >>"${operation_log}" 2>&1; then
+    cat "${operation_log}" >&2
+    exit 1
+  fi
+done
 echo "Release build, bounded-role bootstrap, and directory/Cheongju/Osan migrations completed."
 
 run_admin_psql "${directory_database}" "
@@ -380,14 +385,14 @@ values ('79000000-0000-0000-0000-000000000001', 'boundary-profile', 'Osan Bounda
 
 echo "Osan project registration Full-Stack E2E uses owned tmpfs PostgreSQL with three databases and six bounded roles."
 cheongju_projects_before="$(run_database_scalar "${cheongju_database}" "select count(*) from projects;")"
-osan_projects_before="$(run_database_scalar "${osan_database}" "select count(*) from projects where project_profile = 'Osan';")"
+osan_projects_before="$(run_database_scalar "${osan_database}" "select count(*) from projects;")"
 cd frontend
 corepack pnpm exec playwright test --config playwright.osan-project-registration.full-stack.config.ts "$@"
 cd "${repo_root}"
 
 [[ "$(run_database_scalar "${cheongju_database}" "select count(*) from projects;")" == "${cheongju_projects_before}" ]] \
   || { e2e_safety_error "Cheongju project rows changed during Osan registration E2E."; exit 1; }
-[[ "$(run_database_scalar "${osan_database}" "select count(*) from projects where project_profile = 'Osan';")" == "$((osan_projects_before + 1))" ]] \
+[[ "$(run_database_scalar "${osan_database}" "select count(*) from projects;")" == "$((osan_projects_before + 1))" ]] \
   || { e2e_safety_error "Osan E2E did not create exactly one Osan project."; exit 1; }
 [[ "$(run_database_scalar "${osan_database}" "select count(*) from osan_project_targets;")" == "1" ]] \
   || { e2e_safety_error "Osan E2E target row count was not 1."; exit 1; }

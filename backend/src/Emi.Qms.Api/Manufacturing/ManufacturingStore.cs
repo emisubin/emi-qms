@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,7 +14,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Manufacturing;
 
 public sealed class ManufacturingStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     PendingStore pendingStore)
 {
     private const int MaxReleasePanelCount = 500;
@@ -2293,14 +2294,14 @@ public sealed class ManufacturingStore(
         return ManufacturingMutationResult<T>.NotFound();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static string EventLabel(string value) => value switch

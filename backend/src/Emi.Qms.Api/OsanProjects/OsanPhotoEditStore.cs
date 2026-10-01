@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,9 +12,9 @@ public sealed record OsanPhotoEditItem(Guid RequestId, Guid TargetId, Guid StepI
     string? ApprovedByName, DateTimeOffset? UsedAt, IReadOnlyList<Guid> PhotoIds, IReadOnlyList<Guid> OriginalPhotoIds,
     string? Reason, DateTimeOffset? InvalidatedAt = null);
 
-public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
+public sealed class OsanPhotoEditStore(OsanDatabase db)
 {
-    private NpgsqlDataSource Source() => NpgsqlDataSource.Create(db.GetConnectionString()
+    private RuntimeDataSourceLease Source() => db.RentDataSource(db.GetConnectionString()
         ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 
     private static OsanManagementResult OpenIssueConflict() => new(409, Message: "미해결 이상이 있습니다. 이상 해결로 처리해 주세요.");
@@ -56,7 +57,7 @@ public sealed class OsanPhotoEditStore(DatabaseConnectionStringProvider db)
     private static async Task<bool> LockProject(NpgsqlConnection c, NpgsqlTransaction tx, Guid project, CancellationToken ct)
     {
         await using var cmd = c.CreateCommand(); cmd.Transaction=tx;
-        cmd.CommandText="select id from projects where id=@id and project_profile='Osan' and deleted_at_utc is null for update";
+        cmd.CommandText="select id from projects where id=@id and deleted_at_utc is null for update";
         cmd.Parameters.AddWithValue("id",project);
         return await cmd.ExecuteScalarAsync(ct) is not null;
     }

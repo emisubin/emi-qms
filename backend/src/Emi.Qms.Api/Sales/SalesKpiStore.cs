@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Emi.Qms.Api.Projects;
 using Npgsql;
@@ -6,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Sales;
 
 public sealed class SalesKpiStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private static readonly TimeZoneInfo SeoulTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
@@ -364,11 +365,11 @@ public sealed class SalesKpiStore(
         return value;
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static void AddScope(NpgsqlCommand command, ProjectAccessScope scope)

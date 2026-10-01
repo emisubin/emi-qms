@@ -359,7 +359,7 @@ public sealed class InteriorBusbarStoreTests
                 BaseConnection = baseConnection,
                 Schema = schema,
                 Clock = clock,
-                Store = new(new(config), clock, publicationOptions, publicationSink: new TestPublicationSink())
+                Store = new(new DatabaseConnectionStringProvider(config), clock, publicationOptions, publicationSink: new TestPublicationSink())
             }
 ;
             await using (var c = new NpgsqlConnection(f.Connection))

@@ -37,10 +37,10 @@ describe('ManufacturingPage', () => {
     let startAttempts = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/manufacturing/queue') return json(queue(status));
-      if (url.pathname === `/api/manufacturing/panels/${panelId}`) return json(detail(status));
-      if (url.pathname === '/api/manufacturing/action-departments') return json([]);
-      if (url.pathname === '/api/manufacturing/executions/start') {
+      if (url.pathname === '/cheongju/api/manufacturing/queue') return json(queue(status));
+      if (url.pathname === `/cheongju/api/manufacturing/panels/${panelId}`) return json(detail(status));
+      if (url.pathname === '/cheongju/api/manufacturing/action-departments') return json([]);
+      if (url.pathname === '/cheongju/api/manufacturing/executions/start') {
         startAttempts += 1;
         const body = JSON.parse(String(init?.body)) as { operationId: string; projectId: string; panelId: string };
         operationIds.push(body.operationId);
@@ -96,8 +96,8 @@ describe('ManufacturingPage', () => {
   it('shows execution state without mutation controls for a read-only user', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/manufacturing/queue') return json(queue('InProgress', false));
-      if (url.pathname === `/api/manufacturing/panels/${panelId}`) return json(detail('InProgress', false));
+      if (url.pathname === '/cheongju/api/manufacturing/queue') return json(queue('InProgress', false));
+      if (url.pathname === `/cheongju/api/manufacturing/panels/${panelId}`) return json(detail('InProgress', false));
       return json({ title: 'not found' }, 404);
     }));
 
@@ -127,10 +127,10 @@ describe('ManufacturingPage', () => {
     let stepRequests = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/manufacturing/queue') return json(queue('InProgress'));
-      if (url.pathname === `/api/manufacturing/panels/${panelId}`) return json(detail('InProgress'));
-      if (url.pathname === '/api/manufacturing/action-departments') return json([]);
-      if (url.pathname === `/api/manufacturing/executions/${executionId}/check-step`) {
+      if (url.pathname === '/cheongju/api/manufacturing/queue') return json(queue('InProgress'));
+      if (url.pathname === `/cheongju/api/manufacturing/panels/${panelId}`) return json(detail('InProgress'));
+      if (url.pathname === '/cheongju/api/manufacturing/action-departments') return json([]);
+      if (url.pathname === `/cheongju/api/manufacturing/executions/${executionId}/check-step`) {
         stepRequests += 1;
         await stepGate;
         return json({ projectId, panelId });
@@ -190,7 +190,7 @@ describe('ManufacturingPage', () => {
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/manufacturing/queue') {
+      if (url.pathname === '/cheongju/api/manufacturing/queue') {
         return json({
           projects: [{
             projectId,
@@ -204,11 +204,11 @@ describe('ManufacturingPage', () => {
           }]
         });
       }
-      if (url.pathname === `/api/manufacturing/panels/${panelId}`) {
+      if (url.pathname === `/cheongju/api/manufacturing/panels/${panelId}`) {
         return json({ ...detail('InProgress'), panel: first });
       }
-      if (url.pathname === '/api/manufacturing/action-departments') return json([]);
-      if (url.pathname === '/api/manufacturing/executions/step-batch') {
+      if (url.pathname === '/cheongju/api/manufacturing/action-departments') return json([]);
+      if (url.pathname === '/cheongju/api/manufacturing/executions/step-batch') {
         capturedBody = JSON.parse(String(init?.body));
         return json({
           operationId: capturedBody!.operationId,

@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.ProductionPlanning;
 
-public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class ProductionControlTemplateStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<ProductionControlTemplateCatalogResponse> GetCatalogAsync(
         Guid userId,
@@ -907,10 +908,10 @@ public sealed class ProductionControlTemplateStore(DatabaseConnectionStringProvi
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var value = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(value);
+        return connectionStringProvider.RentDataSource(value);
     }
 }

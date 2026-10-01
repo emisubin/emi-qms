@@ -26,11 +26,37 @@ run_id="${E2E_RUN_ID}"
 docker_run_id="${run_id//_/-}"
 expected_compose_project="emi-qms-e2e-${docker_run_id}"
 expected_database_name="emi_qms_e2e_${run_id}"
+borrowed_image="${BUSINESS_UNIT_PRODUCTION_IMAGE_REF:-}"
 image_ref="emi-qms-business-unit-production-test:${docker_run_id}"
+if [[ -n "${borrowed_image}" ]]; then
+  # Callers retain ownership. Accept an immutable local image ID only, never a
+  # tag that can move while the packaged CLI is being exercised.
+  if [[ ! "${borrowed_image}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "Business-unit production borrowed image must be an immutable local image ID." >&2
+    exit "${E2E_SAFETY_EXIT_CODE}"
+  fi
+  image_ref="${borrowed_image}"
+fi
 inspection_container="emi-qms-business-unit-production-catalog-${docker_run_id}"
 migration_container_fresh="emi-qms-production-migration-${docker_run_id}-fresh"
 migration_container_existing="emi-qms-production-migration-${docker_run_id}-existing"
 migration_containers=("${migration_container_fresh}" "${migration_container_existing}")
+for invalid_configuration in missing-target invalid-target missing-credentials migration-invalid-target; do
+  migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-configuration-${invalid_configuration}")
+done
+for fixture_phase in fresh upgrade; do
+  for target in DIRECTORY CHEONGJU OSAN; do
+    for operation in bootstrap apply existing drain; do
+      migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-${fixture_phase}-${target}-${operation}")
+    done
+    if [[ "${target}" != DIRECTORY ]]; then
+      migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-${fixture_phase}-${target}-drain-required")
+    fi
+    if [[ "${fixture_phase}" == upgrade && "${target}" != DIRECTORY ]]; then
+      migration_containers+=("emi-qms-production-migration-${docker_run_id}-business-${fixture_phase}-${target}-unapproved")
+    fi
+  done
+done
 owner_label="com.emi-qms.test.owner"
 run_label="com.emi-qms.test.run-id"
 owner_value="business-unit-production-image"
@@ -493,7 +519,9 @@ if ! inspection_state="$(container_state "${inspection_container}")" \
   exit "${E2E_SAFETY_EXIT_CODE}"
 fi
 
-if [[ "${inspection_state}" != "ABSENT" || "${image_preflight_state}" != "ABSENT" \
+expected_image_state=ABSENT
+[[ -z "${borrowed_image}" ]] || expected_image_state=PRESENT
+if [[ "${inspection_state}" != "ABSENT" || "${image_preflight_state}" != "${expected_image_state}" \
   || "${existing_owned_containers}" != "0" || "${existing_owned_images}" != "0" \
   || "${existing_compose_containers}" != "0" || "${existing_compose_networks}" != "0" \
   || "${existing_compose_volumes}" != "0" ]]; then
@@ -504,21 +532,30 @@ fi
 temp_dir="$(mktemp -d "${temp_prefix}XXXXXX")"
 temp_scope_claimed=1
 printf '%s\n' "${run_id}" >"${temp_dir}/.ownership-run-id"
-mkdir -p "${temp_dir}/image-business-migrations" "${temp_dir}/image-directory-migrations"
+mkdir -p "${temp_dir}/image-common-migrations" "${temp_dir}/image-directory-migrations" "${temp_dir}/image-business-migrations"
 
-image_scope_claimed=1
-if ! docker build \
-  --file "${repo_root}/backend/Dockerfile.production" \
-  --label "${owner_label}=${owner_value}" \
-  --label "${run_label}=${run_id}" \
-  --tag "${image_ref}" \
-  "${repo_root}" >"${temp_dir}/docker-build.log" 2>&1; then
-  echo "Business-unit production image build failed." >&2
-  exit 1
-fi
-if ! assert_image_ownership; then
-  echo "Business-unit production image label verification failed." >&2
-  exit 1
+if [[ -n "${borrowed_image}" ]]; then
+  if [[ "$(docker image inspect -f '{{.Id}}' "${image_ref}")" != "${image_ref}" \
+    || "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "${image_ref}")" != 'linux/amd64' ]]; then
+    echo "Business-unit production borrowed image identity/platform verification failed." >&2
+    exit 1
+  fi
+else
+  image_scope_claimed=1
+  if ! docker build \
+    --file "${repo_root}/backend/Dockerfile.production" \
+    --label "${owner_label}=${owner_value}" \
+    --label "${run_label}=${run_id}" \
+    --tag "${image_ref}" \
+    "${repo_root}" >"${temp_dir}/docker-build.log" 2>&1; then
+    echo "Business-unit production image build failed." >&2
+    exit 1
+  fi
+  if ! assert_image_ownership; then
+    echo "Business-unit production image label verification failed." >&2
+    exit 1
+  fi
+
 fi
 
 container_scope_claimed=1
@@ -548,43 +585,63 @@ esac
 
 if ! docker cp \
   "${inspection_container}:/app/database/migrations/." \
-  "${temp_dir}/image-business-migrations" >/dev/null 2>&1 \
+  "${temp_dir}/image-common-migrations" >/dev/null 2>&1 \
   || ! docker cp \
   "${inspection_container}:/app/database/directory-migrations/." \
-  "${temp_dir}/image-directory-migrations" >/dev/null 2>&1; then
+  "${temp_dir}/image-directory-migrations" >/dev/null 2>&1 \
+  || ! docker cp \
+  "${inspection_container}:/app/database/business-migrations/." \
+  "${temp_dir}/image-business-migrations" >/dev/null 2>&1; then
   echo "Business-unit production image catalog extraction failed." >&2
   exit 1
 fi
 
 if ! diff -qr \
   "${repo_root}/database/migrations" \
-  "${temp_dir}/image-business-migrations" >/dev/null \
+  "${temp_dir}/image-common-migrations" >/dev/null \
   || ! diff -qr \
   "${repo_root}/database/directory-migrations" \
-  "${temp_dir}/image-directory-migrations" >/dev/null; then
+  "${temp_dir}/image-directory-migrations" >/dev/null \
+  || ! diff -qr \
+  "${repo_root}/database/business-migrations" \
+  "${temp_dir}/image-business-migrations" >/dev/null; then
   echo "Business-unit production image catalog verification failed." >&2
   exit 1
 fi
 
 compose_scope_claimed=1
 migration_container_scope_claimed=1
-if ! PRODUCTION_MIGRATION_CONTAINER_OWNER="${owner_value}" \
+if ! PRODUCTION_MIGRATION_TEST_BUSINESS_SCHEMAS=true \
+  PRODUCTION_MIGRATION_CONTAINER_OWNER="${owner_value}" \
   PRODUCTION_MIGRATION_CONTAINER_RUN_ID="${run_id}" \
   bash "${repo_root}/scripts/test-production-migration-image.sh" "${image_ref}" \
   >"${temp_dir}/business-migration-test.log" 2>&1; then
   echo "Business-unit production image migration execution failed." >&2
+  # Forward only the fixed synthetic case and exit metadata, never raw CLI logs.
+  rg --no-filename --no-line-number --max-count 1 \
+    '^Packaged CLI invalid operation configuration (exit mismatch|fixed code missing)\. Configuration=(missing-target|invalid-target|missing-credentials|migration-invalid-target); Exit=[0-9]{1,3}\.$' \
+    "${temp_dir}/business-migration-test.log" >&2 || true
   exit 1
 fi
 
 if ! grep -Fxq 'productionMigrationImageFreshApply=passed' "${temp_dir}/business-migration-test.log" \
   || ! grep -Fxq 'productionMigrationImageExistingApply=passed' "${temp_dir}/business-migration-test.log" \
-  || ! grep -Fxq 'productionMigrationLedgerExact=true' "${temp_dir}/business-migration-test.log"; then
+  || ! grep -Fxq 'productionMigrationLedgerExact=true' "${temp_dir}/business-migration-test.log" \
+  || ! grep -Fxq 'productionBusinessMigrationFreshApply=passed' "${temp_dir}/business-migration-test.log" \
+  || ! grep -Fxq 'productionBusinessMigrationUpgradeApply=passed' "${temp_dir}/business-migration-test.log" \
+  || ! grep -Fxq 'productionBusinessMigrationSchemaContracts=passed' "${temp_dir}/business-migration-test.log"; then
   echo "Business-unit production image migration evidence verification failed." >&2
   exit 1
 fi
 
-echo "businessUnitProductionImageBuild=passed"
+if [[ -n "${borrowed_image}" ]]; then
+  echo "businessUnitProductionImageBuild=borrowed"
+  echo "businessUnitProductionImageBorrowedIdentity=verified"
+else
+  echo "businessUnitProductionImageBuild=passed"
+fi
 echo "businessUnitProductionImageBusinessCatalogExact=true"
 echo "businessUnitProductionImageDirectoryCatalogExact=true"
 echo "businessUnitProductionImageFreshApply=passed"
 echo "businessUnitProductionImageExistingApply=passed"
+echo "businessUnitProductionImageReducedSchemas=passed"

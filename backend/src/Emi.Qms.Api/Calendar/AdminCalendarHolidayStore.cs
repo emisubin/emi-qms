@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using Emi.Qms.Api.Admin;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Calendar;
 
-public sealed class AdminCalendarHolidayStore(DatabaseConnectionStringProvider connectionStringProvider, TimeProvider timeProvider)
+public sealed class AdminCalendarHolidayStore(CheongjuDatabase connectionStringProvider, TimeProvider timeProvider)
 {
     private const string DefaultCountryCode = "KR";
     private const string AdminSource = "AdminManual";
@@ -184,14 +185,16 @@ public sealed class AdminCalendarHolidayStore(DatabaseConnectionStringProvider c
         command.Parameters.AddWithValue("deletion_requested_at_utc", now);
         command.Parameters.AddWithValue("scheduled_hard_delete_at_utc", now.AddDays(7));
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        AdminCalendarHolidayResponse after;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return CalendarHolidayMutationResult.Failure("휴일을 찾을 수 없습니다.");
-        }
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return CalendarHolidayMutationResult.Failure("휴일을 찾을 수 없습니다.");
+            }
 
-        var after = ReadHoliday(reader);
-        await reader.DisposeAsync();
+            after = ReadHoliday(reader);
+        }
         await InsertChangeLogAsync(connection, transaction, "Holiday", holidayId, "DeleteScheduled", before, after, "삭제", changedByUserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return CalendarHolidayMutationResult.Success(after);
@@ -226,14 +229,16 @@ public sealed class AdminCalendarHolidayStore(DatabaseConnectionStringProvider c
         command.Parameters.AddWithValue("id", holidayId);
         command.Parameters.AddWithValue("updated_at_utc", timeProvider.GetUtcNow());
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        AdminCalendarHolidayResponse after;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return CalendarHolidayMutationResult.Failure("삭제 예정 또는 삭제 보류 휴일만 복구할 수 있습니다.");
-        }
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return CalendarHolidayMutationResult.Failure("삭제 예정 또는 삭제 보류 휴일만 복구할 수 있습니다.");
+            }
 
-        var after = ReadHoliday(reader);
-        await reader.DisposeAsync();
+            after = ReadHoliday(reader);
+        }
         await InsertChangeLogAsync(connection, transaction, "Holiday", holidayId, "Restored", before, after, "삭제 예정 복구", changedByUserId, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return CalendarHolidayMutationResult.Success(after);
@@ -557,10 +562,10 @@ public sealed class AdminCalendarHolidayStore(DatabaseConnectionStringProvider c
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString()
             ?? throw new InvalidOperationException("Database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

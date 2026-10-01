@@ -7,6 +7,7 @@ using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
 using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.PanelQr;
@@ -85,7 +86,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             where user_id='{outsideRecipient:D}' and customer_id='{secondCustomer.CustomerId:D}';
             """,ct);
         var notificationOperation=Guid.NewGuid();
-        await using(var notificationConnection=new NpgsqlConnection(provider.GetConnectionString()))
+        await using(var notificationConnection=new NpgsqlConnection(new OsanDatabase(provider).GetConnectionString()))
         {
             await notificationConnection.OpenAsync(ct);
             await using var notificationTx=await notificationConnection.BeginTransactionAsync(ct);
@@ -112,7 +113,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             where n.idempotency_key=@key and d.recipient_user_id=@outside
             """,ct,("key",notificationKey),("outside",outsideRecipient)));
         var directRequest=Guid.NewGuid();
-        await using(var notificationConnection=new NpgsqlConnection(provider.GetConnectionString()))
+        await using(var notificationConnection=new NpgsqlConnection(new OsanDatabase(provider).GetConnectionString()))
         {
             await notificationConnection.OpenAsync(ct);
             await using var notificationTx=await notificationConnection.BeginTransactionAsync(ct);
@@ -142,7 +143,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var administrator=await progress.CompleteAsync(created.Value.Project.ProjectId,gateInput,UserId,ct,true);
         Assert.Equal(OsanProgressMutationStatus.Success,administrator.Status);
 
-        await using var connection=new NpgsqlConnection(provider.GetConnectionString());
+        await using var connection=new NpgsqlConnection(new OsanDatabase(provider).GetConnectionString());
         await connection.OpenAsync(ct);
         await using(var tx=await connection.BeginTransactionAsync(ct))
         {
@@ -171,7 +172,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         var ct=TestContext.Current.CancellationToken;
         await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
         var configuration=database.CreateConfiguration();
-        var provider=new DatabaseConnectionStringProvider(configuration);
+        var middlewareAccessor=new HttpContextAccessor();
+        var provider=new DatabaseConnectionStringProvider(configuration,middlewareAccessor);
         await CreateMigrationRunner(database.RepositoryRoot,provider,configuration).ApplyAndVerifyAsync(ct);
         await database.ExecuteAsync("""
             insert into departments(id,code,name,is_active,sort_order)
@@ -180,7 +182,8 @@ public sealed partial class OsanProjectRegistrationApiTests
             values ('89000000-0000-0000-0000-000000000001','osan-maintenance-test','합성 관리자',
               '89000000-0000-0000-0000-000000000010',true);
             """,ct);
-        var store=new DeploymentMaintenanceStore(provider);
+        var osanDatabase=new OsanDatabase(provider);
+        var store=new DeploymentMaintenanceStore(osanDatabase);
         Assert.Equal("Idle",(await store.ReadAsync(UserId,ct)).State);
         var release=Guid.NewGuid();
         var scheduledStart=DateTimeOffset.UtcNow.AddMinutes(5);
@@ -204,13 +207,14 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(1,await database.ReadScalarAsync<int>(
             "select count(*)::integer from notice_posts where request_id=@release",ct,("release",release)));
         var activeRequest = await DeploymentMaintenanceLease.AcquireAsync(
-            provider, provider.BusinessUnits.Businesses, ct);
+            osanDatabase, osanDatabase.BusinessUnits.Businesses, ct);
         Assert.NotNull(activeRequest);
         var activating = store.TransitionAsync(release, 1, "activate", null, false, UserId, ct);
         Assert.NotSame(activating, await Task.WhenAny(activating, Task.Delay(100, ct)));
         await activeRequest.DisposeAsync();
         Assert.Equal("Active", (await activating).Value!.State);
-        Assert.Null(await DeploymentMaintenanceLease.AcquireAsync(provider, provider.BusinessUnits.Businesses, ct));
+        Assert.Null(await DeploymentMaintenanceLease.AcquireAsync(
+            osanDatabase, osanDatabase.BusinessUnits.Businesses, ct));
         var served = 0;
         var middleware = new DeploymentMaintenanceMiddleware(_ => { served++; return Task.CompletedTask; });
         var blockedWrite = new DefaultHttpContext();
@@ -219,12 +223,16 @@ public sealed partial class OsanProjectRegistrationApiTests
         blockedWrite.Request.Method = HttpMethods.Post;
         blockedWrite.Request.Path = "/api/osan/projects";
         blockedWrite.Response.Body = new MemoryStream();
+        SetOsanRequestContext(blockedWrite,provider);
+        middlewareAccessor.HttpContext=blockedWrite;
         await middleware.InvokeAsync(blockedWrite, provider);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, blockedWrite.Response.StatusCode);
         Assert.Equal(0, served);
         var read = new DefaultHttpContext { User = blockedWrite.User };
         read.Request.Method = HttpMethods.Get;
         read.Request.Path = "/api/osan/projects";
+        SetOsanRequestContext(read,provider);
+        middlewareAccessor.HttpContext=read;
         await middleware.InvokeAsync(read, provider);
         Assert.Equal(1, served);
         Assert.Equal(400,(await store.TransitionAsync(release,2,"delay",scheduledStart, false,UserId,ct)).Status);
@@ -254,11 +262,13 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.False(await database.ReadScalarAsync<bool>(
             "select popup_enabled from notice_posts where id=@notice",ct,("notice",prepared.Value.NoticeId!.Value)));
         await using var resumed = await DeploymentMaintenanceLease.AcquireAsync(
-            provider, provider.BusinessUnits.Businesses, ct);
+            osanDatabase, osanDatabase.BusinessUnits.Businesses, ct);
         Assert.NotNull(resumed);
         var resumedWrite = new DefaultHttpContext { User = blockedWrite.User };
         resumedWrite.Request.Method = HttpMethods.Post;
         resumedWrite.Request.Path = "/api/osan/projects";
+        SetOsanRequestContext(resumedWrite,provider);
+        middlewareAccessor.HttpContext=resumedWrite;
         await middleware.InvokeAsync(resumedWrite, provider);
         Assert.Equal(2, served);
     }
@@ -289,7 +299,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var configuration=database.CreateConfiguration();
         var provider=new DatabaseConnectionStringProvider(configuration);
         await CreateMigrationRunner(database.RepositoryRoot,provider,configuration).ApplyAndVerifyAsync(ct);
-        var store=new DeploymentMaintenanceStore(provider);
+        var store=new DeploymentMaintenanceStore(new OsanDatabase(provider));
         var release=Guid.NewGuid();
         var start=DateTimeOffset.UtcNow.AddMinutes(5);
         var end=start.AddMinutes(30);
@@ -313,7 +323,8 @@ public sealed partial class OsanProjectRegistrationApiTests
             ["Maintenance:ReleaseId"]=release.ToString(),["Maintenance:ActorUserId"]=UserId.ToString(),
             ["Maintenance:Title"]=request.Title,["Maintenance:Body"]=request.Body,
             ["Maintenance:StartsAtUtc"]=start.ToString("O"),["Maintenance:ExpectedEndsAtUtc"]=end.ToString("O"),
-            ["Maintenance:PublishNotice"]="false"
+            ["Maintenance:PublishNotice"]="false",
+            ["Maintenance:BusinessUnit"]=BusinessUnitCodes.Osan
         };
         async Task VerifyAsync(Dictionary<string,string?> settings)
         {
@@ -1071,14 +1082,16 @@ public sealed partial class OsanProjectRegistrationApiTests
             "select count(*) from osan_project_events where project_id=@project_id and event_type='ProjectCreated';",
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
-        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+        Assert.True(await database.ReadScalarAsync<bool>(
             """
-            select (select count(*) from panel_placeholders where project_id=@project_id)
-                 + (select count(*) from project_production_plans where project_id=@project_id)
-                 + (select count(*) from project_procurement_items where project_id=@project_id)
-                 + (select count(*) from work_items where project_id=@project_id)
-                 + (select count(*) from pending_issues where project_id=@project_id)
-                 + (select count(*) from notification_deliveries where project_id=@project_id and delivery_type <> 'OsanWorkflow');
+            select to_regclass('public.panel_placeholders') is null
+               and to_regclass('public.project_production_plans') is null
+               and to_regclass('public.project_procurement_items') is null
+               and to_regclass('public.work_items') is null
+               and to_regclass('public.pending_issues') is null
+               and not exists (
+                   select 1 from notification_deliveries
+                   where project_id=@project_id and delivery_type <> 'OsanWorkflow');
             """,
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
@@ -1088,7 +1101,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.True(replay.Value?.Replayed);
         Assert.Equal(projectId, replay.Value?.Project.ProjectId);
         Assert.Equal(1L, await database.ReadScalarAsync<long>(
-            "select count(*) from projects where project_code='OSAN-001' and project_profile='Osan';",
+            "select count(*) from projects where project_code='OSAN-001';",
             TestContext.Current.CancellationToken));
 
         var concurrentReplayInput = Normalize(ValidRequest(
@@ -1103,7 +1116,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(1, concurrentReplays.Count(result => result.Value?.Replayed == true));
         Assert.Single(concurrentReplays.Select(result => result.Value!.Project.ProjectId).Distinct());
         Assert.Equal(1L, await database.ReadScalarAsync<long>(
-            "select count(*) from projects where project_code='CONCURRENT-REPLAY' and project_profile='Osan';",
+            "select count(*) from projects where project_code='CONCURRENT-REPLAY';",
             TestContext.Current.CancellationToken));
 
         var operationConflict = await store.CreateAsync(
@@ -1162,7 +1175,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal(1, concurrentResults.Count(result => result.Status == OsanProjectCreateStatus.Success));
         Assert.Equal(1, concurrentResults.Count(result => result.Status == OsanProjectCreateStatus.ProjectCodeConflict));
         Assert.Equal(1L, await database.ReadScalarAsync<long>(
-            "select count(*) from projects where project_code='CONCURRENT-CODE' and project_profile='Osan';",
+            "select count(*) from projects where project_code='CONCURRENT-CODE';",
             TestContext.Current.CancellationToken));
 
         var scoped = await store.ListAsync(
@@ -1420,24 +1433,13 @@ public sealed partial class OsanProjectRegistrationApiTests
                 deliveryDate: new DateOnly(2026, 9, 10))),
             UserId,
             TestContext.Current.CancellationToken);
-        var cheongjuId = Guid.NewGuid();
-        await database.ExecuteAsync(
+        Assert.True(await database.ReadScalarAsync<bool>(
             """
-            insert into projects (
-                id, project_key, project_number, name, customer_name, item, project_code,
-                project_title, delivery_date, status, created_by_user_id, updated_at_utc,
-                project_profile)
-            values (
-                @project_id, @project_key, @project_number, 'MIXEDPROFILE project',
-                'Cheongju Customer', '', @project_code, 'MIXEDPROFILE project',
-                '2026-07-01', 'Active', @user_id, now(), 'Cheongju');
+            select not exists (
+                select 1 from information_schema.columns
+                where table_schema='public' and table_name='projects' and column_name='project_profile');
             """,
-            TestContext.Current.CancellationToken,
-            ("project_id", cheongjuId),
-            ("project_key", $"cheongju-{cheongjuId:N}"),
-            ("project_number", $"CJ-{cheongjuId:N}"),
-            ("project_code", $"CJ-{cheongjuId:N}"),
-            ("user_id", UserId));
+            TestContext.Current.CancellationToken));
 
         var progressStore = new OsanProgressStore(provider);
         var partialTargets = partial.Value!.Project.Targets.Select(target => target.TargetId).ToArray();
@@ -1573,14 +1575,14 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Empty(noLeak.Items);
         Assert.NotEqual(hidden.Value!.Project.ProjectId, partial.Value.Project.ProjectId);
 
-        var noCheongjuLeak = await store.GetAsync(
+        var noRemovedProfileLeak = await store.GetAsync(
             new OsanDashboardQuery("MIXEDPROFILE", OsanDashboardStatuses.All, 1, 10),
             new ProjectAccessScope(true, []),
             TestContext.Current.CancellationToken);
-        Assert.Equal(0, noCheongjuLeak.Summary.TotalCount);
-        Assert.Equal(0, noCheongjuLeak.TotalCount);
-        Assert.Empty(noCheongjuLeak.Items);
-        Assert.DoesNotContain("Cheongju Customer", noCheongjuLeak.Customers!);
+        Assert.Equal(0, noRemovedProfileLeak.Summary.TotalCount);
+        Assert.Equal(0, noRemovedProfileLeak.TotalCount);
+        Assert.Empty(noRemovedProfileLeak.Items);
+        Assert.DoesNotContain("Cheongju Customer", noRemovedProfileLeak.Customers!);
 
         var emptyScope = await store.GetAsync(
             new OsanDashboardQuery(string.Empty, OsanDashboardStatuses.All, 1, 10),
@@ -2151,12 +2153,14 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Equal("Completed", detailedCompleted.Status);
         Assert.Equal(14, detailedCompleted.CompletedStepCount);
         Assert.Equal(14, detailedCompleted.TotalStepCount);
-        Assert.Equal(0L, await database.ReadScalarAsync<long>(
+        Assert.True(await database.ReadScalarAsync<bool>(
             """
-            select (select count(*) from pending_issues where project_id=@project_id)
-                 + (select count(*) from notification_deliveries where project_id=@project_id and delivery_type <> 'OsanWorkflow')
-                 + (select count(*) from logistics_packing_units where project_id=@project_id)
-                 + (select count(*) from panel_quality_inspection_attempts where project_id=@project_id);
+            select to_regclass('public.pending_issues') is null
+               and to_regclass('public.logistics_packing_units') is null
+               and to_regclass('public.panel_quality_inspection_attempts') is null
+               and not exists (
+                   select 1 from notification_deliveries
+                   where project_id=@project_id and delivery_type <> 'OsanWorkflow');
             """,
             TestContext.Current.CancellationToken,
             ("project_id", projectId)));
@@ -2851,60 +2855,113 @@ public sealed partial class OsanProjectRegistrationApiTests
         return Assert.IsType<NormalizedCreateOsanProjectInput>(input);
     }
 
-    private static DatabaseMigrationRunner CreateMigrationRunner(
+    private static void SetOsanRequestContext(
+        HttpContext context,
+        DatabaseConnectionStringProvider provider)
+    {
+        var osan = provider.BusinessUnits.GetBusiness(BusinessUnitCodes.Osan);
+        BusinessUnitRequestContextFeature.Set(context, new BusinessUnitRequestContext(
+            BusinessUnitAccessStatuses.Selected,
+            UserId,
+            osan,
+            [BusinessUnitCodes.Osan],
+            false,
+            "synthetic"));
+    }
+
+    private static DatabaseConnectionStringProvider CreateOsanGuardProvider()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["BusinessUnits:Enabled"] = "true",
+                ["BusinessUnits:Units:Osan:Code"] = BusinessUnitCodes.Osan,
+                ["BusinessUnits:Units:Osan:RuntimeConnection"] = "OsanRuntime",
+                ["BusinessUnits:Units:Osan:MigrationConnection"] = "OsanMigration",
+                ["BusinessUnits:Units:Osan:AdministratorConnection"] = "OsanAdmin",
+                ["BusinessUnits:Units:Osan:ExpectedDatabaseName"] = "guard_only_osan",
+                ["BusinessUnits:Units:Osan:MigrationRoleName"] = "guard_only_osan_migration",
+                ["BusinessUnits:Units:Osan:RuntimeRoleName"] = "guard_only_osan_runtime",
+                ["BusinessUnits:Units:Osan:ExpectedSchemaVersion"] = BusinessUnitConfiguration.BusinessSchemaVersion
+            }).Build();
+        var target = BusinessUnitConfiguration.Read(configuration).GetBusiness(BusinessUnitCodes.Osan);
+        var context = new DefaultHttpContext();
+        BusinessUnitRequestContextFeature.Set(context, new BusinessUnitRequestContext(
+            BusinessUnitAccessStatuses.Selected,
+            UserId,
+            target,
+            [BusinessUnitCodes.Osan],
+            false,
+            "synthetic"));
+        return new DatabaseConnectionStringProvider(
+            configuration,
+            new HttpContextAccessor { HttpContext = context });
+    }
+
+    private static OsanMigrationRunner CreateMigrationRunner(
         string repositoryRoot,
         DatabaseConnectionStringProvider provider,
         IConfiguration configuration) =>
-        new(
+        new(new DatabaseMigrationRunner(
             provider,
             new DatabaseMigrationCatalog(new TestWebHostEnvironment(repositoryRoot)),
             new DatabaseRuntimePrivilegeManager(),
             configuration,
-            NullLogger<DatabaseMigrationRunner>.Instance);
+            NullLogger<DatabaseMigrationRunner>.Instance));
+
+    private sealed class OsanMigrationRunner(DatabaseMigrationRunner runner)
+    {
+        public async Task<MigrationLedgerInspection> ApplyAndVerifyAsync(CancellationToken cancellationToken)
+        {
+            await runner.ApplyAndVerifyAsync("DIRECTORY", cancellationToken);
+            return await runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, cancellationToken);
+        }
+    }
 
     private sealed class PostgreSqlTestDatabase : IAsyncDisposable
     {
-        private readonly IConfiguration baseConfiguration;
-        private readonly string databaseName;
+        private readonly BusinessUnitIsolationTests.IsolationDatabaseSet databases;
 
-        private PostgreSqlTestDatabase(string repositoryRoot, string databaseName, IConfiguration baseConfiguration)
+        private PostgreSqlTestDatabase(BusinessUnitIsolationTests.IsolationDatabaseSet databases)
         {
-            RepositoryRoot = repositoryRoot;
-            this.databaseName = databaseName;
-            this.baseConfiguration = baseConfiguration;
+            this.databases = databases;
         }
 
-        public string RepositoryRoot { get; }
-        private string ConnectionString => BuildConnectionString(baseConfiguration, databaseName);
+        public string RepositoryRoot => databases.RepositoryRoot;
 
         public static async Task<PostgreSqlTestDatabase> CreateAsync(CancellationToken cancellationToken)
         {
-            var repositoryRoot = FindRepositoryRoot();
-            var envValues = LoadDotEnv(Path.Combine(repositoryRoot, ".env"));
-            var baseConfiguration = TestConfigurationIsolation.BuildBaseDatabaseConfiguration(envValues);
-            var databaseName = $"emi_qms_osan_project_test_{Guid.NewGuid():N}";
-            await using var dataSource = NpgsqlDataSource.Create(BuildConnectionString(baseConfiguration, "postgres"));
-            await using var command = dataSource.CreateCommand($"create database {QuoteIdentifier(databaseName)};");
-            await command.ExecuteNonQueryAsync(cancellationToken);
-            return new PostgreSqlTestDatabase(repositoryRoot, databaseName, baseConfiguration);
+            var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(cancellationToken);
+            try
+            {
+                var bootstrapper = new DatabaseRoleBootstrapper(
+                        databases.Configuration,
+                        new DatabaseRuntimePrivilegeManager(),
+                        NullLogger<DatabaseRoleBootstrapper>.Instance);
+                await bootstrapper.BootstrapAsync("DIRECTORY", cancellationToken);
+                await bootstrapper.BootstrapAsync(BusinessUnitCodes.Osan, cancellationToken);
+                return new PostgreSqlTestDatabase(databases);
+            }
+            catch
+            {
+                await databases.DisposeAsync();
+                throw;
+            }
         }
 
-        public IConfiguration CreateConfiguration()
-        {
-            var values = baseConfiguration.AsEnumerable()
-                .Where(item => item.Value is not null)
-                .ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
-            values["DATABASE_NAME"] = databaseName;
-            return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-        }
+        public IConfiguration CreateConfiguration() => databases.Configuration;
 
         public async Task ExecuteAsync(
             string sql,
             CancellationToken cancellationToken,
             params (string Name, object Value)[] parameters)
         {
-            await using var dataSource = NpgsqlDataSource.Create(ConnectionString);
-            await using var command = dataSource.CreateCommand(sql);
+            await using var connection = await databases.OpenAsync(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
             foreach (var parameter in parameters)
             {
                 command.Parameters.AddWithValue(parameter.Name, parameter.Value);
@@ -2917,8 +2974,12 @@ public sealed partial class OsanProjectRegistrationApiTests
             CancellationToken cancellationToken,
             params (string Name, object Value)[] parameters)
         {
-            await using var dataSource = NpgsqlDataSource.Create(ConnectionString);
-            await using var command = dataSource.CreateCommand(sql);
+            await using var connection = await databases.OpenAsync(
+                BusinessUnitCodes.Osan,
+                BusinessUnitConnectionPurpose.Migration,
+                cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
             foreach (var parameter in parameters)
             {
                 command.Parameters.AddWithValue(parameter.Name, parameter.Value);
@@ -2928,66 +2989,7 @@ public sealed partial class OsanProjectRegistrationApiTests
             return (T)value;
         }
 
-        public async ValueTask DisposeAsync()
-        {
-            await using var dataSource = NpgsqlDataSource.Create(BuildConnectionString(baseConfiguration, "postgres"));
-            await using var command = dataSource.CreateCommand($"drop database if exists {QuoteIdentifier(databaseName)} with (force);");
-            await command.ExecuteNonQueryAsync();
-        }
-
-        private static string BuildConnectionString(IConfiguration configuration, string targetDatabase)
-        {
-            var provider = new DatabaseConnectionStringProvider(configuration);
-            var builder = new NpgsqlConnectionStringBuilder(provider.GetConnectionString())
-            {
-                Database = targetDatabase,
-                Pooling = false
-            };
-            return builder.ConnectionString;
-        }
-
-        private static string QuoteIdentifier(string value) =>
-            new NpgsqlCommandBuilder().QuoteIdentifier(value);
-
-        private static Dictionary<string, string?> LoadDotEnv(string path)
-        {
-            var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            if (!File.Exists(path))
-            {
-                return values;
-            }
-
-            foreach (var rawLine in File.ReadAllLines(path))
-            {
-                var line = rawLine.Trim();
-                if (line.Length == 0 || line.StartsWith('#'))
-                {
-                    continue;
-                }
-
-                var parts = line.Split('=', 2);
-                if (parts.Length == 2)
-                {
-                    values[parts[0].Trim()] = parts[1].Trim().Trim('"', '\'');
-                }
-            }
-            return values;
-        }
-
-        private static string FindRepositoryRoot()
-        {
-            var current = new DirectoryInfo(AppContext.BaseDirectory);
-            while (current is not null)
-            {
-                if (File.Exists(Path.Combine(current.FullName, "README.md"))
-                    && Directory.Exists(Path.Combine(current.FullName, "database", "migrations")))
-                {
-                    return current.FullName;
-                }
-                current = current.Parent;
-            }
-            throw new DirectoryNotFoundException("Could not find repository root.");
-        }
+        public ValueTask DisposeAsync() => databases.DisposeAsync();
     }
 
     private sealed class TestWebHostEnvironment(string contentRootPath) : IWebHostEnvironment

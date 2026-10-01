@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,7 +11,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Pending;
 
-public sealed class PendingStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
 {
     private const int MaxActionPhotoBytes = 5 * 1024 * 1024;
     private const int MaxActionRoundBytes = 15 * 1024 * 1024;
@@ -114,13 +115,14 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
         AddNullableText(command, "department_code", departmentCode);
 
         var items = new List<PendingListItemResponse>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            items.Add(ReadIssue(reader));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                items.Add(ReadIssue(reader));
+            }
         }
 
-        await reader.DisposeAsync();
         var summary = await ReadSummaryAsync(
             dataSource,
             projectId,
@@ -1348,7 +1350,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     }
 
     private static async Task<PendingSummaryResponse> ReadSummaryAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid? projectId,
         bool departmentScope,
         string? departmentCode,
@@ -1383,7 +1385,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     }
 
     private static async Task<string?> ReadUserDepartmentCodeAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid userId,
         CancellationToken cancellationToken)
     {
@@ -1629,15 +1631,6 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             _ => false
         };
     }
-
-    private static bool CanParticipate(PendingListItemResponse issue, PendingActor actor, bool isInspectionPending = false)
-    {
-        return actor.IsCoordinator
-            || (isInspectionPending && actor.IsQuality)
-            || issue.CreatedByUserId == actor.UserId
-            || issue.AssigneeUserId == actor.UserId;
-    }
-
     private static async Task<PendingListItemResponse?> ReadIssueForUpdateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -2923,7 +2916,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
     private static string Hash(byte[] content)
         => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -2931,7 +2924,7 @@ public sealed class PendingStore(DatabaseConnectionStringProvider connectionStri
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed record PendingAssigneePair(

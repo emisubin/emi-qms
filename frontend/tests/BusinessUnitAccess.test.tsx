@@ -157,23 +157,30 @@ function shellFetch(
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    calls.push({ path: url.pathname, headers: new Headers(init?.headers) });
+    const headers = new Headers(init?.headers);
+    const selectedBusinessUnit = headers.get('X-Qms-Business-Unit');
+    const selectedPrefix = selectedBusinessUnit === 'OSAN'
+      ? '/osan'
+      : selectedBusinessUnit === 'CHEONGJU'
+        ? '/cheongju'
+        : '/access';
+    calls.push({ path: url.pathname, headers });
     if (url.pathname === '/health/ready') {
       return json({ status: 'ready', database: { reason: 'ready' } });
     }
-    if (url.pathname === '/api/runtime-mode') {
+    if (url.pathname === `${selectedPrefix}/api/runtime-mode`) {
       if (runtimeMode instanceof Response || runtimeMode instanceof Promise) {
         return runtimeMode;
       }
       return json(runtimeMode);
     }
-    if (url.pathname === '/api/me') {
-      return json(typeof me === 'function' ? (me as (headers: Headers) => unknown)(new Headers(init?.headers)) : me);
+    if (url.pathname === `${selectedPrefix}/api/me`) {
+      return json(typeof me === 'function' ? (me as (headers: Headers) => unknown)(headers) : me);
     }
-    if (url.pathname === '/api/osan/dashboard') {
+    if (url.pathname === '/osan/api/osan/dashboard') {
       return json({ summary: { totalCount: 0, notStartedCount: 0, inProgressCount: 0, completedCount: 0 }, items: [], totalCount: 0, page: 1, pageSize: 11 });
     }
-    if (url.pathname === '/api/admin/users') {
+    if (url.pathname === '/cheongju/api/admin/users') {
       return json({
         users: [{
           userId: '50000000-0000-0000-0000-000000000002',
@@ -211,7 +218,7 @@ function shellFetch(
         }]
       });
     }
-    if (url.pathname === '/api/admin/user-access/users') {
+    if (url.pathname === '/access/api/admin/user-access/users') {
       return json(membershipAdministrationResponse());
     }
     return json({ title: 'unexpected test request' }, 404);
@@ -283,9 +290,9 @@ describe('business-unit access shell', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '사용자 승인이 필요합니다.' })).toBeInTheDocument();
-    await waitFor(() => expect(calls.filter((call) => call.path === '/api/me')).toHaveLength(1));
-    expect(calls.filter((call) => call.path === '/api/runtime-mode')).toHaveLength(0);
-    expect(calls.filter((call) => call.path.startsWith('/api/') && call.path !== '/api/me')).toHaveLength(0);
+    await waitFor(() => expect(calls.filter((call) => call.path === '/access/api/me')).toHaveLength(1));
+    expect(calls.filter((call) => call.path === '/access/api/runtime-mode')).toHaveLength(0);
+    expect(calls.filter((call) => call.path !== '/access/api/me' && call.path.includes('/api/'))).toHaveLength(0);
     expect(getBusinessUnitRequestState().generation).toBe(generationBefore);
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBeNull();
   });
@@ -321,7 +328,7 @@ describe('business-unit access shell', () => {
     expect(screen.queryByRole('heading', { name: '이 탭에서 사용할 사업부를 선택해 주세요.' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /사업부로 이동/ })).not.toBeInTheDocument();
     expect((await screen.findAllByLabelText('사업부 선택'))[0]).toHaveValue('CHEONGJU');
-    expect(calls.some((call) => call.path === '/api/me'
+    expect(calls.some((call) => call.path === '/cheongju/api/me'
       && call.headers.get('X-Qms-Business-Unit') === 'CHEONGJU')).toBe(true);
   });
 
@@ -390,11 +397,13 @@ describe('business-unit access shell', () => {
 
     expect(await screen.findByRole('heading', { name: '홈' })).toBeInTheDocument();
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('OSAN');
-    const meCalls = calls.filter((call) => call.path === '/api/me');
+    const meCalls = calls.filter((call) => call.path.endsWith('/api/me'));
     expect(meCalls.length).toBeGreaterThanOrEqual(2);
+    expect(meCalls[0].path).toBe('/access/api/me');
     expect(meCalls[0].headers.get('X-Qms-Business-Unit')).toBeNull();
+    expect(meCalls.at(-1)?.path).toBe('/osan/api/me');
     expect(meCalls.at(-1)?.headers.get('X-Qms-Business-Unit')).toBe('OSAN');
-    expect(calls.filter((call) => call.path === '/api/admin/users')).toHaveLength(0);
+    expect(calls.filter((call) => call.path === '/osan/api/admin/users')).toHaveLength(0);
   });
 
   it('does not offer alternate selection to a normal user', async () => {
@@ -459,7 +468,8 @@ describe('business-unit access shell', () => {
     } | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname.endsWith('/access') && init?.method === 'PUT') {
+      if (url.pathname.startsWith('/access/api/admin/user-access/users/')
+        && url.pathname.endsWith('/access') && init?.method === 'PUT') {
         submittedAccess = JSON.parse(String(init.body));
         return json({
           changed: true,
@@ -474,10 +484,10 @@ describe('business-unit access shell', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '사용자 관리' })).toBeInTheDocument();
-    await waitFor(() => expect(calls.some((call) => call.path === '/api/admin/user-access/users')).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.path === '/access/api/admin/user-access/users')).toBe(true));
     const adminRow = (await screen.findByText('Synthetic Overall Admin')).closest('tr');
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBe('CHEONGJU');
-    expect(calls.filter((call) => call.path === '/api/admin/users'
+    expect(calls.filter((call) => call.path === '/osan/api/admin/users'
       && call.headers.get('X-Qms-Business-Unit') === 'OSAN')).toHaveLength(0);
     expect(screen.queryByText('사업부 소속 관리')).not.toBeInTheDocument();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual([
@@ -512,7 +522,8 @@ describe('business-unit access shell', () => {
     fireEvent.click(saveMembership);
     expect(await screen.findByText('사용자 접근 정보를 저장했습니다.')).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
+      new URL(String(input)).pathname.startsWith('/access/api/admin/user-access/users/')
+        && new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(1);
     expect(submittedAccess).toMatchObject({
       isOverallAdministrator: true,
@@ -558,7 +569,7 @@ describe('business-unit access shell', () => {
       errorCode: null
     }));
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/admin/user-access/users') {
+      if (new URL(String(input)).pathname === '/access/api/admin/user-access/users') {
         return json(snapshot);
       }
       return fallbackFetch(input, init);
@@ -588,10 +599,11 @@ describe('business-unit access shell', () => {
     let submittedProfiles: Array<{ businessUnitCode: string; roleCodes: string[] }> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/admin/user-access/users') {
+      if (url.pathname === '/access/api/admin/user-access/users') {
         return json(snapshot);
       }
-      if (url.pathname.endsWith('/access') && init?.method === 'PUT') {
+      if (url.pathname.startsWith('/access/api/admin/user-access/users/')
+        && url.pathname.endsWith('/access') && init?.method === 'PUT') {
         submittedProfiles = JSON.parse(String(init.body)).profiles;
         return json({ changed: true, accessVersion: 1, snapshot });
       }
@@ -627,7 +639,7 @@ describe('business-unit access shell', () => {
       errorCode: null
     }));
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/admin/user-access/users') {
+      if (new URL(String(input)).pathname === '/access/api/admin/user-access/users') {
         return json(snapshot);
       }
       return fallbackFetch(input, init);
@@ -680,7 +692,8 @@ describe('business-unit access shell', () => {
 
     expect(checkbox).toBeChecked();
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
+      new URL(String(input)).pathname.startsWith('/access/api/admin/user-access/users/')
+        && new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
   });
 
@@ -713,7 +726,8 @@ describe('business-unit access shell', () => {
     save.removeAttribute('disabled');
     fireEvent.click(save);
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
+      new URL(String(input)).pathname.startsWith('/access/api/admin/user-access/users/')
+        && new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
   });
 
@@ -744,7 +758,8 @@ describe('business-unit access shell', () => {
     save.removeAttribute('disabled');
     fireEvent.click(save);
     expect(fetchMock.mock.calls.filter(([input, init]) => (
-      new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
+      new URL(String(input)).pathname.startsWith('/access/api/admin/user-access/users/')
+        && new URL(String(input)).pathname.endsWith('/access') && init?.method === 'PUT'
     ))).toHaveLength(0);
   });
 
@@ -764,7 +779,7 @@ describe('business-unit access shell', () => {
 
     expect(await screen.findByRole('heading', { name: '홈' })).toBeInTheDocument();
     await waitFor(() => expect(window.location.pathname).toBe('/'));
-    expect(calls.filter((call) => call.path === '/api/admin/users')).toHaveLength(0);
+    expect(calls.filter((call) => call.path === '/osan/api/admin/users')).toHaveLength(0);
     const navigation = screen.getAllByRole('navigation', { name: '공통 메뉴' })[0];
     expect(within(navigation).queryByRole('button', { name: '사용자 관리' })).not.toBeInTheDocument();
   });
@@ -821,7 +836,7 @@ describe('business-unit access shell', () => {
     const generationBeforeRevocation = getBusinessUnitRequestState().generation;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      if (url.pathname === '/api/admin/user-access/users') {
+      if (url.pathname === '/access/api/admin/user-access/users') {
         selectedBusinessRequestCount += 1;
         return json({
           errorCode: 'directory_membership_required',
@@ -837,8 +852,9 @@ describe('business-unit access shell', () => {
     expect(window.sessionStorage.getItem('emi.qms.business-unit')).toBeNull();
     expect(screen.queryByText('Synthetic Local User')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '현재 사업부 사용자 관리' })).not.toBeInTheDocument();
-    await waitFor(() => expect(calls.filter((call) => call.path === '/api/me')).toHaveLength(2));
-    expect(calls.filter((call) => call.path === '/api/runtime-mode')).toHaveLength(1);
+    await waitFor(() => expect(calls.filter((call) => call.path.endsWith('/api/me'))
+      .map((call) => call.path)).toEqual(['/cheongju/api/me', '/access/api/me']));
+    expect(calls.filter((call) => call.path === '/cheongju/api/runtime-mode')).toHaveLength(1);
     expect(selectedBusinessRequestCount).toBe(1);
     expect(getBusinessUnitRequestState().generation).toBe(generationBeforeRevocation + 1);
   });
@@ -854,14 +870,108 @@ describe('business-unit access shell', () => {
     if (allowed) {
       await waitFor(() => expect(getBusinessUnitRequestState().selectedBusinessUnit).toBe('OSAN'));
       await screen.findByRole('alert');
-      expect(calls.filter(c => c.path.startsWith('/api/osan/projects/')).length).toBeGreaterThan(0);
-      expect(calls.filter(c => c.path.startsWith('/api/osan/projects/')).every(c => c.headers.get('X-Qms-Business-Unit') === 'OSAN')).toBe(true);
+      expect(calls.filter(c => c.path.startsWith('/osan/api/osan/projects/')).length).toBeGreaterThan(0);
+      expect(calls.filter(c => c.path.startsWith('/osan/api/osan/projects/')).every(c => c.headers.get('X-Qms-Business-Unit') === 'OSAN')).toBe(true);
     } else {
       expect(await screen.findByText('오산 프로젝트를 볼 권한이 없습니다.')).toBeInTheDocument();
-      expect(calls.some(c => c.path.startsWith('/api/osan/projects/'))).toBe(false);
+      expect(calls.some(c => c.path.startsWith('/osan/api/osan/projects/'))).toBe(false);
       expect(getBusinessUnitRequestState().selectedBusinessUnit).toBe('CHEONGJU');
     }
     expect(window.location.pathname).toBe('/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  });
+
+  it('keeps a hintless notification detail fail-closed until the user selects a server-allowed business', async () => {
+    const notificationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN');
+    window.history.replaceState(null, '', `/teams/activity/notifications/${notificationId}`);
+    resetBusinessUnitRequestContext(true);
+    const calls: Array<{ path: string; headers: Headers }> = [];
+    const selectionRequired = {
+      userId: adminUserId,
+      developmentUserKey: 'dev-admin',
+      displayName: 'Synthetic Overall Admin',
+      email: null,
+      businessUnitAccess: {
+        status: 'selection_required',
+        selectedBusinessUnit: null,
+        allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+        isOverallAdministrator: true,
+        errorCode: 'business_unit_selection_required'
+      }
+    };
+    vi.stubGlobal('fetch', shellFetch((headers: Headers) => {
+      const selected = headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN' | null;
+      return selected
+        ? selectedUser({
+            status: 'selected',
+            selectedBusinessUnit: selected,
+            allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+            isOverallAdministrator: true,
+            errorCode: null
+          })
+        : selectionRequired;
+    }, calls));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림을 열 사업부를 선택해 주세요.' })).toBeInTheDocument();
+    expect(calls.filter((call) => call.path.endsWith(`/api/notifications/${notificationId}`))).toHaveLength(0);
+    expect(calls.some((call) => call.path.startsWith('/osan/'))).toBe(false);
+
+    fireEvent.change(screen.getByLabelText('사업부 선택'), { target: { value: 'CHEONGJU' } });
+
+    await waitFor(() => expect(calls.some((call) =>
+      call.path === `/cheongju/api/notifications/${notificationId}`
+      && call.headers.get('X-Qms-Business-Unit') === 'CHEONGJU')).toBe(true), { timeout: 5_000 });
+    expect(calls.some((call) => call.path === `/osan/api/notifications/${notificationId}`)).toBe(false);
+  });
+
+  it.each([true, false])('keeps a notificationId query fail-closed before storage or administrator fallback (saved=%s)', async (saved) => {
+    const notificationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    if (saved) {
+      selectBusinessUnit('OSAN');
+    }
+    window.history.replaceState(null, '', `/teams/activity?notificationId=${notificationId}`);
+    resetBusinessUnitRequestContext(true);
+    const calls: Array<{ path: string; headers: Headers }> = [];
+    const selectionRequired = {
+      userId: adminUserId,
+      developmentUserKey: 'dev-admin',
+      displayName: 'Synthetic Overall Admin',
+      email: null,
+      businessUnitAccess: {
+        status: 'selection_required',
+        selectedBusinessUnit: null,
+        allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+        isOverallAdministrator: true,
+        errorCode: 'business_unit_selection_required'
+      }
+    };
+    vi.stubGlobal('fetch', shellFetch((headers: Headers) => {
+      const selected = headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN' | null;
+      return selected
+        ? selectedUser({
+            status: 'selected',
+            selectedBusinessUnit: selected,
+            allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+            isOverallAdministrator: true,
+            errorCode: null
+          })
+        : selectionRequired;
+    }, calls));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림을 열 사업부를 선택해 주세요.' })).toBeInTheDocument();
+    expect(calls.filter((call) => call.path.endsWith(`/api/notifications/${notificationId}`))).toHaveLength(0);
+    expect(calls.filter((call) => call.path.endsWith('/api/me')).map((call) => call.path)).toEqual(['/access/api/me']);
+    expect(getBusinessUnitRequestState().selectedBusinessUnit).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('사업부 선택'), { target: { value: 'CHEONGJU' } });
+
+    await waitFor(() => expect(calls.some((call) =>
+      call.path === `/cheongju/api/notifications/${notificationId}`)).toBe(true));
+    expect(calls.some((call) => call.path === `/osan/api/notifications/${notificationId}`)).toBe(false);
   });
 
   it('uses approved Osan notification tabs and direct stage navigation after read', async () => {
@@ -874,9 +984,9 @@ describe('business-unit access shell', () => {
       const url=new URL(String(input));
       if(url.pathname.includes('/projects/') && url.pathname.endsWith('/read-all'))return json({message:'읽음 처리에 실패했습니다.'},500);
       if(url.pathname.endsWith('/read') && init?.method==='POST'){wasRead=true;return json({...item,readAtUtc:'2026-09-11T06:00:00Z'});}
-      if(url.pathname==='/api/notifications/summary')return json({unreadCount:wasRead?0:1,blockingCount:0});
-      if(url.pathname==='/api/notifications')return json({items:wasRead?[]:[item]});
-      if(url.pathname===`/api/notifications/${item.notificationId}`)return json({...item,readAtUtc:wasRead?'2026-09-11T06:00:00Z':null});
+      if(url.pathname==='/osan/api/notifications/summary')return json({unreadCount:wasRead?0:1,blockingCount:0});
+      if(url.pathname==='/osan/api/notifications')return json({items:wasRead?[]:[item]});
+      if(url.pathname===`/osan/api/notifications/${item.notificationId}`)return json({...item,readAtUtc:wasRead?'2026-09-11T06:00:00Z':null});
       return fallback(input,init);
     }));
     render(<App/>);

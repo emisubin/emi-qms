@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Text.Json;
 using Npgsql;
@@ -5,7 +6,7 @@ using NpgsqlTypes;
 
 namespace Emi.Qms.Api.Admin;
 
-public sealed class MaterialCategoryIqcStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class MaterialCategoryIqcStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<MaterialCategoryIqcTemplatesResponse> GetAsync(
         Guid userId, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -413,12 +414,12 @@ public sealed class MaterialCategoryIqcStore(DatabaseConnectionStringProvider co
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
             throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed record SettingSnapshot(

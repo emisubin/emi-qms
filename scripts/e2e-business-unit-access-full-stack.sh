@@ -379,12 +379,17 @@ export E2E_FRONTEND_PORT
 export Frontend__Origin="http://127.0.0.1:${E2E_FRONTEND_PORT}"
 export FRONTEND_ORIGIN="http://127.0.0.1:${E2E_FRONTEND_PORT}"
 
-if ! dotnet build backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-restore --nologo >"${operation_log}" 2>&1 \
-  || ! dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --bootstrap-database-roles >>"${operation_log}" 2>&1 \
-  || ! dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --migrate-only >>"${operation_log}" 2>&1; then
+if ! dotnet build backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-restore --nologo >"${operation_log}" 2>&1; then
   cat "${operation_log}" >&2
   exit 1
 fi
+for database_target in DIRECTORY CHEONGJU OSAN; do
+  if ! Database__BootstrapTarget="${database_target}" dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --bootstrap-database-roles >>"${operation_log}" 2>&1 \
+    || ! Database__BusinessSchemaSeparationApproved=true Database__MigrationTarget="${database_target}" dotnet run --project backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj --configuration Release --no-build -- --migrate-only >>"${operation_log}" 2>&1; then
+    cat "${operation_log}" >&2
+    exit 1
+  fi
+done
 echo "Release build, bounded-role bootstrap, and directory/Cheongju/Osan migrations completed."
 
 run_admin_psql "${directory_database}" "

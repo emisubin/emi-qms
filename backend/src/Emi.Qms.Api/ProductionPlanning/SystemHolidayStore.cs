@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Globalization;
 using System.Xml.Linq;
 using Emi.Qms.Api.Calendar;
@@ -7,7 +8,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.ProductionPlanning;
 
 public sealed class SystemHolidayStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     IKoreanHolidayProvider koreanHolidayProvider,
     TimeProvider timeProvider)
 {
@@ -135,11 +136,11 @@ public sealed class SystemHolidayStore(
         return string.IsNullOrWhiteSpace(countryCode) ? "KR" : countryCode.Trim().ToUpperInvariant();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString()
             ?? throw new InvalidOperationException("Database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }
 

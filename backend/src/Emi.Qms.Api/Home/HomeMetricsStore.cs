@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Projects;
 using Npgsql;
 
 namespace Emi.Qms.Api.Home;
 
-public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class HomeMetricsStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<HomeMetricsResponse> GetAsync(
         string? departmentCode,
@@ -339,13 +340,13 @@ public sealed class HomeMetricsStore(DatabaseConnectionStringProvider connection
         string actionLabel)
         => new(id, label, count, tone, destinationKey, actionLabel);
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

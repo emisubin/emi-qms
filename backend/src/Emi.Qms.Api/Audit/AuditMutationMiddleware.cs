@@ -12,10 +12,9 @@ public static class AuditHeaderNames
 
 public sealed class AuditMutationMiddleware(
     RequestDelegate next,
-    AuditStore auditStore,
     ILogger<AuditMutationMiddleware> logger)
 {
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, AuditStore auditStore)
     {
         if (!AuditMutationRegistry.TryResolve(context, out var definition)
             || !definition.Included
@@ -30,7 +29,7 @@ public sealed class AuditMutationMiddleware(
                 ? parsedActualActorId
                 : (Guid?)null;
         var sessionOwnerId = actualActorUserId ?? actorUserId;
-        var loginCorrelationId = await ResolveLoginCorrelationAsync(context, sessionOwnerId);
+        var loginCorrelationId = await ResolveLoginCorrelationAsync(context, sessionOwnerId, auditStore);
         var mutationContext = new AuditMutationContext(
             actorUserId,
             actualActorUserId,
@@ -70,7 +69,7 @@ public sealed class AuditMutationMiddleware(
         }
     }
 
-    private async Task<Guid?> ResolveLoginCorrelationAsync(HttpContext context, Guid sessionOwnerId)
+    private async Task<Guid?> ResolveLoginCorrelationAsync(HttpContext context, Guid sessionOwnerId, AuditStore auditStore)
     {
         if (!Guid.TryParse(context.Request.Headers[AuditHeaderNames.LoginCorrelation], out var correlationId)
             || !Guid.TryParse(context.Request.Headers[AuditHeaderNames.IdempotencyReceipt], out var receipt))

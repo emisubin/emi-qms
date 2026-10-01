@@ -1,3 +1,4 @@
+import { mockApiPath } from './mock-api-path';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, type Locator, type Page, type Route, test } from '@playwright/test';
@@ -125,8 +126,7 @@ function createKittingStore() {
 async function routeApi(page: Page, store: ReturnType<typeof createKittingStore>) {
   await page.route('http://localhost:5080/**', async (route) => {
     const request = route.request();
-    const url = new URL(request.url());
-    const pathName = url.pathname;
+    const pathName = mockApiPath(request);
     const userKey = request.headers()['x-dev-user'] ?? 'dev-sales';
 
     if (request.method() === 'OPTIONS') {

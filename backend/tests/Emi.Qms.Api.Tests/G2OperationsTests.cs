@@ -284,11 +284,15 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
         var ct = TestContext.Current.CancellationToken;
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
         await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
+            NullLogger<DatabaseRoleBootstrapper>.Instance)
+            .BootstrapAsync(BusinessUnitCodes.Cheongju, ct);
         await new DatabaseMigrationRunner(provider,
-            DatabaseMigrationCatalog.FromPath(Path.Combine(databases.RepositoryRoot, "database", "migrations")),
+            DatabaseMigrationCatalog.FromPaths(
+                Path.Combine(databases.RepositoryRoot, "database", "migrations"),
+                Path.Combine(databases.RepositoryRoot, "database", "business-migrations")),
             new DatabaseRuntimePrivilegeManager(), databases.Configuration,
-            NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+            NullLogger<DatabaseMigrationRunner>.Instance)
+            .ApplyAndVerifyAsync(BusinessUnitCodes.Cheongju, ct);
         // The real maintenance middleware runs before the endpoint's per-field permission checks.
         return QmsWebApplicationFactory.Create("Testing", new Dictionary<string, string?>
         {

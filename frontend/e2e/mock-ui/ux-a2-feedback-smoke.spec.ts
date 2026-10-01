@@ -1,3 +1,4 @@
+import { mockApiPath } from './mock-api-path';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, type Page, type Route, test } from '@playwright/test';
@@ -63,8 +64,7 @@ test('UX-001 A2 mock visual: panel editor validation, Excel feedback, and mobile
 async function routeApi(page: Page) {
   await page.route('http://localhost:5080/**', async (route) => {
     const request = route.request();
-    const url = new URL(request.url());
-    const routePath = url.pathname;
+    const routePath = mockApiPath(request);
 
     if (request.method() === 'OPTIONS') {
       return route.fulfill({ status: 204, headers: corsHeaders });

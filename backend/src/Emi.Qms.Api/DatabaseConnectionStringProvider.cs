@@ -3,13 +3,45 @@ using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.ReviewSafe;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using System.Collections.Concurrent;
 
 namespace Emi.Qms.Api;
 
-public sealed class DatabaseConnectionStringProvider
+public sealed class DatabaseConnectionStringProvider : IDisposable, IAsyncDisposable
 {
     private readonly IConfiguration configuration;
     private readonly IHttpContextAccessor? httpContextAccessor;
+    private readonly ConcurrentDictionary<string, Lazy<NpgsqlDataSource>> runtimeSources = new(StringComparer.Ordinal);
+    private bool disposed;
+
+    // Stable runtime connections share one pool per configuration. Audited mutations
+    // carry request-specific startup settings and must never enter a shared pool.
+    public RuntimeDataSourceLease RentDataSource(string connectionString)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var settings = new NpgsqlConnectionStringBuilder(connectionString);
+        if (!settings.Pooling)
+            return new(NpgsqlDataSource.Create(connectionString), ownsSource: true);
+        var source = runtimeSources.GetOrAdd(settings.ConnectionString,
+            value => new Lazy<NpgsqlDataSource>(() => NpgsqlDataSource.Create(value))).Value;
+        return new(source, ownsSource: false);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        foreach (var source in runtimeSources.Values)
+            if (source.IsValueCreated) await source.Value.DisposeAsync();
+        runtimeSources.Clear();
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        foreach (var source in runtimeSources.Values)
+            if (source.IsValueCreated) source.Value.Dispose();
+        runtimeSources.Clear();
+    }
 
     public DatabaseConnectionStringProvider(IConfiguration configuration)
         : this(configuration, null)
@@ -101,6 +133,20 @@ public sealed class DatabaseConnectionStringProvider
     {
         var target = explicitTarget ?? GetCurrentBusinessUnit();
         return target?.ExternalNotificationsEnabled == true;
+    }
+
+    internal async Task<IReadOnlyList<Guid>> ReadOverallAdministratorIdsAsync(CancellationToken ct)
+    {
+        if (!BusinessUnits.Enabled || BusinessUnits.Directory is not { } directory) return [];
+        await using var source = RentDataSource(GetConnectionString(directory));
+        await using var command = source.CreateCommand("""
+            select distinct a.user_id from directory_overall_administrators a
+            join directory_identities i on i.user_id=a.user_id where a.is_active and i.is_active
+            """);
+        var result = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(reader.GetGuid(0));
+        return result;
     }
 
     private string? GetLegacyConnectionString()

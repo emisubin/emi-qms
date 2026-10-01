@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
@@ -14,7 +15,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Procurement;
 
 public sealed class ProcurementStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     ProcurementExcelParser excelParser,
     TimeProvider timeProvider)
 {
@@ -193,28 +194,28 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("row_limit", maximumRows + 1);
 
         var projects = new List<ProcurementProjectSummaryResponse>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            DateOnly? nearest = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateOnly>(10);
-            projects.Add(new ProcurementProjectSummaryResponse
+            while (await reader.ReadAsync(cancellationToken))
             {
-                ProjectId = reader.GetGuid(0),
-                ProjectTitle = reader.GetString(1),
-                CustomerName = reader.GetString(2),
-                ProjectCode = reader.GetString(3),
-                Item = reader.GetString(4),
-                ActivePanelCount = reader.GetInt32(5),
-                DeliveryDate = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateOnly>(6),
-                ProcurementItemCount = reader.GetInt32(7),
-                ReceiptCompletedCount = reader.GetInt32(8),
-                PastExpectedReceiptDateCount = reader.GetInt32(9),
-                NearestExpectedReceiptDate = nearest,
-                DDayText = ProcurementDomain.BuildDDayText(nearest, today)
-            });
+                DateOnly? nearest = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateOnly>(10);
+                projects.Add(new ProcurementProjectSummaryResponse
+                {
+                    ProjectId = reader.GetGuid(0),
+                    ProjectTitle = reader.GetString(1),
+                    CustomerName = reader.GetString(2),
+                    ProjectCode = reader.GetString(3),
+                    Item = reader.GetString(4),
+                    ActivePanelCount = reader.GetInt32(5),
+                    DeliveryDate = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateOnly>(6),
+                    ProcurementItemCount = reader.GetInt32(7),
+                    ReceiptCompletedCount = reader.GetInt32(8),
+                    PastExpectedReceiptDateCount = reader.GetInt32(9),
+                    NearestExpectedReceiptDate = nearest,
+                    DDayText = ProcurementDomain.BuildDDayText(nearest, today)
+                });
+            }
         }
-
-        await reader.DisposeAsync();
 
         var truncated = projects.Count > maximumRows;
         var visibleProjects = truncated ? projects.Take(maximumRows).ToList() : projects;
@@ -925,26 +926,27 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("project_id", projectId);
 
         var events = new List<HistoryEvent>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            events.Add(new HistoryEvent(
-                reader.GetGuid(0),
-                reader.GetGuid(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5),
-                reader.IsDBNull(6) ? null : reader.GetGuid(6),
-                reader.IsDBNull(7) ? null : reader.GetString(7),
-                reader.GetFieldValue<DateTimeOffset>(8),
-                reader.GetString(9),
-                reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetGuid(11),
-                reader.IsDBNull(12) ? null : reader.GetString(12),
-                reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                events.Add(new HistoryEvent(
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.GetFieldValue<DateTimeOffset>(8),
+                    reader.GetString(9),
+                    reader.GetString(10),
+                    reader.IsDBNull(11) ? null : reader.GetGuid(11),
+                    reader.IsDBNull(12) ? null : reader.GetString(12),
+                    reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+            }
         }
-        await reader.DisposeAsync();
 
         var groups = events
             .GroupBy(item => item.ImportBatchId?.ToString("D", CultureInfo.InvariantCulture) ?? (string.IsNullOrWhiteSpace(item.CorrelationId) ? item.AuditId.ToString("D", CultureInfo.InvariantCulture) : item.CorrelationId))
@@ -1571,7 +1573,7 @@ public sealed class ProcurementStore(
     }
 
     private async Task<ProcurementExcelPreviewResponse> BuildExcelPreviewAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         ParsedProcurementExcelFile parsed,
         UploadedExcelFile file,
         IReadOnlyList<ProcurementProjectSnapshot> projects,
@@ -1905,7 +1907,7 @@ public sealed class ProcurementStore(
         };
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -1913,7 +1915,7 @@ public sealed class ProcurementStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static ProcurementMutationResult<T> DerivedReceiptProjectionValidation<T>()
@@ -2021,7 +2023,7 @@ public sealed class ProcurementStore(
         };
     }
 
-    private async Task<ProcurementProjectSnapshot?> ReadProjectAsync(NpgsqlDataSource dataSource, Guid projectId, bool includeDeleted, CancellationToken cancellationToken)
+    private async Task<ProcurementProjectSnapshot?> ReadProjectAsync(RuntimeDataSourceLease dataSource, Guid projectId, bool includeDeleted, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadProjectAsync(connection, null, projectId, includeDeleted, cancellationToken);
@@ -2061,7 +2063,7 @@ public sealed class ProcurementStore(
         return await reader.ReadAsync(cancellationToken) ? ReadProject(reader) : null;
     }
 
-    private static async Task<IReadOnlyList<ProcurementProjectSnapshot>> ReadProjectsForMatchingAsync(NpgsqlDataSource dataSource, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<ProcurementProjectSnapshot>> ReadProjectsForMatchingAsync(RuntimeDataSourceLease dataSource, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadProjectsForMatchingAsync(connection, null, cancellationToken);
@@ -2115,7 +2117,7 @@ public sealed class ProcurementStore(
             reader.GetString(7));
     }
 
-    private async Task<IReadOnlyList<ProcurementItemSnapshot>> ReadItemsForProjectsAsync(NpgsqlDataSource dataSource, Guid[] projectIds, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ProcurementItemSnapshot>> ReadItemsForProjectsAsync(RuntimeDataSourceLease dataSource, Guid[] projectIds, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadItemsForProjectsAsync(connection, null, projectIds, cancellationToken);
@@ -2578,24 +2580,6 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("project_id", projectId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
-
-    private static async Task<bool> HasDuplicateSuccessfulBatchAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid[] projectIds, string fileSha256, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select exists (
-                select 1
-                from procurement_excel_import_batches b
-                join procurement_excel_import_batch_projects bp on bp.import_batch_id = b.id
-                where b.file_sha256 = @sha and bp.project_id = any(@project_ids)
-            );
-            """;
-        command.Parameters.AddWithValue("sha", fileSha256);
-        command.Parameters.Add(new NpgsqlParameter<Guid[]>("project_ids", projectIds));
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
-    }
-
     private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid itemId, string fieldName, string? oldValue, string? newValue, string? reason, Guid userId, string correlationId, string source, Guid? importBatchId, string? inputUnit, string? originalInputValue, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();

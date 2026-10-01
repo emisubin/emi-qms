@@ -1,9 +1,10 @@
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Notifications;
 using Npgsql;
 
 namespace Emi.Qms.Api.OsanProjects;
 
-public sealed class OsanWorkRequestStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class OsanWorkRequestStore(OsanDatabase connectionStringProvider)
 {
     private const int MaximumRecipients = 100;
 
@@ -95,7 +96,7 @@ public sealed class OsanWorkRequestStore(DatabaseConnectionStringProvider connec
             join osan_active_project_target_steps step
               on step.project_id=project.id and step.target_id=target.id and step.sequence_number=@stage
             join qms_users requester on requester.id=@requester and requester.is_active=true
-            where project.id=@project and project.project_profile='Osan'
+            where project.id=@project
               and project.deleted_at_utc is null;
             """;
         Guid stepId;
@@ -291,7 +292,7 @@ public sealed class OsanWorkRequestStore(DatabaseConnectionStringProvider connec
             ?? throw new InvalidOperationException("Osan work request requester was not found."));
     }
 
-    private NpgsqlDataSource CreateDataSource() =>
-        NpgsqlDataSource.Create(connectionStringProvider.GetConnectionString()
+    private RuntimeDataSourceLease CreateDataSource() =>
+        connectionStringProvider.RentDataSource(connectionStringProvider.GetConnectionString()
             ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 }

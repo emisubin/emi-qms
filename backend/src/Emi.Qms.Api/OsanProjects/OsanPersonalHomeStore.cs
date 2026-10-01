@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using Emi.Qms.Api.Projects;
 using Npgsql;
@@ -16,7 +17,7 @@ public sealed record OsanHomeNews(Guid Id, Guid ProjectId, Guid TargetId, int St
 public sealed record OsanPersonalHomeResponse(IReadOnlyList<OsanHomeCustomer> Customers, OsanHomeSummary Summary,
     IReadOnlyList<OsanHomeTask> Tasks, IReadOnlyList<OsanHomeDeadline> Deadlines, IReadOnlyList<OsanHomeNews> News, int TaskTotalCount, int DeadlineTotalCount);
 
-public sealed class OsanPersonalHomeStore(DatabaseConnectionStringProvider provider, TimeProvider clock)
+public sealed class OsanPersonalHomeStore(OsanDatabase provider, TimeProvider clock)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -24,13 +25,13 @@ public sealed class OsanPersonalHomeStore(DatabaseConnectionStringProvider provi
     {
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(),
             TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul")).DateTime);
-        await using var source = NpgsqlDataSource.Create(provider.GetConnectionString()
+        await using var source = provider.RentDataSource(provider.GetConnectionString()
             ?? throw new InvalidOperationException("QMS database connection string is not configured."));
         // One statement provides a consistent snapshot across the personal and assigned-customer sections.
         await using var command = source.CreateCommand("""
             with accessible as (
                 select p.* from projects p
-                where p.project_profile='Osan' and p.deleted_at_utc is null
+                where p.deleted_at_utc is null
                   and (@read_all or p.project_key=any(@keys))
             ), assigned as (
                 select c.id,c.name from osan_customers c

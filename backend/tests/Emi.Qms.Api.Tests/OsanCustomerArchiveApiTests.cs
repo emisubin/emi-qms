@@ -18,10 +18,10 @@ public sealed partial class BusinessUnitIsolationTests
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
         var environment = new TestEnvironment(databases.RepositoryRoot);
         var catalog = new DatabaseMigrationCatalog(environment);
-        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
-        await new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
-            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            NullLogger<DatabaseRoleBootstrapper>.Instance), ct);
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
+            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance), ct);
         await new DevelopmentIdentitySeeder(provider, databases.Configuration, environment,
             NullLogger<DevelopmentIdentitySeeder>.Instance, new MigrationLedgerInspector(catalog)).SeedAsync(ct);
         databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
@@ -40,9 +40,8 @@ public sealed partial class BusinessUnitIsolationTests
         using var client = factory.CreateClient();
 
         var customerId = Guid.NewGuid();
-        foreach (var unit in new[] { BusinessUnitCodes.Osan, BusinessUnitCodes.Cheongju })
-            await databases.ExecuteAsync(unit, BusinessUnitConnectionPurpose.Migration,
-                $"insert into osan_customers(id,name) values('{customerId:D}','Synthetic Archive API');", ct);
+        await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
+            $"insert into osan_customers(id,name) values('{customerId:D}','Synthetic Archive API');", ct);
         var path = $"/api/osan/admin/customers/{customerId}?expectedVersion=1";
         foreach (var (user, unit) in new[]
         {
@@ -65,6 +64,6 @@ public sealed partial class BusinessUnitIsolationTests
         Assert.Equal(1L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_customers where archived_at_utc is not null", ct));
         Assert.Equal(0L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
-            BusinessUnitConnectionPurpose.Migration, "select count(*) from osan_customers where archived_at_utc is not null", ct));
+            BusinessUnitConnectionPurpose.Migration, "select count(*) from information_schema.tables where table_schema='public' and table_name='osan_customers'", ct));
     }
 }

@@ -47,7 +47,7 @@ public static class OsanNotificationWriter
                 select p.project_title, p.project_code, coalesce(p.osan_product_name,''),
                     p.customer_name, p.osan_quantity, p.delivery_date, u.display_name, p.osan_work_order_number
                 from projects p cross join qms_users u
-                where p.id=@project and p.project_profile='Osan' and u.id=@actor;
+                where p.id=@project and u.id=@actor;
                 """;
             read.Parameters.AddWithValue("project", projectId);
             read.Parameters.AddWithValue("actor", actorId);
@@ -134,7 +134,7 @@ public static class OsanNotificationWriter
                 and (@personal or exists (
                     select 1 from projects p join osan_customer_assignments a
                       on a.customer_id=p.osan_customer_id and a.user_id=u.id
-                    where p.id=@project and p.project_profile='Osan'))
+                    where p.id=@project))
             on conflict(notification_id,user_id) do nothing;
             insert into notification_deliveries(notification_id,notification_recipient_id,recipient_user_id,project_id,
                 channel,delivery_type,status,suppressed_at_utc,error_code,error_message,

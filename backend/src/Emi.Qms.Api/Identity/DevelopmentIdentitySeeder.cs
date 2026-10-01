@@ -123,7 +123,7 @@ public sealed class DevelopmentIdentitySeeder(
                 throw new InvalidOperationException("Development seed database identity mismatch.");
             }
             if (migrationLedgerInspector is null
-                || !(await migrationLedgerInspector.InspectAsync(connection, cancellationToken)).MigrationLedgerReady)
+                || !(await migrationLedgerInspector.InspectAsync(connection, target.Code, cancellationToken)).MigrationLedgerReady)
             {
                 throw new InvalidOperationException("Development seed database migration ledger mismatch.");
             }
@@ -131,7 +131,7 @@ public sealed class DevelopmentIdentitySeeder(
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        await ExecuteAsync(connection, transaction, SeedSql, cancellationToken);
+        await ExecuteAsync(connection, transaction, target?.Code == BusinessUnitCodes.Osan ? OsanSeedSql : SeedSql, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
@@ -148,7 +148,13 @@ public sealed class DevelopmentIdentitySeeder(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private const string SeedSql = """
+    private const string SeedSql = IdentitySeedSql + CheongjuProjectSeedSql + RoleSeedSql
+        + CheongjuAssignmentSeedSql + PermissionSeedSql + CheongjuProductionSeedSql;
+    // Osan 0131 keeps only its seven route permissions. Common permission seeds
+    // belong to Cheongju and must not recreate the retired Osan taxonomy.
+    private const string OsanSeedSql = IdentitySeedSql + RoleSeedSql;
+
+    private const string IdentitySeedSql = """
         insert into departments (id, code, name, is_active, sort_order)
         values
             ('10000000-0000-0000-0000-000000000001', 'administration', '관리', true, 10),
@@ -215,7 +221,9 @@ public sealed class DevelopmentIdentitySeeder(
             end if;
         end
         $seed_department_heads$;
+        """;
 
+    private const string CheongjuProjectSeedSql = """
         insert into projects (
             id,
             project_key,
@@ -274,7 +282,9 @@ public sealed class DevelopmentIdentitySeeder(
             delivery_date = excluded.delivery_date,
             sales_owner_user_id = excluded.sales_owner_user_id,
             status = excluded.status;
+        """;
 
+    private const string RoleSeedSql = """
         insert into user_roles (user_id, role_id)
         select qms_users.id, roles.id
         from qms_users
@@ -294,7 +304,9 @@ public sealed class DevelopmentIdentitySeeder(
         end
         where qms_users.development_user_key <> 'dev-no-role'
         on conflict do nothing;
+        """;
 
+    private const string CheongjuAssignmentSeedSql = """
         do $seed_form_template_managers$
         begin
             if to_regclass('form_template_manager_bindings') is null then
@@ -364,7 +376,9 @@ public sealed class DevelopmentIdentitySeeder(
             end
         )
         on conflict do nothing;
+        """;
 
+    private const string PermissionSeedSql = """
         insert into permissions (id, code, name)
         values ('30000000-0000-0000-0000-000000000020', 'Audit.Read.All', 'Read all audit history')
         on conflict (code) do update set name = excluded.name;
@@ -457,7 +471,9 @@ public sealed class DevelopmentIdentitySeeder(
         cross join permissions
         where roles.code = 'system-administrator'
         on conflict do nothing;
+        """;
 
+    private const string CheongjuProductionSeedSql = """
         insert into production_product_types (id, code, name)
         values ('60000000-0000-0000-0000-000000000001', 'TEST-TYPE', 'TEST-TYPE')
         on conflict (code) do update
@@ -480,4 +496,5 @@ public sealed class DevelopmentIdentitySeeder(
             is_required = excluded.is_required,
             is_active = true;
         """;
+
 }

@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Data;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace Emi.Qms.Api.G2;
 
-public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectionStringProvider, TimeProvider timeProvider)
+public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider, TimeProvider timeProvider)
 {
     private const int AdvisoryLockNamespace = 0x4732;
     private const int MetricsWriteLockKey = int.MinValue;
@@ -557,7 +558,7 @@ public sealed class G2OperationsStore(DatabaseConnectionStringProvider connectio
     private static int InventoryLockKey(DateOnly date) => checked(date.DayNumber * 16 + 8);
     private static int DefectInventoryLockKey(DateOnly date) => checked(date.DayNumber * 16 + 14);
     private static int TargetLockKey(DateOnly date, string type) => checked(date.DayNumber * 16 + type switch { G2TargetTypes.DailyProduction => 9, G2TargetTypes.Inventory => 10, G2TargetTypes.Delivery => 11, _ => throw new ArgumentOutOfRangeException(nameof(type)) });
-    private NpgsqlDataSource CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); return string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException("QMS database connection is not configured.") : NpgsqlDataSource.Create(value); }
+    private RuntimeDataSourceLease CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); return string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException("QMS database connection is not configured.") : connectionStringProvider.RentDataSource(value); }
     private sealed record MetricRow(Guid Id, DateOnly Date, string Code, int? Quantity, bool IsForecast, int Version, DateTimeOffset UpdatedAt, string UpdatedBy);
     private sealed record InventoryRow(Guid Id, DateOnly Date, int Quantity, int Version, DateTimeOffset UpdatedAt, string UpdatedBy);
     private sealed record TargetRow(Guid Id, string Type, DateOnly Date, int Quantity, int Version, DateTimeOffset UpdatedAt, string UpdatedBy);

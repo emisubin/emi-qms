@@ -13,12 +13,14 @@ public sealed record PrepareDeploymentMaintenance(Guid ReleaseId,Guid ActorUserI
 
 public sealed class DeploymentMaintenanceStore
 {
-    private readonly DatabaseConnectionStringProvider provider;
+    internal readonly record struct TransitionDecision(string NextState,bool IsNoOp);
+
+    private readonly BusinessDatabase provider;
     private readonly BusinessUnitDatabaseTarget? target;
-    public DeploymentMaintenanceStore(DatabaseConnectionStringProvider provider) : this(provider,null) { }
-    private DeploymentMaintenanceStore(DatabaseConnectionStringProvider provider,BusinessUnitDatabaseTarget? target)
+    public DeploymentMaintenanceStore(BusinessDatabase provider) : this(provider,null) { }
+    private DeploymentMaintenanceStore(BusinessDatabase provider,BusinessUnitDatabaseTarget? target)
     { this.provider=provider;this.target=target; }
-    public static DeploymentMaintenanceStore ForTarget(DatabaseConnectionStringProvider provider,
+    public static DeploymentMaintenanceStore ForTarget(BusinessDatabase provider,
         BusinessUnitDatabaseTarget target)=>new(provider,target);
     private string ConnectionString => target is null
         ? provider.GetConnectionString() ?? throw new InvalidOperationException("QMS database is not configured.")
@@ -167,17 +169,15 @@ public sealed class DeploymentMaintenanceStore
                 return new(409,"release_maintenance_stale","배포 상태가 변경되었습니다. 다시 조회해 주세요.");
             if(action=="delay" && (revisedEnd is null || revisedEnd<=currentStart || revisedEnd<=DateTimeOffset.UtcNow))
                 return new(400,"release_maintenance_expected_end_invalid","변경된 종료 예정 시간은 시작과 현재 시간보다 뒤여야 합니다.");
-            string nextState;
-            switch(action)
+            var transition=ResolveTransition(currentState,action,revisedEnd is not null,verified);
+            if(transition is null)
+                return new(409,"release_maintenance_transition_invalid","배포 상태와 완료 확인을 다시 확인해 주세요.");
+            if(transition.Value.IsNoOp)
             {
-                case "activate" when currentState=="Announced": nextState="Active";break;
-                case "delay" when currentState is "Active" or "Delayed" && revisedEnd is not null:
-                    nextState="Delayed";break;
-                case "fail" when currentState is "Active" or "Delayed" or "Completed": nextState="Failed";break;
-                case "complete" when currentState is "Active" or "Delayed" or "Failed" && verified:
-                    nextState="Completed";break;
-                default:return new(409,"release_maintenance_transition_invalid","배포 상태와 완료 확인을 다시 확인해 주세요.");
+                await tx.CommitAsync(ct);
+                return new(200,Value:await ReadAsync(actor,ct));
             }
+            var nextState=transition.Value.NextState;
             command.Parameters.AddWithValue("state",nextState);
             command.Parameters.AddWithValue("version",expectedVersion);
             command.Parameters.AddWithValue("end",(object?)revisedEnd??DBNull.Value);
@@ -207,6 +207,17 @@ public sealed class DeploymentMaintenanceStore
         }
         finally { await DeploymentMaintenanceLease.ReleaseExclusiveAsync(connection); }
     }
+
+    internal static TransitionDecision? ResolveTransition(string currentState,string action,
+        bool hasRevisedEnd,bool verified)=>action switch
+    {
+        "activate" when currentState=="Announced"=>new("Active",false),
+        "delay" when (currentState is "Active" or "Delayed") && hasRevisedEnd=>new("Delayed",false),
+        "fail" when currentState=="Failed"=>new("Failed",true),
+        "fail" when currentState is "Announced" or "Active" or "Delayed" or "Completed"=>new("Failed",false),
+        "complete" when (currentState is "Active" or "Delayed" or "Failed") && verified=>new("Completed",false),
+        _=>null
+    };
 
     // PostgreSQL timestamps and Npgsql store microseconds, not .NET's 100ns ticks.
     private static DateTimeOffset DatabasePrecision(DateTimeOffset value) =>

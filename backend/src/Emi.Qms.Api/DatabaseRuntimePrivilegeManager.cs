@@ -30,6 +30,24 @@ public sealed class DatabaseRuntimePrivilegeManager
     public async Task ConfigureBootstrapPrivilegesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        BusinessUnitDatabaseTarget target,
+        IReadOnlyCollection<string> deniedRoleNames,
+        CancellationToken cancellationToken)
+    {
+        await ConfigureBootstrapPrivilegesAsync(
+            connection,
+            transaction,
+            target.ExpectedDatabaseName,
+            target.MigrationRoleName,
+            target.RuntimeRoleName,
+            target.Kind,
+            deniedRoleNames,
+            cancellationToken);
+    }
+
+    public async Task ConfigureBootstrapPrivilegesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
         string databaseName,
         string migrationRoleName,
         string runtimeRoleName,
@@ -40,6 +58,25 @@ public sealed class DatabaseRuntimePrivilegeManager
         var database = QuoteIdentifier(databaseName);
         var migrator = QuoteIdentifier(migrationRoleName);
         var runtime = QuoteIdentifier(runtimeRoleName);
+        var defaultObjectPrivileges = databaseKind == BusinessUnitDatabaseKind.Directory
+            ? $"""
+              alter default privileges for role {migrator}
+                  revoke all privileges on tables from {runtime};
+              alter default privileges for role {migrator} in schema public
+                  revoke all privileges on tables from {runtime};
+              alter default privileges for role {migrator} in schema public
+                  grant select on tables to {runtime};
+              alter default privileges for role {migrator}
+                  revoke all privileges on sequences from {runtime};
+              alter default privileges for role {migrator} in schema public
+                  revoke all privileges on sequences from {runtime};
+              """
+            : $"""
+              alter default privileges for role {migrator} in schema public
+                  grant select, insert, update, delete on tables to {runtime};
+              alter default privileges for role {migrator} in schema public
+                  grant usage, select on sequences to {runtime};
+              """;
 
         await ExecuteAsync(
             connection,
@@ -57,12 +94,11 @@ public sealed class DatabaseRuntimePrivilegeManager
             revoke execute on all functions in schema public from public;
             grant execute on all functions in schema public to {migrator}, {runtime};
 
-            alter default privileges for role {migrator} in schema public
+            alter default privileges for role {migrator}
                 revoke execute on functions from public;
             alter default privileges for role {migrator} in schema public
-                grant select, insert, update, delete on tables to {runtime};
-            alter default privileges for role {migrator} in schema public
-                grant usage, select on sequences to {runtime};
+                revoke execute on functions from public;
+            {defaultObjectPrivileges}
             alter default privileges for role {migrator} in schema public
                 grant execute on functions to {runtime};
             """,
@@ -96,7 +132,8 @@ public sealed class DatabaseRuntimePrivilegeManager
         string? configuredMigrationRoleName,
         string? configuredRuntimeRoleName,
         CancellationToken cancellationToken,
-        BusinessUnitDatabaseKind databaseKind = BusinessUnitDatabaseKind.Business)
+        BusinessUnitDatabaseKind databaseKind = BusinessUnitDatabaseKind.Business,
+        string? businessUnitCode = null)
     {
         if (string.IsNullOrWhiteSpace(configuredMigrationRoleName)
             && string.IsNullOrWhiteSpace(configuredRuntimeRoleName))
@@ -126,9 +163,21 @@ public sealed class DatabaseRuntimePrivilegeManager
             throw new InvalidOperationException("Runtime database privileges can only be reconciled by the migration role.");
         }
 
+        var migrator = QuoteIdentifier(configuredMigrationRoleName);
         var runtime = QuoteIdentifier(configuredRuntimeRoleName);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        if (databaseKind == BusinessUnitDatabaseKind.Business
+            && businessUnitCode is not null
+            && businessUnitCode is not BusinessUnitCodes.Cheongju and not BusinessUnitCodes.Osan)
+        {
+            throw new InvalidOperationException("business_unit_privilege_target_invalid");
+        }
+
+        var businessAuditTables = businessUnitCode == BusinessUnitCodes.Osan
+            ? "public.audit_coverage_state, public.audit_events, public.audit_event_changes"
+            : "public.audit_coverage_state, public.audit_events, public.audit_event_changes, "
+              + "public.site_access_coverage_state, public.site_access_sessions";
         var objectGrants = databaseKind == BusinessUnitDatabaseKind.Directory
             ? $"""
               revoke all privileges on all tables in schema public from {runtime};
@@ -157,16 +206,33 @@ public sealed class DatabaseRuntimePrivilegeManager
             grant select on table public.schema_migrations to {runtime};
 
             revoke insert, update, delete, truncate, references, trigger
-                on table public.audit_coverage_state, public.audit_events, public.audit_event_changes,
-                    public.site_access_coverage_state, public.site_access_sessions
+                on table {businessAuditTables}
                 from {runtime};
-            grant select on table public.audit_coverage_state, public.audit_events, public.audit_event_changes,
-                    public.site_access_coverage_state, public.site_access_sessions
+            grant select on table {businessAuditTables}
                 to {runtime};
 
             revoke all privileges on all sequences in schema public from {runtime};
             grant usage, select on all sequences in schema public to {runtime};
             """;
+        var defaultObjectPrivileges = databaseKind == BusinessUnitDatabaseKind.Directory
+            ? $"""
+              alter default privileges for role {migrator}
+                  revoke all privileges on tables from {runtime};
+              alter default privileges for role {migrator} in schema public
+                  revoke all privileges on tables from {runtime};
+              alter default privileges for role {migrator} in schema public
+                  grant select on tables to {runtime};
+              alter default privileges for role {migrator}
+                  revoke all privileges on sequences from {runtime};
+              alter default privileges for role {migrator} in schema public
+                  revoke all privileges on sequences from {runtime};
+              """
+            : $"""
+              alter default privileges for role {migrator} in schema public
+                  grant select, insert, update, delete on tables to {runtime};
+              alter default privileges for role {migrator} in schema public
+                  grant usage, select on sequences to {runtime};
+              """;
 
         await ExecuteAsync(
             connection,
@@ -174,17 +240,12 @@ public sealed class DatabaseRuntimePrivilegeManager
             $"""
             {objectGrants}
 
-            alter default privileges in schema public
+            alter default privileges for role {migrator}
                 revoke execute on functions from public;
-            alter default privileges in schema public
-                {(databaseKind == BusinessUnitDatabaseKind.Directory
-                    ? $"grant select on tables to {runtime};"
-                    : $"grant select, insert, update, delete on tables to {runtime};")}
-            alter default privileges in schema public
-                {(databaseKind == BusinessUnitDatabaseKind.Directory
-                    ? $"revoke all privileges on sequences from {runtime};"
-                    : $"grant usage, select on sequences to {runtime};")}
-            alter default privileges in schema public
+            alter default privileges for role {migrator} in schema public
+                revoke execute on functions from public;
+            {defaultObjectPrivileges}
+            alter default privileges for role {migrator} in schema public
                 grant execute on functions to {runtime};
             """,
             cancellationToken);

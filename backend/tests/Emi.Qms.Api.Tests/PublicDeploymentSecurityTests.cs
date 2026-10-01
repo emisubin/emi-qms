@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Security;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -465,24 +466,30 @@ public sealed class PublicDeploymentSecurityTests
     }
 
     [Theory]
-    [InlineData("/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/completions")]
-    [InlineData("/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-edits/91000000-0000-0000-0000-000000000002/save")]
-    [InlineData("/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-preview")]
+    [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/completions")]
+    [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-edits/91000000-0000-0000-0000-000000000002/save")]
+    [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-preview")]
     public async Task UploadSecurity_OsanMultipart40MiBReachesScanner(string path)
     {
         await using var databases = await BusinessUnitIsolationTests.IsolationDatabaseSet.CreateAsync(TestContext.Current.CancellationToken);
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
-        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(TestContext.Current.CancellationToken);
-        await new DatabaseMigrationRunner(provider,
+        await BusinessUnitIsolationTests.BootstrapTargetsAsync(
+            new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseRoleBootstrapper>.Instance),
+            TestContext.Current.CancellationToken);
+        await BusinessUnitIsolationTests.MigrateTargetsAsync(new DatabaseMigrationRunner(provider,
             Emi.Qms.Api.ReviewSafe.DatabaseMigrationCatalog.FromPath(Path.Combine(databases.RepositoryRoot, "database", "migrations")),
             new DatabaseRuntimePrivilegeManager(), databases.Configuration,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseMigrationRunner>.Instance),
+            TestContext.Current.CancellationToken);
+        await databases.ExecuteAsync("DIRECTORY", BusinessUnitConnectionPurpose.Migration, """
+            insert into directory_identities(user_id,auth_provider,external_subject,display_name,is_active)
+            values('50000000-0000-0000-0000-000000000001','Dev','dev-admin','Synthetic Upload Administrator',true);
+            insert into directory_business_unit_memberships(user_id,business_unit_code,is_active)
+            values('50000000-0000-0000-0000-000000000001','OSAN',true);
+            """, TestContext.Current.CancellationToken);
         var scanner = new FixedUploadMalwareScanner(UploadMalwareScanStatus.Infected);
-        using var factory = UploadFactory(scanner, provider.GetConnectionString(
-            databases.BusinessUnits.GetBusiness(Emi.Qms.Api.BusinessUnits.BusinessUnitCodes.Cheongju)));
+        using var factory = UploadFactory(scanner, configurationValues: databases.ConfigurationValues);
         using var client = CreateUploadClient(factory);
         using var body = new MultipartFormDataContent();
         body.Add(new ByteArrayContent(new byte[40 * 1024 * 1024]), "photos", "large.png");
@@ -669,17 +676,18 @@ public sealed class PublicDeploymentSecurityTests
         return UploadFactory(new FixedUploadMalwareScanner(status));
     }
 
-    private static QmsWebApplicationFactory UploadFactory(IUploadMalwareScanner scanner, string? connectionString = null)
+    private static QmsWebApplicationFactory UploadFactory(IUploadMalwareScanner scanner,
+        string? connectionString = null, IReadOnlyDictionary<string, string?>? configurationValues = null)
     {
+        var values = configurationValues is null
+            ? new Dictionary<string, string?> { ["ConnectionStrings:QmsDatabase"] = connectionString }
+            : new Dictionary<string, string?>(configurationValues);
+        values["UploadSecurity:Enabled"] = "true";
+        values["UploadSecurity:FailClosed"] = "true";
+        values["UploadSecurity:RejectImageMetadata"] = "true";
         return QmsWebApplicationFactory.Create(
             "Testing",
-            new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:QmsDatabase"] = connectionString,
-                ["UploadSecurity:Enabled"] = "true",
-                ["UploadSecurity:FailClosed"] = "true",
-                ["UploadSecurity:RejectImageMetadata"] = "true"
-            },
+            values,
             includeDefaultDevelopmentAuthentication: true,
             configureTestServices: services =>
             {

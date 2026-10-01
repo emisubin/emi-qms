@@ -150,6 +150,7 @@ public sealed partial class BusinessUnitIsolationTests
                 SslMode = SslMode.VerifyFull
             }.ConnectionString,
             new string('z', 40));
+        managedValues["Database:BootstrapTarget"] = BusinessUnitCodes.Osan;
         var credentialIndex = 0;
         foreach (var key in managedValues.Keys
                      .Where(key => key.StartsWith("ConnectionStrings:", StringComparison.Ordinal))
@@ -169,7 +170,7 @@ public sealed partial class BusinessUnitIsolationTests
             DatabaseOperationMode.RoleBootstrap));
 
         var sharedPassword = new NpgsqlConnectionStringBuilder(
-            managedValues["ConnectionStrings:DirectoryMigration"]).Password;
+            managedValues["ConnectionStrings:OsanMigration"]).Password;
         var sharedRuntime = new NpgsqlConnectionStringBuilder(
             managedValues["ConnectionStrings:OsanRuntime"])
         {
@@ -211,35 +212,35 @@ public sealed partial class BusinessUnitIsolationTests
         var catalog = new DatabaseMigrationCatalog(environment);
         var inspector = new MigrationLedgerInspector(catalog);
         var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(catalog);
-        await new DatabaseRoleBootstrapper(
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(
                 databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-                NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(ct);
+                NullLogger<DatabaseRoleBootstrapper>.Instance), ct);
         await ApplyExistingCheongjuSchemaAsync(databases, catalog, ct);
         await ApplyPartialOsanSchemaAsync(databases, catalog, ct);
-        await new DatabaseMigrationRunner(
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(
                 provider, catalog, new DatabaseRuntimePrivilegeManager(),
-                databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(ct);
+                databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance), ct);
 
         var checker = new DatabaseHealthChecker(provider, inspector, directoryCatalog);
         Assert.True((await checker.CheckAsync(ct)).IsReady);
         await databases.ExecuteAsync(BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
             "delete from schema_migrations where version = (select max(version) from schema_migrations);", ct);
-        Assert.False((await checker.CheckAsync(ct)).IsReady);
+        Assert.True((await checker.CheckAsync(ct)).IsReady);
+        Assert.False((await checker.CheckTargetAsync(databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Osan), ct)).IsReady);
 
         var values = new Dictionary<string, string?>(databases.ConfigurationValues)
         {
             ["Maintenance:ReleaseId"] = Guid.NewGuid().ToString("D"),
             ["Maintenance:ActorUserId"] = Guid.NewGuid().ToString("D"),
-            ["Maintenance:Verified"] = "true"
+            ["Maintenance:Verified"] = "true",
+            ["Maintenance:BusinessUnit"] = BusinessUnitCodes.Osan
         };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             DeploymentMaintenanceCli.RunAsync("--maintenance-complete", configuration,
                 provider, checker, NullLogger.Instance, ct));
-        Assert.Contains("all business databases to be ready", error.Message, StringComparison.Ordinal);
+        Assert.Contains("the selected business database to be ready", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -251,11 +252,10 @@ public sealed partial class BusinessUnitIsolationTests
         var migrationCatalog = new DatabaseMigrationCatalog(environment);
         var inspector = new MigrationLedgerInspector(migrationCatalog);
 
-        await new DatabaseRoleBootstrapper(
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(
                 databases.Configuration,
                 new DatabaseRuntimePrivilegeManager(),
-                NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseRoleBootstrapper>.Instance), TestContext.Current.CancellationToken);
         await ApplyExistingCheongjuSchemaAsync(
             databases,
             migrationCatalog,
@@ -264,13 +264,12 @@ public sealed partial class BusinessUnitIsolationTests
             databases,
             migrationCatalog,
             TestContext.Current.CancellationToken);
-        await new DatabaseMigrationRunner(
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(
                 provider,
                 migrationCatalog,
                 new DatabaseRuntimePrivilegeManager(),
                 databases.Configuration,
-                NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseMigrationRunner>.Instance), TestContext.Current.CancellationToken);
         await new DevelopmentIdentitySeeder(
                 provider,
                 databases.Configuration,
@@ -766,11 +765,10 @@ public sealed partial class BusinessUnitIsolationTests
         var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
         var inspector = new MigrationLedgerInspector(migrationCatalog);
 
-        await new DatabaseRoleBootstrapper(
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(
                 databases.Configuration,
                 new DatabaseRuntimePrivilegeManager(),
-                NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseRoleBootstrapper>.Instance), TestContext.Current.CancellationToken);
         await ApplyExistingCheongjuSchemaAsync(
             databases,
             migrationCatalog,
@@ -779,13 +777,12 @@ public sealed partial class BusinessUnitIsolationTests
             databases,
             migrationCatalog,
             TestContext.Current.CancellationToken);
-        await new DatabaseMigrationRunner(
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(
                 provider,
                 migrationCatalog,
                 new DatabaseRuntimePrivilegeManager(),
                 databases.Configuration,
-                NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseMigrationRunner>.Instance), TestContext.Current.CancellationToken);
 
         Assert.Equal(
             ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration", "0004_overall_administrator_access"],
@@ -1028,23 +1025,21 @@ public sealed partial class BusinessUnitIsolationTests
         var migrationCatalog = new DatabaseMigrationCatalog(environment);
         var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
 
-        await new DatabaseRoleBootstrapper(
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(
                 databases.Configuration,
                 new DatabaseRuntimePrivilegeManager(),
-                NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseRoleBootstrapper>.Instance), TestContext.Current.CancellationToken);
         await ApplyDirectoryMigrationPrefixAsync(
             databases,
             directoryCatalog,
             count: 3,
             TestContext.Current.CancellationToken);
-        await new DatabaseMigrationRunner(
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(
                 new DatabaseConnectionStringProvider(databases.Configuration),
                 migrationCatalog,
                 new DatabaseRuntimePrivilegeManager(),
                 databases.Configuration,
-                NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseMigrationRunner>.Instance), TestContext.Current.CancellationToken);
 
         Assert.Equal(
             ["0001_business_unit_directory", "0002_business_unit_access_administration", "0003_unified_user_access_administration", "0004_overall_administrator_access"],
@@ -1087,11 +1082,10 @@ public sealed partial class BusinessUnitIsolationTests
         var directoryCatalog = new BusinessUnitDirectoryMigrationCatalog(migrationCatalog);
         var inspector = new MigrationLedgerInspector(migrationCatalog);
 
-        await new DatabaseRoleBootstrapper(
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(
                 configuration,
                 new DatabaseRuntimePrivilegeManager(),
-                NullLogger<DatabaseRoleBootstrapper>.Instance)
-            .BootstrapAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseRoleBootstrapper>.Instance), TestContext.Current.CancellationToken);
         await AssertInheritedRoleMembershipFailsBeforeBootstrapMutationAsync(databases);
         await ApplyExistingCheongjuSchemaAsync(
             databases,
@@ -1101,15 +1095,14 @@ public sealed partial class BusinessUnitIsolationTests
             databases,
             migrationCatalog,
             TestContext.Current.CancellationToken);
-        await new DatabaseMigrationRunner(
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(
                 provider,
                 migrationCatalog,
                 new DatabaseRuntimePrivilegeManager(),
                 configuration,
-                NullLogger<DatabaseMigrationRunner>.Instance)
-            .ApplyAndVerifyAsync(TestContext.Current.CancellationToken);
+                NullLogger<DatabaseMigrationRunner>.Instance), TestContext.Current.CancellationToken);
         Assert.Equal(
-            migrationCatalog.GetMigrationFiles().Count + 1L,
+            migrationCatalog.GetSnapshot(BusinessUnitCodes.Osan).Migrations.Count + 1L,
             await databases.ReadScalarAsync<long>(
                 BusinessUnitCodes.Osan,
                 BusinessUnitConnectionPurpose.Migration,
@@ -1229,7 +1222,7 @@ public sealed partial class BusinessUnitIsolationTests
                         databases.Configuration,
                         new DatabaseRuntimePrivilegeManager(),
                         NullLogger<DatabaseRoleBootstrapper>.Instance)
-                    .BootstrapAsync(TestContext.Current.CancellationToken));
+                    .BootstrapAsync(BusinessUnitCodes.Cheongju, TestContext.Current.CancellationToken));
             Assert.Contains("role memberships", exception.Message, StringComparison.Ordinal);
             Assert.False(await databases.ReadScalarAsync<bool>(
                 "DIRECTORY",
@@ -1318,6 +1311,18 @@ public sealed partial class BusinessUnitIsolationTests
         Assert.True(reviewStatus.Ready);
         Assert.True(reviewStatus.DatabaseReadOnly);
         Assert.False(reviewStatus.MutationAllowed);
+    }
+
+    internal static async Task BootstrapTargetsAsync(DatabaseRoleBootstrapper bootstrapper, CancellationToken ct)
+    {
+        foreach (var target in new[] { "DIRECTORY", BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
+            await bootstrapper.BootstrapAsync(target, ct);
+    }
+
+    internal static async Task MigrateTargetsAsync(DatabaseMigrationRunner runner, CancellationToken ct)
+    {
+        foreach (var target in new[] { "DIRECTORY", BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
+            await runner.ApplyAndVerifyAsync(target, ct);
     }
 
     private static async Task ApplyExistingCheongjuSchemaAsync(
@@ -1694,10 +1699,16 @@ public sealed partial class BusinessUnitIsolationTests
         {
             var attachmentHex = Convert.ToHexString(attachmentBytes).ToLowerInvariant();
             var attachmentHash = Convert.ToHexString(SHA256.HashData(attachmentBytes)).ToLowerInvariant();
-            await databases.ExecuteAsync(
-                code,
-                BusinessUnitConnectionPurpose.Runtime,
-                $"""
+            var projectSql = code == BusinessUnitCodes.Osan
+                ? $"""
+                  insert into osan_customers(name) values ('Osan Customer') on conflict (name) do nothing;
+                  insert into projects (id, project_key, customer_name, project_code, project_title,
+                      delivery_date, status, created_by_user_id, osan_product_name, osan_quantity, osan_customer_id)
+                  values ('{BoundaryProjectId:D}', 'boundary-osan', 'Osan Customer', 'BOUNDARY-OSAN',
+                      'Osan Boundary Project', current_date + 30, 'Active', '{SalesUserId:D}',
+                      'Synthetic Osan Product', 1, (select id from osan_customers where name = 'Osan Customer'));
+                  """
+                : $"""
                 insert into projects (
                     id, project_key, project_number, name, customer_name, item,
                     project_code, project_title, project_title_normalized, delivery_date,
@@ -1708,7 +1719,12 @@ public sealed partial class BusinessUnitIsolationTests
                     '{label} Customer', 'UL891', 'BOUNDARY-{label.ToUpperInvariant()}',
                     '{label} Boundary Project', '{label.ToUpperInvariant()} BOUNDARY PROJECT',
                     current_date + 30, '{SalesUserId:D}', 'Active', '{SalesUserId:D}');
-
+                """;
+            await databases.ExecuteAsync(
+                code,
+                BusinessUnitConnectionPurpose.Runtime,
+                $"""
+                {projectSql}
                 insert into notice_posts (
                     id, title, body, author_user_id, author_display_name_snapshot, request_id)
                 values (
@@ -2991,10 +3007,6 @@ public sealed partial class BusinessUnitIsolationTests
     {
         var accessor = new HttpContextAccessor();
         var provider = new DatabaseConnectionStringProvider(databases.Configuration, accessor);
-        var administration = new UserAdministrationStore(
-            provider,
-            new DbIdentityStore(provider, databases.Configuration),
-            TimeProvider.System);
 
         foreach (var (code, expectedDisplayName, excludedDisplayName) in new[]
                  {
@@ -3014,6 +3026,10 @@ public sealed partial class BusinessUnitIsolationTests
                     true,
                     "test_selected"));
 
+            var administration = new UserAdministrationStore(
+                provider,
+                new DbIdentityStore(provider, databases.Configuration),
+                TimeProvider.System);
             var snapshot = await administration.GetSnapshotAsync(
                 TestContext.Current.CancellationToken);
             Assert.Contains(
@@ -3249,12 +3265,12 @@ public sealed partial class BusinessUnitIsolationTests
             BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
             $"select count(*) from osan_stage_work_requests where operation_id='{workRequestPayload.operationId:D}'",
             TestContext.Current.CancellationToken));
-        Assert.Equal(0L, await databases.ReadScalarAsync<long>(
+        Assert.True(await databases.ReadScalarAsync<bool>(
             BusinessUnitCodes.Cheongju, BusinessUnitConnectionPurpose.Migration,
-            "select count(*) from osan_stage_work_requests", TestContext.Current.CancellationToken));
+            "select to_regclass('public.osan_stage_work_requests') is null", TestContext.Current.CancellationToken));
 
         using (var anonymousQr = await client.GetAsync(
-                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
+                   $"/osan/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    TestContext.Current.CancellationToken))
         {
             Assert.Equal(HttpStatusCode.Unauthorized, anonymousQr.StatusCode);
@@ -3262,7 +3278,7 @@ public sealed partial class BusinessUnitIsolationTests
 
         using (var wrongBusinessUnitQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
+                   $"/osan/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-admin",
                    BusinessUnitCodes.Cheongju))
         using (var response = await client.SendAsync(
@@ -3294,7 +3310,7 @@ public sealed partial class BusinessUnitIsolationTests
             TestContext.Current.CancellationToken);
         using (var unassignedQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
+                   $"/osan/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
@@ -3387,7 +3403,7 @@ public sealed partial class BusinessUnitIsolationTests
             TestContext.Current.CancellationToken);
         using (var inactiveTargetQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
+                   $"/osan/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-sales",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
@@ -3545,7 +3561,7 @@ public sealed partial class BusinessUnitIsolationTests
 
         using (var assignedProjectQr = Request(
                    HttpMethod.Get,
-                   $"/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
+                   $"/osan/api/osan/projects/{osanProjectId:D}/targets/{osanTargetIds[0]:D}/qr?format=png",
                    "dev-manufacturing",
                    BusinessUnitCodes.Osan))
         using (var response = await client.SendAsync(
@@ -4214,7 +4230,7 @@ public sealed partial class BusinessUnitIsolationTests
         var osanAuditCountBefore = await databases.ReadScalarAsync<long>(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
-            $"select count(*) from project_audit_events where project_id = '{BoundaryProjectId:D}';",
+            $"select count(*) from osan_project_events where project_id = '{BoundaryProjectId:D}';",
             TestContext.Current.CancellationToken);
         using (var holdCheongju = Request(
                    HttpMethod.Post,
@@ -4261,7 +4277,7 @@ public sealed partial class BusinessUnitIsolationTests
             await databases.ReadScalarAsync<long>(
                 BusinessUnitCodes.Osan,
                 BusinessUnitConnectionPurpose.Migration,
-                $"select count(*) from project_audit_events where project_id = '{BoundaryProjectId:D}';",
+                $"select count(*) from osan_project_events where project_id = '{BoundaryProjectId:D}';",
                 TestContext.Current.CancellationToken));
 
         var expectedCheongjuBytes = Encoding.UTF8.GetBytes(
@@ -4800,8 +4816,10 @@ public sealed partial class BusinessUnitIsolationTests
     {
         var osan = databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Osan);
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
+        var scope = new BusinessDatabaseScope();
+        scope.Bind(osan);
         var deliveryStore = new NotificationDeliveryStore(
-            provider,
+            new BusinessDatabase(provider, scope),
             TimeProvider.System,
             databases.Configuration);
         Assert.Equal(
@@ -4916,11 +4934,14 @@ public sealed partial class BusinessUnitIsolationTests
             databases.ConfigurationValues,
             includeDefaultDevelopmentAuthentication: true);
         _ = factory.CreateClient();
-        var purge = factory.Services.GetRequiredService<IAdminDeletionPurgeService>();
+        using var serviceScope = factory.Services.CreateScope();
+        serviceScope.ServiceProvider.GetRequiredService<BusinessDatabaseScope>()
+            .Bind(databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Cheongju));
+        var purge = serviceScope.ServiceProvider.GetRequiredService<IAdminDeletionPurgeService>();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+        var exception = await Assert.ThrowsAsync<BusinessUnitContextUnavailableException>(
             () => purge.PurgeDueAsync(TestContext.Current.CancellationToken));
-        Assert.Contains("1 target(s)", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("business_unit_database_identity_mismatch", exception.Reason);
         Assert.Equal(
             1L,
             await databases.ReadScalarAsync<long>(
@@ -4956,8 +4977,9 @@ public sealed partial class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        var preflightError1 = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, TestContext.Current.CancellationToken));
+        Assert.Equal("migration_ledger_legacy_successor_missing", preflightError1.Message);
         Assert.Equal(
             missingSuccessorLedgerBefore,
             await databases.ReadScalarAsync<long>(
@@ -4981,8 +5003,9 @@ public sealed partial class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        var preflightError2 = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, TestContext.Current.CancellationToken));
+        Assert.Equal("migration_ledger_unexpected", preflightError2.Message);
         Assert.Equal(
             unknownLedgerBefore,
             await databases.ReadScalarAsync<long>(
@@ -5006,8 +5029,9 @@ public sealed partial class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        var preflightError3 = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, TestContext.Current.CancellationToken));
+        Assert.Equal("database_migration_ledger_not_known_prefix", preflightError3.Message);
         Assert.Equal(
             nonPrefixLedgerBefore,
             await databases.ReadScalarAsync<long>(
@@ -5035,8 +5059,9 @@ public sealed partial class BusinessUnitIsolationTests
             BusinessUnitConnectionPurpose.Migration,
             "select count(*) from schema_migrations;",
             TestContext.Current.CancellationToken);
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        var preflightError4 = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, TestContext.Current.CancellationToken));
+        Assert.Equal("migration_ledger_legacy_schema_mismatch", preflightError4.Message);
         Assert.Equal(
             schemaMismatchLedgerBefore,
             await databases.ReadScalarAsync<long>(
@@ -5089,8 +5114,9 @@ public sealed partial class BusinessUnitIsolationTests
             $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
             TestContext.Current.CancellationToken);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        var preflightError5 = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, TestContext.Current.CancellationToken));
+        Assert.Equal("business_database_identity_mismatch", preflightError5.Message);
         Assert.Equal(
             wrongBindingLedgerBefore,
             await databases.ReadScalarAsync<long>(
@@ -5149,8 +5175,9 @@ public sealed partial class BusinessUnitIsolationTests
             $"select project_title || ':' || status from projects where id = '{BoundaryProjectId:D}';",
             TestContext.Current.CancellationToken);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.ApplyAndVerifyAsync(TestContext.Current.CancellationToken));
+        var preflightError6 = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            runner.ApplyAndVerifyAsync(BusinessUnitCodes.Osan, TestContext.Current.CancellationToken));
+        Assert.Equal("business_database_identity_unbound_populated", preflightError6.Message);
         Assert.Equal(
             unboundLedgerBefore,
             await databases.ReadScalarAsync<long>(
@@ -5185,6 +5212,15 @@ public sealed partial class BusinessUnitIsolationTests
         string developmentUser,
         string? businessUnit = null)
     {
+        if (path.StartsWith("/api/", StringComparison.Ordinal))
+        {
+            var common = path.StartsWith("/api/business-units", StringComparison.Ordinal)
+                || path.StartsWith("/api/admin/user-access", StringComparison.Ordinal)
+                || path.StartsWith("/api/admin/business-unit-access", StringComparison.Ordinal)
+                || businessUnit is null;
+            var prefix = common ? "/access" : businessUnit == BusinessUnitCodes.Osan ? "/osan" : "/cheongju";
+            path = prefix + path;
+        }
         var request = new HttpRequestMessage(method, path);
         request.Headers.Add(DevelopmentAuthenticationDefaults.UserHeader, developmentUser);
         if (businessUnit is not null)
@@ -5481,6 +5517,8 @@ public sealed partial class BusinessUnitIsolationTests
                 admin.ConnectionString,
                 password);
 
+            // Only this newly owned synthetic fixture opts into C/O 0131.
+            values["Database:BusinessSchemaSeparationApproved"] = "true";
             var connections = BuildConnections(values);
             await using var dataSource = NpgsqlDataSource.Create(admin.ConnectionString);
             foreach (var databaseName in new[] { directoryDatabase, cheongjuDatabase, osanDatabase })

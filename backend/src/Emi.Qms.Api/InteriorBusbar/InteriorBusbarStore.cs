@@ -1,10 +1,11 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Text.Json;
 using System.Security.Cryptography;
 using Npgsql;
 using QRCoder;
 namespace Emi.Qms.Api.InteriorBusbar;
 
-public sealed partial class InteriorBusbarStore(DatabaseConnectionStringProvider provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null, InteriorBusbarEcountOptions? ecountOptions = null, IInteriorBusbarPublicationSink? publicationSink = null)
+public sealed partial class InteriorBusbarStore(CheongjuDatabase provider, TimeProvider timeProvider, InteriorBusbarPublicationOptions? publicationOptions = null, InteriorBusbarEcountOptions? ecountOptions = null, IInteriorBusbarPublicationSink? publicationSink = null)
 {
     // The same transaction lock fences inventory mutations and bounded external publication.
     // Checks, immutable ledger deltas and derived balances must commit together.

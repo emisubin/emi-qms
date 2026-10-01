@@ -44,7 +44,7 @@ describe('Ul891SetWorkspace', () => {
     fireEvent.change(screen.getByLabelText('2번 위치 패널명'), { target: { value: 'MAIN A' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
     expect(await screen.findByText('저장되었습니다. 필요할 때 같은 화면에서 다시 수정할 수 있습니다.')).toBeInTheDocument();
-    expect(requests).toContain('PUT /api/projects/project-1/set-specs/spec-1/design');
+    expect(requests).toContain('PUT /cheongju/api/projects/project-1/set-specs/spec-1/design');
   });
 
   it('shows project by shipment-month billing totals without hiding the set order', async () => {

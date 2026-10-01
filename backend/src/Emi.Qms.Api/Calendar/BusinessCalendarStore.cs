@@ -1,8 +1,9 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.Calendar;
 
-public sealed class BusinessCalendarStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class BusinessCalendarStore(CheongjuDatabase connectionStringProvider)
 {
     public async Task<BusinessCalendarResponse> GetCalendarAsync(
         string? countryCode,
@@ -61,10 +62,10 @@ public sealed class BusinessCalendarStore(DatabaseConnectionStringProvider conne
         return string.IsNullOrWhiteSpace(countryCode) ? "KR" : countryCode.Trim().ToUpperInvariant();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString()
             ?? throw new InvalidOperationException("Database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

@@ -246,15 +246,15 @@ public static class AuthorizationServiceCollectionExtensions
         });
 
         services.AddSingleton<InMemoryIdentityStore>();
-        services.AddSingleton<DbIdentityStore>();
-        services.AddSingleton<IIdentityStore, HybridIdentityStore>();
-        services.AddSingleton<IUserAdministrationStore, UserAdministrationStore>();
+        services.AddScoped<DbIdentityStore>();
+        services.AddScoped<IIdentityStore, HybridIdentityStore>();
+        services.AddScoped<IUserAdministrationStore, UserAdministrationStore>();
         services.AddHttpContextAccessor();
         services.AddTransient<IClaimsTransformation, EntraClaimsTransformation>();
-        services.AddSingleton<IAuthorizationAuditLogger, AuthorizationAuditLogger>();
-        services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-        services.AddSingleton<IAuthorizationHandler, ProjectAccessAuthorizationHandler>();
-        services.AddSingleton<IAuthorizationHandler, OperationalUserAuthorizationHandler>();
+        services.AddScoped<IAuthorizationAuditLogger, AuthorizationAuditLogger>();
+        services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddScoped<IAuthorizationHandler, ProjectAccessAuthorizationHandler>();
+        services.AddScoped<IAuthorizationHandler, OperationalUserAuthorizationHandler>();
 
         return services;
     }

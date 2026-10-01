@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Emi.Qms.Api.Authorization;
+using Emi.Qms.Api.DeploymentMaintenance;
 
 namespace Emi.Qms.Api.BusinessUnits;
 
@@ -56,7 +57,8 @@ public static class BusinessUnitAccessEndpointExtensions
                     statusCode: exception.StatusCode);
             }
         })
-        .WithName("UpdateIntegratedUserAccess");
+        .WithName("UpdateIntegratedUserAccess")
+        .WithMetadata(new IntegratedUserAccessMaintenance());
 
         app.MapPut(
             "/api/admin/business-unit-access/users/{userId:guid}/memberships",
@@ -101,6 +103,7 @@ public static class BusinessUnitAccessEndpointExtensions
 
     private static string ErrorMessage(string errorCode) => errorCode switch
     {
+        "release_maintenance" => "업데이트 중 저장할 수 없습니다. 완료 후 다시 시도해 주세요.",
         "directory_identity_not_found" => "승인하거나 수정할 사용자를 찾을 수 없습니다.",
         "directory_identity_read_only" => "개발 사용자는 이 화면에서 수정할 수 없습니다.",
         "business_unit_unknown" => "선택할 수 없는 사업부가 포함되어 있습니다.",

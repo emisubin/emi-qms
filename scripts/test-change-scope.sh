@@ -108,6 +108,15 @@ migration_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 assert_scope migration 'run_migration=true' "${api_sha}" "${migration_sha}"
 assert_scope migration-e2e 'run_full_stack=true' "${api_sha}" "${migration_sha}"
 
+for business in cheongju osan; do
+  previous_migration_sha="${migration_sha}"
+  commit_file "database/business-migrations/${business}/0131_synthetic.sql" "${business}-schema"
+  migration_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
+  assert_scope "${business}-migration" 'run_migration=true' "${previous_migration_sha}" "${migration_sha}"
+  assert_scope "${business}-backend" 'deploy_backend=true' "${previous_migration_sha}" "${migration_sha}"
+  assert_scope "${business}-e2e" 'run_full_stack=true' "${previous_migration_sha}" "${migration_sha}"
+done
+
 commit_file .github/workflows/ci.yml workflow
 workflow_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 assert_scope workflow 'classification=workflow-policy-only' "${migration_sha}" "${workflow_sha}"
@@ -117,6 +126,15 @@ commit_file .github/workflows/azure-pilot-images.yml azure
 azure_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 assert_scope azure 'classification=azure-policy-only' "${workflow_sha}" "${azure_sha}"
 assert_scope azure-validation 'run_azure_validation=true' "${workflow_sha}" "${azure_sha}"
+
+for checkpoint_path in scripts/azure-recovery-checkpoint.py scripts/test-azure-recovery-checkpoint.py scripts/test-support/azure-recovery-mock.py scripts/bootstrap-azure-maintenance.sh scripts/test-bootstrap-azure-maintenance.sh; do
+  checkpoint_base="$(git -C "${synthetic_repository}" rev-parse HEAD)"
+  commit_file "$checkpoint_path" recovery
+  checkpoint_head="$(git -C "${synthetic_repository}" rev-parse HEAD)"
+  assert_scope recovery-classification 'classification=azure-policy-only' "$checkpoint_base" "$checkpoint_head"
+  assert_scope recovery-validation 'run_azure_validation=true' "$checkpoint_base" "$checkpoint_head"
+done
+azure_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 
 commit_file unknown.configuration unknown
 unknown_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"

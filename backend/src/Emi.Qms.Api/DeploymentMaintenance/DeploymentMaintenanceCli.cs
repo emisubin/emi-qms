@@ -20,7 +20,9 @@ public static class DeploymentMaintenanceCli
         var releaseId = RequiredGuid(configuration, "Maintenance:ReleaseId");
         var actor = RequiredGuid(configuration, "Maintenance:ActorUserId");
         var publishNotice = OptionalBoolean(configuration, "Maintenance:PublishNotice", true);
-        var targets = provider.BusinessUnits.Businesses;
+        IReadOnlyList<BusinessUnitDatabaseTarget> targets = provider.BusinessUnits.Enabled
+            ? [provider.BusinessUnits.GetBusiness(Required(configuration, "Maintenance:BusinessUnit").Trim().ToUpperInvariant())]
+            : provider.BusinessUnits.Businesses;
         if (targets.Count == 0) throw new InvalidOperationException("No business database is configured.");
 
         // The release script cannot query the internal readiness route through the public access gate.
@@ -30,16 +32,19 @@ public static class DeploymentMaintenanceCli
         {
             if (!string.Equals(configuration["Maintenance:Verified"], "true", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Maintenance completion requires verified release status.");
-            var health = await databaseHealthChecker.CheckAsync(ct);
+            var health = provider.BusinessUnits.Enabled
+                ? await databaseHealthChecker.CheckTargetAsync(targets.Single(), ct)
+                : await databaseHealthChecker.CheckAsync(ct);
             if (!health.IsReady)
-                throw new InvalidOperationException("Maintenance completion requires all business databases to be ready.");
+                throw new InvalidOperationException("Maintenance completion requires the selected business database to be ready.");
         }
 
-        // A partial multi-database transition fails closed: already activated sites remain blocked,
-        // and the job exits non-zero for the operator to inspect before deployment continues.
+        // Each invocation operates on one explicitly selected business database.
         foreach (var target in targets.OrderBy(item => item.Code, StringComparer.Ordinal))
         {
-            var store = DeploymentMaintenanceStore.ForTarget(provider, target);
+            var scope = new BusinessDatabaseScope();
+            scope.Bind(target);
+            var store = DeploymentMaintenanceStore.ForTarget(new BusinessDatabase(provider, scope), target);
             DeploymentMaintenanceCommandResult result;
             if (command == "--maintenance-prepare")
             {

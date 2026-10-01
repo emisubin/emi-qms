@@ -7,7 +7,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class WebPushSubscriptionStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     TimeProvider timeProvider) : IWebPushSubscriptionDeliveryStore
 {
     public async Task<WebPushConfigurationResponse> GetConfigurationAsync(
@@ -516,7 +516,7 @@ public sealed class WebPushSubscriptionStore(
         return normalized.Length <= 100 ? normalized : normalized[..100];
     }
 
-    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    private RuntimeDataSourceLease CreateDataSource(BusinessUnitDatabaseTarget? target = null)
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
@@ -526,6 +526,6 @@ public sealed class WebPushSubscriptionStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

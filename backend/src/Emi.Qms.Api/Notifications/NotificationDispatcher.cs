@@ -8,7 +8,7 @@ public sealed class NotificationDispatcher(
     IEnumerable<INotificationChannelHandler> channelHandlers,
     IOptionsMonitor<NotificationOptions> options,
     NotificationWorkerIdentity workerIdentity,
-    DatabaseConnectionStringProvider connectionStringProvider,
+    BusinessDatabase connectionStringProvider,
     BusinessUnitDatabaseBoundaryValidator boundaryValidator,
     ILogger<NotificationDispatcher> logger)
 {
@@ -23,41 +23,14 @@ public sealed class NotificationDispatcher(
             return await DispatchTargetAsync(currentOptions, target: null, cancellationToken);
         }
 
-        var created = 0;
-        var digests = 0;
-        var processed = 0;
-        var failures = 0;
-        foreach (var target in connectionStringProvider.BusinessUnits.Businesses
-                     .Where(candidate => candidate.ExternalNotificationsEnabled))
+        var target = connectionStringProvider.BusinessUnits.Businesses.Single();
+        if (!target.ExternalNotificationsEnabled)
         {
-            try
-            {
-                await boundaryValidator.ValidateAsync(target, cancellationToken);
-                var summary = await DispatchTargetAsync(currentOptions, target, cancellationToken);
-                created += summary.CreatedDeliveryCount;
-                digests += summary.CreatedDigestDeliveryCount;
-                processed += summary.ProcessedDeliveryCount;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures++;
-                logger.LogError(
-                    "Notification dispatch target failed. Target={Target} ExceptionType={ExceptionType}.",
-                    target.Code,
-                    exception.GetType().Name);
-            }
+            return new NotificationDispatchSummary(0, 0, 0);
         }
 
-        if (failures > 0)
-        {
-            throw new InvalidOperationException(
-                $"Notification dispatch failed for {failures} target(s); no target fallback was used.");
-        }
-        return new NotificationDispatchSummary(created, digests, processed);
+        await boundaryValidator.ValidateAsync(target, cancellationToken);
+        return await DispatchTargetAsync(currentOptions, target, cancellationToken);
     }
 
     private async Task<NotificationDispatchSummary> DispatchTargetAsync(

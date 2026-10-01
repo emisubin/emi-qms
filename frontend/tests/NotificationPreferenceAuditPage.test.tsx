@@ -11,7 +11,7 @@ describe('NotificationPreferenceAuditPage', () => {
   it('renders shared summary, desktop row and mobile card from the admin audit endpoint', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      expect(url.pathname).toBe('/api/admin/notification-preference-audit');
+      expect(url.pathname).toBe('/cheongju/api/admin/notification-preference-audit');
       expect(url.searchParams.get('pageSize')).toBe('50');
       return json({
         items: [{

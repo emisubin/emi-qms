@@ -3490,7 +3490,9 @@ public sealed partial class ProjectRegistrationApiTests
         public string ConnectionString => Database.ConnectionString;
         public IServiceProvider Services => Factory.Services;
 
-        public static async Task<ProjectApiTestContext> CreateAsync(Action<IServiceCollection>? configureTestServices = null)
+        public static async Task<ProjectApiTestContext> CreateAsync(
+            Action<IServiceCollection>? configureTestServices = null,
+            bool useSharedRuntimePool = false)
         {
             var database = await PostgreSqlTestDatabase.CreateAsync(TestContext.Current.CancellationToken);
             var configuration = database.CreateConfiguration(new Dictionary<string, string?>
@@ -3502,6 +3504,14 @@ public sealed partial class ProjectRegistrationApiTests
             var values = configuration.AsEnumerable()
                 .Where(item => item.Value is not null)
                 .ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+            if (useSharedRuntimePool)
+            {
+                values["ConnectionStrings:QmsDatabase"] = new NpgsqlConnectionStringBuilder(database.ConnectionString)
+                {
+                    Pooling = true,
+                    MaxPoolSize = 2
+                }.ConnectionString;
+            }
             var factory = QmsWebApplicationFactory.Create(
                 "Testing",
                 values,

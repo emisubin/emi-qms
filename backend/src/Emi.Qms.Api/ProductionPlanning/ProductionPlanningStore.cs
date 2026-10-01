@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using ClosedXML.Excel;
 using Emi.Qms.Api.Workflow;
 using Npgsql;
@@ -6,7 +7,7 @@ using System.Globalization;
 
 namespace Emi.Qms.Api.ProductionPlanning;
 
-public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class ProductionPlanningStore(CheongjuDatabase connectionStringProvider)
 {
     private const string ActivePlanItemNameUniqueConstraint = "ux_project_production_plan_items_active_name";
 
@@ -4328,25 +4329,6 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             Note = item.Note,
             RowVersion = item.RowVersion
         };
-
-    private static async Task<ProductTypeSnapshot?> ReadActiveProductTypeAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid productTypeId, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select pt.id, pt.code, pt.name, t.id
-            from production_product_types pt
-            join production_plan_templates t on t.product_type_id = pt.id and t.is_active = true
-            where pt.id = @id
-              and pt.is_active = true;
-            """;
-        command.Parameters.AddWithValue("id", productTypeId);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new ProductTypeSnapshot(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetGuid(3))
-            : null;
-    }
-
     private static async Task<ProductTypeSnapshot?> ReadActiveProductTypeByCodeAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string productTypeCode, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -4851,7 +4833,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -4859,7 +4841,7 @@ public sealed class ProductionPlanningStore(DatabaseConnectionStringProvider con
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static string? TrimToNull(string? value)

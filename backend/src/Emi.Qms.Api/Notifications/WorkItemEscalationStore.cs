@@ -6,7 +6,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class WorkItemEscalationStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider)
 {
     private static readonly IReadOnlyDictionary<string, string[]> StageSecondaryResponsibilities =
@@ -848,16 +848,16 @@ public sealed class WorkItemEscalationStore(
             && (!connectionStringProvider.BusinessUnits.Enabled || connectionStringProvider.ExternalNotificationsEnabled(target));
     }
 
-    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    private RuntimeDataSourceLease CreateDataSource(BusinessUnitDatabaseTarget? target = null)
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
-            : connectionStringProvider.GetConnectionString(target, BusinessUnitConnectionPurpose.Runtime);
+            : connectionStringProvider.GetConnectionString(target);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

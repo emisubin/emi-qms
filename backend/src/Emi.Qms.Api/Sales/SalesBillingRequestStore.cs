@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +10,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Sales;
 
 public sealed class SalesBillingRequestStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     TimeProvider timeProvider,
     ExcelWorkbookBuilder workbookBuilder,
     ExcelExportConcurrencyGate concurrencyGate)
@@ -528,11 +529,11 @@ public sealed class SalesBillingRequestStore(
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static void AddScope(NpgsqlCommand command, ProjectAccessScope scope)

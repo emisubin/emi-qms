@@ -80,12 +80,13 @@ public sealed class EntraClaimsTransformation(
                     email,
                     httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None)
             : reviewSafe
-                ? await dbIdentityStore.GetProfileByEntraObjectIdAsync(objectId, CancellationToken.None)
+                ? await dbIdentityStore.GetProfileByEntraObjectIdAsync(objectId,
+                    httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None)
                 : await dbIdentityStore.GetOrCreateEntraProfileAsync(
                     objectId,
                     displayName,
                     email,
-                    CancellationToken.None);
+                    httpContextAccessor.HttpContext?.RequestAborted ?? CancellationToken.None);
         if (profile is null
             || (businessUnit?.DirectoryUserId is Guid directoryUserId
                 && profile.User.Id != directoryUserId))

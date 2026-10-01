@@ -4,7 +4,8 @@ using Npgsql;
 namespace Emi.Qms.Api.InteriorBusbar;
 
 internal sealed class InteriorBusbarEcountWorker(
-    DatabaseConnectionStringProvider connections, InteriorBusbarEcountOptions options,
+    CheongjuDatabase connections, BusinessUnitDatabaseBoundaryValidator boundaryValidator,
+    InteriorBusbarEcountOptions options,
     IInteriorBusbarEcountClient client, TimeProvider clock, ILogger<InteriorBusbarEcountWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -27,6 +28,8 @@ internal sealed class InteriorBusbarEcountWorker(
         await using var maintenanceLease = await Emi.Qms.Api.DeploymentMaintenance.DeploymentMaintenanceLease.AcquireAsync(
             connections, [target], cancellationToken);
         if (maintenanceLease is null) return false;
+        if (connections.BusinessUnits.Enabled)
+            await boundaryValidator.ValidateAsync(target, cancellationToken);
         var connectionString = connections.GetConnectionString(target);
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -38,10 +41,7 @@ internal sealed class InteriorBusbarEcountWorker(
         {
             // A worker has no request business-unit context. Resolve and verify Cheongju above,
             // then bind the existing transaction store to precisely that connection.
-            var fixedConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
-                ["ConnectionStrings:QmsDatabase"] = connectionString
-            }).Build();
-            var store = new InteriorBusbarStore(new(fixedConfiguration), clock, ecountOptions: options);
+            var store = new InteriorBusbarStore(connections, clock, ecountOptions: options);
             await store.RecoverEcountAttempts();
             var runtime = (await InteriorBusbarStore.Rows(connection, "select * from busbar_ecount_runtime"))[0];
             if (runtime["environment"] is string bound && bound != options.Environment || runtime["companyCode"] is string company && company != options.CompanyCode)

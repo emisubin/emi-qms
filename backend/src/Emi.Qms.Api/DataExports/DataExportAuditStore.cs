@@ -1,8 +1,9 @@
+using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
 namespace Emi.Qms.Api.DataExports;
 
-public sealed class DataExportAuditStore(DatabaseConnectionStringProvider connectionStringProvider)
+public sealed class DataExportAuditStore(BusinessDatabase connectionStringProvider)
 {
     public async Task AppendSuccessAsync(
         Guid actorUserId,
@@ -18,7 +19,7 @@ public sealed class DataExportAuditStore(DatabaseConnectionStringProvider connec
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
         await using var command = dataSource.CreateCommand("""
             insert into data_export_events (
                 id,

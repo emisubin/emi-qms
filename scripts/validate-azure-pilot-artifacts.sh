@@ -20,6 +20,11 @@ required_files=(
   "${repository_root}/scripts/test-change-scope.sh"
   "${repository_root}/scripts/deploy-azure-pilot-release.sh"
   "${repository_root}/scripts/test-azure-pilot-release.sh"
+  "${repository_root}/scripts/bootstrap-azure-maintenance.sh"
+  "${repository_root}/scripts/test-bootstrap-azure-maintenance.sh"
+  "${repository_root}/scripts/azure-recovery-checkpoint.py"
+  "${repository_root}/scripts/test-azure-recovery-checkpoint.py"
+  "${repository_root}/scripts/test-support/azure-recovery-mock.py"
   "${repository_root}/frontend/Dockerfile.azure"
   "${azure_directory}/nginx.conf.template"
   "${azure_directory}/foundation.bicep"
@@ -354,6 +359,7 @@ NODE
 "${repository_root}/scripts/test-teams-manifest-package.sh" >/dev/null
 "${repository_root}/scripts/test-pwa-assets.sh" >/dev/null
 "${repository_root}/scripts/test-azure-image-publish-inputs.sh" >/dev/null
+python3 "${repository_root}/scripts/test-azure-recovery-checkpoint.py" >/dev/null
 "${repository_root}/scripts/test-azure-pilot-release.sh" >/dev/null
 
 if [[ "${compile_templates}" == 'true' ]]; then

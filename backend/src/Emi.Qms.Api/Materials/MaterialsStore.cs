@@ -1,3 +1,4 @@
+using Emi.Qms.Api.BusinessUnits;
 using System.Globalization;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.Notifications;
@@ -11,7 +12,7 @@ using NpgsqlTypes;
 namespace Emi.Qms.Api.Materials;
 
 public sealed class MaterialsStore(
-    DatabaseConnectionStringProvider connectionStringProvider,
+    CheongjuDatabase connectionStringProvider,
     PendingStore pendingStore,
     TimeProvider timeProvider)
 {
@@ -2435,14 +2436,14 @@ public sealed class MaterialsStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

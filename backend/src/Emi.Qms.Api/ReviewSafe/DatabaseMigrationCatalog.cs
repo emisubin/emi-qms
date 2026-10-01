@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Emi.Qms.Api.BusinessUnits;
 
 namespace Emi.Qms.Api.ReviewSafe;
 
@@ -7,20 +8,33 @@ public sealed partial class DatabaseMigrationCatalog
 {
     private readonly IWebHostEnvironment? environment;
     private readonly string? migrationsPathOverride;
+    private readonly string? businessMigrationsRootPathOverride;
 
     public DatabaseMigrationCatalog(IWebHostEnvironment environment)
     {
         this.environment = environment;
     }
 
-    private DatabaseMigrationCatalog(string migrationsPathOverride)
+    private DatabaseMigrationCatalog(
+        string migrationsPathOverride,
+        string? businessMigrationsRootPathOverride = null)
     {
         this.migrationsPathOverride = Path.GetFullPath(migrationsPathOverride);
+        this.businessMigrationsRootPathOverride = businessMigrationsRootPathOverride is null
+            ? null
+            : Path.GetFullPath(businessMigrationsRootPathOverride);
     }
 
     public static DatabaseMigrationCatalog FromPath(string migrationsPath)
     {
         return new DatabaseMigrationCatalog(migrationsPath);
+    }
+
+    public static DatabaseMigrationCatalog FromPaths(
+        string migrationsPath,
+        string businessMigrationsRootPath)
+    {
+        return new DatabaseMigrationCatalog(migrationsPath, businessMigrationsRootPath);
     }
 
     public string ResolveMigrationsPath()
@@ -53,8 +67,39 @@ public sealed partial class DatabaseMigrationCatalog
 
     public MigrationCatalogSnapshot GetSnapshot()
     {
-        var migrationFiles = Directory
-            .GetFiles(ResolveMigrationsPath(), "*.sql", SearchOption.TopDirectoryOnly)
+        return CreateSnapshot(GetSqlFiles(ResolveMigrationsPath()));
+    }
+
+    public MigrationCatalogSnapshot GetSnapshot(string businessUnitCode)
+    {
+        var commonFiles = GetSqlFiles(ResolveMigrationsPath());
+        var businessFiles = GetSqlFiles(ResolveBusinessMigrationsPath(businessUnitCode));
+        if (businessFiles.Count == 0)
+        {
+            throw new MigrationCatalogException(
+                "migration_catalog_business_target_empty",
+                "No migrations were found for the selected business-unit target.");
+        }
+        return CreateSnapshot(commonFiles.Concat(businessFiles));
+    }
+
+    public IReadOnlyList<string> GetCommonMigrationFiles()
+    {
+        return GetSnapshot().Migrations.Select(item => item.FilePath).ToList();
+    }
+
+    public IReadOnlyList<string> GetBusinessMigrationFiles(string businessUnitCode)
+    {
+        var commonVersions = GetSnapshot().Versions.ToHashSet(StringComparer.Ordinal);
+        return GetSnapshot(businessUnitCode).Migrations
+            .Where(item => !commonVersions.Contains(item.Version))
+            .Select(item => item.FilePath)
+            .ToList();
+    }
+
+    private MigrationCatalogSnapshot CreateSnapshot(IEnumerable<string> migrationFilePaths)
+    {
+        var migrationFiles = migrationFilePaths
             .OrderBy(Path.GetFileName, StringComparer.Ordinal)
             .ToList();
         if (migrationFiles.Count == 0)
@@ -102,9 +147,48 @@ public sealed partial class DatabaseMigrationCatalog
         return GetSnapshot().Migrations.Select(item => item.FilePath).ToList();
     }
 
+    public IReadOnlyList<string> GetMigrationFiles(string businessUnitCode)
+    {
+        return GetSnapshot(businessUnitCode).Migrations.Select(item => item.FilePath).ToList();
+    }
+
     public string GetExpectedLatestVersion()
     {
         return GetSnapshot().LatestVersion;
+    }
+
+    public string GetExpectedLatestVersion(string businessUnitCode)
+    {
+        return GetSnapshot(businessUnitCode).LatestVersion;
+    }
+
+    private string ResolveBusinessMigrationsPath(string businessUnitCode)
+    {
+        var directoryName = businessUnitCode switch
+        {
+            BusinessUnitCodes.Cheongju => "cheongju",
+            BusinessUnitCodes.Osan => "osan",
+            _ => throw new MigrationCatalogException(
+                "migration_catalog_business_target_invalid",
+                "A known business-unit migration target is required.")
+        };
+
+        var root = businessMigrationsRootPathOverride
+            ?? Path.Combine(
+                Directory.GetParent(ResolveMigrationsPath())?.FullName
+                    ?? throw new DirectoryNotFoundException("Could not find database/business-migrations."),
+                "business-migrations");
+        var path = Path.Combine(root, directoryName);
+        return Directory.Exists(path)
+            ? path
+            : throw new DirectoryNotFoundException("Could not find database business migrations for the selected target.");
+    }
+
+    private static IReadOnlyList<string> GetSqlFiles(string path)
+    {
+        return Directory
+            .GetFiles(path, "*.sql", SearchOption.TopDirectoryOnly)
+            .ToList();
     }
 
     private static MigrationCatalogEntry ParseEntry(string filePath)

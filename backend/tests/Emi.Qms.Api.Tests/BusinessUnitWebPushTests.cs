@@ -24,10 +24,10 @@ public sealed partial class BusinessUnitIsolationTests
         var provider = new DatabaseConnectionStringProvider(databases.Configuration);
         var environment = new TestEnvironment(databases.RepositoryRoot);
         var catalog = new DatabaseMigrationCatalog(environment);
-        await new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
-            NullLogger<DatabaseRoleBootstrapper>.Instance).BootstrapAsync(ct);
-        await new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
-            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(ct);
+        await BootstrapTargetsAsync(new DatabaseRoleBootstrapper(databases.Configuration, new DatabaseRuntimePrivilegeManager(),
+            NullLogger<DatabaseRoleBootstrapper>.Instance), ct);
+        await MigrateTargetsAsync(new DatabaseMigrationRunner(provider, catalog, new DatabaseRuntimePrivilegeManager(),
+            databases.Configuration, NullLogger<DatabaseMigrationRunner>.Instance), ct);
         await new DevelopmentIdentitySeeder(provider, databases.Configuration, environment,
             NullLogger<DevelopmentIdentitySeeder>.Instance, new MigrationLedgerInspector(catalog)).SeedAsync(ct);
         databases.ConfigurationValues["DevelopmentData:SeedEnabled"] = "false";
@@ -129,12 +129,10 @@ public sealed partial class BusinessUnitIsolationTests
         var sharedNotificationId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration, $"""
-            insert into projects(id,project_key,project_number,name,customer_name,item,project_code,project_title,
-                project_title_normalized,delivery_date,sales_owner_user_id,status,created_by_user_id,
-                project_profile,osan_product_name,osan_quantity)
-            values('{projectId}','push-project','PUSH-PROJECT','Push Project','Synthetic Customer','UL891',
-                'PUSH-PROJECT','Push Project','PUSH PROJECT',current_date+30,'{SalesUserId}','Active',
-                '{SalesUserId}','Osan','Synthetic Product',1);
+            insert into projects(id,project_key,customer_name,project_code,project_title,
+                delivery_date,status,created_by_user_id,osan_product_name,osan_quantity)
+            values('{projectId}','push-project','Synthetic Customer','PUSH-PROJECT','Push Project',
+                current_date+30,'Active','{SalesUserId}','Synthetic Product',1);
             """, ct);
         foreach (var campus in new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
         {
@@ -162,10 +160,20 @@ public sealed partial class BusinessUnitIsolationTests
             insert into osan_notification_events(notification_id,event_kind,stage_sequence)
             select id,'ProjectCreated',0 from notifications where idempotency_key like 'push-%';
             """, ct);
-        var dispatcher = factory.Services.GetRequiredService<NotificationDispatcher>();
-        // Outside HTTP context: this catches worker fallback/missing-target reads and writes.
-        var summary = await dispatcher.DispatchAsync(ct);
-        Assert.Equal(2, summary.CreatedDeliveryCount);
+        async Task<int> DispatchAllAsync()
+        {
+            var created = 0;
+            await factory.Services.GetRequiredService<BusinessUnitWorkerRunner>().RunAsync<NotificationDispatcher>(
+                target => target.ExternalNotificationsEnabled,
+                async (dispatcher, token) =>
+                {
+                    var summary = await dispatcher.DispatchAsync(token);
+                    Interlocked.Add(ref created, summary.CreatedDeliveryCount);
+                }, ct);
+            return created;
+        }
+        // Execute the real host orchestration, which binds each background scope to one database.
+        Assert.Equal(2, await DispatchAllAsync());
         Assert.Equal(2, protocol.Requests.Count);
         foreach (var campus in new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
         {
@@ -176,7 +184,7 @@ public sealed partial class BusinessUnitIsolationTests
         }
         Assert.Equal(1L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
             "select count(*) from notification_deliveries", ct));
-        Assert.Equal(0, (await dispatcher.DispatchAsync(ct)).CreatedDeliveryCount);
+        Assert.Equal(0, await DispatchAllAsync());
         foreach (var (recipient, project, recipientRow, generation, channel, deliveryType) in new[]
         {
             ($"'{AdminUserId}'::uuid", "project_id", "notification_recipient_id", "web_push_subscription_generation", "WebPush", "WebPushNotification"),
@@ -216,7 +224,7 @@ public sealed partial class BusinessUnitIsolationTests
         Assert.True(await Active(BusinessUnitCodes.Cheongju));
         using (var reactivate = await Send(HttpMethod.Put, "/api/my/web-push/subscriptions", subscription))
             Assert.Equal(HttpStatusCode.OK, reactivate.StatusCode);
-        Assert.Equal(0, (await dispatcher.DispatchAsync(ct)).CreatedDeliveryCount);
+        Assert.Equal(0, await DispatchAllAsync());
         Assert.Equal(2, protocol.Requests.Count); // Reactivation never replays previous notifications.
 
         protocol.Exception = new WebPushProtocolException(410, "expired-synthetic-subscription");
@@ -227,7 +235,7 @@ public sealed partial class BusinessUnitIsolationTests
             insert into notification_recipients(notification_id,user_id) values('{expiredNotificationId}','{SalesUserId}');
             insert into osan_notification_events(notification_id,event_kind,stage_sequence) values('{expiredNotificationId}','ProjectCreated',0);
             """, ct);
-        await dispatcher.DispatchAsync(ct);
+        await DispatchAllAsync();
         Assert.False(await Active(BusinessUnitCodes.Osan));
         Assert.True(await Active(BusinessUnitCodes.Cheongju));
         Assert.Equal(1L, await databases.ReadScalarAsync<long>(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
@@ -283,11 +291,11 @@ public sealed partial class BusinessUnitIsolationTests
 
     private sealed class IsolationWebPushProtocolClient : IWebPushProtocolClient
     {
-        public List<WebPushProtocolRequest> Requests { get; } = [];
+        public System.Collections.Concurrent.ConcurrentQueue<WebPushProtocolRequest> Requests { get; } = new();
         public Exception? Exception { get; set; }
         public Task SendAsync(WebPushProtocolRequest request, CancellationToken cancellationToken)
         {
-            Requests.Add(request);
+            Requests.Enqueue(request);
             return Exception is null ? Task.CompletedTask : Task.FromException(Exception);
         }
     }

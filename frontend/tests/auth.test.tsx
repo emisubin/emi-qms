@@ -172,7 +172,7 @@ describe('authentication modes', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = init?.headers as Headers;
-    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/api/me');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/access/api/me');
     expect(headers.get('X-Dev-User')).toBe('dev-sales');
     expect(headers.get('Authorization')).toBeNull();
   });
@@ -189,7 +189,7 @@ describe('authentication modes', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = init?.headers as Headers;
-    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/api/runtime-mode');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/access/api/runtime-mode');
     expect(headers.get('X-Dev-User')).toBe('dev-sales');
   });
 
@@ -206,7 +206,7 @@ describe('authentication modes', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const headers = init?.headers as Headers;
-    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/api/me');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:5080/access/api/me');
     expect(headers.get('Authorization')).toBe('Bearer entra-access-token');
   });
 
@@ -513,7 +513,7 @@ describe('authentication modes', () => {
     expect(setActiveAccount).not.toHaveBeenCalled();
   });
 
-  it('renders the project list after cached Entra account restoration and /api/me approval', async () => {
+  it('renders the project list after cached Entra account restoration and /access/api/me approval', async () => {
     window.history.pushState(null, '', '/projects');
     vi.stubEnv('VITE_AUTH_MODE', 'EntraId');
     vi.stubEnv('VITE_AZURE_TENANT_ID', '11111111-1111-1111-1111-111111111111');
@@ -582,7 +582,7 @@ describe('authentication modes', () => {
 
     let outstandingReadSignal: AbortSignal | null = null;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/admin/users') {
+      if (new URL(String(input)).pathname === '/cheongju/api/admin/users') {
         outstandingReadSignal = init?.signal ?? null;
         return new Promise<Response>((_resolve, reject) => {
           if (outstandingReadSignal?.aborted) {
@@ -762,14 +762,14 @@ describe('authentication modes', () => {
     const businessRequests: string[] = [];
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
       const pathname = new URL(String(input)).pathname;
-      if (pathname === '/api/me') {
+      if (pathname === '/access/api/me' || pathname === '/cheongju/api/me') {
         const response = await approvedEntraFetch(input);
         const user = await response.json();
         return json({ ...user, approvalPending: true, roles: [], permissions: [], canUseAdminTestUserSwitch: false,
           businessUnitAccess: { status, selectedBusinessUnit: status === 'selected' ? 'CHEONGJU' : null,
             allowedBusinessUnits: status === 'selected' ? ['CHEONGJU'] : [], isOverallAdministrator: false, errorCode: null } });
       }
-      if (pathname === '/api/projects' || pathname === '/api/admin/users') businessRequests.push(pathname);
+      if (pathname === '/cheongju/api/projects' || pathname === '/cheongju/api/admin/users') businessRequests.push(pathname);
       return approvedEntraFetch(input);
     });
     const { App } = await import('../src/App');
@@ -809,7 +809,7 @@ describe('authentication modes', () => {
     const instance = await mockAutomaticLogin([testAccount('server-expiry')]);
     instance.acquireTokenSilent.mockResolvedValue({ accessToken: 'synthetic-token' });
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) =>
-      new URL(String(input)).pathname === '/api/me'
+      new URL(String(input)).pathname === '/access/api/me'
         ? json({ title: 'Unauthorized' }, 401) : approvedEntraFetch(input)));
     const { App } = await import('../src/App');
     const firstVisit = render(<StrictMode><App /></StrictMode>);
@@ -879,7 +879,7 @@ async function approvedEntraFetch(input: RequestInfo | URL): Promise<Response> {
     });
   }
 
-  if (url.pathname === '/api/me') {
+  if (url.pathname === '/access/api/me' || url.pathname === '/cheongju/api/me') {
     return json({
       userId: '90000000-0000-0000-0000-000000000001',
       developmentUserKey: '',
@@ -920,15 +920,15 @@ async function approvedEntraFetch(input: RequestInfo | URL): Promise<Response> {
     });
   }
 
-  if (url.pathname === '/api/my-work/summary') {
+  if (url.pathname === '/cheongju/api/my-work/summary') {
     return json({ requestedCount: 0, inProgressCount: 0, completedCount: 0, blockingCount: 0, assignedProjectCount: 0, assignedProjectBreakdown: [] });
   }
 
-  if (url.pathname === '/api/notifications/summary') {
+  if (url.pathname === '/cheongju/api/notifications/summary') {
     return json({ unreadCount: 0, blockingCount: 0 });
   }
 
-  if (url.pathname === '/api/projects/summary') {
+  if (url.pathname === '/cheongju/api/projects/summary') {
     return json({
       totalProjects: 1,
       activeProjects: 1,
@@ -942,7 +942,7 @@ async function approvedEntraFetch(input: RequestInfo | URL): Promise<Response> {
     });
   }
 
-  if (url.pathname === '/api/projects') {
+  if (url.pathname === '/cheongju/api/projects') {
     return json({
       items: [
         {

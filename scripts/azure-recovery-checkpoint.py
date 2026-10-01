@@ -238,14 +238,41 @@ class Checkpoint:
         return jobs
 
     def quiet(self, state):
+        revision_scopes = []
         for name in self.binding["apps"]:
-            revisions = self.read("containerapp", "revision", "list", *self.rg, "--name", name)
+            revisions = self.read(
+                "containerapp", "revision", "list", *self.rg, "--name", name, "--all")
             require(isinstance(revisions, list) and revisions, "REVISION_LIST_INVALID")
+            revision_names = set()
             for revision in revisions:
-                require(revision["properties"]["active"] is False, "APP_REACTIVATED")
-                replicas = self.read("containerapp", "replica", "list", *self.rg,
-                                     "--name", name, "--revision", revision["name"])
-                require(isinstance(replicas, list) and not replicas, "REPLICA_STILL_RUNNING")
+                require(isinstance(revision, dict)
+                        and isinstance(revision.get("name"), str) and revision["name"]
+                        and revision["name"] not in revision_names
+                        and isinstance(revision.get("properties"), dict),
+                        "REVISION_LIST_INVALID")
+                revision_names.add(revision["name"])
+                require(revision["properties"].get("active") is False, "APP_REACTIVATED")
+                revision_scopes.append((name, revision["name"]))
+
+        replica_failures = []
+        with ThreadPoolExecutor(max_workers=min(8, len(revision_scopes))) as workers:
+            futures = [workers.submit(
+                self.read, "containerapp", "replica", "list", *self.rg,
+                "--name", app_name, "--revision", revision_name)
+                for app_name, revision_name in revision_scopes]
+            for future in futures:
+                try:
+                    replicas = future.result()
+                    if not isinstance(replicas, list) or replicas:
+                        replica_failures.append(RuntimeError("REPLICA_STILL_RUNNING"))
+                except Exception as error:
+                    replica_failures.append(error)
+        if replica_failures:
+            first = replica_failures[0]
+            if (isinstance(first, RuntimeError) and len(first.args) == 1
+                    and first.args[0] in SAFE_FAILURE_REASONS):
+                raise first
+            raise RuntimeError("AZURE_READ_FAILED") from first
         current = self.jobs()
         require(current.keys() == state["jobs"].keys(), "JOB_SET_CHANGED")
         migration = self.env["MIGRATION_JOB_NAME"]
@@ -408,7 +435,7 @@ class Checkpoint:
         state = self.load(path)
         require(state["phase"] == "candidate" and utc_now() < self.ends_at, "CHECKPOINT_NOT_READY")
         self.bind_drains(state, drain_executions, state["allowedDrains"])
-        self.deadline = time.monotonic() + min(120, (self.ends_at - utc_now()).total_seconds())
+        self.deadline = time.monotonic() + min(300, (self.ends_at - utc_now()).total_seconds())
         self.quiet(state)
         server = self.server()
         if self.logical_config is not None:

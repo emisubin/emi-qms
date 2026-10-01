@@ -545,8 +545,9 @@ stop_app() {
       --name "${app_name}" --query 'length([?properties.active])')" || return 1
     stopped='true'
     [[ "${count}" == '0' ]] || stopped='false'
-    all_revisions="$(azure_read containerapp revision list --resource-group "${AZURE_RESOURCE_GROUP}" \
+    all_revisions="$(azure_read containerapp revision list --all --resource-group "${AZURE_RESOURCE_GROUP}" \
       --name "${app_name}" --query '[].name')" || return 1
+    [[ -n "${all_revisions}" ]] || return 1
     while IFS= read -r revision; do
       [[ -n "${revision}" ]] || continue
       [[ "${revision}" =~ ^[a-zA-Z0-9-]+$ ]] || return 1

@@ -62,10 +62,23 @@ elif a[:4] == ["postgres", "flexible-server", "backup", "list"]:
             pattern = "pms-first-maintenance-*/recovery.json" if first else "pms-recovery-checkpoint.*/recovery.json"
             for path in root.glob(pattern): os.chmod(path.parent, 0o755)
 elif a[:3] == ["containerapp", "revision", "list"]:
+    if quiet and scenario == "recovery-revision-read-failed":
+        print("synthetic-secret-value-must-not-log", file=sys.stderr)
+        sys.exit(1)
     out = [{"name": arg("--name") + "--old", "properties": {
         "active": active[arg("--name")] or (quiet and scenario == "recovery-active-app")}}]
+    if quiet and scenario in ("recovery-multiple-inactive", "recovery-replica-running"):
+        out.extend({"name": arg("--name") + f"--inactive-{index}",
+                    "properties": {"active": False}} for index in range(1, 4))
+    if quiet and scenario == "recovery-mixed-active-revision":
+        out.append({"name": arg("--name") + "--unexpected-active",
+                    "properties": {"active": True}})
+    if "--all" not in a:
+        out = [revision for revision in out if revision["properties"]["active"]]
 elif a[:3] == ["containerapp", "replica", "list"]:
-    out = [{}] if active[arg("--name")] else []
+    out = ([{}] if active[arg("--name")] or (
+        quiet and scenario == "recovery-replica-running"
+        and arg("--revision").endswith("--inactive-2")) else [])
 elif a[:3] == ["containerapp", "job", "list"]:
     out = [{"name": env[k], "properties": {"configuration": {"triggerType": "Manual"}}}
            for k in ("MIGRATION_JOB_NAME", "MAINTENANCE_JOB_NAME", "DATABASE_BOOTSTRAP_JOB_NAME", "MEMBERSHIP_BACKFILL_JOB_NAME")

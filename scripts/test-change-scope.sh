@@ -15,6 +15,9 @@ synthetic_repository="${temporary_directory}/repository"
 git init --quiet "${synthetic_repository}"
 git -C "${synthetic_repository}" config user.name 'Synthetic CI'
 git -C "${synthetic_repository}" config user.email 'synthetic@invalid'
+# This disposable repository must not leave Git maintenance writing during cleanup.
+git -C "${synthetic_repository}" config maintenance.auto false
+git -C "${synthetic_repository}" config gc.auto 0
 
 commit_file() {
   local path="$1"

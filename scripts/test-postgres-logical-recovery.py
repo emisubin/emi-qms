@@ -241,10 +241,17 @@ class LogicalRecoveryTests(unittest.TestCase):
 
         def runner(arguments, **kwargs):
             commands.append(arguments)
-            if arguments[1:3] == ["cms", "-encrypt"] or arguments[1:3] == ["cms", "-decrypt"]:
+            if arguments[1:3] == ["cms", "-encrypt"]:
                 source = Path(arguments[arguments.index("-in") + 1])
                 destination = Path(arguments[arguments.index("-out") + 1])
-                destination.write_bytes(source.read_bytes())
+                destination.write_bytes(b"\x30" + source.read_bytes())
+            elif arguments[1:3] == ["cms", "-decrypt"]:
+                source = Path(arguments[arguments.index("-in") + 1])
+                destination = Path(arguments[arguments.index("-out") + 1])
+                encrypted = source.read_bytes()
+                if not encrypted.startswith(b"\x30"):
+                    return self.completed(returncode=1)
+                destination.write_bytes(encrypted[1:])
             return self.completed()
 
         recovery = module.PostgresLogicalRecovery(validated, run=runner)
@@ -262,6 +269,203 @@ class LogicalRecoveryTests(unittest.TestCase):
         self.assertIn("rsa_oaep_md:sha256", encrypt)
         self.assertNotIn(str(self.private_key), encrypt)
         self.assertIn(str(self.private_key), commands[1])
+
+    def authenticated_cms_runner(self, arguments, **kwargs):
+        if arguments[1:3] not in (["cms", "-encrypt"], ["cms", "-decrypt"]):
+            raise AssertionError(arguments)
+        source = Path(arguments[arguments.index("-in") + 1])
+        destination = Path(arguments[arguments.index("-out") + 1])
+        value = source.read_bytes()
+        if arguments[2] == "-encrypt":
+            destination.write_bytes(b"\x30" + module.hashlib.sha256(value).digest() + value)
+            return self.completed()
+        if len(value) < 33 or value[0] != 0x30:
+            return self.completed(returncode=1)
+        plaintext = value[33:]
+        if not secrets.compare_digest(value[1:33], module.hashlib.sha256(plaintext).digest()):
+            return self.completed(returncode=1)
+        destination.write_bytes(plaintext)
+        return self.completed()
+
+    @staticmethod
+    def framed_chunks(value):
+        header = value[:module.CMS_OUTER_HEADER.size]
+        unpacked = module.CMS_OUTER_HEADER.unpack(header)
+        offset = module.CMS_OUTER_HEADER.size
+        frames = []
+        for _ in range(unpacked[-1]):
+            length_header = value[offset:offset + module.CMS_FRAME_HEADER.size]
+            (length,) = module.CMS_FRAME_HEADER.unpack(length_header)
+            end = offset + module.CMS_FRAME_HEADER.size + length
+            frames.append(value[offset:end])
+            offset = end
+        return header, frames, value[offset:]
+
+    def test_chunked_cms_round_trip_and_adversarial_frames_fail_closed(self):
+        validated = module._parse_config(self.config)
+        recovery = module.PostgresLogicalRecovery(
+            validated, run=self.authenticated_cms_runner)
+        source = self.root / "chunk-source"
+        source.write_bytes(bytes(range(97)))
+        encrypted = self.root / "chunked.cms"
+        restored = self.root / "chunk-restored"
+        with patch.object(module, "CMS_CHUNK_BYTES", 32):
+            recovery._encrypt(source, encrypted)
+            recovery._decrypt(encrypted, restored)
+            self.assertEqual(source.read_bytes(), restored.read_bytes())
+            self.assertEqual(0o600, encrypted.stat().st_mode & 0o777)
+            header, frames, trailing = self.framed_chunks(encrypted.read_bytes())
+            self.assertEqual(b"", trailing)
+            self.assertEqual(4, len(frames))
+
+            second_source = self.root / "second-source"
+            second_source.write_bytes(b"different archive" * 6)
+            second_encrypted = self.root / "second.cms"
+            recovery._encrypt(second_source, second_encrypted)
+            _, second_frames, _ = self.framed_chunks(second_encrypted.read_bytes())
+
+            tampered = bytearray(frames[0])
+            tampered[-1] ^= 1
+            cases = {
+                "reordered": header + frames[1] + frames[0] + b"".join(frames[2:]),
+                "dropped": header + b"".join(frames[:-1]),
+                "duplicated": header + frames[0] + frames[0] + b"".join(frames[2:]),
+                "truncated": header + b"".join(frames)[:-1],
+                "tampered": header + bytes(tampered) + b"".join(frames[1:]),
+                "cross_archive": header + second_frames[0] + b"".join(frames[1:]),
+                "trailing": header + b"".join(frames) + b"unexpected",
+            }
+            for name, value in cases.items():
+                with self.subTest(name=name):
+                    candidate = self.root / f"{name}.cms"
+                    candidate.write_bytes(value)
+                    candidate.chmod(0o600)
+                    output = self.root / f"{name}.plain"
+                    with self.assertRaises(module.RecoveryError):
+                        recovery._decrypt(candidate, output)
+                    self.assertFalse(output.exists())
+
+            magic, archive_id, _, _, _ = module.CMS_OUTER_HEADER.unpack(header)
+            malicious = self.root / "malicious-header.cms"
+            malicious.write_bytes(module.CMS_OUTER_HEADER.pack(
+                magic, archive_id, module.CMS_MAX_PLAINTEXT_BYTES, 32, 2 ** 32 - 1)
+                + b"x")
+            with self.assertRaisesRegex(module.RecoveryError,
+                                       "^EVIDENCE_CHUNK_HEADER_INVALID$"):
+                recovery._decrypt(malicious, self.root / "malicious-output")
+
+        self.assertFalse(any(path.name.startswith(".cms-") for path in self.root.iterdir()))
+
+    def test_unknown_and_oversized_legacy_cms_are_rejected_before_crypto(self):
+        validated = module._parse_config(self.config)
+        calls = []
+
+        def runner(arguments, **kwargs):
+            calls.append(arguments)
+            return self.completed()
+
+        recovery = module.PostgresLogicalRecovery(validated, run=runner)
+        unknown = self.root / "unknown.cms"
+        unknown.write_bytes(b"not-cms")
+        with self.assertRaisesRegex(module.RecoveryError, "^EVIDENCE_FORMAT_INVALID$"):
+            recovery._decrypt(unknown, self.root / "unknown.out")
+        oversized = self.root / "oversized.cms"
+        with oversized.open("wb") as stream:
+            stream.write(b"\x30")
+            stream.truncate(module.CMS_CHUNK_BYTES + module.CMS_MAX_OVERHEAD_BYTES + 1)
+        with self.assertRaisesRegex(module.RecoveryError, "^EVIDENCE_LEGACY_SIZE_INVALID$"):
+            recovery._decrypt(oversized, self.root / "oversized.out")
+        self.assertEqual([], calls)
+
+    def test_cms_never_removes_a_preexisting_destination(self):
+        validated = module._parse_config(self.config)
+        recovery = module.PostgresLogicalRecovery(
+            validated, run=self.authenticated_cms_runner)
+        sentinel = b"preexisting-private-evidence"
+        small = self.root / "small-source"
+        small.write_bytes(b"small")
+        small_cipher = self.root / "small.cms"
+        recovery._encrypt(small, small_cipher)
+        for operation, source in ((recovery._encrypt, small),
+                                  (recovery._decrypt, small_cipher)):
+            destination = self.root / ("existing-" + secrets.token_hex(4))
+            destination.write_bytes(sentinel)
+            with self.assertRaises(FileExistsError):
+                operation(source, destination)
+            self.assertEqual(sentinel, destination.read_bytes())
+
+        with patch.object(module, "CMS_CHUNK_BYTES", 8):
+            chunk_source = self.root / "chunk-source-existing"
+            chunk_source.write_bytes(b"requires several chunks")
+            chunk_cipher = self.root / "chunk-existing.cms"
+            recovery._encrypt(chunk_source, chunk_cipher)
+            for operation, source in ((recovery._encrypt, chunk_source),
+                                      (recovery._decrypt, chunk_cipher)):
+                destination = self.root / ("existing-chunk-" + secrets.token_hex(4))
+                destination.write_bytes(sentinel)
+                with self.assertRaises(FileExistsError):
+                    operation(source, destination)
+                self.assertEqual(sentinel, destination.read_bytes())
+        self.assertFalse(any(path.name.startswith(".cms-") for path in self.root.iterdir()))
+
+    @unittest.skipUnless(os.environ.get("POSTGRES_LOGICAL_RECOVERY_LARGE_CMS_OPENSSL"),
+                         "set POSTGRES_LOGICAL_RECOVERY_LARGE_CMS_OPENSSL to run >2GiB CMS smoke")
+    def test_real_openssl_chunked_cms_round_trip_above_two_gibibytes(self):
+        openssl = os.environ["POSTGRES_LOGICAL_RECOVERY_LARGE_CMS_OPENSSL"]
+        certificate = self.root / "large-recipient.pem"
+        private_key = self.root / "large-recipient.key"
+        generated = subprocess.run([
+            openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(private_key), "-out", str(certificate), "-days", "1",
+            "-subj", "/CN=logical-recovery-large-cms-test",
+            "-addext", "subjectKeyIdentifier=hash",
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=60)
+        self.assertEqual(0, generated.returncode, "large CMS test certificate generation failed")
+        private_key.chmod(0o600)
+        config = dict(self.config)
+        config.update({
+            "certificatePath": str(certificate),
+            "privateKeyPath": str(private_key),
+            "opensslPath": openssl,
+            "verificationTimeoutSeconds": 300,
+        })
+        config["binding"] = dict(self.config["binding"])
+        config["binding"]["evidenceCertificateSha256"] = (
+            module._certificate_binding_sha256(certificate))
+        validated = module._parse_config(config)
+        largest_crypto_input = {"bytes": 0}
+
+        def measured_runner(arguments, **kwargs):
+            if arguments[1:3] in (["cms", "-encrypt"], ["cms", "-decrypt"]):
+                source = Path(arguments[arguments.index("-in") + 1])
+                largest_crypto_input["bytes"] = max(
+                    largest_crypto_input["bytes"], source.stat().st_size)
+            return subprocess.run(arguments, **kwargs)
+
+        recovery = module.PostgresLogicalRecovery(validated, run=measured_runner)
+        source = self.root / "large-source"
+        # The first production attempt exposed this exact compressed payload size.
+        source_size = 3_577_258_967
+        descriptor = os.open(source, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.ftruncate(descriptor, source_size)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        encrypted = self.root / "large.cms"
+        restored = self.root / "large-restored"
+        started = time.monotonic()
+        recovery._encrypt(source, encrypted)
+        recovery._decrypt(encrypted, restored)
+        elapsed = time.monotonic() - started
+        self.assertEqual(source_size, restored.stat().st_size)
+        self.assertEqual(module._sha256(source), module._sha256(restored))
+        self.assertLessEqual(largest_crypto_input["bytes"],
+                             module.CMS_CHUNK_BYTES + module.CMS_INNER_HEADER.size
+                             + module.CMS_MAX_OVERHEAD_BYTES)
+        self.assertFalse(any(path.name.startswith(".cms-") for path in self.root.iterdir()))
+        print(f"largeCmsRoundTripBytes={source_size} elapsedSeconds={elapsed:.3f} "
+              f"largestCryptoInputBytes={largest_crypto_input['bytes']}")
 
     def test_archive_extraction_rejects_extra_or_link_members(self):
         validated = module._parse_config(self.config)

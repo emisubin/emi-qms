@@ -168,6 +168,7 @@ class CheckpointTests(unittest.TestCase):
                     "drainedAtUtc": self.drained, "startedAtUtc": "2026-01-02T00:00:11Z",
                     "completedAtUtc": "2026-01-02T00:00:18Z"}
         self.checkpoint.logical_module = SimpleNamespace(
+            RecoveryError=type("RecoveryError", (RuntimeError,), {}),
             create_backup=create or (lambda _: copy.deepcopy(evidence)),
             verify_backup=verify or (lambda *_: None))
         return evidence
@@ -189,6 +190,30 @@ class CheckpointTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "^LOGICAL_BACKUP_FAILED$"):
             self.checkpoint.wait(self.path, self.drained, self.initial_drains)
         self.assertEqual("armed", json.loads(self.path.read_text())["phase"])
+        self.assertEqual("UNEXPECTED_FAILURE", json.loads(self.path.read_text())["logicalBackupFailureCode"])
+        self.assertNotIn("private diagnostic", self.path.read_text())
+
+    def test_logical_failure_preserves_only_driver_codes_in_private_evidence(self):
+        self.logical_mode()
+        driver_error = self.checkpoint.logical_module.RecoveryError
+        for error, expected in (
+                (driver_error("CANONICAL_SCHEMA_RESTORE_FAILED"), "CANONICAL_SCHEMA_RESTORE_FAILED"),
+                (driver_error("password=private"), "UNEXPECTED_FAILURE"),
+                (driver_error("A" * 65), "UNEXPECTED_FAILURE"),
+                (driver_error("SAFE_CODE", "private"), "UNEXPECTED_FAILURE"),
+                (RuntimeError("CANONICAL_SCHEMA_RESTORE_FAILED"), "UNEXPECTED_FAILURE"),
+                (MemoryError("private"), "UNEXPECTED_FAILURE")):
+            with self.subTest(error_type=type(error).__name__, expected=expected):
+                def fail(_, error=error):
+                    raise error
+                self.checkpoint.logical_module.create_backup = fail
+                with self.assertRaisesRegex(RuntimeError, "^LOGICAL_BACKUP_FAILED$"):
+                    self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+                state = json.loads(self.path.read_text())
+                self.assertEqual("armed", state["phase"])
+                self.assertEqual(expected, state["logicalBackupFailureCode"])
+                self.assertEqual(0, self.path.stat().st_mode & 0o077)
+                self.assertNotIn("private", self.path.read_text())
 
     def test_generated_window_is_accepted_by_real_logical_driver(self):
         driver_spec = importlib.util.spec_from_file_location(

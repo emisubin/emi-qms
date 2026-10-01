@@ -409,7 +409,16 @@ class Checkpoint:
                 except FutureTimeout:
                     require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
                     self.quiet(state)
-                except Exception:
+                except Exception as error:
+                    # Retain only the fixed code emitted by the bundled driver.
+                    # Raw exceptions may contain connection details or paths.
+                    code = "UNEXPECTED_FAILURE"
+                    if (isinstance(error, self.logical_module.RecoveryError)
+                            and len(error.args) == 1 and isinstance(error.args[0], str)
+                            and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", error.args[0])):
+                        code = error.args[0]
+                    state["logicalBackupFailureCode"] = code
+                    self.save(path, state)
                     raise RuntimeError("LOGICAL_BACKUP_FAILED") from None
         require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
         self.validate_logical_evidence(evidence, config)

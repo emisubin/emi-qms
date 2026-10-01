@@ -880,6 +880,100 @@ describe('business-unit access shell', () => {
     expect(window.location.pathname).toBe('/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   });
 
+  it('keeps a hintless notification detail fail-closed until the user selects a server-allowed business', async () => {
+    const notificationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    window.sessionStorage.setItem('emi.qms.business-unit', 'OSAN');
+    window.history.replaceState(null, '', `/teams/activity/notifications/${notificationId}`);
+    resetBusinessUnitRequestContext(true);
+    const calls: Array<{ path: string; headers: Headers }> = [];
+    const selectionRequired = {
+      userId: adminUserId,
+      developmentUserKey: 'dev-admin',
+      displayName: 'Synthetic Overall Admin',
+      email: null,
+      businessUnitAccess: {
+        status: 'selection_required',
+        selectedBusinessUnit: null,
+        allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+        isOverallAdministrator: true,
+        errorCode: 'business_unit_selection_required'
+      }
+    };
+    vi.stubGlobal('fetch', shellFetch((headers: Headers) => {
+      const selected = headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN' | null;
+      return selected
+        ? selectedUser({
+            status: 'selected',
+            selectedBusinessUnit: selected,
+            allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+            isOverallAdministrator: true,
+            errorCode: null
+          })
+        : selectionRequired;
+    }, calls));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림을 열 사업부를 선택해 주세요.' })).toBeInTheDocument();
+    expect(calls.filter((call) => call.path.endsWith(`/api/notifications/${notificationId}`))).toHaveLength(0);
+    expect(calls.some((call) => call.path.startsWith('/osan/'))).toBe(false);
+
+    fireEvent.change(screen.getByLabelText('사업부 선택'), { target: { value: 'CHEONGJU' } });
+
+    await waitFor(() => expect(calls.some((call) =>
+      call.path === `/cheongju/api/notifications/${notificationId}`
+      && call.headers.get('X-Qms-Business-Unit') === 'CHEONGJU')).toBe(true), { timeout: 5_000 });
+    expect(calls.some((call) => call.path === `/osan/api/notifications/${notificationId}`)).toBe(false);
+  });
+
+  it.each([true, false])('keeps a notificationId query fail-closed before storage or administrator fallback (saved=%s)', async (saved) => {
+    const notificationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    if (saved) {
+      selectBusinessUnit('OSAN');
+    }
+    window.history.replaceState(null, '', `/teams/activity?notificationId=${notificationId}`);
+    resetBusinessUnitRequestContext(true);
+    const calls: Array<{ path: string; headers: Headers }> = [];
+    const selectionRequired = {
+      userId: adminUserId,
+      developmentUserKey: 'dev-admin',
+      displayName: 'Synthetic Overall Admin',
+      email: null,
+      businessUnitAccess: {
+        status: 'selection_required',
+        selectedBusinessUnit: null,
+        allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+        isOverallAdministrator: true,
+        errorCode: 'business_unit_selection_required'
+      }
+    };
+    vi.stubGlobal('fetch', shellFetch((headers: Headers) => {
+      const selected = headers.get('X-Qms-Business-Unit') as 'CHEONGJU' | 'OSAN' | null;
+      return selected
+        ? selectedUser({
+            status: 'selected',
+            selectedBusinessUnit: selected,
+            allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+            isOverallAdministrator: true,
+            errorCode: null
+          })
+        : selectionRequired;
+    }, calls));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '알림을 열 사업부를 선택해 주세요.' })).toBeInTheDocument();
+    expect(calls.filter((call) => call.path.endsWith(`/api/notifications/${notificationId}`))).toHaveLength(0);
+    expect(calls.filter((call) => call.path.endsWith('/api/me')).map((call) => call.path)).toEqual(['/access/api/me']);
+    expect(getBusinessUnitRequestState().selectedBusinessUnit).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('사업부 선택'), { target: { value: 'CHEONGJU' } });
+
+    await waitFor(() => expect(calls.some((call) =>
+      call.path === `/cheongju/api/notifications/${notificationId}`)).toBe(true));
+    expect(calls.some((call) => call.path === `/osan/api/notifications/${notificationId}`)).toBe(false);
+  });
+
   it('uses approved Osan notification tabs and direct stage navigation after read', async () => {
     selectBusinessUnit('OSAN');
     window.history.replaceState(null, '', '/notifications');

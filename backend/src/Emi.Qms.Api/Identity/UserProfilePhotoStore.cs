@@ -10,7 +10,7 @@ public sealed class UserProfilePhotoStore(BusinessDatabase connectionStringProvi
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString)) return null;
-        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
         await using var command = dataSource.CreateCommand(
             "select content_hash || '-' || version::text from user_profile_photos where user_id=@user_id");
         command.Parameters.AddWithValue("user_id", userId);
@@ -155,14 +155,14 @@ public sealed class UserProfilePhotoStore(BusinessDatabase connectionStringProvi
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }
 

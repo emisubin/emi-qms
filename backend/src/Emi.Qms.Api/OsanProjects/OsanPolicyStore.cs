@@ -17,7 +17,7 @@ public sealed record OsanPolicyWriteResult(int Status, string? Code = null, stri
 
 public sealed class OsanPolicyStore(OsanDatabase db)
 {
-    private NpgsqlDataSource Source() => NpgsqlDataSource.Create(db.GetConnectionString()
+    private RuntimeDataSourceLease Source() => db.RentDataSource(db.GetConnectionString()
         ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 
     public async Task<IReadOnlyList<OsanCustomer>> CustomersAsync(string? query, CancellationToken ct)

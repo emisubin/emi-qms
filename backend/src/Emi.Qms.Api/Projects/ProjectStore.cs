@@ -3089,7 +3089,7 @@ public sealed class ProjectStore(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -3097,7 +3097,7 @@ public sealed class ProjectStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static void AddAccessScope(
@@ -3216,7 +3216,7 @@ public sealed class ProjectStore(
     }
 
     private static async Task<IReadOnlyList<PanelPlaceholderResponse>> ListDeletedProjectPanelsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -3267,7 +3267,7 @@ public sealed class ProjectStore(
     }
 
     private static async Task<IReadOnlyList<ProjectAuditEventResponse>> ListDeletedProjectAuditHistoryAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         bool includeSensitive,
         CancellationToken cancellationToken)
@@ -3673,7 +3673,7 @@ public sealed class ProjectStore(
     }
 
     private static async Task<ProjectPanelInformationSummary> ReadPanelInformationSummaryAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         CancellationToken cancellationToken)
     {

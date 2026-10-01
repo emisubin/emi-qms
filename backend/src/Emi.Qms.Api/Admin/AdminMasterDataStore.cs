@@ -57,7 +57,7 @@ public sealed class AdminMasterDataStore(CheongjuDatabase connectionStringProvid
     }
 
     private static async Task<IReadOnlyList<AdminDashboardEscalationLevelResponse>> ReadActiveEscalationLevelsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand("""
@@ -677,7 +677,7 @@ public sealed class AdminMasterDataStore(CheongjuDatabase connectionStringProvid
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -685,7 +685,7 @@ public sealed class AdminMasterDataStore(CheongjuDatabase connectionStringProvid
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static AdminDepartmentMasterResponse ReadDepartment(NpgsqlDataReader reader)

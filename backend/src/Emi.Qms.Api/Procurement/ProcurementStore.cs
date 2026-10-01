@@ -1572,7 +1572,7 @@ public sealed class ProcurementStore(
     }
 
     private async Task<ProcurementExcelPreviewResponse> BuildExcelPreviewAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         ParsedProcurementExcelFile parsed,
         UploadedExcelFile file,
         IReadOnlyList<ProcurementProjectSnapshot> projects,
@@ -1906,7 +1906,7 @@ public sealed class ProcurementStore(
         };
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -1914,7 +1914,7 @@ public sealed class ProcurementStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static ProcurementMutationResult<T> DerivedReceiptProjectionValidation<T>()
@@ -2022,7 +2022,7 @@ public sealed class ProcurementStore(
         };
     }
 
-    private async Task<ProcurementProjectSnapshot?> ReadProjectAsync(NpgsqlDataSource dataSource, Guid projectId, bool includeDeleted, CancellationToken cancellationToken)
+    private async Task<ProcurementProjectSnapshot?> ReadProjectAsync(RuntimeDataSourceLease dataSource, Guid projectId, bool includeDeleted, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadProjectAsync(connection, null, projectId, includeDeleted, cancellationToken);
@@ -2062,7 +2062,7 @@ public sealed class ProcurementStore(
         return await reader.ReadAsync(cancellationToken) ? ReadProject(reader) : null;
     }
 
-    private static async Task<IReadOnlyList<ProcurementProjectSnapshot>> ReadProjectsForMatchingAsync(NpgsqlDataSource dataSource, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<ProcurementProjectSnapshot>> ReadProjectsForMatchingAsync(RuntimeDataSourceLease dataSource, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadProjectsForMatchingAsync(connection, null, cancellationToken);
@@ -2116,7 +2116,7 @@ public sealed class ProcurementStore(
             reader.GetString(7));
     }
 
-    private async Task<IReadOnlyList<ProcurementItemSnapshot>> ReadItemsForProjectsAsync(NpgsqlDataSource dataSource, Guid[] projectIds, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ProcurementItemSnapshot>> ReadItemsForProjectsAsync(RuntimeDataSourceLease dataSource, Guid[] projectIds, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await ReadItemsForProjectsAsync(connection, null, projectIds, cancellationToken);
@@ -2579,24 +2579,6 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("project_id", projectId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
-
-    private static async Task<bool> HasDuplicateSuccessfulBatchAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid[] projectIds, string fileSha256, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            select exists (
-                select 1
-                from procurement_excel_import_batches b
-                join procurement_excel_import_batch_projects bp on bp.import_batch_id = b.id
-                where b.file_sha256 = @sha and bp.project_id = any(@project_ids)
-            );
-            """;
-        command.Parameters.AddWithValue("sha", fileSha256);
-        command.Parameters.Add(new NpgsqlParameter<Guid[]>("project_ids", projectIds));
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
-    }
-
     private static async Task InsertAuditAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid projectId, Guid itemId, string fieldName, string? oldValue, string? newValue, string? reason, Guid userId, string correlationId, string source, Guid? importBatchId, string? inputUnit, string? originalInputValue, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();

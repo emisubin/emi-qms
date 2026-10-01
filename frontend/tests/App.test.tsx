@@ -17,7 +17,7 @@ vi.mock('@microsoft/teams-js', () => ({
 
 import { App } from '../src/App';
 import { HomePage } from '../src/HomePage';
-import { resetBusinessUnitRequestContext } from '../src/api';
+import { resetBusinessUnitRequestContext, selectBusinessUnit } from '../src/api';
 
 const salesOwnerId = '50000000-0000-0000-0000-000000000002';
 const projectId = '71000000-0000-0000-0000-000000000010';
@@ -1024,23 +1024,143 @@ describe('App', () => {
     Object.defineProperty(document, 'referrer', { value: 'https://teams.microsoft.com/l/entity/app/home', configurable: true });
     teamsJsMock.context = {
       page: {
-        subEntityId: `notification:${notificationId}`
+        subEntityId: `notification:CHEONGJU:${notificationId}`
       }
     };
     window.history.pushState(null, '', '/teams/activity');
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '알림 상세' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '알림 상세' }, { timeout: 5_000 })).toBeInTheDocument();
     expect(await screen.findByText('TASK-003A Demo 프로젝트가 생성되었습니다.')).toBeInTheDocument();
     expect(window.location.pathname).toBe(`/teams/activity/notifications/${notificationId}`);
     expect(teamsJsMock.initialize).toHaveBeenCalled();
     expect(teamsJsMock.getContext).toHaveBeenCalled();
   });
 
+  it('waits for delayed Teams context in StrictMode before redirecting a saved Osan session', async () => {
+    const notificationId = '77000000-0000-0000-0000-000000000001';
+    let resolveContext!: (context: unknown) => void;
+    const contextPromise = new Promise<unknown>((resolve) => {
+      resolveContext = resolve;
+    });
+    teamsJsMock.getContext.mockImplementation(() => contextPromise);
+    Object.defineProperty(document, 'referrer', { value: 'https://teams.microsoft.com/l/entity/app/home', configurable: true });
+    selectBusinessUnit('OSAN');
+    window.history.pushState(null, '', '/teams/activity');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      calls.push(url.pathname);
+      if (url.pathname === '/osan/api/runtime-mode' || url.pathname === '/cheongju/api/runtime-mode') {
+        return mockFetch(new URL('/access/api/runtime-mode', url), init);
+      }
+      if (url.pathname === '/osan/api/me' || url.pathname === '/cheongju/api/me') {
+        const businessUnit = url.pathname.startsWith('/osan/') ? 'OSAN' : 'CHEONGJU';
+        return json({
+          ...currentUser('dev-admin'),
+          businessUnitAccess: {
+            status: 'selected',
+            selectedBusinessUnit: businessUnit,
+            allowedBusinessUnits: ['CHEONGJU', 'OSAN'],
+            isOverallAdministrator: true,
+            errorCode: null
+          }
+        });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<StrictMode><App /></StrictMode>);
+
+    expect(await screen.findByText('알림 사업부를 확인하는 중…')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/teams/activity');
+    expect(teamsJsMock.getContext).toHaveBeenCalledTimes(1);
+    expect(calls.some((path) => path === `/osan/api/notifications/${notificationId}`)).toBe(false);
+
+    await act(async () => {
+      resolveContext({ page: { subEntityId: `notification:CHEONGJU:${notificationId}` } });
+      await contextPromise;
+    });
+
+    expect(await screen.findByRole('heading', { name: '알림 상세' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/teams/activity/notifications/${notificationId}`);
+    expect(calls).toContain(`/cheongju/api/notifications/${notificationId}`);
+    expect(calls.some((path) => path === `/osan/api/notifications/${notificationId}`)).toBe(false);
+  });
+
+  it('rejects a Teams context target outside the server-allowed businesses', async () => {
+    const notificationId = '77000000-0000-0000-0000-000000000001';
+    Object.defineProperty(document, 'referrer', { value: 'https://teams.microsoft.com/l/entity/app/home', configurable: true });
+    teamsJsMock.context = {
+      page: { subEntityId: `notification:CHEONGJU:${notificationId}` }
+    };
+    selectBusinessUnit('OSAN');
+    window.history.pushState(null, '', '/teams/activity');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      calls.push(url.pathname);
+      if (url.pathname === '/osan/api/runtime-mode') {
+        return mockFetch(new URL('/access/api/runtime-mode', url), init);
+      }
+      if (url.pathname === '/osan/api/me') {
+        return json({
+          ...currentUser('dev-admin'),
+          businessUnitAccess: {
+            status: 'selected',
+            selectedBusinessUnit: 'OSAN',
+            allowedBusinessUnits: ['OSAN'],
+            isOverallAdministrator: false,
+            errorCode: null
+          }
+        });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '이 알림의 사업부를 볼 권한이 없습니다.' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/teams/activity');
+    expect(calls.some((path) => path === `/cheongju/api/notifications/${notificationId}`)).toBe(false);
+    expect(calls.some((path) => path === `/osan/api/notifications/${notificationId}`)).toBe(false);
+  });
+
+  it('settles an empty Teams context once before applying the saved Osan redirect', async () => {
+    Object.defineProperty(document, 'referrer', { value: 'https://teams.microsoft.com/l/entity/app/home', configurable: true });
+    teamsJsMock.context = {};
+    selectBusinessUnit('OSAN');
+    window.history.pushState(null, '', '/teams/activity');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/osan/api/runtime-mode') {
+        return mockFetch(new URL('/access/api/runtime-mode', url), init);
+      }
+      if (url.pathname === '/osan/api/me') {
+        return json({
+          ...currentUser('dev-admin'),
+          businessUnitAccess: {
+            status: 'selected',
+            selectedBusinessUnit: 'OSAN',
+            allowedBusinessUnits: ['OSAN'],
+            isOverallAdministrator: false,
+            errorCode: null
+          }
+        });
+      }
+      return mockFetch(input, init);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(teamsJsMock.getContext).toHaveBeenCalledTimes(1);
+  });
+
   it('opens a notification detail from the Teams Activity context query fallback', async () => {
     const notificationId = '77000000-0000-0000-0000-000000000001';
-    const context = encodeURIComponent(JSON.stringify({ subEntityId: `notification:${notificationId}` }));
+    const context = encodeURIComponent(JSON.stringify({ subEntityId: `notification:CHEONGJU:${notificationId}` }));
     window.history.pushState(null, '', `/teams/activity?context=${context}`);
 
     render(<App />);

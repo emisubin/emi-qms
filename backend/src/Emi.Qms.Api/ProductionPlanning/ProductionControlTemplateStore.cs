@@ -908,10 +908,10 @@ public sealed class ProductionControlTemplateStore(CheongjuDatabase connectionSt
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var value = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(value);
+        return connectionStringProvider.RentDataSource(value);
     }
 }

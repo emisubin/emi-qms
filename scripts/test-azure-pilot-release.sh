@@ -621,7 +621,7 @@ run_case() {
     TMPDIR="${temporary_directory}" \
     RECOVERY_MOCK_SCRIPT="${repository_root}/scripts/test-support/azure-recovery-mock.py" \
     RECOVERY_POSTGRES_SERVER_NAME='synthetic-pg' \
-    RECOVERY_CHECKPOINT_TIMEOUT_SECONDS="$([[ "$scenario" == recovery-timeout ]] && printf 1 || printf 10)" \
+    RECOVERY_CHECKPOINT_TIMEOUT_SECONDS="$([[ "$scenario" == recovery-timeout ]] && printf 1 || printf 60)" \
     RECOVERY_CHECKPOINT_POLL_SECONDS=1 \
     SOURCE_SHA='1111111111111111111111111111111111111111' \
     AZURE_SUBSCRIPTION_ID='33333333-3333-4333-8333-333333333333' \
@@ -676,6 +676,17 @@ run_case() {
     printf 'azurePilotReleaseTests=UNEXPECTED_FAILURE_CODE_%s\n' "${case_number}" >&2
     exit 1
   fi
+  case "${scenario}" in
+    recovery-no-certificate)
+      grep -Fxq 'recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED phase=preflight reason=EVIDENCE_CERTIFICATE_REQUIRED' "${temporary_directory}/stderr" || exit 1
+      ;;
+    recovery-wrong-server)
+      grep -Fxq 'recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED phase=preflight reason=SERVER_IDENTITY_OR_STATE_INVALID' "${temporary_directory}/stderr" || exit 1
+      ;;
+    recovery-read-failed)
+      grep -Fxq 'recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED phase=wait reason=AZURE_READ_FAILED' "${temporary_directory}/stderr" || exit 1
+      ;;
+  esac
   if [[ "$scenario" == popup-only-prepare ]]; then
     expected_calls=maintenance-prepare
   elif [[ "$scenario" == popup-only-missing-image ]]; then

@@ -25,7 +25,7 @@ public sealed class OsanPersonalHomeStore(OsanDatabase provider, TimeProvider cl
     {
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(),
             TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul")).DateTime);
-        await using var source = NpgsqlDataSource.Create(provider.GetConnectionString()
+        await using var source = provider.RentDataSource(provider.GetConnectionString()
             ?? throw new InvalidOperationException("QMS database connection string is not configured."));
         // One statement provides a consistent snapshot across the personal and assigned-customer sections.
         await using var command = source.CreateCommand("""

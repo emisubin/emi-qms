@@ -36,6 +36,67 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+SAFE_FAILURE_REASONS = frozenset({
+    "APP_REACTIVATED",
+    "AZURE_READ_FAILED",
+    "AZURE_READ_TIMEOUT",
+    "BACKUP_IDENTITY_INVALID",
+    "BACKUP_LIST_INCOMPLETE",
+    "BACKUP_RETENTION_INVALID",
+    "BACKUP_TIME_IN_FUTURE",
+    "BACKUP_TYPE_UNKNOWN",
+    "BACKUP_WAIT_EXPIRED",
+    "BASELINE_EXECUTION_CHANGED",
+    "CHECKPOINT_ALREADY_USED",
+    "CHECKPOINT_NOT_READY",
+    "COMMAND_OVERRIDE_REJECTED",
+    "DRAIN_EXECUTION_MISSING",
+    "DRAIN_EXECUTION_REUSED",
+    "DRAIN_BEFORE_ARMED",
+    "DRAIN_TIME_IN_FUTURE",
+    "DUPLICATE_JOB",
+    "ENCRYPTED_EVIDENCE_SYMLINK",
+    "EVIDENCE_ALREADY_EXISTS",
+    "EVIDENCE_BINDING_MISMATCH",
+    "EVIDENCE_CERTIFICATE_REQUIRED",
+    "EVIDENCE_DIRECTORY_NOT_PRIVATE",
+    "EVIDENCE_ENCRYPTION_FAILED",
+    "EVIDENCE_NOT_PRIVATE",
+    "EXACT_DRAIN_EXECUTIONS_REQUIRED",
+    "EXECUTION_ID_INVALID",
+    "EXECUTION_LIST_INVALID",
+    "INVALID_ENCRYPTION_REQUIREMENT",
+    "INVALID_RELEASE",
+    "INVALID_SERVER_NAME",
+    "INVALID_SOURCE",
+    "INVALID_TIMESTAMP",
+    "INVALID_WAIT_BOUND",
+    "JOB_LIST_INVALID",
+    "JOB_MODE_INVALID",
+    "JOB_SET_CHANGED",
+    "JOB_STILL_RUNNING",
+    "MISSING_CONFIGURATION",
+    "NO_AVAILABLE_FULL_BACKUP",
+    "PUBLIC_CERTIFICATE_ONLY",
+    "REPLICA_STILL_RUNNING",
+    "REQUIRED_JOB_MISSING",
+    "RESTORE_RANGE_INVALID",
+    "REVISION_LIST_INVALID",
+    "SELECTED_BACKUP_NO_LONGER_AVAILABLE",
+    "SERVER_IDENTITY_OR_STATE_INVALID",
+    "TIMEZONE_REQUIRED",
+    "UNEXPECTED_JOB_EXECUTION",
+    "WINDOW_EXPIRED",
+})
+
+
+def safe_failure_reason(error):
+    if (isinstance(error, RuntimeError) and len(error.args) == 1
+            and isinstance(error.args[0], str) and error.args[0] in SAFE_FAILURE_REASONS):
+        return error.args[0]
+    return "UNEXPECTED_FAILURE"
+
+
 class Checkpoint:
     def __init__(self, environment, az="az"):
         self.env, self.az, self.deadline = environment, az, None
@@ -78,9 +139,12 @@ class Checkpoint:
     def read(self, *args):
         remaining = 30 if self.deadline is None else min(30, self.deadline - time.monotonic())
         require(remaining > 0, "BACKUP_WAIT_EXPIRED")
-        result = subprocess.run([self.az, *args, "--subscription", self.env["AZURE_SUBSCRIPTION_ID"],
-                                 "--output", "json", "--only-show-errors"],
-                                capture_output=True, text=True, timeout=remaining)
+        try:
+            result = subprocess.run([self.az, *args, "--subscription", self.env["AZURE_SUBSCRIPTION_ID"],
+                                     "--output", "json", "--only-show-errors"],
+                                    capture_output=True, text=True, timeout=remaining)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("AZURE_READ_TIMEOUT") from error
         require(result.returncode == 0, "AZURE_READ_FAILED")
         return json.loads(result.stdout)
 
@@ -235,7 +299,8 @@ class Checkpoint:
         require(state["phase"] == "armed", "CHECKPOINT_ALREADY_USED")
         self.bind_drains(state, drain_executions)
         drained = instant(drained_at)
-        require(instant(state["armedAtUtc"]) <= drained <= utc_now(), "DRAIN_TIME_INVALID")
+        require(instant(state["armedAtUtc"]) <= drained, "DRAIN_BEFORE_ARMED")
+        require(drained <= utc_now(), "DRAIN_TIME_IN_FUTURE")
         self.deadline = time.monotonic() + min(self.timeout, (self.ends_at - utc_now()).total_seconds())
         while True:
             require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
@@ -290,9 +355,10 @@ def main():
         else:
             checkpoint.verify(args.state, args.drain_execution)
             print("recoveryCheckpoint=VERIFIED_AVAILABLE_FULL_BACKUP")
-    except Exception:
+    except Exception as error:
         # Provider stderr, secrets and private identifiers never become release logs.
-        print("recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED", file=sys.stderr)
+        print("recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED"
+              f" phase={args.mode} reason={safe_failure_reason(error)}", file=sys.stderr)
         return 1
     return 0
 

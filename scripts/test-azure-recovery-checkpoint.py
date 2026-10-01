@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import copy
+from contextlib import redirect_stderr
 from datetime import datetime, timedelta, timezone
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -72,6 +75,13 @@ class CheckpointTests(unittest.TestCase):
             return ([{"name": "inflight", "properties": {"status": "Running"}}] if self.running else
                     [{"name": key, "properties": value} for key, value in self.executions.get(name, {}).items()])
         raise AssertionError(args)
+
+    def test_azure_read_timeout_uses_fixed_failure_reason(self):
+        self.checkpoint.deadline = None
+        with patch.object(module.subprocess, "run",
+                          side_effect=subprocess.TimeoutExpired(cmd=["az"], timeout=30)):
+            with self.assertRaisesRegex(RuntimeError, "^AZURE_READ_TIMEOUT$"):
+                module.Checkpoint.read(self.checkpoint, "account", "show")
 
     def verify(self):
         for key in self.final_drains:
@@ -254,6 +264,24 @@ class CheckpointTests(unittest.TestCase):
         os.chmod(self.path, 0o644)
         with self.assertRaises(RuntimeError):
             self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+
+    def test_main_surfaces_only_allowlisted_reason_and_phase(self):
+        arguments = ["azure-recovery-checkpoint.py", "wait", "--state", str(self.path)]
+        for error, expected_reason in [
+                (RuntimeError("BACKUP_WAIT_EXPIRED"), "BACKUP_WAIT_EXPIRED"),
+                (RuntimeError("AZURE_READ_TIMEOUT"), "AZURE_READ_TIMEOUT"),
+                (RuntimeError("/subscriptions/private-id"), "UNEXPECTED_FAILURE"),
+                (OSError("synthetic-secret-value-must-not-log"), "UNEXPECTED_FAILURE")]:
+            with self.subTest(expected_reason=expected_reason):
+                output = io.StringIO()
+                with patch.object(sys, "argv", arguments), patch.object(module, "Checkpoint", side_effect=error), redirect_stderr(output):
+                    self.assertEqual(1, module.main())
+                self.assertEqual(
+                    "recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED"
+                    f" phase=wait reason={expected_reason}\n",
+                    output.getvalue())
+                self.assertNotIn("private-id", output.getvalue())
+                self.assertNotIn("synthetic-secret", output.getvalue())
 
 
 if __name__ == "__main__":

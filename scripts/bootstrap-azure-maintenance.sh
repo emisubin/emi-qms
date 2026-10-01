@@ -198,7 +198,13 @@ def recovery_checkpoint(mode, drained_at=None):
         for execution in recovery_drains:
             args.extend(['--drain-execution', execution])
     result = subprocess.run(args, capture_output=True, text=True)
-    require(result.returncode == 0, 'RECOVERY_CHECKPOINT_FAILED')
+    if result.returncode != 0:
+        match = re.fullmatch(
+            r'recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED phase=(preflight|arm|wait|verify) reason=([A-Z][A-Z0-9_]{0,63})\n?',
+            result.stderr)
+        if match and match.group(1) == mode:
+            print(match.group(0).strip(), file=sys.stderr)
+        raise RuntimeError('RECOVERY_CHECKPOINT_FAILED')
     record('recovery-' + mode)
     return result.stdout.strip()
 

@@ -848,7 +848,7 @@ public sealed class WorkItemEscalationStore(
             && (!connectionStringProvider.BusinessUnits.Enabled || connectionStringProvider.ExternalNotificationsEnabled(target));
     }
 
-    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    private RuntimeDataSourceLease CreateDataSource(BusinessUnitDatabaseTarget? target = null)
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
@@ -858,6 +858,6 @@ public sealed class WorkItemEscalationStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

@@ -959,7 +959,7 @@ public sealed class FormTemplateStore(CheongjuDatabase connectionStringProvider)
     private static FamilySource Source(TemplateDescriptor descriptor) => descriptor.Family switch
     { "IqcReport" => new("iqc_report_template_versions", "iqc_report_template_items", "template_id", "(select id from iqc_report_templates where template_code=@key)", "'자재 수입검사 v' || version_number"), "PanelQualityStage" => new("panel_quality_template_versions", "panel_quality_template_items", "stage_code", "@key and product_type_id is null", "display_name"), _ => new("manufacturing_step_template_versions", "manufacturing_step_template_items", "template_id", "(select id from manufacturing_step_templates where template_code=@key)", "display_name") };
 
-    private NpgsqlDataSource CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("QMS database connection string is not configured."); return NpgsqlDataSource.Create(value); }
+    private RuntimeDataSourceLease CreateDataSource() { var value = connectionStringProvider.GetConnectionString(); if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("QMS database connection string is not configured."); return connectionStringProvider.RentDataSource(value); }
     private sealed record TemplateDescriptor(string Family, string Key, string Name, string Domain);
     private sealed record FamilySource(string VersionTable, string ItemTable, string KeyColumn, string KeyValue, string NameExpression);
     private sealed record LqcItemSettingSnapshot(

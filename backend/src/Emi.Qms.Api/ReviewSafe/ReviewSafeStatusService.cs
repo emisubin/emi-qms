@@ -89,7 +89,7 @@ public sealed class ReviewSafeStatusService(
 
         try
         {
-            await using var dataSource = NpgsqlDataSource.Create(connectionString);
+            await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
             var readOnly = await ReadSettingAsync(connection, "transaction_read_only", cancellationToken);
@@ -172,7 +172,7 @@ public sealed class ReviewSafeStatusService(
                 var connectionString = connectionStringProvider.GetConnectionString(
                     target,
                     BusinessUnitConnectionPurpose.Runtime);
-                await using var dataSource = NpgsqlDataSource.Create(connectionString);
+                await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
                 await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
                 var readOnly = await ReadSettingAsync(connection, "transaction_read_only", cancellationToken);
                 var applicationName = await ReadSettingAsync(connection, "application_name", cancellationToken);

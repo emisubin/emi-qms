@@ -361,14 +361,14 @@ public sealed class OsanDashboardStore(
         return total == 0 ? 0 : Math.Min(99, completed * 100 / total);
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed record QueryScope(string WhereClause, IReadOnlyList<NpgsqlParameter> Parameters);

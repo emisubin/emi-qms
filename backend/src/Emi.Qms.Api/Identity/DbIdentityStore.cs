@@ -2,6 +2,7 @@ using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Authorization;
 using Npgsql;
 using NpgsqlTypes;
+using Emi.Qms.Api.DeploymentMaintenance;
 
 namespace Emi.Qms.Api.Identity;
 
@@ -73,6 +74,9 @@ public sealed class DbIdentityStore(
         string? email,
         CancellationToken cancellationToken)
     {
+        await using var maintenance = await AcquireAuthenticationLeaseAsync(cancellationToken);
+        if (maintenance is null)
+            return await GetProfileByEntraObjectIdAsync(entraObjectId, cancellationToken);
         var normalizedObjectId = entraObjectId.Trim();
         var normalizedDisplayName = string.IsNullOrWhiteSpace(displayName) ? "Microsoft 365 사용자" : displayName.Trim();
         var normalizedEmail = NormalizeEmail(email);
@@ -158,6 +162,10 @@ public sealed class DbIdentityStore(
             return null;
         }
 
+        await using var maintenance = await AcquireAuthenticationLeaseAsync(cancellationToken);
+        if (maintenance is null)
+            return await GetDirectoryBoundEntraProfileAsync(directoryUserId, entraObjectId, cancellationToken);
+
         var normalizedObjectId = entraObjectId.Trim();
         var normalizedDisplayName = string.IsNullOrWhiteSpace(displayName)
             ? "Microsoft 365 사용자"
@@ -239,7 +247,8 @@ public sealed class DbIdentityStore(
                     update qms_users
                     set display_name = @display_name,
                         email = @email
-                    where id = @directory_user_id;
+                    where id = @directory_user_id
+                      and (display_name is distinct from @display_name or email is distinct from @email);
                     """;
                 update.Parameters.AddWithValue("display_name", normalizedDisplayName);
                 AddNullableTextParameter(update, "email", normalizedEmail);
@@ -689,7 +698,12 @@ public sealed class DbIdentityStore(
             .Any(candidate => string.Equals(candidate, email, StringComparison.Ordinal));
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private Task<DeploymentMaintenanceLease?> AcquireAuthenticationLeaseAsync(CancellationToken ct) =>
+        DeploymentMaintenanceLease.TryAcquireForAuthenticationAsync(
+            token => DeploymentMaintenanceLease.AcquireAsync(connectionStringProvider,
+                [connectionStringProvider.GetCurrentBusinessUnit()], token), ct);
+
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -697,7 +711,7 @@ public sealed class DbIdentityStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static string? NormalizeEmail(string? email)

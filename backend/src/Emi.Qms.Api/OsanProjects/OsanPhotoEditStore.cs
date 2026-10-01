@@ -14,7 +14,7 @@ public sealed record OsanPhotoEditItem(Guid RequestId, Guid TargetId, Guid StepI
 
 public sealed class OsanPhotoEditStore(OsanDatabase db)
 {
-    private NpgsqlDataSource Source() => NpgsqlDataSource.Create(db.GetConnectionString()
+    private RuntimeDataSourceLease Source() => db.RentDataSource(db.GetConnectionString()
         ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 
     private static OsanManagementResult OpenIssueConflict() => new(409, Message: "미해결 이상이 있습니다. 이상 해결로 처리해 주세요.");

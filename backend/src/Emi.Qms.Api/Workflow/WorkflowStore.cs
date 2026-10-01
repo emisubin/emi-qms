@@ -654,7 +654,7 @@ public sealed class WorkflowStore(BusinessDatabase connectionStringProvider)
     }
 
     private static async Task<int> ReadAssignedProjectCountAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid userId,
         CancellationToken cancellationToken)
     {
@@ -671,7 +671,7 @@ public sealed class WorkflowStore(BusinessDatabase connectionStringProvider)
     }
 
     private static async Task<IReadOnlyList<MyAssignedProjectBreakdownResponse>> ReadAssignedProjectBreakdownAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid userId,
         CancellationToken cancellationToken)
     {
@@ -3063,14 +3063,14 @@ public sealed class WorkflowStore(BusinessDatabase connectionStringProvider)
         ? ""
         : "left join work_items wi on wi.id = n.work_item_id left join workflow_stages ws on ws.stage_code = wi.workflow_stage_code";
 
-    private NpgsqlDataSource CreateCheongjuDataSource()
+    private RuntimeDataSourceLease CreateCheongjuDataSource()
     {
         if (connectionStringProvider.IsOsan)
             throw new InvalidOperationException("Cheongju workflow is unavailable in the Osan module.");
         return CreateDataSource();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -3078,7 +3078,7 @@ public sealed class WorkflowStore(BusinessDatabase connectionStringProvider)
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed record ProjectWorkflowSnapshot(

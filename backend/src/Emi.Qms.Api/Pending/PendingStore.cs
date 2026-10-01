@@ -1349,7 +1349,7 @@ public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
     }
 
     private static async Task<PendingSummaryResponse> ReadSummaryAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid? projectId,
         bool departmentScope,
         string? departmentCode,
@@ -1384,7 +1384,7 @@ public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
     }
 
     private static async Task<string?> ReadUserDepartmentCodeAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid userId,
         CancellationToken cancellationToken)
     {
@@ -1630,15 +1630,6 @@ public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
             _ => false
         };
     }
-
-    private static bool CanParticipate(PendingListItemResponse issue, PendingActor actor, bool isInspectionPending = false)
-    {
-        return actor.IsCoordinator
-            || (isInspectionPending && actor.IsQuality)
-            || issue.CreatedByUserId == actor.UserId
-            || issue.AssigneeUserId == actor.UserId;
-    }
-
     private static async Task<PendingListItemResponse?> ReadIssueForUpdateAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -2924,7 +2915,7 @@ public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
     private static string Hash(byte[] content)
         => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -2932,7 +2923,7 @@ public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed record PendingAssigneePair(

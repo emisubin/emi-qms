@@ -553,11 +553,11 @@ public sealed partial class BusinessUnitAccessAdministrationStore(
         }
     }
 
-    private NpgsqlDataSource CreateDirectoryDataSource()
+    private RuntimeDataSourceLease CreateDirectoryDataSource()
     {
         var directory = connectionStringProvider.BusinessUnits.Directory
             ?? throw new BusinessUnitContextUnavailableException("directory_not_configured");
-        return NpgsqlDataSource.Create(connectionStringProvider.GetConnectionString(directory, BusinessUnitConnectionPurpose.Runtime));
+        return connectionStringProvider.RentDataSource(connectionStringProvider.GetConnectionString(directory, BusinessUnitConnectionPurpose.Runtime));
     }
 
     private ILocalUserAdministration LocalFor(BusinessUnitDatabaseTarget target)

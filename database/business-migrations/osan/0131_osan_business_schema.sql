@@ -1308,6 +1308,162 @@ end
 $migration$;
 
 
+-- Osan keeps the common audit privacy contract with only its retained schema rules.
+create or replace function qms_audit_capture_row_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+    actor_id uuid;
+    actual_actor_id uuid;
+    request_id uuid;
+    login_id uuid;
+    domain_code text;
+    action_code text;
+    route_code text;
+    actor_name text;
+    actor_department text;
+    actual_actor_name text;
+    actual_actor_department text;
+    old_row jsonb := case when tg_op = 'INSERT' then '{}'::jsonb else to_jsonb(old) end;
+    new_row jsonb := case when tg_op = 'DELETE' then '{}'::jsonb else to_jsonb(new) end;
+    target_key_value text;
+    event_id uuid;
+    field_name text;
+    old_value jsonb;
+    new_value jsonb;
+    field_type text;
+    projection text;
+    old_text text;
+    new_text text;
+begin
+    actor_id := nullif(current_setting('qms.audit_actor_id', true), '')::uuid;
+    request_id := nullif(current_setting('qms.audit_request_id', true), '')::uuid;
+    domain_code := nullif(current_setting('qms.audit_domain', true), '');
+    action_code := nullif(current_setting('qms.audit_action', true), '');
+    route_code := nullif(current_setting('qms.audit_route_key', true), '');
+
+    if actor_id is null or request_id is null or domain_code is null or action_code is null or route_code is null then
+        if tg_op = 'DELETE' then
+            return old;
+        end if;
+        return new;
+    end if;
+
+    actual_actor_id := nullif(current_setting('qms.audit_actual_actor_id', true), '')::uuid;
+    login_id := nullif(current_setting('qms.audit_login_id', true), '')::uuid;
+    target_key_value := qms_audit_target_key(case when tg_op = 'DELETE' then old_row else new_row end);
+
+    for field_name in
+        select field.key
+        from (
+            select jsonb_object_keys(old_row) as key
+            union
+            select jsonb_object_keys(new_row) as key
+        ) field
+        order by field.key
+    loop
+        old_value := old_row -> field_name;
+        new_value := new_row -> field_name;
+
+        if old_value is not distinct from new_value then
+            continue;
+        end if;
+
+        if field_name ~* '(password|token|authorization|cookie|secret|payload|binary|(^|_)(request|response|exception|raw)_?body($|_)|(^|_)content($|_)|(^|_)data($|_)|sha256|(^|_)hash($|_))'
+            and not (
+                (field_name in ('normalized_mime', 'content_type', 'mime_type')
+                    and tg_table_name in ('notice_attachments', 'user_profile_photos'))
+            ) then
+            continue;
+        end if;
+
+        select format_type(attribute.atttypid, attribute.atttypmod)
+        into field_type
+        from pg_attribute attribute
+        where attribute.attrelid = tg_relid
+          and attribute.attname = field_name
+          and attribute.attnum > 0
+          and not attribute.attisdropped;
+
+        projection := case
+            when field_type ~ '^(boolean|smallint|integer|bigint|numeric|decimal|real|double precision|date|timestamp|timestamp with time zone|timestamp without time zone|uuid)'
+                then 'ExactScalar'
+            when (tg_table_name || '.' || field_name) = any(array[
+                'departments.code',
+                'notice_posts.body_format',
+                'projects.project_code',
+                'projects.status'
+            ]) then 'ExactScalar'
+            when field_name in (
+                    'file_name', 'filename', 'display_name', 'original_file_name',
+                    'normalized_mime', 'content_type', 'mime_type'
+                )
+                and tg_table_name in ('notice_attachments', 'user_profile_photos') then 'ExactScalar'
+            else 'MetadataOnly'
+        end;
+
+        old_text := case when old_value is null or old_value = 'null'::jsonb then null else old_value #>> '{}' end;
+        new_text := case when new_value is null or new_value = 'null'::jsonb then null else new_value #>> '{}' end;
+
+        if projection = 'ExactScalar'
+            and (coalesce(char_length(old_text), 0) > 256 or coalesce(char_length(new_text), 0) > 256) then
+            projection := 'MetadataOnly';
+        end if;
+
+        if event_id is null then
+            select snapshot.display_name, snapshot.department_name
+            into actor_name, actor_department
+            from qms_audit_identity_snapshot(actor_id) snapshot;
+
+            if actual_actor_id is not null then
+                select snapshot.display_name, snapshot.department_name
+                into actual_actor_name, actual_actor_department
+                from qms_audit_identity_snapshot(actual_actor_id) snapshot;
+            end if;
+
+            insert into audit_events (
+                id, event_type, actor_user_id, actor_display_name, actor_department_name,
+                actual_actor_user_id, actual_actor_display_name, actual_actor_department_name,
+                domain, action, route_key, target_type, target_key, outcome,
+                login_correlation_id, request_correlation_id)
+            values (
+                uuid_generate_v4(), 'MutationSucceeded', actor_id, actor_name, actor_department,
+                actual_actor_id, actual_actor_name, actual_actor_department,
+                domain_code, action_code, route_code, tg_table_name, target_key_value, 'Succeeded',
+                login_id, request_id)
+            on conflict (request_correlation_id) do nothing;
+
+            select event.id into event_id
+            from audit_events event
+            where event.request_correlation_id = request_id;
+        end if;
+
+        insert into audit_event_changes (
+            audit_event_id, row_action, target_type, target_key, field_code,
+            projection_kind, before_value, after_value, before_length, after_length)
+        values (
+            event_id,
+            initcap(lower(tg_op)),
+            tg_table_name,
+            target_key_value,
+            tg_table_name || '.' || field_name,
+            projection,
+            case when projection = 'ExactScalar' then old_text else null end,
+            case when projection = 'ExactScalar' then new_text else null end,
+            case when projection = 'MetadataOnly' then coalesce(char_length(old_text), 0) else null end,
+            case when projection = 'MetadataOnly' then coalesce(char_length(new_text), 0) else null end);
+    end loop;
+
+    if tg_op = 'DELETE' then
+        return old;
+    end if;
+    return new;
+end;
+$$;
+
 do $migration$
 declare
     expected_tables text[] := array[

@@ -147,7 +147,7 @@ public sealed class LogisticsStore(CheongjuDatabase connectionStringProvider)
     }
 
     private static async Task<IReadOnlyList<LogisticsDraftSummary>> ReadDraftSummariesAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         string stage,
         Guid? projectId,
         ProjectAccessScope scope,
@@ -1735,7 +1735,7 @@ public sealed class LogisticsStore(CheongjuDatabase connectionStringProvider)
     private static void AddNullableText(NpgsqlCommand command,string name,string? value)=>command.Parameters.Add(name,NpgsqlDbType.Text).Value=value??(object)DBNull.Value;
     private static void AddNullableUuid(NpgsqlCommand command,string name,Guid? value)=>command.Parameters.Add(name,NpgsqlDbType.Uuid).Value=value??(object)DBNull.Value;
     private static void AddNullableDate(NpgsqlCommand command,string name,DateOnly? value)=>command.Parameters.Add(name,NpgsqlDbType.Date).Value=value??(object)DBNull.Value;
-    private NpgsqlDataSource CreateDataSource(){var value=connectionStringProvider.GetConnectionString();if(string.IsNullOrWhiteSpace(value))throw new InvalidOperationException("QMS database connection string is not configured.");return NpgsqlDataSource.Create(value);}
+    private RuntimeDataSourceLease CreateDataSource(){var value=connectionStringProvider.GetConnectionString();if(string.IsNullOrWhiteSpace(value))throw new InvalidOperationException("QMS database connection string is not configured.");return connectionStringProvider.RentDataSource(value);}
     private static async Task<LogisticsMutationResult<LogisticsMutationResponse>> RollbackNotFound(NpgsqlTransaction transaction,CancellationToken token){await transaction.RollbackAsync(token);return LogisticsMutationResult<LogisticsMutationResponse>.NotFound();}
     private static async Task<LogisticsMutationResult<LogisticsMutationResponse>> RollbackForbidden(NpgsqlTransaction transaction,CancellationToken token){await transaction.RollbackAsync(token);return LogisticsMutationResult<LogisticsMutationResponse>.Forbidden();}
     private static async Task<LogisticsMutationResult<LogisticsMutationResponse>> RollbackConflict(NpgsqlTransaction transaction,string message,CancellationToken token){await transaction.RollbackAsync(token);return LogisticsMutationResult<LogisticsMutationResponse>.Conflict(message);}

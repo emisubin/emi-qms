@@ -1,15 +1,18 @@
+using Emi.Qms.Api.BusinessUnits;
+using Microsoft.AspNetCore.WebUtilities;
+
 namespace Emi.Qms.Api.Notifications;
 
 public sealed class NotificationLinkBuilder(IConfiguration configuration)
 {
-    public string? BuildNotificationDetailUrl(Guid notificationId)
+    public string? BuildNotificationDetailUrl(Guid notificationId, string? businessUnitCode = null)
     {
-        return BuildUrl($"/teams/activity/notifications/{notificationId:D}");
+        return BuildBusinessUrl($"/teams/activity/notifications/{notificationId:D}", businessUnitCode);
     }
 
-    public string? BuildTeamsActivityNotificationWebUrl(Guid notificationId)
+    public string? BuildTeamsActivityNotificationWebUrl(Guid notificationId, string? businessUnitCode = null)
     {
-        var notificationUrl = BuildNotificationDetailUrl(notificationId);
+        var notificationUrl = BuildNotificationDetailUrl(notificationId, businessUnitCode);
         if (string.IsNullOrWhiteSpace(notificationUrl)
             || !Uri.TryCreate(notificationUrl, UriKind.Absolute, out var notificationUri)
             || notificationUri.Scheme != Uri.UriSchemeHttps)
@@ -49,7 +52,10 @@ public sealed class NotificationLinkBuilder(IConfiguration configuration)
             entityId = "home";
         }
 
-        var context = $$"""{"subEntityId":"notification:{{notificationId:D}}"}""";
+        var notificationContext = businessUnitCode is BusinessUnitCodes.Cheongju or BusinessUnitCodes.Osan
+            ? $"notification:{businessUnitCode}:{notificationId:D}"
+            : $"notification:{notificationId:D}";
+        var context = $$"""{"subEntityId":"{{notificationContext}}"}""";
         return "https://teams.microsoft.com/l/entity/"
             + Uri.EscapeDataString(teamsDeepLinkAppId.Trim())
             + "/"
@@ -67,7 +73,43 @@ public sealed class NotificationLinkBuilder(IConfiguration configuration)
         return BuildUrl($"/teams/activity/deliveries/{deliveryId:D}");
     }
 
-    public string? BuildBusinessUrl(string path) => path.StartsWith("/") && !path.StartsWith("//") ? BuildUrl(path) : null;
+    public string? BuildBusinessUrl(string path, string? businessUnitCode = null)
+    {
+        if (!path.StartsWith('/') || path.StartsWith("//"))
+        {
+            return null;
+        }
+
+        var businessPath = AddBusinessUnitHint(path, businessUnitCode);
+        return businessPath is null ? null : BuildUrl(businessPath);
+    }
+
+    private static string? AddBusinessUnitHint(string path, string? businessUnitCode)
+    {
+        if (businessUnitCode is not (BusinessUnitCodes.Cheongju or BusinessUnitCodes.Osan))
+        {
+            return path;
+        }
+
+        var queryStart = path.IndexOf('?');
+        if (queryStart >= 0)
+        {
+            var fragmentStart = path.IndexOf('#', queryStart);
+            var query = fragmentStart >= 0
+                ? path[(queryStart + 1)..fragmentStart]
+                : path[(queryStart + 1)..];
+            var parsed = QueryHelpers.ParseQuery(query);
+            if (parsed.TryGetValue("businessUnit", out var existing))
+            {
+                return existing.Count == 1
+                    && string.Equals(existing[0], businessUnitCode, StringComparison.Ordinal)
+                        ? path
+                        : null;
+            }
+        }
+
+        return QueryHelpers.AddQueryString(path, "businessUnit", businessUnitCode);
+    }
 
     private string? BuildUrl(string path)
     {

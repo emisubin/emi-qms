@@ -13,6 +13,18 @@ public sealed class DeploymentMaintenanceLease : IAsyncDisposable
     private DeploymentMaintenanceLease(List<NpgsqlConnection> connections,List<NpgsqlConnection> lockedConnections)
     { this.connections=connections;this.lockedConnections=lockedConnections; }
 
+    // Authentication may continue from an existing profile when background identity
+    // synchronization is frozen or unavailable. It must not hold login behind a drain.
+    public static async Task<DeploymentMaintenanceLease?> TryAcquireForAuthenticationAsync(
+        Func<CancellationToken, Task<DeploymentMaintenanceLease?>> acquire, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(1));
+        try { return await acquire(timeout.Token); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return null; }
+        catch (NpgsqlException) when (!ct.IsCancellationRequested) { return null; }
+    }
+
     public static async Task<DeploymentMaintenanceLease?> AcquireAsync(
         DatabaseConnectionStringProvider provider,IReadOnlyList<BusinessUnitDatabaseTarget> targets,
         CancellationToken ct)
@@ -24,8 +36,8 @@ public sealed class DeploymentMaintenanceLease : IAsyncDisposable
             foreach(var target in targets.OrderBy(t=>t.Code,StringComparer.Ordinal))
             {
                 var connection=new NpgsqlConnection(provider.GetConnectionString(target));
-                await connection.OpenAsync(ct);
                 opened.Add(connection);
+                await connection.OpenAsync(ct);
                 await using var command=connection.CreateCommand();
                 command.CommandText="select pg_advisory_lock_shared(@key)";
                 command.Parameters.AddWithValue("key",AdvisoryKey);
@@ -58,8 +70,8 @@ public sealed class DeploymentMaintenanceLease : IAsyncDisposable
         try
         {
             var connection = new NpgsqlConnection(database.GetConnectionString());
-            await connection.OpenAsync(ct);
             opened.Add(connection);
+            await connection.OpenAsync(ct);
             await using var command = connection.CreateCommand();
             command.CommandText = "select pg_advisory_lock_shared(@key)";
             command.Parameters.AddWithValue("key", AdvisoryKey);

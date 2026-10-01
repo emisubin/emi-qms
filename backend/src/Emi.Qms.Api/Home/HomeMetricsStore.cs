@@ -340,13 +340,13 @@ public sealed class HomeMetricsStore(CheongjuDatabase connectionStringProvider)
         string actionLabel)
         => new(id, label, count, tone, destinationKey, actionLabel);
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

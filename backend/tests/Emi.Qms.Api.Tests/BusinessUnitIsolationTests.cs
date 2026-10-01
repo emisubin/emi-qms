@@ -4939,9 +4939,9 @@ public sealed partial class BusinessUnitIsolationTests
             .Bind(databases.BusinessUnits.GetBusiness(BusinessUnitCodes.Cheongju));
         var purge = serviceScope.ServiceProvider.GetRequiredService<IAdminDeletionPurgeService>();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+        var exception = await Assert.ThrowsAsync<BusinessUnitContextUnavailableException>(
             () => purge.PurgeDueAsync(TestContext.Current.CancellationToken));
-        Assert.Contains("1 target(s)", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("business_unit_database_identity_mismatch", exception.Reason);
         Assert.Equal(
             1L,
             await databases.ReadScalarAsync<long>(

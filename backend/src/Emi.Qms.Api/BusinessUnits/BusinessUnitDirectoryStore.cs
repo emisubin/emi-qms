@@ -1,5 +1,6 @@
 using Npgsql;
 using NpgsqlTypes;
+using Emi.Qms.Api.DeploymentMaintenance;
 
 namespace Emi.Qms.Api.BusinessUnits;
 
@@ -12,7 +13,7 @@ public sealed class BusinessUnitDirectoryStore(
     DatabaseConnectionStringProvider connectionStringProvider,
     BusinessUnitDirectoryMigrationCatalog directoryMigrationCatalog)
 {
-    public async Task<Guid> RegisterOrUpdatePendingEntraIdentityAsync(
+    public async Task<Guid?> RegisterOrUpdatePendingEntraIdentityAsync(
         string externalSubject,
         string displayName,
         string? email,
@@ -29,7 +30,7 @@ public sealed class BusinessUnitDirectoryStore(
             directory,
             BusinessUnitConnectionPurpose.Runtime);
 
-        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var ledger = await directoryMigrationCatalog.InspectAsync(connection, cancellationToken);
         if (!ledger.MigrationLedgerReady
@@ -37,6 +38,31 @@ public sealed class BusinessUnitDirectoryStore(
         {
             throw new BusinessUnitContextUnavailableException("directory_database_contract_mismatch");
         }
+
+        // Most authenticated requests need no Directory mutation. This also keeps an
+        // unchanged identity independent of another business database's availability.
+        await using (var existing = connection.CreateCommand())
+        {
+            existing.CommandText = """
+                select user_id from directory_identities
+                where auth_provider = 'EntraId' and external_subject = @subject
+                  and display_name = @name and email is not distinct from @email;
+                """;
+            existing.Parameters.AddWithValue("subject", externalSubject.Trim());
+            existing.Parameters.AddWithValue("name", string.IsNullOrWhiteSpace(displayName)
+                ? "Microsoft 365 사용자" : displayName.Trim());
+            existing.Parameters.Add(new NpgsqlParameter("email", NpgsqlDbType.Text)
+            { Value = string.IsNullOrWhiteSpace(email) ? DBNull.Value : email.Trim().ToLowerInvariant() });
+            if (await existing.ExecuteScalarAsync(cancellationToken) is Guid existingUserId)
+                return existingUserId;
+        }
+
+        // Directory identity is shared, so synchronization participates in both drains.
+        // During maintenance authentication proceeds with the existing read-only identity.
+        await using var maintenance = await DeploymentMaintenanceLease.TryAcquireForAuthenticationAsync(
+            token => DeploymentMaintenanceLease.AcquireAsync(connectionStringProvider,
+                connectionStringProvider.BusinessUnits.Businesses, token), cancellationToken);
+        if (maintenance is null) return null;
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
@@ -78,7 +104,7 @@ public sealed class BusinessUnitDirectoryStore(
             directory,
             BusinessUnitConnectionPurpose.Runtime);
 
-        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var ledger = await directoryMigrationCatalog.InspectAsync(connection, cancellationToken);
         if (!ledger.MigrationLedgerReady

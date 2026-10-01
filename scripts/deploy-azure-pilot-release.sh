@@ -208,6 +208,23 @@ recovery_postgres_host=''
 recovery_drained_at=''
 recovery_drains=()
 
+run_recovery_checkpoint() {
+  local output status phase
+  if output="$(python3 "${recovery_helper}" "$@" 2>&1)"; then
+    printf '%s\n' "${output}"
+    return 0
+  else
+    status=$?
+  fi
+  if [[ "${output}" =~ ^recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED[[:space:]]phase=(preflight|arm|wait|verify)[[:space:]]reason=([A-Z][A-Z0-9_]{0,63})$ ]]; then
+    phase="${BASH_REMATCH[1]}"
+    if [[ "${1:-}" == "${phase}" ]]; then
+      printf '%s\n' "${output}" >&2
+    fi
+  fi
+  return "${status}"
+}
+
 load_job_execution_override() {
   local job_name="$1" purpose="${2:-backfill}"
   local retry_limit parallelism completion_count container_count
@@ -843,7 +860,7 @@ if [[ "${maintenance_release}" == 'true' ]]; then
     recovery_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-recovery-checkpoint.XXXXXX")"
     recovery_state="${recovery_directory}/recovery.json"
     printf 'azurePilotRecoveryEvidence=%s\n' "${recovery_directory}"
-    if ! recovery_postgres_host="$(python3 "${recovery_helper}" preflight \
+    if ! recovery_postgres_host="$(run_recovery_checkpoint preflight \
       --state "${recovery_state}" --az-bin "${azure_cli_bin}")"; then
       printf 'azurePilotRelease=RECOVERY_PREFLIGHT_FAILED\n' >&2
       exit 79
@@ -906,15 +923,15 @@ if [[ "${maintenance_release}" == 'true' ]]; then
 fi
 
 if [[ "${RUN_MIGRATION}" == 'true' ]]; then
-  if ! python3 "${recovery_helper}" arm --state "${recovery_state}" --az-bin "${azure_cli_bin}" \
+  if ! run_recovery_checkpoint arm --state "${recovery_state}" --az-bin "${azure_cli_bin}" \
     || ! quiesce_apps; then
     printf 'azurePilotRelease=QUIESCENCE_OR_DRAIN_FAILED\n' >&2
     exit 79
   fi
-  if ! python3 "${recovery_helper}" wait --state "${recovery_state}" \
+  if ! run_recovery_checkpoint wait --state "${recovery_state}" \
     --az-bin "${azure_cli_bin}" --drained-at "${recovery_drained_at}" "${recovery_drains[@]}" \
     || ! run_drain_check \
-    || ! python3 "${recovery_helper}" verify --state "${recovery_state}" --az-bin "${azure_cli_bin}" "${recovery_drains[@]}"; then
+    || ! run_recovery_checkpoint verify --state "${recovery_state}" --az-bin "${azure_cli_bin}" "${recovery_drains[@]}"; then
     printf 'azurePilotRelease=RECOVERY_CHECKPOINT_FAILED\n' >&2
     exit 79
   fi

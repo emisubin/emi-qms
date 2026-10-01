@@ -26,7 +26,7 @@ public sealed partial class BusinessUnitAccessAdministrationStore
         bool isOverallAdministrator,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = NpgsqlDataSource.Create(database.GetConnectionString() ?? throw new InvalidOperationException("Database connection is not configured."));
+        await using var dataSource = database.RentDataSource(database.GetConnectionString() ?? throw new InvalidOperationException("Database connection is not configured."));
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await ValidateBusinessContractAsync(connection, target, cancellationToken);
 
@@ -126,7 +126,7 @@ public sealed partial class BusinessUnitAccessAdministrationStore
             "UserAccess",
             prepared.IsActive ? "ApproveOrUpdate" : "Revoke",
             "UpdateIntegratedUserAccess"));
-        await using var dataSource = NpgsqlDataSource.Create(database.GetConnectionString() ?? throw new InvalidOperationException("Database connection is not configured."));
+        await using var dataSource = database.RentDataSource(database.GetConnectionString() ?? throw new InvalidOperationException("Database connection is not configured."));
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -326,7 +326,7 @@ public sealed partial class BusinessUnitAccessAdministrationStore
         IReadOnlyList<BusinessUnitAccessAdministrationUser> directoryUsers,
         CancellationToken cancellationToken)
     {
-        await using var dataSource = NpgsqlDataSource.Create(database.GetConnectionString() ?? throw new InvalidOperationException("Database connection is not configured."));
+        await using var dataSource = database.RentDataSource(database.GetConnectionString() ?? throw new InvalidOperationException("Database connection is not configured."));
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await ValidateBusinessContractAsync(connection, target, cancellationToken);
         var departments = new List<BusinessUnitAccessAdministrationDepartment>();

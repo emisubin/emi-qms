@@ -3449,11 +3449,11 @@ public sealed class QualityInspectionStore(
         => command.Parameters.Add(name, NpgsqlDbType.Text).Value = value ?? (object)DBNull.Value;
     private static void AddNullableUuid(NpgsqlCommand command, string name, Guid? value)
         => command.Parameters.Add(name, NpgsqlDbType.Uuid).Value = value ?? (object)DBNull.Value;
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var value = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("QMS database connection string is not configured.");
-        return NpgsqlDataSource.Create(value);
+        return connectionStringProvider.RentDataSource(value);
     }
 
     private sealed record ProjectSnapshot(Guid ProjectId, string ProjectCode, string ProjectTitle, bool FatRequired);

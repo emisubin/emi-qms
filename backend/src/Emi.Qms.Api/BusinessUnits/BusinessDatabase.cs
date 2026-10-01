@@ -23,6 +23,7 @@ public class BusinessDatabase
     private readonly Func<BusinessUnitDatabaseTarget?> currentRequest;
     private readonly Func<CancellationToken, Task<IReadOnlyList<Guid>>> overallAdministrators;
     private readonly bool enforceRequestTarget;
+    private readonly DatabaseConnectionStringProvider provider;
 
     public BusinessDatabase(DatabaseConnectionStringProvider provider, BusinessDatabaseScope? scope = null)
         : this(provider, () => scope?.Target ?? provider.GetCurrentBusinessUnit(), enforceRequestTarget: false) { }
@@ -33,6 +34,7 @@ public class BusinessDatabase
     private BusinessDatabase(DatabaseConnectionStringProvider provider,
         Func<BusinessUnitDatabaseTarget?> resolveTarget, bool enforceRequestTarget)
     {
+        this.provider = provider;
         target = new Lazy<BusinessUnitDatabaseTarget>(() => resolveTarget()
             ?? throw new BusinessUnitContextUnavailableException("business_unit_context_missing"));
         currentRequest = provider.GetCurrentBusinessUnit;
@@ -46,6 +48,7 @@ public class BusinessDatabase
 
     public BoundBusinessConfiguration BusinessUnits { get; }
     public bool IsOsan => GetCurrentBusinessUnit().Code == BusinessUnitCodes.Osan;
+    public RuntimeDataSourceLease RentDataSource(string connectionString) => provider.RentDataSource(connectionString);
     public BusinessUnitDatabaseTarget GetCurrentBusinessUnit() => target.Value;
 
     public string? GetConnectionString()

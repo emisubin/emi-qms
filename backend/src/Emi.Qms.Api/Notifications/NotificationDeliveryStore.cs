@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using Emi.Qms.Api.BusinessUnits;
 using Emi.Qms.Api.Identity;
 using Emi.Qms.Api.ProductionPlanning;
-using Microsoft.AspNetCore.WebUtilities;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -1134,7 +1133,12 @@ public sealed class NotificationDeliveryStore(
         command.Parameters.AddWithValue("severity", ManualNotificationSeverity(notificationKind));
         command.Parameters.AddWithValue("title", title);
         command.Parameters.AddWithValue("message", message);
-        command.Parameters.AddWithValue("link_url", (object?)BuildTeamsActivityNotificationDetailUrl(notificationId) ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "link_url",
+            (object?)BuildTeamsActivityNotificationDetailUrl(
+                notificationId,
+                connectionStringProvider.GetCurrentBusinessUnit()?.Code)
+            ?? DBNull.Value);
         command.Parameters.AddWithValue("idempotency_key", $"manual:{correlationId}");
         command.Parameters.AddWithValue("visibility_scope", NormalizeVisibilityScope(visibilityScope));
         command.Parameters.AddWithValue("source_kind", NormalizeSourceKind(sourceKind));
@@ -1404,12 +1408,15 @@ public sealed class NotificationDeliveryStore(
         {
             throw new BusinessUnitContextUnavailableException("external_notifications_disabled");
         }
+        var businessUnit = target ?? connectionStringProvider.GetCurrentBusinessUnit();
         if (delivery.DeliveryType == NotificationDeliveryTypes.OsanWorkflow)
         {
             var snapshot = JsonSerializer.Deserialize<OsanNotificationSnapshot>(delivery.ManualPayloadJson
                 ?? throw new InvalidOperationException("Osan notification snapshot is missing."))
                 ?? throw new InvalidOperationException("Osan notification snapshot is invalid.");
-            var link = new NotificationLinkBuilder(configuration).BuildBusinessUrl(delivery.LinkUrl ?? "/progress");
+            var link = new NotificationLinkBuilder(configuration).BuildBusinessUrl(
+                delivery.LinkUrl ?? "/progress",
+                businessUnit?.Code);
             var content = OsanNotificationTemplates.Render(snapshot, link);
             return new NotificationDeliveryMessage(delivery.DeliveryId, delivery.Channel, delivery.DeliveryType,
                 content.Subject, content.HtmlBody, link, delivery.RecipientDisplayName, delivery.RecipientEmail,
@@ -1423,25 +1430,25 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.DeliveryType == NotificationDeliveryTypes.ManualTest)
         {
-            return RenderManualMessage(delivery);
+            return RenderManualMessage(delivery, businessUnit?.Code);
         }
 
-        var message = RenderAutomaticMessage(delivery);
-        var businessUnit = target ?? connectionStringProvider.GetCurrentBusinessUnit();
+        var message = RenderAutomaticMessage(delivery, businessUnit?.Code);
         if (delivery.Channel == NotificationDeliveryChannels.WebPush
             && connectionStringProvider.BusinessUnits.Enabled
             && businessUnit is not null)
         {
             message = message with
             {
-                BusinessUnitTarget = businessUnit,
-                LinkUrl = QueryHelpers.AddQueryString(message.LinkUrl ?? "/notifications", "businessUnit", businessUnit.Code)
+                BusinessUnitTarget = businessUnit
             };
         }
         return message;
     }
 
-    private NotificationDeliveryMessage RenderAutomaticMessage(NotificationDeliveryRecord delivery)
+    private NotificationDeliveryMessage RenderAutomaticMessage(
+        NotificationDeliveryRecord delivery,
+        string? businessUnitCode)
     {
         var kindLabel = DeliveryTypeLabel(delivery);
         var title = ResolveDisplayTitle(delivery);
@@ -1458,7 +1465,7 @@ public sealed class NotificationDeliveryStore(
                 delivery.DeliveryType,
                 title,
                 "EMI PMS에서 알림 내용을 확인해 주세요.",
-                ResolveExternalNotificationLink(delivery),
+                ResolveExternalNotificationLink(delivery, businessUnitCode),
                 delivery.DisplayRecipientName ?? delivery.RecipientDisplayName,
                 delivery.DisplayRecipientEmail ?? delivery.RecipientEmail,
                 CorrelationId: delivery.CorrelationId,
@@ -1471,7 +1478,7 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
-            var detailUrl = ResolveTeamsActivityNotificationLink(delivery);
+            var detailUrl = ResolveTeamsActivityNotificationLink(delivery, businessUnitCode);
             return new NotificationDeliveryMessage(
                 delivery.DeliveryId,
                 delivery.Channel,
@@ -1492,7 +1499,7 @@ public sealed class NotificationDeliveryStore(
                 WorkflowStageName: delivery.WorkflowStageName);
         }
 
-        var linkUrl = ResolveExternalNotificationLink(delivery);
+        var linkUrl = ResolveExternalNotificationLink(delivery, businessUnitCode);
         var body = BuildNotificationBody(kindLabel, title, projectName, message, timeProvider.GetUtcNow(), linkUrl);
         var subject = delivery.Channel == NotificationDeliveryChannels.Mail
             ? $"[{kindLabel}] {title}"
@@ -1518,7 +1525,9 @@ public sealed class NotificationDeliveryStore(
             WorkflowStageName: delivery.WorkflowStageName);
     }
 
-    private NotificationDeliveryMessage RenderManualMessage(NotificationDeliveryRecord delivery)
+    private NotificationDeliveryMessage RenderManualMessage(
+        NotificationDeliveryRecord delivery,
+        string? businessUnitCode)
     {
         var payload = ReadManualPayload(delivery);
         var kind = payload.NotificationKind;
@@ -1540,7 +1549,7 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
-            var detailUrl = ResolveTeamsActivityNotificationLink(delivery);
+            var detailUrl = ResolveTeamsActivityNotificationLink(delivery, businessUnitCode);
             return new NotificationDeliveryMessage(
                 delivery.DeliveryId,
                 delivery.Channel,
@@ -1561,7 +1570,7 @@ public sealed class NotificationDeliveryStore(
                 WorkflowStageName: delivery.WorkflowStageName);
         }
 
-        var linkUrl = ResolveExternalNotificationLink(delivery);
+        var linkUrl = ResolveExternalNotificationLink(delivery, businessUnitCode);
         var body = BuildNotificationBody(kindLabel, title, projectName, message, requestedAtUtc, linkUrl);
         var subject = delivery.Channel == NotificationDeliveryChannels.Mail
             ? $"[{kindLabel}] {title}"
@@ -1646,31 +1655,36 @@ public sealed class NotificationDeliveryStore(
             """;
     }
 
-    private string? BuildTeamsActivityDeliveryDetailUrl(Guid deliveryId)
-    {
-        return new NotificationLinkBuilder(configuration).BuildDeliveryDetailUrl(deliveryId);
-    }
-
-    private string? ResolveExternalNotificationLink(NotificationDeliveryRecord delivery)
+    private string? ResolveExternalNotificationLink(
+        NotificationDeliveryRecord delivery,
+        string? businessUnitCode)
     {
         return delivery.NotificationId is { } notificationId
-            ? BuildTeamsActivityNotificationDetailUrl(notificationId)
-            : delivery.LinkUrl;
+            ? BuildTeamsActivityNotificationDetailUrl(notificationId, businessUnitCode)
+            : delivery.LinkUrl is { } linkUrl
+                ? new NotificationLinkBuilder(configuration).BuildBusinessUrl(linkUrl, businessUnitCode)
+                : null;
     }
 
-    private string? ResolveTeamsActivityNotificationLink(NotificationDeliveryRecord delivery)
+    private string? ResolveTeamsActivityNotificationLink(
+        NotificationDeliveryRecord delivery,
+        string? businessUnitCode)
     {
         if (delivery.NotificationId is { } notificationId)
         {
-            return new NotificationLinkBuilder(configuration).BuildTeamsActivityNotificationWebUrl(notificationId);
+            return new NotificationLinkBuilder(configuration)
+                .BuildTeamsActivityNotificationWebUrl(notificationId, businessUnitCode);
         }
 
-        return delivery.LinkUrl;
+        return delivery.LinkUrl is { } linkUrl
+            ? new NotificationLinkBuilder(configuration).BuildBusinessUrl(linkUrl, businessUnitCode)
+            : null;
     }
 
-    private string? BuildTeamsActivityNotificationDetailUrl(Guid notificationId)
+    private string? BuildTeamsActivityNotificationDetailUrl(Guid notificationId, string? businessUnitCode = null)
     {
-        return new NotificationLinkBuilder(configuration).BuildNotificationDetailUrl(notificationId);
+        return new NotificationLinkBuilder(configuration)
+            .BuildNotificationDetailUrl(notificationId, businessUnitCode);
     }
 
     private string ResolveManualTeamsActivityType(string? kind)
@@ -1881,7 +1895,8 @@ public sealed class NotificationDeliveryStore(
 
         if (delivery.Channel == NotificationDeliveryChannels.TeamsActivity)
         {
-            var linkUrl = ResolveTeamsActivityNotificationLink(delivery);
+            var businessUnitCode = (target ?? connectionStringProvider.GetCurrentBusinessUnit())?.Code;
+            var linkUrl = ResolveTeamsActivityNotificationLink(delivery, businessUnitCode);
             return new NotificationDeliveryMessage(
                 delivery.DeliveryId,
                 delivery.Channel,
@@ -2552,21 +2567,6 @@ public sealed class NotificationDeliveryStore(
         }
     }
 
-    private string BuildLink(string linkUrl)
-    {
-        if (Uri.TryCreate(linkUrl, UriKind.Absolute, out _))
-        {
-            return linkUrl;
-        }
-
-        var origin = configuration["FRONTEND_ORIGIN"]
-            ?? configuration["Frontend:Origin"]
-            ?? "";
-        return string.IsNullOrWhiteSpace(origin)
-            ? linkUrl
-            : $"{origin.TrimEnd('/')}/{linkUrl.TrimStart('/')}";
-    }
-
     private static string DigestResponsibilityLabel(string responsibilityType)
     {
         return responsibilityType switch
@@ -2826,7 +2826,7 @@ public sealed class NotificationDeliveryStore(
     }
 
     private static async Task<IReadOnlyList<NotificationDeliveryAttemptResponse>> ListDeliveryAttemptsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid deliveryId,
         CancellationToken cancellationToken)
     {
@@ -2871,7 +2871,7 @@ public sealed class NotificationDeliveryStore(
     }
 
     private static async Task<IReadOnlyList<NotificationDeliveryReprocessEventResponse>> ListDeliveryReprocessEventsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid deliveryId,
         CancellationToken cancellationToken)
     {
@@ -3351,7 +3351,7 @@ public sealed class NotificationDeliveryStore(
             || connectionStringProvider.ExternalNotificationsEnabled(target);
     }
 
-    private NpgsqlDataSource CreateDataSource(BusinessUnitDatabaseTarget? target = null)
+    private RuntimeDataSourceLease CreateDataSource(BusinessUnitDatabaseTarget? target = null)
     {
         var connectionString = target is null
             ? connectionStringProvider.GetConnectionString()
@@ -3361,7 +3361,7 @@ public sealed class NotificationDeliveryStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed record AssignedProjectDigestRow(

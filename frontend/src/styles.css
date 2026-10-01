@@ -2070,6 +2070,39 @@
   }
 }
 
+@media (max-width: 860px) {
+  .auth-gate[data-auth-context='notification'][data-auth-layout='default'] {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(148px, 28dvh) minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .auth-gate[data-auth-context='notification'][data-auth-layout='default'] .auth-brand-panel {
+    min-height: 148px;
+  }
+
+  .auth-gate[data-auth-context='notification'][data-auth-layout='default'] .auth-brand-logo {
+    width: min(180px, 46%);
+  }
+
+  .auth-gate[data-auth-context='notification'][data-auth-layout='default'] .auth-gate-panel {
+    min-height: 72dvh;
+    padding: 28px 24px;
+    border-radius: 28px 28px 0 0;
+    box-shadow: 0 -5px 28px rgb(0 0 0 / 22%);
+  }
+
+  .auth-gate[data-auth-context='notification'][data-auth-layout='default'] .auth-gate-content {
+    width: min(360px, 100%);
+    gap: 14px;
+    transform: none;
+  }
+
+  .auth-gate[data-auth-context='notification'][data-auth-layout='default'] .business-unit-selector {
+    width: 100%;
+  }
+}
+
 /* Project-wide department context and continuous material processing. */
 .project-department-tabs {
   display: flex;

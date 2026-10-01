@@ -62,10 +62,10 @@ public sealed class BusinessCalendarStore(CheongjuDatabase connectionStringProvi
         return string.IsNullOrWhiteSpace(countryCode) ? "KR" : countryCode.Trim().ToUpperInvariant();
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString()
             ?? throw new InvalidOperationException("Database connection string is not configured.");
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 }

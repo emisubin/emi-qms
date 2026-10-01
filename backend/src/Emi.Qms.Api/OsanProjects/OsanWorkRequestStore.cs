@@ -292,7 +292,7 @@ public sealed class OsanWorkRequestStore(OsanDatabase connectionStringProvider)
             ?? throw new InvalidOperationException("Osan work request requester was not found."));
     }
 
-    private NpgsqlDataSource CreateDataSource() =>
-        NpgsqlDataSource.Create(connectionStringProvider.GetConnectionString()
+    private RuntimeDataSourceLease CreateDataSource() =>
+        connectionStringProvider.RentDataSource(connectionStringProvider.GetConnectionString()
             ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 }

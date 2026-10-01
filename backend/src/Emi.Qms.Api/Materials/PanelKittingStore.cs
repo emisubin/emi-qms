@@ -485,75 +485,6 @@ public sealed class PanelKittingStore(CheongjuDatabase connectionStringProvider)
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task<(Guid EventId, bool Created)> EnsureStageCompletedEventAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        Guid batchId,
-        Guid operationId,
-        Guid actorUserId,
-        CancellationToken cancellationToken)
-    {
-        await using (var readCommand = connection.CreateCommand())
-        {
-            readCommand.Transaction = transaction;
-            readCommand.CommandText = """
-                select id
-                from project_workflow_events
-                where project_id = @project_id
-                  and stage_code = 'KittingCompleted'
-                  and event_type = 'StageCompleted'
-                  and event_status = 'Succeeded'
-                order by created_at_utc
-                limit 1;
-                """;
-            readCommand.Parameters.AddWithValue("project_id", projectId);
-            var existing = await readCommand.ExecuteScalarAsync(cancellationToken);
-            if (existing is Guid existingId)
-            {
-                return (existingId, false);
-            }
-        }
-
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            insert into project_workflow_events (
-                project_id, stage_code, event_type, event_status, source_type, source_id,
-                correlation_id, created_by_user_id, note
-            )
-            values (
-                @project_id, 'KittingCompleted', 'StageCompleted', 'Succeeded',
-                'PanelKittingBatch', @batch_id, @correlation_id, @actor_id,
-                '모든 활성 패널 키팅 완료'
-            )
-            returning id;
-            """;
-        command.Parameters.AddWithValue("project_id", projectId);
-        command.Parameters.AddWithValue("batch_id", batchId);
-        command.Parameters.AddWithValue("correlation_id", operationId.ToString("D"));
-        command.Parameters.AddWithValue("actor_id", actorUserId);
-        return ((Guid)(await command.ExecuteScalarAsync(cancellationToken) ?? Guid.Empty), true);
-    }
-
-    private static async Task CompleteKittingWorkItemAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid projectId,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            update work_items
-            set status = 'Completed', completed_at_utc = coalesce(completed_at_utc, now())
-            where idempotency_key = @idempotency_key
-              and status in ('Requested', 'InProgress');
-            """;
-        command.Parameters.AddWithValue("idempotency_key", $"materials:kitting:{projectId}");
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     private static async Task CreateBatchReferenceNotificationAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -624,14 +555,14 @@ public sealed class PanelKittingStore(CheongjuDatabase connectionStringProvider)
         }
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private sealed class ProjectBuilder(

@@ -449,9 +449,12 @@ for fixture_phase in fresh upgrade; do
       run_image_command "business-configuration-${invalid_configuration}" \
         "${business_environment[@]}" "${invalid_arguments[@]}" \
         "${image_ref}" "${operation}" >"${fixture_failure_log}" 2>&1 || invalid_exit=$?
-      if [[ "${invalid_exit}" -ne 1 ]] \
-        || ! rg -q 'Code=database_operation_configuration_invalid' "${fixture_failure_log}"; then
-        echo "Packaged CLI did not safely reject invalid operation configuration." >&2
+      if [[ "${invalid_exit}" -ne 1 ]]; then
+        echo "Packaged CLI invalid operation configuration exit mismatch. Configuration=${invalid_configuration}; Exit=${invalid_exit}." >&2
+        exit 1
+      fi
+      if ! rg -q 'Code=database_operation_configuration_invalid' "${fixture_failure_log}"; then
+        echo "Packaged CLI invalid operation configuration fixed code missing. Configuration=${invalid_configuration}; Exit=${invalid_exit}." >&2
         exit 1
       fi
     done

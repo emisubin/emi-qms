@@ -61,7 +61,7 @@ public sealed class AuthorizationAuditLogger(
 
         try
         {
-            await using var dataSource = NpgsqlDataSource.Create(connectionString);
+            await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
             await using var command = dataSource.CreateCommand("""
                 insert into authorization_audit_events (
                     user_id, actual_actor_user_id, reason, endpoint, target_project_key)

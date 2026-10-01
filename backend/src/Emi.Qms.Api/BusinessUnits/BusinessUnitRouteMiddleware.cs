@@ -42,6 +42,18 @@ public sealed class BusinessUnitRouteMiddleware(RequestDelegate next)
             return;
         }
         context.Features.Set(new BusinessUnitRoute(code, common));
+        var prefix = common ? "/access" : code == BusinessUnitCodes.Osan ? "/osan" : "/cheongju";
+        context.Response.OnStarting(() =>
+        {
+            // Endpoints use the internal /api route; clients must receive the same
+            // fixed business prefix they used for creation, including common resources.
+            if (context.Response.StatusCode == StatusCodes.Status201Created
+                && context.Response.Headers.Location.Count == 1
+                && context.Response.Headers.Location.ToString().StartsWith("/", StringComparison.Ordinal)
+                && new PathString(context.Response.Headers.Location.ToString()).StartsWithSegments("/api"))
+                context.Response.Headers.Location = prefix + context.Response.Headers.Location.ToString();
+            return Task.CompletedTask;
+        });
         context.Request.Path = businessPath;
         try { await next(context); }
         finally { context.Request.Path = path; }

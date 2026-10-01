@@ -617,6 +617,10 @@ if ! PRODUCTION_MIGRATION_TEST_BUSINESS_SCHEMAS=true \
   bash "${repo_root}/scripts/test-production-migration-image.sh" "${image_ref}" \
   >"${temp_dir}/business-migration-test.log" 2>&1; then
   echo "Business-unit production image migration execution failed." >&2
+  # Forward only the fixed synthetic case and exit metadata, never raw CLI logs.
+  rg --no-filename --no-line-number --max-count 1 \
+    '^Packaged CLI invalid operation configuration (exit mismatch|fixed code missing)\. Configuration=(missing-target|invalid-target|missing-credentials|migration-invalid-target); Exit=[0-9]{1,3}\.$' \
+    "${temp_dir}/business-migration-test.log" >&2 || true
   exit 1
 fi
 

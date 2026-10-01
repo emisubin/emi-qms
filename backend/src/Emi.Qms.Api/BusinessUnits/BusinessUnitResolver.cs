@@ -138,7 +138,7 @@ public sealed class BusinessUnitDatabaseBoundaryValidator(
         var connectionString = connectionStringProvider.GetConnectionString(
             target,
             BusinessUnitConnectionPurpose.Runtime);
-        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        await using var dataSource = connectionStringProvider.RentDataSource(connectionString);
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         if (!await BusinessUnitDatabaseIdentity.IsExpectedAsync(connection, target, cancellationToken))
         {

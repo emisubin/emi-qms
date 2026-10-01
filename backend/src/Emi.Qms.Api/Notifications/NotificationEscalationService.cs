@@ -29,44 +29,14 @@ public sealed class NotificationEscalationService(
             return await EvaluateTargetAsync(currentOptions, target: null, cancellationToken);
         }
 
-        var evaluated = 0;
-        var notifications = 0;
-        var deliveries = 0;
-        var resolved = 0;
-        var failures = 0;
-        foreach (var target in connectionStringProvider.BusinessUnits.Businesses
-                     .Where(candidate => candidate.EscalationWorkerEnabled
-                                         && candidate.ExternalNotificationsEnabled))
+        var target = connectionStringProvider.BusinessUnits.Businesses.Single();
+        if (!target.EscalationWorkerEnabled || !target.ExternalNotificationsEnabled)
         {
-            try
-            {
-                await boundaryValidator.ValidateAsync(target, cancellationToken);
-                var summary = await EvaluateTargetAsync(currentOptions, target, cancellationToken);
-                evaluated += summary.EvaluatedWorkItemCount;
-                notifications += summary.CreatedNotificationCount;
-                deliveries += summary.CreatedDeliveryCount;
-                resolved += summary.ResolvedEscalationCount;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures++;
-                logger.LogError(
-                    "Notification escalation target failed. Target={Target} ExceptionType={ExceptionType}.",
-                    target.Code,
-                    exception.GetType().Name);
-            }
+            return new NotificationEscalationSummary(0, 0, 0, 0);
         }
 
-        if (failures > 0)
-        {
-            throw new InvalidOperationException(
-                $"Notification escalation failed for {failures} target(s); no target fallback was used.");
-        }
-        return new NotificationEscalationSummary(evaluated, notifications, deliveries, resolved);
+        await boundaryValidator.ValidateAsync(target, cancellationToken);
+        return await EvaluateTargetAsync(currentOptions, target, cancellationToken);
     }
 
     private async Task<NotificationEscalationSummary> EvaluateTargetAsync(

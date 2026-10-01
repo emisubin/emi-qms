@@ -156,7 +156,7 @@ export MAINTENANCE_TITLE='Synthetic release' MAINTENANCE_BODY='Synthetic notice'
 export MAINTENANCE_STARTS_AT_UTC=2099-01-01T00:00:00Z MAINTENANCE_EXPECTED_ENDS_AT_UTC=2099-01-01T01:00:00Z
 export FIRST_ROLLOUT_AZ_BIN="$scratch/az" FIRST_ROLLOUT_HTTP_BIN="$scratch/curl"
 export FIRST_ROLLOUT_ALLOW_TEST_OVERRIDES=true FIRST_ROLLOUT_POLL_ATTEMPTS=1 FIRST_ROLLOUT_POLL_INTERVAL_SECONDS=0
-export RECOVERY_POSTGRES_SERVER_NAME=synthetic-pg RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=10 RECOVERY_CHECKPOINT_POLL_SECONDS=1
+export RECOVERY_POSTGRES_SERVER_NAME=synthetic-pg RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=60 RECOVERY_CHECKPOINT_POLL_SECONDS=1
 export RECOVERY_MOCK_SCRIPT="$root/scripts/test-support/azure-recovery-mock.py"
 scenarios=(success approval-true mail-exception invalid-mail-exception stop-failure migration-failure start-uncertain update-failure \
   complete-failure prepare-osan-failure activate-osan-failure complete-osan-failure \
@@ -179,7 +179,7 @@ for scenario in "${scenarios[@]}"; do
   export SCENARIO="$scenario" MOCK_STATE="$scratch/$case_number-$scenario"
   mkdir "$MOCK_STATE"
   export FIRST_MAINTENANCE_ROLLOUT_APPROVED=true
-  export RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=10
+  export RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=60
   [[ "$scenario" != recovery-timeout ]] || export RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=1
   unset BUSINESS_SCHEMA_SEPARATION_APPROVED ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256
   if [[ "$scenario" == mail-exception ]]; then
@@ -198,6 +198,10 @@ from pathlib import Path
 scenario,status,folder=sys.argv[1:];root=Path(folder);status=int(status)
 assert (status==0)==(scenario in ['success','approval-true','mail-exception']), (scenario,status,(root/'result').read_text())
 assert 'synthetic-secret-value-must-not-log' not in (root/'result').read_text()
+if scenario=='recovery-wrong-server':
+ assert 'recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED phase=preflight reason=SERVER_IDENTITY_OR_STATE_INVALID' in (root/'result').read_text()
+if scenario=='recovery-read-failed':
+ assert 'recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED phase=wait reason=AZURE_READ_FAILED' in (root/'result').read_text()
 if scenario in ['no-approval','malformed-approval','invalid-mail-exception']:
  assert not (root/'calls').exists()
 elif scenario.startswith(('stale-','maintenance-stale-','duplicate-','unsafe-')) or scenario=='recovery-wrong-server':

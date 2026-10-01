@@ -593,7 +593,7 @@ public sealed class PanelInformationStore(
         return PanelInformationMutationResult<PanelInformationResponse>.Success(new PanelInformationResponse());
     }
 
-    private NpgsqlDataSource CreateDataSource()
+    private RuntimeDataSourceLease CreateDataSource()
     {
         var connectionString = connectionStringProvider.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -601,7 +601,7 @@ public sealed class PanelInformationStore(
             throw new InvalidOperationException("QMS database connection string is not configured.");
         }
 
-        return NpgsqlDataSource.Create(connectionString);
+        return connectionStringProvider.RentDataSource(connectionString);
     }
 
     private static PanelInformationResponse BuildResponse(
@@ -964,7 +964,7 @@ public sealed class PanelInformationStore(
     }
 
     private static async Task<PanelInformationProjectSnapshot?> ReadProjectSnapshotAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         bool includeDeleted,
         CancellationToken cancellationToken)
@@ -1024,7 +1024,7 @@ public sealed class PanelInformationStore(
     }
 
     private static async Task<IReadOnlyList<PanelInformationPanelSnapshot>> ReadPanelSnapshotsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         bool includeDeletedProject,
         CancellationToken cancellationToken)
@@ -1386,7 +1386,7 @@ public sealed class PanelInformationStore(
     }
 
     private static async Task<IReadOnlyList<PanelAuditEventResponse>> ReadPanelAuditEventsAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -1464,7 +1464,7 @@ public sealed class PanelInformationStore(
     }
 
     private static async Task<IReadOnlyList<PanelInformationExcelImportBatchResponse>> ReadExcelImportBatchesAsync(
-        NpgsqlDataSource dataSource,
+        RuntimeDataSourceLease dataSource,
         Guid projectId,
         CancellationToken cancellationToken)
     {

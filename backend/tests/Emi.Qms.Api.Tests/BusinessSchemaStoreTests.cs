@@ -6,6 +6,7 @@ using Emi.Qms.Api.OsanProjects;
 using Emi.Qms.Api.Projects;
 using Emi.Qms.Api.ReviewSafe;
 using Emi.Qms.Api.Workflow;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -13,6 +14,39 @@ namespace Emi.Qms.Api.Tests;
 
 public sealed class BusinessSchemaSqlTests
 {
+    [Fact]
+    public void Notification_links_bind_the_business_and_reject_conflicting_hints()
+    {
+        var notificationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Notifications:Links:BaseUrl"] = "https://pms.example.test",
+                ["Notifications:TeamsActivity:TeamsCatalogAppId"] = "catalog-app-id"
+            })
+            .Build();
+        var builder = new NotificationLinkBuilder(configuration);
+
+        var cheongjuDetail = builder.BuildNotificationDetailUrl(notificationId, BusinessUnitCodes.Cheongju);
+        Assert.Equal(
+            $"https://pms.example.test/teams/activity/notifications/{notificationId:D}?businessUnit=CHEONGJU",
+            cheongjuDetail);
+
+        var teamsLink = builder.BuildTeamsActivityNotificationWebUrl(notificationId, BusinessUnitCodes.Cheongju);
+        Assert.Contains("businessUnit%3DCHEONGJU", teamsLink, StringComparison.Ordinal);
+        Assert.Contains(
+            $"notification%3ACHEONGJU%3A{notificationId:D}",
+            teamsLink,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "https://pms.example.test/progress?projectId=1&businessUnit=OSAN",
+            builder.BuildBusinessUrl("/progress?projectId=1", BusinessUnitCodes.Osan));
+        Assert.Null(builder.BuildBusinessUrl(
+            "/progress?businessUnit=CHEONGJU",
+            BusinessUnitCodes.Osan));
+        Assert.Null(builder.BuildBusinessUrl("https://other.example/progress", BusinessUnitCodes.Osan));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

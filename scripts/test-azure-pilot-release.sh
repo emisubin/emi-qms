@@ -133,6 +133,10 @@ for branch, code, connection, marker, db, role in (
         env.append({"name": "BusinessUnits__" + branch + "__" + field, "value": value})
     env.append({"name": "ConnectionStrings__" + connection, "secretRef": "qms-" + role + "-runtime"})
 env.append({"name": "ConnectionStrings__QmsDatabase", "secretRef": "qms-cheongju-runtime"})
+# Azure CLI includes an empty value beside an active secret reference.
+for item in env:
+    if "secretRef" in item:
+        item["value"] = ""
 def set_value(name, value):
     next(item for item in env if item["name"] == name)["value"] = value
 if scenario.startswith("backend-config-") or (scenario == "backend-final-invalid" and phase == "revision"):
@@ -145,6 +149,10 @@ if scenario.startswith("backend-config-") or (scenario == "backend-final-invalid
     elif failure == "plaintext-runtime":
         item = next(x for x in env if x["name"] == "ConnectionStrings__QmsOsanRuntime")
         item.pop("secretRef"); item["value"] = "synthetic-secret-value-must-not-log"
+    elif failure == "secret-and-value": set_value("ConnectionStrings__QmsOsanRuntime", "synthetic-secret-value-must-not-log")
+    elif failure == "missing-value-and-secret": env.append({"name": "InvalidSetting"})
+    elif failure == "empty-secret-only": env.append({"name": "InvalidSetting", "secretRef": ""})
+    elif failure == "invalid-secret-name": env.append({"name": "InvalidSetting", "secretRef": "INVALID SECRET", "value": ""})
     elif failure == "swapped-target": set_value("BusinessUnits__Units__Osan__Code", "CHEONGJU")
     elif failure == "wrong-binding": set_value("BusinessUnits__Units__Osan__RuntimeConnection", "QmsCheongjuRuntime")
     elif failure == "duplicate-db": set_value("BusinessUnits__Units__Osan__ExpectedDatabaseName", "synthetic_cheongju")
@@ -865,7 +873,7 @@ PY_EVIDENCE
   printf 'azurePilotReleaseTest=%s:%s:PASS\n' "${case_number}" "${scenario}"
 }
 
-for failure in disabled missing-enabled duplicate-case duplicate-colon missing-runtime plaintext-runtime swapped-target wrong-binding duplicate-db system-db duplicate-role schema-marker startup-migration privileged-secret reserved legacy-alias duplicate-secret command containers; do
+for failure in disabled missing-enabled duplicate-case duplicate-colon missing-runtime plaintext-runtime secret-and-value missing-value-and-secret empty-secret-only invalid-secret-name swapped-target wrong-binding duplicate-db system-db duplicate-role schema-marker startup-migration privileged-secret reserved legacy-alias duplicate-secret command containers; do
   run_case "backend-config-${failure}" 68 BACKEND_SERVING_CONFIGURATION_INVALID ''
 done
 run_case backend-final-invalid 1 BACKEND_SERVING_CONFIGURATION_INVALID 'migration-update,migration-start,backend-update,frontend-update'

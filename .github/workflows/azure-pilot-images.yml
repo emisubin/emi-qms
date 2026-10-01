@@ -424,6 +424,7 @@ jobs:
       DEPLOY_FRONTEND: ${{ needs.scope.outputs.deploy_frontend == 'true' && !inputs.database_prepare_only }}
       RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}
       BUSINESS_SCHEMA_SEPARATION_APPROVED: ${{ inputs.approve_business_schema_separation }}
+      ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256: ${{ secrets.PMS_ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256 }}
       RUN_DATABASE_BOOTSTRAP: ${{ inputs.run_database_bootstrap }}
       RUN_MEMBERSHIP_BACKFILL: ${{ inputs.run_membership_backfill }}
       INSPECT_MEMBERSHIP_BACKFILL: ${{ inputs.inspect_membership_backfill }}

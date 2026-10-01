@@ -18,6 +18,7 @@
 ```
 FIRST_MAINTENANCE_ROLLOUT_APPROVED=true
 BUSINESS_SCHEMA_SEPARATION_APPROVED=false # C/O0131 구조 변경을 명시 승인한 실행만 true
+ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256= # 승인된 과거 오산 메일 1건만; 기본은 예외 없음
 SOURCE_SHA
 AZURE_SUBSCRIPTION_ID AZURE_RESOURCE_GROUP ACR_LOGIN_SERVER PUBLIC_HOSTNAME
 BACKEND_APP_NAME FRONTEND_APP_NAME MIGRATION_JOB_NAME MAINTENANCE_JOB_NAME
@@ -58,6 +59,37 @@ Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTempl
 
 일반 release는 양 사업부 점검을 같은 release ID로 활성화한 뒤 양 앱의 모든 revision/replica를 멈춘다. 동일한 읽기 전용 CLI를 D/C/O별로 실행하되 `DeploymentDrain__RequireMaintenance=true`로 두 업무 DB의 해당 release 상태가 Active/Delayed인지 확인한다. Directory는 업무용 점검 표를 조회하지 않는다. 최초 도입만 false를 사용한다. 검사 통과 뒤 명시 대상별 역할 준비/구조 변경을 진행한다. DB 변경 시작 이후에는 구 image를 자동 재기동하지 않고 중단 상태에서 승인된 보정을 결정한다. Job 결과가 불명확하면 기존 execution부터 확인하며 무조건 재실행하지 않는다.
 
-종료 검사는 해당 시점의 DB 상태를 확인한다. 외부 메일/EC 서비스에서 실제 처리가 끝났다고 단정하거나 진행 중 작업의 성공/실패를 추측하지 않는다. 불명확한 발송 시도 기록이 남으면 관리자 확인·목록 제외 또는 다음 재시도의 성공 여부와 무관하게 차단한다. 이런 기록은 외부 처리 결과 확인과 별도 정정 판단이 필요하며, 이번 구현에는 자동 해소·운영 이력 수정 기능이 없다. 실제 시험 발송이나 임의 reset을 하지 않는다. 검사와 migration 사이 새 접속을 막는 운영 통제도 유지한다.
+종료 검사는 해당 시점의 DB 상태를 확인한다. 외부 메일/EC 서비스에서 실제 처리가 끝났다고 단정하거나 진행 중 작업의 성공/실패를 추측하지 않는다. 기본값은 모든 불명확 발송을 차단하며, 일반 관리자 확인·목록 제외나 다음 재시도의 성공만으로 해제되지 않는다. 실제 시험 발송이나 임의 reset을 하지 않는다. 검사와 migration 사이 새 접속을 막는 운영 통제도 유지한다.
+
+### 승인된 과거 오산 메일 1건의 배포 예외
+
+2026-10-01 사용자는 기존 불명확 메일 1건의 추가 조사를 종결하고, 그 1건만 배포 차단에서 제외하도록 승인했다. 원래 attempt/outcome/delivery를 수정·삭제하거나 Sent로 바꾸는 결정이 아니다. 사용자 직접 검수도 이 배포 준비 범위에서 명시적으로 생략했다. 새 불명확 발송, 진행 중 작업, 청주 외부 처리 결과, 접속·DB identity·점검 상태 검사는 유지한다.
+
+- `ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256`는 선택적인 소문자 hex 64자리 하나이며, 목록·와일드카드·잘못된 형식은 Azure 조작 전에 거부한다. 최초 전환과 일반 release 모두 **OSAN의 drain 실행에만** `DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256`로 전달한다. 다른 DB·migration·역할 준비·웹앱에는 전달하지 않고 Job 영구 template에 저장하지 않는다.
+- 일반 workflow의 값은 `azure-pilot-image-publish` Environment의 `PMS_ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256` secret에서 받는다. 준비 단계에서는 비공개 실행 파일로 보관하고 실제 운영 설정 반영은 최종 배포 범위에서 수행한다. 값·실제 내부 식별자를 Git/공지/일반 로그에 넣지 않는다. 이후 실행에서도 동일 승인값을 재사용하며 새로운 값으로 자동 갱신하지 않는다.
+- SHA-256 입력은 UTF-8이고 마지막 개행 없는 LF 결합이다. 순서는 `osan-mail-deployment-exception-v1`, 실제 DB 이름, `OSAN`, attempt UUID, delivery UUID, attempt 번호, generation, outcome, provider 시작시각, 완료시각, channel, delivery status다. UUID는 소문자 D 형식, 숫자는 10진수, 시각은 UTC `yyyy-MM-ddTHH:mm:ss.ffffffZ`다. 수신자·제목·본문·credential은 읽거나 포함하지 않는다.
+- 일치하더라도 Failed/Mail이고 provider 시작·완료 시각이 존재하며, provider ID·sent 시각·claim token·다음 재시도 시각이 없어야 한다. delivery의 attempt 번호와 generation은 해당 attempt와 같아야 한다. 불명확 attempt가 두 개 이상이면 무조건 차단한다. 확인값 불일치나 상태 변경·새 시도는 예외가 되지 않는다.
+- 검사 자체는 read-only transaction이고 승인 이력을 별도 배포 준비 기록에 남긴다. 일치 시 비식별 메시지 한 건만 로그에 남기며, 실제 메일의 발송 여부를 확정한 것으로 표현하지 않는다.
 
 구현 근거: [Azure Container Apps Job 실행별 template override](https://learn.microsoft.com/en-us/azure/container-apps/jobs#start-a-job-execution-on-demand), [PostgreSQL 트랜잭션 한정 set_config](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-SET).
+
+## 이번 구조 분리의 배포 창과 복구 계획
+
+2026-10-01의 준비 계획이다. 사용자 직접 검수는 명시적으로 생략됐으며 required CI·자동 검증은 유지한다. 이번 승인은 준비까지다. 실제 공지·main 병합·이미지 게시·운영 구조 변경·앱 교체는 최종 실행 단계에 남는다.
+
+- 시작 기준 T0는 기술 준비와 최종 실행 승인이 끝난 뒤 공지한 실제 중단 시작시각이다. 별도 시간대 답변이 없으므로 가장 이른 가능한 시점을 기본안으로 두되, 지금 중단을 예약하거나 시각을 확정하지 않는다. **60분을 작업 창의 계획 예산**으로 잡는다. 이는 완료 보장이 아니며, 지연 시 상태와 다음 판단 시각을 알리고 검증 없이 저장을 재개하지 않는다.
+- 중단 전에 정확한 main SHA/필수 CI, 검증한 두 image digest, 기존 revision/image·설정·세 연결 secret의 버전, Manual job 중복 없음, 백업 보관/복구 연습 유효성, 승인된 메일 snapshot, 공지·실행값을 준비한다. 기존 backend 한 개와 현재 자원량을 유지한다. pgAdmin·중계·수동 DB 연결을 닫고 다른 운영자/자동화의 접속을 멈춘다.
+- T0 이후 순서는 대체 사전 공지 확인 → frontend/backend 모든 replica 종료 → D/C/O 읽기 전용 drain → 복구 기준시각 기록 → D/C/O migration → 점검 공지 준비/활성화 → 새 backend/frontend readiness·보안 검사 → exact ledger 확인·저장 재개다. 첫 migration 요청 전에 복구 기준이 확보되지 않거나 drain이 실패하면 DB 변경을 시작하지 않는다.
+- 복구 기준시각은 세 DB의 쓰기가 멈추고 기존 처리가 종료된 이후이면서 **첫 migration 요청 이전**인 UTC 시각으로 정한다. Azure의 사용 가능한 PITR 범위에 해당 시각이 들어왔는지 최종 단계에서 확인하고, 확인할 수 없으면 중단한다. 오늘 확인한 일일 backup 완료시각 자체를 배포 직전 복구시각으로 대체하지 않는다. DB 변경 뒤에 `latest` 복구를 선택하면 변경 후 상태가 복원될 수 있으므로 기록한 custom 시각을 사용한다.
+
+**실행 준비의 미완료 선행조건:** 현재 최초 전환 runner는 drain 후 바로 migration을 시작하며 위 복구시각 기록·확인 checkpoint가 없다. 따라서 이 계획을 근거로 현재 runner를 그대로 실행하면 안 된다. 최종 운영 실행 준비에서 해당 checkpoint와 실패 시 migration 미시작을 구현·시험하고 독립 검토를 마친 뒤에만 T0를 확정한다. Azure에서 확인 가능한 복구 범위의 증거도 먼저 정해야 하며, 일정 시간 대기나 일일 backup 성공만으로 임의의 직전 시각 복원을 증명했다고 간주하지 않는다. 이번 1~3번 범위는 메일 예외 구현·검수 생략·계획 작성이며 이 실행기 보완과 실제 운영 전환까지 완료한 것은 아니다.
+
+| 실패 경계 | 실행할 복구 |
+| --- | --- |
+| 첫 migration 요청 전 | DB를 바꾸지 않았음을 확인하고 기존 backend/frontend revision을 재개한 뒤 readiness·공개 보안을 확인한다. |
+| 첫 migration 요청 이후, 실행 결과 불명확 포함 | 앱 중단을 유지한다. 기존 execution·세 DB ledger/identity·점검 상태를 먼저 확인하고 승인 범위의 forward fix를 선택한다. runner 전체 재실행·구 image 재기동·역migration으로 추측 복구하지 않는다. |
+| DB를 원래 시점으로 복원해야 하는 경우 | 기록한 custom 시각으로 별도 PostgreSQL 서버에 PITR한다. 청주·오산·Directory 세 DB를 같은 시점으로 확인하고 schema/원장·보존 수량·사업부 권한/연결·private network·설정·secret 참조를 검증한다. 복원 DB에 맞는 이전 앱 버전과 연결을 함께 전환한 뒤 공개 보안과 로그인/핵심 기능을 확인한다. 기존 운영 서버는 덮어쓰거나 삭제하지 않는다. |
+
+PITR은 새 서버를 생성하므로 임시 비용과 연결 전환이 수반된다. 이 준비에서 새 유료 자원을 만들지 않았고, 실제 복구 실행 시 필요한 대상·비용 범위를 최종 운영 승인에 포함한다. 복구 시간은 별도이며 60분 배포 창 안에 완료된다고 보장하지 않는다. 재개 전까지 사용자 쓰기를 막아 복구시각 이후의 업무 데이터 유실을 피한다. 재개 후 문제가 발견되면 이후 입력분을 따로 보존·대조할 계획 없이 과거 시점으로 전환하지 않는다.
+
+Microsoft 근거: [PostgreSQL backup/PITR 및 복원 후 확인 항목](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore). 새 서버 생성, custom 시각, 원본 미덮어쓰기, 네트워크·서버 설정 재확인 조건을 반영했다. 이번 관측값과 검증 증거는 [Change 031](../../tasks/azure-deploy-001-change-031.md)의 최신 기록을 따른다.

@@ -1,4 +1,6 @@
 using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 using Emi.Qms.Api.BusinessUnits;
 using Npgsql;
 
@@ -44,6 +46,14 @@ public sealed class DeploymentDrainChecker(
         var target = ResolveTarget(targetCode);
         if (target is null) return Failure(TargetInvalidCode);
         if (requireMaintenance && releaseId == Guid.Empty) return Failure(ReleaseInvalidCode);
+        var acceptedMailSnapshot = configuration["DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256"] ?? string.Empty;
+        if (acceptedMailSnapshot.Length > 0
+            && (target.Code != BusinessUnitCodes.Osan
+                || acceptedMailSnapshot.Length != 64
+                || acceptedMailSnapshot.Any(character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))))
+        {
+            return Failure(ConfigurationInvalidCode);
+        }
 
         var businessUnits = connectionStringProvider.BusinessUnits;
         if (!businessUnits.Enabled || !businessUnits.IsValid)
@@ -149,14 +159,7 @@ public sealed class DeploymentDrainChecker(
                     return Failure(NotificationDeliveryInFlightCode);
                 }
 
-                if (await ReadExistsAsync(connection, transaction, """
-                        select exists (
-                            select 1
-                            from notification_delivery_attempts attempt
-                            where (attempt.outcome = 'LeaseExpiredAfterProviderCallStarted'
-                                   or (attempt.outcome = 'OwnershipLost'
-                                       and attempt.provider_call_started_at_utc is not null)));
-                        """, ct))
+                if (await HasUnacceptedNotificationResultAsync(connection, transaction, acceptedMailSnapshot, ct))
                 {
                     return Failure(NotificationDeliveryResultUncertainCode);
                 }
@@ -202,6 +205,44 @@ public sealed class DeploymentDrainChecker(
                 exception.GetType().Name);
             return Failure(CheckUnavailableCode);
         }
+    }
+
+    private async Task<bool> HasUnacceptedNotificationResultAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string acceptedSnapshot,
+        CancellationToken cancellationToken)
+    {
+        // At most one specifically acknowledged historical mail attempt may be excluded.
+        // A second unknown result always blocks, even when the first snapshot matches.
+        await using var command = CreateCommand(connection, transaction, """
+            select
+                d.channel = 'Mail' and d.status = 'Failed'
+                and a.provider_call_started_at_utc is not null and a.completed_at_utc is not null
+                and a.provider_message_id is null and d.provider_message_id is null and d.sent_at_utc is null
+                and d.claim_token is null and d.next_attempt_at_utc is null
+                and d.attempt_count = a.attempt_no and d.current_generation = a.generation as eligible,
+                concat_ws(E'\n', 'osan-mail-deployment-exception-v1', current_database(), 'OSAN',
+                    a.id::text, a.delivery_id::text, a.attempt_no::text, a.generation::text, a.outcome,
+                    to_char(a.provider_call_started_at_utc at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                    to_char(a.completed_at_utc at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                    d.channel, d.status) as snapshot
+            from notification_delivery_attempts a
+            left join notification_deliveries d on d.id = a.delivery_id
+            where a.outcome = 'LeaseExpiredAfterProviderCallStarted'
+                or (a.outcome = 'OwnershipLost' and a.provider_call_started_at_utc is not null)
+            limit 2;
+            """);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return false;
+        if (acceptedSnapshot.Length == 0 || reader.IsDBNull(0) || !reader.GetBoolean(0)) return true;
+
+        var actualSnapshot = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(reader.GetString(1))));
+        if (!string.Equals(actualSnapshot, acceptedSnapshot, StringComparison.Ordinal)
+            || await reader.ReadAsync(cancellationToken)) return true;
+
+        logger.LogInformation("Deployment drain accepted one acknowledged historical Osan mail attempt; its original outcome remains unchanged.");
+        return false;
     }
 
     private BusinessUnitDatabaseTarget? ResolveTarget(string targetCode)

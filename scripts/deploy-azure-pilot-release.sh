@@ -28,6 +28,12 @@ for variable_name in "${required_environment[@]}"; do
 done
 
 BUSINESS_SCHEMA_SEPARATION_APPROVED="${BUSINESS_SCHEMA_SEPARATION_APPROVED:-false}"
+ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256:-}"
+if [[ -n "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" \
+  && ! "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+  printf 'azurePilotRelease=INVALID_HISTORICAL_MAIL_SNAPSHOT\n' >&2
+  exit 65
+fi
 
 for release_flag in \
   "${BUSINESS_SCHEMA_SEPARATION_APPROVED}" \
@@ -611,8 +617,13 @@ run_maintenance_job() {
 
 run_drain_check() {
   local database_target execution_name
+  local -a accepted_snapshot_environment
   load_job_execution_override "${MIGRATION_JOB_NAME}" database || return 1
   for database_target in DIRECTORY CHEONGJU OSAN; do
+    accepted_snapshot_environment=()
+    if [[ "${database_target}" == 'OSAN' && -n "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" ]]; then
+      accepted_snapshot_environment+=("DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256=${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}")
+    fi
     execution_name="$(azure_read containerapp job start \
       --resource-group "${AZURE_RESOURCE_GROUP}" --name "${MIGRATION_JOB_NAME}" \
       --container-name "${MIGRATION_JOB_NAME}" --image "${BACKEND_RELEASE_IMAGE}" \
@@ -622,6 +633,7 @@ run_drain_check() {
       "Database__BusinessSchemaSeparationApproved=false" \
       "DeploymentDrain__RequireMaintenance=true" \
       "DeploymentDrain__ReleaseId=${MAINTENANCE_RELEASE_ID}" \
+      ${accepted_snapshot_environment[@]+"${accepted_snapshot_environment[@]}"} \
       --args=--deployment-drain-check --query name)" || execution_name=''
     [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
       && wait_for_job "${MIGRATION_JOB_NAME}" "${execution_name}" || return 1

@@ -43,6 +43,9 @@ try:
     cfg = {key: required(key) for key in keys}
     schema_approved = env.get('BUSINESS_SCHEMA_SEPARATION_APPROVED', 'false')
     require(schema_approved in ['true', 'false'], 'INVALID_SCHEMA_APPROVAL')
+    accepted_mail_snapshot = env.get('ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256', '')
+    require(not accepted_mail_snapshot or bool(re.fullmatch('[0-9a-f]{64}', accepted_mail_snapshot)),
+            'INVALID_HISTORICAL_MAIL_SNAPSHOT')
     require(len({cfg[k] for k in ['BACKEND_APP_NAME', 'FRONTEND_APP_NAME']}) == 2
             and cfg['MIGRATION_JOB_NAME'] != cfg['MAINTENANCE_JOB_NAME'], 'DUPLICATE_TARGETS')
     require(bool(re.fullmatch('[0-9a-f]{40}', cfg['SOURCE_SHA'])), 'INVALID_SOURCE')
@@ -232,6 +235,9 @@ def database_command(command):
             {'name': 'Database__BusinessSchemaSeparationApproved',
              'value': schema_approved if command == '--migrate-only' and database_target != 'DIRECTORY' else 'false'},
             {'name': 'DeploymentDrain__RequireMaintenance', 'value': 'false'}])
+        if command == '--deployment-drain-check' and database_target == 'OSAN' and accepted_mail_snapshot:
+            container['env'].append({'name': 'DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256',
+                                     'value': accepted_mail_snapshot})
         path = state_dir / 'migration-execution.json'
         path.write_text(json.dumps(template))
         try:

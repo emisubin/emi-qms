@@ -39,6 +39,7 @@ job_mode=''
 schema_approved=''
 drain_required=''
 drain_release=''
+accepted_mail_snapshot=''
 inspection_environment_count=0
 cpu=''
 memory=''
@@ -63,6 +64,7 @@ for ((index = 1; index <= $#; index++)); do
     Database__BusinessSchemaSeparationApproved=*) schema_approved="${argument#*=}" ;;
     DeploymentDrain__RequireMaintenance=*) drain_required="${argument#*=}" ;;
     DeploymentDrain__ReleaseId=*) drain_release="${argument#*=}" ;;
+    DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256=*) accepted_mail_snapshot="${argument#*=}" ;;
     --query)
       next=$((index + 1))
       query="${!next}"
@@ -318,6 +320,11 @@ case "${command_group}" in
     esac
     ;;
   'containerapp job start')
+    if [[ "${job_mode}" == drain && "${selected_target}" == OSAN && "${AZURE_RELEASE_TEST_SCENARIO}" == mail-exception ]]; then
+      [[ "${accepted_mail_snapshot}" == "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" ]] || exit 2
+    else
+      [[ -z "${accepted_mail_snapshot}" ]] || exit 2
+    fi
     if [[ "${name}" == "${MIGRATION_JOB_NAME}" || "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" || "${name}" == "${MAINTENANCE_JOB_NAME}" || "${inspection}" == true ]]; then
       for preserved_setting in \
         'ASPNETCORE_ENVIRONMENT=Production' \
@@ -528,6 +535,9 @@ run_case() {
   local run_membership_backfill="${9:-false}"
   local inspect_membership_backfill="${10:-false}"
   local publish=true prepared=false prepare_only=false preparation_image=''
+  local accepted_mail_snapshot=''
+  [[ "${scenario}" != mail-exception ]] || accepted_mail_snapshot="$(printf '1%.0s' {1..64})"
+  [[ "${scenario}" != invalid-mail-exception ]] || accepted_mail_snapshot='*'
   local schema_environment=()
   case "$scenario" in
     approval-true) schema_environment=(BUSINESS_SCHEMA_SEPARATION_APPROVED=true) ;;
@@ -561,6 +571,7 @@ run_case() {
 
   set +e
   env -u BUSINESS_SCHEMA_SEPARATION_APPROVED ${schema_environment[@]+"${schema_environment[@]}"} \
+    ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="${accepted_mail_snapshot}" \
     SOURCE_SHA='1111111111111111111111111111111111111111' \
     AZURE_SUBSCRIPTION_ID='33333333-3333-4333-8333-333333333333' \
     ACR_LOGIN_SERVER='pilotacr123.azurecr.io' \
@@ -626,7 +637,7 @@ run_case() {
     expected_calls='maintenance-prepare,maintenance-fail'
   elif [[ "${scenario}" == backend-config-* ]]; then
     expected_calls=''
-  elif [[ "${scenario}" == maintenance-stale-* || "${scenario}" == malformed-approval || "${scenario}" == unsafe-retry || "${scenario}" == unsafe-parallel || "${scenario}" == unsafe-completion || "${scenario}" == unsafe-containers ]]; then
+  elif [[ "${scenario}" == maintenance-stale-* || "${scenario}" == malformed-approval || "${scenario}" == invalid-mail-exception || "${scenario}" == unsafe-retry || "${scenario}" == unsafe-parallel || "${scenario}" == unsafe-completion || "${scenario}" == unsafe-containers ]]; then
     expected_calls=''
   elif [[ "${scenario}" == 'maintenance-activate-osan-failed' ]]; then
     expected_calls='maintenance-prepare,maintenance-activate,maintenance-fail'
@@ -786,7 +797,7 @@ for target in DIRECTORY CHEONGJU OSAN; do
     run_case "drain-${target}-${failure}" 79 QUIESCENCE_OR_DRAIN_FAILED ''
   done
 done
-for stale in Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do
+for stale in DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do
   run_case "stale-${stale}" 79 QUIESCENCE_OR_DRAIN_FAILED ''
 done
 # Environment providers fold casing and normalize __ to :. These spellings
@@ -802,6 +813,8 @@ for shape in retry parallel completion containers; do
   run_case "unsafe-${shape}" 79 MAINTENANCE_JOB_CONFIGURATION_INVALID ''
 done
 run_case malformed-approval 65 INVALID_RELEASE_SCOPE ''
+run_case invalid-mail-exception 65 INVALID_HISTORICAL_MAIL_SNAPSHOT ''
+run_case mail-exception 0 '' 'migration-update,migration-start,backend-update,frontend-update'
 for stale in Maintenance__BusinessUnit maintenance__businessunit Maintenance:BusinessUnit maintenance:releaseid; do
   run_case "maintenance-stale-${stale}" 79 MAINTENANCE_JOB_CONFIGURATION_INVALID ''
 done

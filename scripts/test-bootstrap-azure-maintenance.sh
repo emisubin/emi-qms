@@ -65,6 +65,10 @@ elif a[:3]==['containerapp','job','start']:
   assert c['image']==os.environ['BACKEND_RELEASE_IMAGE']
   assert entries['DeploymentDrain__RequireMaintenance']=='false'
   assert 'DeploymentDrain__ReleaseId' not in entries
+  snapshot_key='DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256'
+  if mode=='drain' and target=='OSAN' and scenario=='mail-exception':
+   assert entries[snapshot_key]==os.environ['ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256']
+  else:assert snapshot_key not in entries
   expected=os.environ.get('BUSINESS_SCHEMA_SEPARATION_APPROVED','false') if mode=='migration' and target!='DIRECTORY' else 'false'
   assert entries['Database__BusinessSchemaSeparationApproved']==expected
   assert not any(s['active'].values()), 'database check while serving'
@@ -142,7 +146,7 @@ export MAINTENANCE_TITLE='Synthetic release' MAINTENANCE_BODY='Synthetic notice'
 export MAINTENANCE_STARTS_AT_UTC=2099-01-01T00:00:00Z MAINTENANCE_EXPECTED_ENDS_AT_UTC=2099-01-01T01:00:00Z
 export FIRST_ROLLOUT_AZ_BIN="$scratch/az" FIRST_ROLLOUT_HTTP_BIN="$scratch/curl"
 export FIRST_ROLLOUT_ALLOW_TEST_OVERRIDES=true FIRST_ROLLOUT_POLL_ATTEMPTS=1 FIRST_ROLLOUT_POLL_INTERVAL_SECONDS=0
-scenarios=(success approval-true stop-failure migration-failure start-uncertain update-failure \
+scenarios=(success approval-true mail-exception invalid-mail-exception stop-failure migration-failure start-uncertain update-failure \
   complete-failure prepare-osan-failure activate-osan-failure complete-osan-failure \
   complete-osan-start-response-lost complete-osan-running complete-osan-status-unknown \
   fail-cleanup-cheongju-running \
@@ -150,7 +154,7 @@ scenarios=(success approval-true stop-failure migration-failure start-uncertain 
 for target in DIRECTORY CHEONGJU OSAN; do
   for failure in failed unknown running start-uncertain; do scenarios+=("drain-${target}-${failure}"); done
 done
-for stale in Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do scenarios+=("stale-${stale}"); done
+for stale in DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do scenarios+=("stale-${stale}"); done
 # Both exact duplicates and .NET-equivalent spellings are rejected before stop/start.
 for stale in database__migrationtarget dAtAbAsE__BootstrapTarget database__businessschemaseparationapproved deploymentdrain__requiremaintenance DeploymentDrain__releaseid \
   Database:MigrationTarget Database:BootstrapTarget Database:BusinessSchemaSeparationApproved DeploymentDrain:RequireMaintenance DeploymentDrain:ReleaseId; do scenarios+=("stale-${stale}"); done
@@ -162,7 +166,12 @@ for scenario in "${scenarios[@]}"; do
   export SCENARIO="$scenario" MOCK_STATE="$scratch/$case_number-$scenario"
   mkdir "$MOCK_STATE"
   export FIRST_MAINTENANCE_ROLLOUT_APPROVED=true
-  unset BUSINESS_SCHEMA_SEPARATION_APPROVED
+  unset BUSINESS_SCHEMA_SEPARATION_APPROVED ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256
+  if [[ "$scenario" == mail-exception ]]; then
+    ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="$(printf '1%.0s' {1..64})"
+    export ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256
+  fi
+  [[ "$scenario" != invalid-mail-exception ]] || export ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256='*'
   [[ "$scenario" != approval-true ]] || export BUSINESS_SCHEMA_SEPARATION_APPROVED=true
   [[ "$scenario" != malformed-approval ]] || export BUSINESS_SCHEMA_SEPARATION_APPROVED=TRUE
   [[ "$scenario" == no-approval ]] && export FIRST_MAINTENANCE_ROLLOUT_APPROVED=false
@@ -172,9 +181,9 @@ for scenario in "${scenarios[@]}"; do
 import json,sys
 from pathlib import Path
 scenario,status,folder=sys.argv[1:];root=Path(folder);status=int(status)
-assert (status==0)==(scenario in ['success','approval-true']), (scenario,status,(root/'result').read_text())
+assert (status==0)==(scenario in ['success','approval-true','mail-exception']), (scenario,status,(root/'result').read_text())
 assert 'synthetic-secret-value-must-not-log' not in (root/'result').read_text()
-if scenario in ['no-approval','malformed-approval']:
+if scenario in ['no-approval','malformed-approval','invalid-mail-exception']:
  assert not (root/'calls').exists()
 elif scenario.startswith(('stale-','maintenance-stale-','duplicate-','unsafe-')):
  calls=(root/'calls').read_text()
@@ -183,7 +192,7 @@ elif scenario.startswith(('stale-','maintenance-stale-','duplicate-','unsafe-'))
  assert 'containerapp job update:' not in calls
 else:
  state=json.loads((root/'state.json').read_text())
- if scenario in ['success','approval-true','stop-failure'] or scenario.startswith(('drain-','stale-')):assert all(state['active'].values())
+ if scenario in ['success','approval-true','mail-exception','stop-failure'] or scenario.startswith(('drain-','stale-')):assert all(state['active'].values())
  else:assert not any(state['active'].values())
  calls=(root/'calls').read_text()
  if scenario=='stop-failure' or scenario.startswith(('drain-','stale-')):
@@ -195,8 +204,8 @@ else:
   assert (root/'drain-targets').read_text().splitlines()==expected
   assert state['drained']==expected[:-1]
  if scenario.startswith('stale-'):assert 'containerapp job start:' not in calls
- if scenario not in ['success','approval-true','stop-failure'] and not scenario.startswith(('drain-','stale-')):assert 'containerapp revision activate' not in calls
- if scenario in ['success','approval-true']:
+ if scenario not in ['success','approval-true','mail-exception','stop-failure'] and not scenario.startswith(('drain-','stale-')):assert 'containerapp revision activate' not in calls
+ if scenario in ['success','approval-true','mail-exception']:
   assert (root/'migration-targets').read_text()=='DIRECTORY\nCHEONGJU\nOSAN\n'
   assert (root/'drain-targets').read_text()=='DIRECTORY\nCHEONGJU\nOSAN\n'
   assert state['drained']==['DIRECTORY','CHEONGJU','OSAN']

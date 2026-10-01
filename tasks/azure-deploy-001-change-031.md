@@ -1,5 +1,7 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
+> 현재 준비(2026-10-01): PR159의 이전 CI6개는 통과했고, 사용자 요청에 따라 과거 오산 메일1건만 허용하는 예외를 추가 검증·검토했다. 사용자 직접 검수는 **WAIVED**다. 배포/복구 계획은 작성했으나 최초 runner의 복구시각 확인 checkpoint 미구현이 운영 실행 선행조건으로 남는다. 새 head의 CI와 원격 상태는 PR Checks, 상세 근거와 미해소 사항은 마지막 절을 따른다. 아래 요약은 각 시점의 이력이며 main 병합·운영0131·공개배포 완료를 뜻하지 않는다.
+
 > 최신 작업(2026-09-30 기준정보 정리): **오산 권한28개·미사용 역할1개 정리의 로컬 구현과 추가 전체 검증 완료(GO), 운영 전환은 보류(NO-GO)**. 유지 권한7개와 기존 역할 연결·사용자 배정·업무/감사 데이터를 보존하며, 모르는 정의나 사용 중인 삭제 대상 역할은 전환을 중단한다. Backend 전체1032건의 초기 실패25건과 skip92건을 각각 보정 재검증/전용 DB 검사로 해소했고 일반 browser64건의 초기 실패5건도 보정 후 통과했다. 운영은 마지막 조회 C209/O209/D8이고 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 보낸편지함 일치 기록0건까지 확인했으나 미발송 확정은 아니다. Backend1개·자원량을 유지했고 운영/메일 변경·원격 게시·배포는 하지 않았다. 과거 승인 대기 상태는 최신 사용자 승인으로 해소됐으며 최종 근거와 남은 범위는 마지막 절을 따른다.
 
 > 후속 최종 점검(2026-09-30): HEAD `9a86513`에서 표·권한·역할 및 요청 경계를 다시 대조했다. 새로 발견한 청주 부스바 worker2개의 exact ledger 검사 누락(P1)과 배포 승인 범위 설명 누락(P2)을 로컬 보정·독립 검토했다. 최종 backend 집중53/53, 부스바 관련 회귀35/35, frontend 요청 경계23/23 PASS다. 아래 최신 절이 후속 상태를 소유하며, 운영 전환 NO-GO는 유지한다.
@@ -23,8 +25,8 @@
 - productionDeploymentApproved: `true`
 - gitPublicationApproved: `true`
 - mainMergeApproved: `false`
-- selectorUserValidation: `PENDING`
-- status: `DRAFT_PR_REMOTE_VALIDATION`
+- selectorUserValidation: `WAIVED_BY_USER_2026_10_01`
+- status: `DRAFT_PR_DEPLOYMENT_PREPARATION`
 
 ## 승인과 목적
 
@@ -622,3 +624,19 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - 보정 전1FAIL(`/private/tmp/business-schema-pr159-mock-red.log`)→동일 사례1PASS(`-mock-green.log`)→전체 mock 브라우저 **71/71 PASS, retry0, 1분48초**(`-mock-all.log`, 모두 같은 prefix)다. 변경7개 TypeScript 파일 ESLint와 diff 검사도 통과했다. 최초 시험 이름 필터 실행은 사례0개여서 재현 증거에서 제외했다. 최초 pnpm lint 시도는 package-manager 사전 확인 오류로 실행되지 않았고 기존 설치된 ESLint를 직접 실행해 통과했다.
 - 작성과 분리된 신규 `review_pr159_mock_routes`가 HEAD `6ab8fc5` 위의6개 spec과 신규 helper를 검토하여 GO/P1·P2 없음으로 판정했다. helper 검토 hash는 `2e3e2dcfb936fd622640571541568b7468e190817207af92dca914633415d0cb`이며 payload/경쟁/업무 기대값이 약화되지 않았음을 확인했다. 요청 모델은 `gpt-6-astra/high`, 실제 모델 식별값은 NOT_REPORTED다. 검토 당시 전체 suite는 진행 중이었고 완료 결과71/71은 이후 책임 실행 결과로 구분한다.
 - 실행이 생성한 합성 screenshot14개는 조사 소유 임시 폴더에 보존하고 해당 tracked 원본만 복구했으며 시험용5173 listener 종료를 확인했다. 후속 게시 범위는 시험 코드7개와 이 기록1개다. 제품·DB migration·Azure 설정 변경0이며 기존 원격 게시 승인 범위에서 같은 PR에 반영한다. 수정된 exact head의 필수 CI 결과는 [PR159 Checks](https://github.com/emisubin/emi-qms/pull/159/checks)에서 확인하며 이전 head의 미완료 실행을 통과 근거로 사용하지 않는다. main 병합·운영 DB/메일 상태 변경·배포 및 사용자 검수는 여전히 미완료다.
+
+### 과거 메일 1건 예외·검수 생략·배포/복구 준비 — 2026-10-01
+
+- 사용자 결정: “발송여부 불명확한 메일 1건 그냥 잊어버려. 다음번에 또 나오면 그때 다시 얘기해보자.” 이후 제안한 1번(그 과거 1건만 배포 차단 제외), 2번(사용자 검수), 3번(배포 시간·복구 계획)에 대해 **“1,2,3까지 한번에 진행하자. 사용자 검수는 필요없어보임.”**이라고 명시 승인했다. 과거 1건은 조사 종결하며 새 발생 건만 다시 다룬다. 수동 사용자 검수는 이 범위에서 생략한 것이며 검수 실행/통과로 기록하지 않는다. 기존 같은 PR의 수정·필수 CI 갱신 승인은 유지한다. 4번 이후인 공지 게시·main 병합·이미지 게시·운영 DB 정리·앱 교체·유료 복구 자원 생성은 이번에 실행하지 않는다.
+- 기준선: clean `f69b19d` 및 [CI 36793904518](https://github.com/emisubin/emi-qms/actions/runs/36793904518). Backend1037/1037(skip0), Frontend586/586, mock71/71, full-stack64+2/66, Workflow Validation 및 CI Gate를 포함한6 jobs 모두 PASS를 확인했고 PR 본문에 기록했다. 이 결과를 아래 제품 보정의 새 CI 결과로 재사용하지 않는다.
+- 변경 계약: read-only drain이 승인된 **오산 과거 메일 1건의 정확한 SHA-256 snapshot**만 허용한다. 실제 DB 이름·OSAN·attempt/delivery ID·번호/generation·outcome·provider 시작/완료 시각·channel/status에 결합한다. Failed/Mail, 완료된 시도, provider ID·sent 시각·claim·다음 재시도 없음 및 현재 delivery의 시도/generation 일치가 필요하다. 불명확 기록이2건 이상이면 차단한다. 원래 발송 결과·관리 상태·업무/감사 이력과 표·권한 목록은 변경하지 않는다.
+- 전달 경계: optional64자리 소문자 hex1개, 기본 예외 없음. 최초/일반 release의 OSAN drain 실행에만 전달하고 다른 DB·구조 변경·권한 준비·앱에는 전달하지 않는다. 영구 Job template의 예약 설정은 계속 거부한다. 실제 값은 비공개 준비 파일에 보관하며 승인된 운영 전환 시에만 일반 workflow의 Environment secret/최초 전환 env로 설정한다. 새로운 값을 자동 생성·갱신하거나 wildcard/list를 허용하지 않는다.
+- 검증 진행: 원래 코드에서 정확한 승인 snapshot도 거부되는1FAIL을 재현했다(`/private/tmp/business-schema-historical-mail-red.log`). 초기 준비 실행은 스크립트 실행 비트 부재, 첫 fixture는 현행 오산 INSERT guard로 각각 실행 전/시험 준비에서 종료되어 재현 근거에서 제외했다. 역사 fixture를 합성 DB에서만 준비하고 INSERT guard를 복구한 뒤 실제 drain을 실행한다. 보정 후 기존 drain+신규 예외 통합2/2 PASS, skip0(`/private/tmp/business-schema-historical-mail-guards.log`). 신규 시험은 새/추가 attempt, Processing, 다른 DB, 잘못된 token, timestamp/outcome/provider ID/재시도·generation 변경, 다른 channel 및 Pending을 거부하고 원 이력 불변을 확인한다. 최초 전환59/59·일반 배포114/114 모의 시험 PASS다. 중간 일반 배포는 macOS Bash3의 빈 배열+nounset 오류가 발견되어 기존 호환 구문으로 보정 후114개를 통과했다. 해당 실행 소유 임시 DB/Compose 정리 완료, 실제 provider 호출0.
+- 준비 범위: 운영 백업·앱/작업 상태와 세 DB의 최소 메타데이터를 읽기 전용으로 확인한다. 메일함·수신자·제목·본문 재조사는 하지 않고, 이미 승인된 과거 시각/종료 상태와 일치할 때만 비식별 snapshot을 준비한다. 배포 시각 선호를 비동기로 요청했으며 별도 답변이 없으면 기술 준비와 최종 실행 승인 후 가장 이른 시점을 시작 기준으로 삼는다. 현재는 실제 중단·공지·예약 실행을 하지 않는다. 복구 계획·최종 검증/검토 결과는 이어지는 기록에서 확정한다.
+- 읽기 전용 준비 완료: 10/1 10:59 KST Azure 관측에서 양 앱 Running, 기존 backend 한 개, Manual job4개에 실행 중 작업0, PostgreSQL Ready/보관14일을 확인했다. 완료된 최신 backup은 10/1 08:42:42 KST이고 earliest restore는9/18 08:35:31 KST다. 기존 복구 연습 설정은9/8 02:37:40 UTC로 유지된다. 11:09 KST 세 DB를 `transaction_read_only=on`으로 확인한 표/원장은 C209/130, O209/130, D8/4다. 따라서 운영0131은 아직 적용되지 않았다.
+- 과거 건 준비는 사전 승인된 종료 시각/상태의 유일한1건과 일치했고 eligibility 조건을 통과했다. digest만0600 비공개 파일 `/private/tmp/pms-preflight-20261001-acknowledged-result.json`에 보관했다. 실 식별자·메일 내용·credential은 Git/로그에 남기지 않았으며, 운영 값 설정/메일 상태 변경도 하지 않았다. 조사 소유 TLS 중계는 종료했다. 초기 조회 도구의 설치 client 차이와 backup CLI 인자 오류를 보정한 뒤 읽기만 수행했다.
+- [배포 창·복구 계획](../docs/development/azure-maintenance-first-rollout.md#이번-구조-분리의-배포-창과-복구-계획)을 준비했다. 최종 실행 승인 후 가장 이른 T0/계획 예산60분이며 실제 예약·보장된 완료시간은 아니다. 쓰기 종료 후 첫 migration 전의 custom PITR 시각, DB 변경 전 구 revision 재개, 변경 요청 후 중단 유지·상태 확인·forward fix 또는 세 DB 동일시점 PITR, 유료 복구 자원/연결 변경의 실행 승인 경계를 기록했다. 사용자 직접 검수는 WAIVED이며 운영 사후 자동/업무 검증을 면제하지 않는다.
+- 독립 검토: 신규 `review_historical_mail_exception`이 `f69b19d` 위9파일의 구현/전달 경계·실제 DB 시험·모의 시험 로그를 검토해 GO, P1/P2 없음으로 판정했다. 요청 모델 `gpt-6-astra/high`, 실제 모델 식별값 NOT_REPORTED다. 후속 계획 검토는 **RECOVERY-CHECKPOINT-P2**를 발견했다. 최초 runner에는 drain 뒤/첫 migration 전의 복구시각 기록·확인 checkpoint가 없으므로 이번 계획만으로 실행 준비 완료라고 할 수 없다. 문서에 현재 runner 실행 금지와 최종 실행 준비의 checkpoint 구현·실패 반례·독립 검토 및 실제 복구 범위 증거 확정을 선행조건으로 명시했다. 메일 예외 GO는 유지하며 이 운영 준비 finding은 미해소다. 새 exact head의 최종 required CI는 [PR159 Checks](https://github.com/emisubin/emi-qms/pull/159/checks)를 근거로 하며 기존 head의 PASS로 대체하지 않는다.
+- 최종 로컬 이미지: 현재 제품 소스의 build/catalog exact/fresh/기존 DB 적용/reduced schema PASS 및 실행 소유 임시 자원 잔여0을 확인했다(`/private/tmp/business-schema-historical-mail-image-trace.log`). 첫 plain 실행은 무출력 exit1이며 원인 미확정이다. 상세 trace 재실행의 성공과 구분한다. actionlint·Bash syntax·ShellCheck·diff 검사는 PASS다. ShellCheck의 시험용 값 선언/할당 경고는 분리 구문으로 보정했고 최초 전환 모의 시험을 재실행했다.
+- 마지막 모의 재검증59/59 PASS(`/private/tmp/business-schema-historical-mail-bootstrap-final.log`), Azure aggregate 정적 검사 PASS(`/private/tmp/business-schema-historical-mail-artifacts.log`, Bicep compile NOT_REQUESTED)를 확인했다. checkpoint finding에 의존하지 않는 메일 예외 변경만 기존 Draft PR에 게시하며 main 병합·운영 실행 NO-GO를 유지한다.
+- 후속 reviewer는 두 문서의 실행 금지/선행조건 보정을 확인하고 메일 예외의 commit·동일 PR·새 CI는 GO를 유지했다. RECOVERY-CHECKPOINT-P2는 예외 수용하지 않았으며 운영 실행 차단 상태로 남는다. 새 P1/P2는 없다.

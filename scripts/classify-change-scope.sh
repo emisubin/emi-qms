@@ -86,6 +86,8 @@ else
         | scripts/test-bootstrap-azure-maintenance.sh \
         | scripts/azure-recovery-checkpoint.py \
         | scripts/test-azure-recovery-checkpoint.py \
+        | scripts/postgres-logical-recovery.py \
+        | scripts/test-postgres-logical-recovery.py \
         | scripts/test-support/azure-recovery-mock.py \
         | scripts/validate-azure-image-publish-inputs.sh \
         | scripts/test-azure-image-publish-inputs.sh \

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import subprocess
 import sys
 import unittest
@@ -155,6 +156,124 @@ class CheckpointTests(unittest.TestCase):
     def candidate(self):
         self.backups.append(self.fresh)
         self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+
+    def logical_mode(self, create=None, verify=None):
+        self.checkpoint.evidence_kind = "VerifiedLogicalDatabaseBackup"
+        self.checkpoint.logical_config = {"binding": self.checkpoint.binding}
+        evidence = {"binding": self.checkpoint.binding, "evidenceKind": "VerifiedLogicalDatabaseBackup",
+                    "drainedAtUtc": self.drained, "startedAtUtc": "2026-01-02T00:00:11Z",
+                    "completedAtUtc": "2026-01-02T00:00:18Z"}
+        self.checkpoint.logical_module = SimpleNamespace(
+            create_backup=create or (lambda _: copy.deepcopy(evidence)),
+            verify_backup=verify or (lambda *_: None))
+        return evidence
+
+    def test_logical_backup_uses_same_freeze_and_final_drain_without_new_azure_snapshot(self):
+        self.logical_mode()
+        self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+        state = json.loads(self.path.read_text())
+        self.assertEqual("VerifiedLogicalDatabaseBackup", state["evidenceKind"])
+        self.assertNotIn("backup", state)
+        self.assertEqual(1, len(self.backups))
+        self.verify()
+        self.assertEqual("verified", json.loads(self.path.read_text())["phase"])
+
+    def test_logical_backup_failed_creation_never_produces_candidate(self):
+        def fail(_):
+            raise RuntimeError("private diagnostic must not escape")
+        self.logical_mode(create=fail)
+        with self.assertRaisesRegex(RuntimeError, "^LOGICAL_BACKUP_FAILED$"):
+            self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+        self.assertEqual("armed", json.loads(self.path.read_text())["phase"])
+
+    def test_generated_window_is_accepted_by_real_logical_driver(self):
+        driver_spec = importlib.util.spec_from_file_location(
+            "logical_driver_boundary", Path(__file__).with_name("postgres-logical-recovery.py"))
+        driver = importlib.util.module_from_spec(driver_spec)
+        sys.modules[driver_spec.name] = driver
+        driver_spec.loader.exec_module(driver)
+        root = Path(self.directory.name)
+        certificate, key, ca = (root / name for name in ("certificate", "key", "ca"))
+        for path in (certificate, key, ca):
+            path.write_text("synthetic file\n")
+            path.chmod(0o600)
+        self.checkpoint.binding.update(
+            evidenceCertificateSha256=driver._certificate_binding_sha256(certificate),
+            evidenceKind="VerifiedLogicalDatabaseBackup", logicalConfigSha256="b" * 64)
+        evidence = self.logical_mode()
+        self.checkpoint.logical_config.update(
+            archiveDir=str(root / "archive"), certificatePath=str(certificate),
+            privateKeyPath=str(key), sslRootCertPath=str(ca),
+            postgresImage="sha256:" + "c" * 64, relayPort=15432,
+            targets=[dict(code=code, dbname=code.lower() + "_db", host=self.checkpoint.host,
+                          user="synthetic_reader", password="synthetic_password",
+                          runtimeRole=code.lower() + "_runtime")
+                     for code in ("DIRECTORY", "CHEONGJU", "OSAN")])
+        state = json.loads(self.path.read_text())
+        state["binding"] = self.checkpoint.binding
+        self.checkpoint.save(self.path, state)
+        parsed = []
+        def create(config):
+            parsed.append(driver._parse_config(config))
+            return evidence
+        self.checkpoint.logical_module.create_backup = create
+        verified = []
+        self.checkpoint.logical_module.verify_backup = lambda _, config: verified.append(driver._parse_config(config))
+        self.checkpoint.wait(self.path, self.drained.replace("Z", "+00:00"), self.initial_drains)
+        self.assertEqual(1, len(parsed))
+        self.assertTrue(parsed[0].deadline_utc.endswith("Z"))
+        self.assertEqual(driver._instant(self.drained, "INVALID"),
+                         driver._instant(parsed[0].drained_at_utc, "INVALID"))
+        self.verify()
+        self.assertEqual(2, len(verified))
+        remaining = driver._instant(verified[-1].deadline_utc, "INVALID") - self.now
+        self.assertGreater(remaining, timedelta(0))
+        self.assertLessEqual(remaining, timedelta(seconds=120))
+
+    def test_logical_backup_wrong_binding_or_old_time_rejected(self):
+        evidence = self.logical_mode()
+        for field, value in (("binding", {}), ("drainedAtUtc", "2026-01-01T00:00:00Z"),
+                             ("startedAtUtc", self.drained), ("completedAtUtc", "2026-01-03T00:00:00Z"),
+                             ("evidenceKind", "AzureAvailableFullBackup")):
+            with self.subTest(field=field):
+                bad = dict(evidence, **{field: value})
+                self.checkpoint.logical_module.create_backup = lambda _, item=bad: item
+                with self.assertRaisesRegex(RuntimeError, "LOGICAL_BACKUP_EVIDENCE_INVALID"):
+                    self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+                self.assertEqual("armed", json.loads(self.path.read_text())["phase"])
+
+    def test_logical_backup_detects_app_or_finished_job_during_creation(self):
+        evidence = self.logical_mode()
+        for change in ("app", "job"):
+            def create(_, change=change):
+                if change == "app":
+                    self.active = True
+                else:
+                    self.executions["maintenance"]["unexpected"] = {"status": "Succeeded"}
+                return evidence
+            self.checkpoint.logical_module.create_backup = create
+            with self.assertRaisesRegex(RuntimeError, "APP_REACTIVATED|UNEXPECTED_JOB_EXECUTION"):
+                self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+            self.active = False
+            self.executions["maintenance"].pop("unexpected", None)
+            self.assertEqual("armed", json.loads(self.path.read_text())["phase"])
+
+    def test_logical_final_verification_rechecks_archives_and_rejects_tampering(self):
+        self.logical_mode()
+        self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+        def fail(*_):
+            raise RuntimeError("private path or ciphertext details")
+        self.checkpoint.logical_module.verify_backup = fail
+        with self.assertRaisesRegex(RuntimeError, "^LOGICAL_BACKUP_EVIDENCE_INVALID$"):
+            self.verify()
+        self.assertEqual("candidate", json.loads(self.path.read_text())["phase"])
+
+    def test_recovery_kind_is_explicit_and_configuration_cannot_silently_change_default(self):
+        for patch_values, reason in (({"RECOVERY_EVIDENCE_KIND": "unknown"}, "INVALID_RECOVERY_EVIDENCE_KIND"),
+                                     ({"RECOVERY_LOGICAL_BACKUP_CONFIG": "/tmp/private.json"}, "LOGICAL_BACKUP_CONFIGURATION_INVALID"),
+                                     ({"RECOVERY_EVIDENCE_KIND": "VerifiedLogicalDatabaseBackup"}, "LOGICAL_BACKUP_CONFIGURATION_INVALID")):
+            with self.subTest(patch_values=patch_values), self.assertRaisesRegex(RuntimeError, reason):
+                module.Checkpoint(dict(self.checkpoint.env, **patch_values))
 
     def test_selects_exact_available_full_backup_and_requires_final_verification(self):
         self.candidate()

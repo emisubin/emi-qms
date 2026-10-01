@@ -557,17 +557,22 @@ public sealed class WorkflowStore(BusinessDatabase connectionStringProvider)
             """);
         command.Parameters.AddWithValue("user_id", userId);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        int requested;
+        int inProgress;
+        int completed;
+        int blocking;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return new MyWorkSummaryResponse(0, 0, 0, 0, 0, []);
-        }
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return new MyWorkSummaryResponse(0, 0, 0, 0, 0, []);
+            }
 
-        var requested = checked((int)reader.GetInt64(0));
-        var inProgress = checked((int)reader.GetInt64(1));
-        var completed = checked((int)reader.GetInt64(2));
-        var blocking = checked((int)reader.GetInt64(3));
-        await reader.DisposeAsync();
+            requested = checked((int)reader.GetInt64(0));
+            inProgress = checked((int)reader.GetInt64(1));
+            completed = checked((int)reader.GetInt64(2));
+            blocking = checked((int)reader.GetInt64(3));
+        }
         var assignedProjectCount = await ReadAssignedProjectCountAsync(dataSource, userId, cancellationToken);
         var breakdown = await ReadAssignedProjectBreakdownAsync(dataSource, userId, cancellationToken);
 

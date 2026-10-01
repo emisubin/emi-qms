@@ -194,28 +194,28 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("row_limit", maximumRows + 1);
 
         var projects = new List<ProcurementProjectSummaryResponse>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            DateOnly? nearest = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateOnly>(10);
-            projects.Add(new ProcurementProjectSummaryResponse
+            while (await reader.ReadAsync(cancellationToken))
             {
-                ProjectId = reader.GetGuid(0),
-                ProjectTitle = reader.GetString(1),
-                CustomerName = reader.GetString(2),
-                ProjectCode = reader.GetString(3),
-                Item = reader.GetString(4),
-                ActivePanelCount = reader.GetInt32(5),
-                DeliveryDate = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateOnly>(6),
-                ProcurementItemCount = reader.GetInt32(7),
-                ReceiptCompletedCount = reader.GetInt32(8),
-                PastExpectedReceiptDateCount = reader.GetInt32(9),
-                NearestExpectedReceiptDate = nearest,
-                DDayText = ProcurementDomain.BuildDDayText(nearest, today)
-            });
+                DateOnly? nearest = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateOnly>(10);
+                projects.Add(new ProcurementProjectSummaryResponse
+                {
+                    ProjectId = reader.GetGuid(0),
+                    ProjectTitle = reader.GetString(1),
+                    CustomerName = reader.GetString(2),
+                    ProjectCode = reader.GetString(3),
+                    Item = reader.GetString(4),
+                    ActivePanelCount = reader.GetInt32(5),
+                    DeliveryDate = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateOnly>(6),
+                    ProcurementItemCount = reader.GetInt32(7),
+                    ReceiptCompletedCount = reader.GetInt32(8),
+                    PastExpectedReceiptDateCount = reader.GetInt32(9),
+                    NearestExpectedReceiptDate = nearest,
+                    DDayText = ProcurementDomain.BuildDDayText(nearest, today)
+                });
+            }
         }
-
-        await reader.DisposeAsync();
 
         var truncated = projects.Count > maximumRows;
         var visibleProjects = truncated ? projects.Take(maximumRows).ToList() : projects;
@@ -926,26 +926,27 @@ public sealed class ProcurementStore(
         command.Parameters.AddWithValue("project_id", projectId);
 
         var events = new List<HistoryEvent>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            events.Add(new HistoryEvent(
-                reader.GetGuid(0),
-                reader.GetGuid(1),
-                reader.IsDBNull(2) ? null : reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5),
-                reader.IsDBNull(6) ? null : reader.GetGuid(6),
-                reader.IsDBNull(7) ? null : reader.GetString(7),
-                reader.GetFieldValue<DateTimeOffset>(8),
-                reader.GetString(9),
-                reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetGuid(11),
-                reader.IsDBNull(12) ? null : reader.GetString(12),
-                reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                events.Add(new HistoryEvent(
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.GetFieldValue<DateTimeOffset>(8),
+                    reader.GetString(9),
+                    reader.GetString(10),
+                    reader.IsDBNull(11) ? null : reader.GetGuid(11),
+                    reader.IsDBNull(12) ? null : reader.GetString(12),
+                    reader.IsDBNull(13) ? null : reader.GetInt32(13)));
+            }
         }
-        await reader.DisposeAsync();
 
         var groups = events
             .GroupBy(item => item.ImportBatchId?.ToString("D", CultureInfo.InvariantCulture) ?? (string.IsNullOrWhiteSpace(item.CorrelationId) ? item.AuditId.ToString("D", CultureInfo.InvariantCulture) : item.CorrelationId))

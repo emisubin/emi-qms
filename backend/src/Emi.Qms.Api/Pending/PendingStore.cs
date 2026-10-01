@@ -115,13 +115,14 @@ public sealed class PendingStore(CheongjuDatabase connectionStringProvider)
         AddNullableText(command, "department_code", departmentCode);
 
         var items = new List<PendingListItemResponse>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            items.Add(ReadIssue(reader));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                items.Add(ReadIssue(reader));
+            }
         }
 
-        await reader.DisposeAsync();
         var summary = await ReadSummaryAsync(
             dataSource,
             projectId,

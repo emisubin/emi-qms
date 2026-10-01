@@ -37,13 +37,18 @@ public sealed class AdminMasterDataStore(CheongjuDatabase connectionStringProvid
                     where status = 'Active'
                 ) as active_escalation_count;
             """);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        await reader.ReadAsync(cancellationToken);
-        var failedDeliveryCount = reader.GetInt32(0);
-        var pendingDeliveryCount = reader.GetInt32(1);
-        var processingDeliveryCount = reader.GetInt32(2);
-        var activeEscalationCount = reader.GetInt32(3);
-        await reader.CloseAsync();
+        int failedDeliveryCount;
+        int pendingDeliveryCount;
+        int processingDeliveryCount;
+        int activeEscalationCount;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            await reader.ReadAsync(cancellationToken);
+            failedDeliveryCount = reader.GetInt32(0);
+            pendingDeliveryCount = reader.GetInt32(1);
+            processingDeliveryCount = reader.GetInt32(2);
+            activeEscalationCount = reader.GetInt32(3);
+        }
 
         var activeEscalationLevels = await ReadActiveEscalationLevelsAsync(dataSource, cancellationToken);
 

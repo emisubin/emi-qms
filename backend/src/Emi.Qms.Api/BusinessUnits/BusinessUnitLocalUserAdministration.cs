@@ -409,15 +409,19 @@ public sealed partial class BusinessUnitAccessAdministrationStore
             for update;
             """;
         command.Parameters.AddWithValue("user_id", userId);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        string authProvider;
+        string? entraObjectId;
+        Guid? departmentId;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return null;
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return null;
+            }
+            authProvider = reader.GetString(0);
+            entraObjectId = reader.IsDBNull(1) ? null : reader.GetString(1);
+            departmentId = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2);
         }
-        var authProvider = reader.GetString(0);
-        var entraObjectId = reader.IsDBNull(1) ? null : reader.GetString(1);
-        var departmentId = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2);
-        await reader.CloseAsync();
 
         await using var roles = connection.CreateCommand();
         roles.Transaction = transaction;

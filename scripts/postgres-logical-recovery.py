@@ -21,6 +21,7 @@ import re
 import secrets
 import shutil
 import stat
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -47,6 +48,16 @@ AZURE_PLATFORM_GRANT = (
 )
 AZURE_PLATFORM_GRANT_REASON = "AZURE_PG16_PLATFORM_ROLE_ABSENT_FROM_LOCAL_POSTGRES_16_14"
 CANONICAL_SCHEMA_METHOD = "RawSourceSchemaPsqlRoundTrip"
+CMS_CHUNK_MAGIC = b"EMIQMSCMSCHUNK1\0"
+CMS_CHUNK_INNER_MAGIC = b"EMIQMSCMSDATA01\0"
+CMS_CHUNK_BYTES = 64 * 1024 * 1024
+CMS_MAX_CHUNKS = 4096
+CMS_MAX_PLAINTEXT_BYTES = CMS_CHUNK_BYTES * CMS_MAX_CHUNKS
+CMS_MAX_OVERHEAD_BYTES = 1024 * 1024
+CMS_OUTER_HEADER = struct.Struct(">16s16sQII")
+CMS_INNER_HEADER = struct.Struct(">16s16sIIQII")
+CMS_FRAME_HEADER = struct.Struct(">Q")
+CMS_COPY_BYTES = 1024 * 1024
 
 
 class RecoveryError(RuntimeError):
@@ -744,25 +755,195 @@ class PostgresLogicalRecovery:
             output.flush()
             os.fsync(output.fileno())
 
+    @staticmethod
+    def _copy_exact(source: BinaryIO, destination: BinaryIO, length: int,
+                    code: str) -> None:
+        remaining = length
+        while remaining:
+            block = source.read(min(CMS_COPY_BYTES, remaining))
+            _require(bool(block), code)
+            destination.write(block)
+            remaining -= len(block)
+
+    def _encrypt_cms(self, source: Path, destination: Path) -> None:
+        claimed_destination = False
+        try:
+            with _new_private_file(destination):
+                pass
+            claimed_destination = True
+            self._execute([
+                self.config.openssl_path, "cms", "-encrypt", "-binary", "-keyid", "-aes-256-gcm",
+                "-outform", "DER", "-in", str(source), "-out", str(destination),
+                "-recip", str(self.config.certificate_path), "-keyopt", "rsa_padding_mode:oaep",
+                "-keyopt", "rsa_oaep_md:sha256"
+            ], "EVIDENCE_ENCRYPTION_FAILED", timeout=120)
+            _require(destination.stat().st_size > 0, "EVIDENCE_ENCRYPTION_FAILED")
+        except Exception:
+            if claimed_destination:
+                destination.unlink(missing_ok=True)
+            raise
+
+    def _decrypt_cms(self, source: Path, destination: Path) -> None:
+        claimed_destination = False
+        try:
+            with _new_private_file(destination):
+                pass
+            claimed_destination = True
+            self._execute([
+                self.config.openssl_path, "cms", "-decrypt", "-binary", "-inform", "DER",
+                "-in", str(source), "-out", str(destination),
+                "-recip", str(self.config.certificate_path),
+                "-inkey", str(self.config.private_key_path)
+            ], "EVIDENCE_DECRYPTION_FAILED", timeout=120)
+        except Exception:
+            if claimed_destination:
+                destination.unlink(missing_ok=True)
+            raise
+
+    def _encrypt_chunked(self, source: Path, destination: Path, total: int) -> None:
+        chunk_count = (total + CMS_CHUNK_BYTES - 1) // CMS_CHUNK_BYTES
+        _require(1 < chunk_count <= CMS_MAX_CHUNKS, "EVIDENCE_PLAINTEXT_SIZE_INVALID")
+        archive_id = secrets.token_bytes(16)
+        temporary = Path(tempfile.mkdtemp(prefix=".cms-encrypt-", dir=destination.parent))
+        temporary.chmod(0o700)
+        claimed_destination = False
+        try:
+            with source.open("rb") as input_stream, _new_private_file(destination) as output:
+                claimed_destination = True
+                output.write(CMS_OUTER_HEADER.pack(
+                    CMS_CHUNK_MAGIC, archive_id, total, CMS_CHUNK_BYTES, chunk_count))
+                for index in range(chunk_count):
+                    payload_length = min(CMS_CHUNK_BYTES, total - index * CMS_CHUNK_BYTES)
+                    plain = temporary / "plain"
+                    cipher = temporary / "cipher"
+                    with _new_private_file(plain) as chunk:
+                        chunk.write(CMS_INNER_HEADER.pack(
+                            CMS_CHUNK_INNER_MAGIC, archive_id, index, chunk_count,
+                            total, CMS_CHUNK_BYTES, payload_length))
+                        self._copy_exact(input_stream, chunk, payload_length,
+                                         "EVIDENCE_SOURCE_LENGTH_CHANGED")
+                        chunk.flush()
+                        os.fsync(chunk.fileno())
+                    self._encrypt_cms(plain, cipher)
+                    cipher_length = cipher.stat().st_size
+                    _require(0 < cipher_length <= (CMS_INNER_HEADER.size + payload_length
+                                                    + CMS_MAX_OVERHEAD_BYTES),
+                             "EVIDENCE_CHUNK_SIZE_INVALID")
+                    output.write(CMS_FRAME_HEADER.pack(cipher_length))
+                    with cipher.open("rb") as encrypted_chunk:
+                        self._copy_exact(encrypted_chunk, output, cipher_length,
+                                         "EVIDENCE_CHUNK_READ_FAILED")
+                        _require(encrypted_chunk.read(1) == b"", "EVIDENCE_CHUNK_SIZE_INVALID")
+                    plain.unlink()
+                    cipher.unlink()
+                _require(input_stream.read(1) == b"", "EVIDENCE_SOURCE_LENGTH_CHANGED")
+                output.flush()
+                os.fsync(output.fileno())
+        except Exception:
+            if claimed_destination:
+                destination.unlink(missing_ok=True)
+            raise
+        finally:
+            shutil.rmtree(temporary, ignore_errors=False)
+
+    def _decrypt_chunked(self, source: Path, destination: Path) -> None:
+        source_size = source.stat().st_size
+        maximum_size = (CMS_OUTER_HEADER.size
+                        + CMS_MAX_CHUNKS * (CMS_FRAME_HEADER.size
+                                            + CMS_INNER_HEADER.size
+                                            + CMS_CHUNK_BYTES
+                                            + CMS_MAX_OVERHEAD_BYTES))
+        _require(CMS_OUTER_HEADER.size < source_size <= maximum_size,
+                 "EVIDENCE_CHUNK_CONTAINER_SIZE_INVALID")
+        temporary = Path(tempfile.mkdtemp(prefix=".cms-decrypt-", dir=destination.parent))
+        temporary.chmod(0o700)
+        claimed_destination = False
+        try:
+            with source.open("rb") as input_stream:
+                header = input_stream.read(CMS_OUTER_HEADER.size)
+                _require(len(header) == CMS_OUTER_HEADER.size,
+                         "EVIDENCE_CHUNK_HEADER_INVALID")
+                magic, archive_id, total, chunk_bytes, chunk_count = CMS_OUTER_HEADER.unpack(header)
+                _require(magic == CMS_CHUNK_MAGIC and any(archive_id)
+                         and CMS_CHUNK_BYTES < total <= CMS_MAX_PLAINTEXT_BYTES
+                         and chunk_bytes == CMS_CHUNK_BYTES,
+                         "EVIDENCE_CHUNK_HEADER_INVALID")
+                expected_count = (total + CMS_CHUNK_BYTES - 1) // CMS_CHUNK_BYTES
+                _require(chunk_count == expected_count
+                         and 1 < chunk_count <= CMS_MAX_CHUNKS,
+                         "EVIDENCE_CHUNK_HEADER_INVALID")
+                _require(source_size >= (CMS_OUTER_HEADER.size
+                                         + chunk_count * CMS_FRAME_HEADER.size),
+                         "EVIDENCE_CHUNK_CONTAINER_SIZE_INVALID")
+                with _new_private_file(destination) as output:
+                    claimed_destination = True
+                    for index in range(chunk_count):
+                        frame = input_stream.read(CMS_FRAME_HEADER.size)
+                        _require(len(frame) == CMS_FRAME_HEADER.size,
+                                 "EVIDENCE_CHUNK_TRUNCATED")
+                        (cipher_length,) = CMS_FRAME_HEADER.unpack(frame)
+                        payload_length = min(
+                            CMS_CHUNK_BYTES, total - index * CMS_CHUNK_BYTES)
+                        _require(0 < cipher_length <= (CMS_INNER_HEADER.size
+                                                       + payload_length
+                                                       + CMS_MAX_OVERHEAD_BYTES),
+                                 "EVIDENCE_CHUNK_SIZE_INVALID")
+                        cipher = temporary / "cipher"
+                        plain = temporary / "plain"
+                        with _new_private_file(cipher) as encrypted_chunk:
+                            self._copy_exact(input_stream, encrypted_chunk, cipher_length,
+                                             "EVIDENCE_CHUNK_TRUNCATED")
+                            encrypted_chunk.flush()
+                            os.fsync(encrypted_chunk.fileno())
+                        self._decrypt_cms(cipher, plain)
+                        _require(plain.stat().st_size == CMS_INNER_HEADER.size + payload_length,
+                                 "EVIDENCE_CHUNK_PLAINTEXT_SIZE_INVALID")
+                        with plain.open("rb") as decrypted_chunk:
+                            inner = decrypted_chunk.read(CMS_INNER_HEADER.size)
+                            _require(len(inner) == CMS_INNER_HEADER.size,
+                                     "EVIDENCE_CHUNK_METADATA_INVALID")
+                            observed = CMS_INNER_HEADER.unpack(inner)
+                            expected = (CMS_CHUNK_INNER_MAGIC, archive_id, index,
+                                        chunk_count, total, CMS_CHUNK_BYTES, payload_length)
+                            _require(observed == expected, "EVIDENCE_CHUNK_METADATA_INVALID")
+                            self._copy_exact(decrypted_chunk, output, payload_length,
+                                             "EVIDENCE_CHUNK_PLAINTEXT_SIZE_INVALID")
+                            _require(decrypted_chunk.read(1) == b"",
+                                     "EVIDENCE_CHUNK_PLAINTEXT_SIZE_INVALID")
+                        cipher.unlink()
+                        plain.unlink()
+                    _require(input_stream.read(1) == b"", "EVIDENCE_CHUNK_TRAILING_DATA")
+                    _require(output.tell() == total, "EVIDENCE_PLAINTEXT_SIZE_INVALID")
+                    output.flush()
+                    os.fsync(output.fileno())
+        except Exception:
+            if claimed_destination:
+                destination.unlink(missing_ok=True)
+            raise
+        finally:
+            shutil.rmtree(temporary, ignore_errors=False)
+
     def _encrypt(self, source: Path, destination: Path) -> None:
-        with _new_private_file(destination):
-            pass
-        self._execute([
-            self.config.openssl_path, "cms", "-encrypt", "-binary", "-keyid", "-aes-256-gcm",
-            "-outform", "DER", "-in", str(source), "-out", str(destination),
-            "-recip", str(self.config.certificate_path), "-keyopt", "rsa_padding_mode:oaep",
-            "-keyopt", "rsa_oaep_md:sha256"
-        ], "EVIDENCE_ENCRYPTION_FAILED", timeout=120)
-        _require(destination.stat().st_size > 0, "EVIDENCE_ENCRYPTION_FAILED")
+        total = source.stat().st_size
+        _require(0 <= total <= CMS_MAX_PLAINTEXT_BYTES,
+                 "EVIDENCE_PLAINTEXT_SIZE_INVALID")
+        if total <= CMS_CHUNK_BYTES:
+            self._encrypt_cms(source, destination)
+            return
+        self._encrypt_chunked(source, destination, total)
 
     def _decrypt(self, source: Path, destination: Path) -> None:
-        with _new_private_file(destination):
-            pass
-        self._execute([
-            self.config.openssl_path, "cms", "-decrypt", "-binary", "-inform", "DER",
-            "-in", str(source), "-out", str(destination), "-recip", str(self.config.certificate_path),
-            "-inkey", str(self.config.private_key_path)
-        ], "EVIDENCE_DECRYPTION_FAILED", timeout=120)
+        source_size = source.stat().st_size
+        _require(source_size > 0, "EVIDENCE_FORMAT_INVALID")
+        with source.open("rb") as stream:
+            prefix = stream.read(len(CMS_CHUNK_MAGIC))
+        if prefix == CMS_CHUNK_MAGIC:
+            self._decrypt_chunked(source, destination)
+            return
+        _require(prefix[:1] == b"\x30", "EVIDENCE_FORMAT_INVALID")
+        _require(source_size <= CMS_CHUNK_BYTES + CMS_MAX_OVERHEAD_BYTES,
+                 "EVIDENCE_LEGACY_SIZE_INVALID")
+        self._decrypt_cms(source, destination)
 
     def _extract(self, bundle: Path, destination: Path) -> None:
         destination.mkdir(mode=0o700)

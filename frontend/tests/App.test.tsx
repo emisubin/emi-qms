@@ -1040,8 +1040,9 @@ describe('App', () => {
 
   it('waits for delayed Teams context in StrictMode before redirecting a saved Osan session', async () => {
     const notificationId = '77000000-0000-0000-0000-000000000001';
-    let resolveContext!: (context: unknown) => void;
-    const contextPromise = new Promise<unknown>((resolve) => {
+    const notificationContext = { page: { subEntityId: `notification:CHEONGJU:${notificationId}` } };
+    let resolveContext!: (context: typeof notificationContext) => void;
+    const contextPromise = new Promise<typeof notificationContext>((resolve) => {
       resolveContext = resolve;
     });
     teamsJsMock.getContext.mockImplementation(() => contextPromise);
@@ -1079,7 +1080,7 @@ describe('App', () => {
     expect(calls.some((path) => path === `/osan/api/notifications/${notificationId}`)).toBe(false);
 
     await act(async () => {
-      resolveContext({ page: { subEntityId: `notification:CHEONGJU:${notificationId}` } });
+      resolveContext(notificationContext);
       await contextPromise;
     });
 

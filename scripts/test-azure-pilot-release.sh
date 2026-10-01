@@ -6,6 +6,9 @@ release_script="${repository_root}/scripts/deploy-azure-pilot-release.sh"
 temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-azure-release-test.XXXXXX")"
 
 cleanup() {
+  rm -f "${temporary_directory}/recipient.pem" "${temporary_directory}/recipient.key"
+  rm -rf "${temporary_directory}"/pms-recovery-checkpoint.*
+  rm -f "${temporary_directory}/recovery-backup.json" "${temporary_directory}/recovery-reads" "${temporary_directory}/step-output"
   rm -f \
     "${temporary_directory}/az" \
     "${temporary_directory}/curl" \
@@ -23,9 +26,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 -addext subjectKeyIdentifier=hash -subj '/CN=Synthetic Recovery Test' \
+  -keyout "${temporary_directory}/recipient.key" -out "${temporary_directory}/recipient.pem" >/dev/null 2>&1
+recovery_certificate="$(cat "${temporary_directory}/recipient.pem")"
+
 cat >"${temporary_directory}/az" <<'MOCK_AZ'
 #!/usr/bin/env bash
 set -euo pipefail
+for argument in "$@"; do
+  if [[ "$argument" == --only-show-errors ]]; then
+    exec python3 "$RECOVERY_MOCK_SCRIPT" "$@"
+  fi
+done
 
 name=''
 query=''
@@ -40,6 +52,7 @@ schema_approved=''
 drain_required=''
 drain_release=''
 accepted_mail_snapshot=''
+expected_postgres_host=''
 inspection_environment_count=0
 cpu=''
 memory=''
@@ -61,8 +74,10 @@ for ((index = 1; index <= $#; index++)); do
     --args=--deployment-drain-check) job_mode=drain ;;
     --args=--migrate-only) job_mode=migration ;;
     --args=--bootstrap-database-roles) job_mode=bootstrap ;;
+    --args=--backfill-business-unit-memberships) job_mode=backfill ;;
     Database__BusinessSchemaSeparationApproved=*) schema_approved="${argument#*=}" ;;
     DeploymentDrain__RequireMaintenance=*) drain_required="${argument#*=}" ;;
+    Database__RecoveryPostgresHost=*) expected_postgres_host="${argument#*=}" ;;
     DeploymentDrain__ReleaseId=*) drain_release="${argument#*=}" ;;
     DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256=*) accepted_mail_snapshot="${argument#*=}" ;;
     --query)
@@ -320,12 +335,17 @@ case "${command_group}" in
     esac
     ;;
   'containerapp job start')
+    if [[ "${job_mode}" == drain || "${job_mode}" == migration || "${job_mode}" == bootstrap || "${job_mode}" == backfill ]]; then
+      [[ "${expected_postgres_host}" == synthetic-pg.postgres.database.azure.com ]] || exit 2
+    else
+      [[ -z "${expected_postgres_host}" ]] || exit 2
+    fi
     if [[ "${job_mode}" == drain && "${selected_target}" == OSAN && "${AZURE_RELEASE_TEST_SCENARIO}" == mail-exception ]]; then
       [[ "${accepted_mail_snapshot}" == "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" ]] || exit 2
     else
       [[ -z "${accepted_mail_snapshot}" ]] || exit 2
     fi
-    if [[ "${name}" == "${MIGRATION_JOB_NAME}" || "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" || "${name}" == "${MAINTENANCE_JOB_NAME}" || "${inspection}" == true ]]; then
+    if [[ "${name}" == "${MIGRATION_JOB_NAME}" || "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" || "${name}" == "${MAINTENANCE_JOB_NAME}" || "${inspection}" == true || "${job_mode}" == backfill ]]; then
       for preserved_setting in \
         'ASPNETCORE_ENVIRONMENT=Production' \
         'BusinessUnits__Enabled=true' \
@@ -353,7 +373,13 @@ case "${command_group}" in
       if [[ "${job_mode}" == drain ]]; then
         [[ "${schema_approved}" == false && "${drain_required}" == true && "${drain_release}" == "${MAINTENANCE_RELEASE_ID}" ]] || exit 2
       else
-        [[ "$(paste -sd, "${AZURE_RELEASE_TEST_STATE}/drain-completed")" == DIRECTORY,CHEONGJU,OSAN ]] || exit 2
+        [[ "$(paste -sd, "${AZURE_RELEASE_TEST_STATE}/drain-completed")" == DIRECTORY,CHEONGJU,OSAN,DIRECTORY,CHEONGJU,OSAN ]] || exit 2
+        python3 - "${AZURE_RELEASE_TEST_STATE}" <<'PY_RECOVERY'
+import json, sys
+from pathlib import Path
+paths=list(Path(sys.argv[1]).glob("pms-recovery-checkpoint.*/recovery.json"))
+assert len(paths)==1 and json.loads(paths[0].read_text())["phase"]=="verified"
+PY_RECOVERY
         expected_approval=false
         if [[ "${job_mode}" == migration && "${selected_target}" != DIRECTORY ]]; then expected_approval="${BUSINESS_SCHEMA_SEPARATION_APPROVED:-false}"; fi
         [[ "${schema_approved}" == "${expected_approval}" ]] || exit 2
@@ -373,6 +399,7 @@ case "${command_group}" in
           fi
           printf 'backfill-inspect-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
         else
+          [[ "$job_mode" == backfill && "$image" == "$BACKEND_RELEASE_IMAGE" && "$cpu" == 0.5 && "$memory" == 1Gi ]] || exit 2
           printf 'backfill-start\n' >>"${AZURE_RELEASE_TEST_STATE}/calls"
         fi
         ;;
@@ -419,16 +446,30 @@ case "${command_group}" in
     esac
     if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == maintenance-prepare-start-uncertain && "${maintenance_action}" == prepare ]]; then exit 1; fi
     if [[ "${job_mode}" == drain && "${AZURE_RELEASE_TEST_SCENARIO}" == "drain-${selected_target}-start-uncertain" ]]; then exit 1; fi
-    printf 'synthetic-execution-%s\n'  "${selected_target}"
+    if [[ "$job_mode" == drain ]]; then
+      printf 'synthetic-drain-%s\n' "$(( $(wc -l <"${AZURE_RELEASE_TEST_STATE}/drain-completed") + 1 ))"
+    else
+      printf 'synthetic-execution-%s\n' "${selected_target}"
+    fi
     ;;
   'containerapp job execution')
+    if [[ "${query}" == properties.endTime ]]; then
+      [[ "${AZURE_RELEASE_TEST_SCENARIO}" != recovery-missing-endtime ]] || exit 0
+      python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())'
+      exit 0
+    fi
     if [[ "$(cat "${AZURE_RELEASE_TEST_STATE}/job-mode")" == drain ]]; then
-      target="${execution_name#synthetic-execution-}"
+      case "$(( ( ${execution_name#synthetic-drain-} - 1 ) % 3 ))" in
+        0) target=DIRECTORY ;; 1) target=CHEONGJU ;; 2) target=OSAN ;;
+      esac
       case "${AZURE_RELEASE_TEST_SCENARIO}" in
         "drain-${target}-failed") printf 'Failed\n'; exit 0 ;;
         "drain-${target}-unknown") printf 'Unknown\n'; exit 0 ;;
         "drain-${target}-running") printf 'Running\n'; exit 0 ;;
       esac
+      if [[ "${AZURE_RELEASE_TEST_SCENARIO}" == recovery-final-drain-failed && "$(wc -l <"${AZURE_RELEASE_TEST_STATE}/drain-completed")" -ge 3 ]]; then
+        printf 'Failed\n'; exit 0
+      fi
       printf '%s\n' "${target}" >>"${AZURE_RELEASE_TEST_STATE}/drain-completed"
       printf 'Succeeded\n'; exit 0
     fi
@@ -556,6 +597,8 @@ run_case() {
     printf '%s\n' 'pilotacr123.azurecr.io/pms-backend:latest' \
       >"${temporary_directory}/pms-synthetic-backend-image"
   fi
+  rm -rf "${temporary_directory}"/pms-recovery-checkpoint.*
+  rm -f "${temporary_directory}/recovery-backup.json" "${temporary_directory}/recovery-reads" "${temporary_directory}/step-output"
   : >"${temporary_directory}/calls"
   : >"${temporary_directory}/maintenance-action"
   printf '1\n' >"${temporary_directory}/pms-synthetic-backend-active"
@@ -572,6 +615,14 @@ run_case() {
   set +e
   env -u BUSINESS_SCHEMA_SEPARATION_APPROVED ${schema_environment[@]+"${schema_environment[@]}"} \
     ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="${accepted_mail_snapshot}" \
+    RECOVERY_EVIDENCE_ENCRYPTION_REQUIRED=true \
+    RECOVERY_EVIDENCE_CERTIFICATE_PEM="$([[ "$scenario" != recovery-no-certificate ]] && printf '%s' "$recovery_certificate")" \
+    GITHUB_OUTPUT="${temporary_directory}/step-output" \
+    TMPDIR="${temporary_directory}" \
+    RECOVERY_MOCK_SCRIPT="${repository_root}/scripts/test-support/azure-recovery-mock.py" \
+    RECOVERY_POSTGRES_SERVER_NAME='synthetic-pg' \
+    RECOVERY_CHECKPOINT_TIMEOUT_SECONDS="$([[ "$scenario" == recovery-timeout ]] && printf 1 || printf 10)" \
+    RECOVERY_CHECKPOINT_POLL_SECONDS=1 \
     SOURCE_SHA='1111111111111111111111111111111111111111' \
     AZURE_SUBSCRIPTION_ID='33333333-3333-4333-8333-333333333333' \
     ACR_LOGIN_SERVER='pilotacr123.azurecr.io' \
@@ -591,8 +642,8 @@ run_case() {
     MAINTENANCE_PREPARATION_IMAGE="$preparation_image" \
     MAINTENANCE_TITLE='Synthetic release' \
     MAINTENANCE_BODY='Synthetic deployment notice' \
-    MAINTENANCE_STARTS_AT_UTC='2026-09-24T07:00:00Z' \
-    MAINTENANCE_EXPECTED_ENDS_AT_UTC='2026-09-24T07:30:00Z' \
+    MAINTENANCE_STARTS_AT_UTC='2099-09-24T07:00:00Z' \
+    MAINTENANCE_EXPECTED_ENDS_AT_UTC='2099-09-24T07:30:00Z' \
     BACKEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-backend@sha256:${backend_digest}" \
     FRONTEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-frontend@sha256:${frontend_digest}" \
     DEPLOY_BACKEND="${deploy_backend}" \
@@ -668,9 +719,9 @@ run_case() {
       expected_calls="${expected_calls},backend-resume,frontend-resume,maintenance-fail"
     elif [[ ",${expected_calls}," == *,migration-update,* || ",${expected_calls}," == *,bootstrap-update,* ]]; then
       if [[ "${run_database_bootstrap}" == true ]]; then
-        expected_calls="${expected_calls/bootstrap-update/frontend-stop,backend-stop,drain-start,bootstrap-update}"
+        expected_calls="${expected_calls/bootstrap-update/frontend-stop,backend-stop,drain-start,final-drain-start,bootstrap-update}"
       else
-        expected_calls="${expected_calls/migration-update/frontend-stop,backend-stop,drain-start,migration-update}"
+        expected_calls="${expected_calls/migration-update/frontend-stop,backend-stop,drain-start,final-drain-start,migration-update}"
       fi
       if [[ "${expected_exit}" == 0 && "${deploy_frontend}" == false ]]; then
         expected_calls="${expected_calls/maintenance-complete/frontend-resume,maintenance-complete}"
@@ -682,6 +733,14 @@ run_case() {
         expected_calls="${expected_calls/maintenance-fail/${stops}maintenance-fail}"
       fi
     fi
+  fi
+  if [[ "$scenario" == recovery-wrong-server || "$scenario" == recovery-no-certificate ]]; then
+    expected_calls=''
+  elif [[ "$scenario" == recovery-* ]]; then
+    expected_calls='maintenance-prepare,maintenance-activate,frontend-stop,backend-stop,drain-start'
+    if [[ "$scenario" == recovery-final-* ]]; then expected_calls="${expected_calls},final-drain-start"; fi
+    expected_calls="${expected_calls},backend-resume,frontend-resume,maintenance-fail"
+    [[ "$(cat "${temporary_directory}/pms-synthetic-backend-active")" == 1 && "$(cat "${temporary_directory}/pms-synthetic-frontend-active")" == 1 ]] || exit 1
   fi
   # Assert the actual target and ordering of each execution, including failure
   # in the second business and stopping before a later database is touched.
@@ -701,8 +760,14 @@ run_case() {
         target_list='DIRECTORY CHEONGJU OSAN'
         [[ "${scenario}" == bootstrap-failed ]] && target_list='DIRECTORY'
         ;;
+      final-drain-start)
+        event=drain-start
+        target_list='DIRECTORY CHEONGJU OSAN'
+        [[ "$scenario" != recovery-final-drain-failed ]] || target_list='DIRECTORY'
+        ;;
       drain-start)
         target_list='DIRECTORY CHEONGJU OSAN'
+        [[ "$scenario" != recovery-missing-endtime ]] || target_list='DIRECTORY'
         [[ "${scenario}" != drain-DIRECTORY-* ]] || target_list='DIRECTORY'
         [[ "${scenario}" != drain-CHEONGJU-* ]] || target_list='DIRECTORY CHEONGJU'
         ;;
@@ -748,6 +813,24 @@ run_case() {
       printf 'Completed\n' >"${temporary_directory}/maintenance-OSAN"
       [[ "$(cat "${temporary_directory}/pms-synthetic-backend-active")" == 0 && "$(cat "${temporary_directory}/pms-synthetic-frontend-active")" == 0 ]] || exit 1
     fi
+  fi
+  if [[ "$run_migration" == true && "$expected_exit" == 0 && "$prepare_only" != true ]]; then
+    python3 - "$temporary_directory" <<'PY_EVIDENCE'
+from pathlib import Path
+import json, sys, subprocess
+root=Path(sys.argv[1])
+files=list(root.glob('pms-recovery-checkpoint.*/recovery.json'))
+assert len(files)==1
+state=json.loads(files[0].read_text())
+assert state['phase']=='verified' and len(set(state['allowedDrains']))==6
+key, value=(root/'step-output').read_text().strip().split('=', 1)
+assert key=='recovery_evidence' and Path(value).resolve()==files[0].with_suffix('.p7m').resolve()
+result=subprocess.run(['openssl','cms','-decrypt','-binary','-inform','DER','-in',value,
+                       '-recip',str(root/'recipient.pem'),'-inkey',str(root/'recipient.key')], capture_output=True)
+assert result.returncode==0 and result.stdout==files[0].read_bytes()
+assert state['binding']['serverId'].encode() not in Path(value).read_bytes()
+assert files[0].stat().st_mode & 0o777 == 0o600
+PY_EVIDENCE
   fi
   if [[ "${expected_exit}" == 0 && "${expected_calls}" == *maintenance-complete* ]]; then
     [[ "$(cat "${temporary_directory}/maintenance-CHEONGJU")" == Completed && "$(cat "${temporary_directory}/maintenance-OSAN")" == Completed ]] || exit 1
@@ -797,7 +880,7 @@ for target in DIRECTORY CHEONGJU OSAN; do
     run_case "drain-${target}-${failure}" 79 QUIESCENCE_OR_DRAIN_FAILED ''
   done
 done
-for stale in DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do
+for stale in Database__RecoveryPostgresHost Database:RecoveryPostgresHost database__recoverypostgreshost database:recoverypostgreshost DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do
   run_case "stale-${stale}" 79 QUIESCENCE_OR_DRAIN_FAILED ''
 done
 # Environment providers fold casing and normalize __ to :. These spellings
@@ -872,5 +955,12 @@ run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false true false
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' true false false false true
 run_case 'success' 65 INVALID_RELEASE_SCOPE '' false false true false true true
 run_case 'success' 0 '' '' false false false
+
+run_case recovery-no-certificate 79 RECOVERY_PREFLIGHT_FAILED ''
+run_case recovery-wrong-server 79 RECOVERY_PREFLIGHT_FAILED ''
+run_case recovery-missing-endtime 79 QUIESCENCE_OR_DRAIN_FAILED ''
+for scenario in recovery-timeout recovery-read-failed recovery-foreign-backup recovery-future-backup recovery-missing-time recovery-incomplete-list recovery-evidence-failed recovery-active-app recovery-job-running recovery-terminal-job recovery-final-drain-failed recovery-final-backup-missing; do
+  run_case "$scenario" 79 RECOVERY_CHECKPOINT_FAILED ''
+done
 
 printf 'azurePilotReleaseTests=PASS cases=%s\n' "${case_number}"

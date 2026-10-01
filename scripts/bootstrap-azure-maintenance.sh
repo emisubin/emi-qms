@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time, explicitly approved outage rollout. Never used by the normal release workflow.
 set -euo pipefail
-exec python3 - "$@" <<'PY'
+exec python3 - "$(dirname "${BASH_SOURCE[0]}")/azure-recovery-checkpoint.py" "$@" <<'PY'
 import copy
 import json
 import os
@@ -80,10 +80,13 @@ baseline = {}
 quiescing = False
 migration_started = False
 maintenance_cleanup_required = False
+recovery_helper = sys.argv[1]
+recovery_state = state_dir / 'recovery.json'
+recovery_host = None
 
 def record(event, **data):
     with (state_dir / 'events.jsonl').open('a') as stream:
-        stream.write(json.dumps(dict(event=event, **data)) + '\n')
+        stream.write(json.dumps(dict(event=event, recordedAtUtc=datetime.now(timezone.utc).isoformat(), **data)) + '\n')
     print('firstMaintenanceRolloutStep=' + event, flush=True)
 
 def azure(*args):
@@ -159,7 +162,7 @@ def wait_job(name, execution):
         except Exception as error:
             raise JobResultUncertain('JOB_STATUS_UNKNOWN') from error
         if status == 'Succeeded':
-            return
+            return value['properties']
         if status in ['Failed', 'Stopped']:
             raise JobTerminalFailure('JOB_FAILED')
         if status not in ['Running', 'Pending', 'Processing', 'Waiting']:
@@ -180,8 +183,24 @@ def start_job(name, *args):
     except Exception as error:
         raise JobResultUncertain('JOB_START_RESULT_UNKNOWN') from error
     record('job-started', job=name, execution=execution)
-    wait_job(name, execution)
+    result = wait_job(name, execution)
     record('job-succeeded', job=name, execution=execution)
+    result['_executionName'] = execution
+    return result
+
+recovery_drains = []
+
+def recovery_checkpoint(mode, drained_at=None):
+    args = [sys.executable, recovery_helper, mode, '--state', str(recovery_state), '--az-bin', az]
+    if drained_at is not None:
+        args.extend(['--drained-at', drained_at])
+    if mode in ('wait', 'verify'):
+        for execution in recovery_drains:
+            args.extend(['--drain-execution', execution])
+    result = subprocess.run(args, capture_output=True, text=True)
+    require(result.returncode == 0, 'RECOVERY_CHECKPOINT_FAILED')
+    record('recovery-' + mode)
+    return result.stdout.strip()
 
 def maintenance_for_target(action, business_target):
     template = copy.deepcopy(maintenance_template)
@@ -225,6 +244,8 @@ def fail_maintenance_best_effort():
     return cleanup_failed, cleanup_uncertain
 
 def database_command(command):
+    drained_at = None
+    recovery_drains.clear()
     for database_target in ['DIRECTORY', 'CHEONGJU', 'OSAN']:
         template = copy.deepcopy(migration_job['properties']['template'])
         container = template['containers'][0]
@@ -238,13 +259,21 @@ def database_command(command):
         if command == '--deployment-drain-check' and database_target == 'OSAN' and accepted_mail_snapshot:
             container['env'].append({'name': 'DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256',
                                      'value': accepted_mail_snapshot})
+        container['env'].append({'name': 'Database__RecoveryPostgresHost', 'value': recovery_host})
         path = state_dir / 'migration-execution.json'
         path.write_text(json.dumps(template))
         try:
-            start_job(cfg['MIGRATION_JOB_NAME'], '--yaml', str(path))
+            result = start_job(cfg['MIGRATION_JOB_NAME'], '--yaml', str(path))
+            if command == '--deployment-drain-check':
+                recovery_drains.append(result['_executionName'])
+                drained_at = result['endTime']
+                require(isinstance(drained_at, str) and re.fullmatch(
+                    r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})', drained_at),
+                        'DRAIN_END_TIME_MISSING')
             record('drain-completed' if command == '--deployment-drain-check' else 'migration-completed', databaseTarget=database_target)
         finally:
             path.unlink(missing_ok=True)
+    return drained_at
 
 try:
     require(azure('account', 'show')['id'] == cfg['AZURE_SUBSCRIPTION_ID'], 'SUBSCRIPTION_MISMATCH')
@@ -279,7 +308,7 @@ try:
         job_entries = job_containers[0].get('env', [])
         job_names = [entry['name'].replace('__', ':').lower() for entry in job_entries]
         require(len(job_names) == len(set(job_names)) and not any(
-            name in ['database:migrationtarget', 'database:bootstraptarget', 'database:businessschemaseparationapproved']
+            name in ['database:migrationtarget', 'database:bootstraptarget', 'database:businessschemaseparationapproved', 'database:recoverypostgreshost']
             or name.startswith(('deploymentdrain:', 'maintenance:')) for name in job_names), 'STALE_EXECUTION_CONFIG')
         require(all(entry.get('secretRef') and not entry.get('value') for entry in job_entries
                     if entry['name'].replace('__', ':').lower().startswith('connectionstrings:')), 'PLAINTEXT_DB_CONFIG_REJECTED')
@@ -298,11 +327,18 @@ try:
                 if e['name'].startswith('ConnectionStrings__')), 'PLAINTEXT_DB_CONFIG_REJECTED')
     (state_dir / 'baseline.json').write_text(json.dumps(dict(source=cfg['SOURCE_SHA'], apps=baseline)))
     record('baseline-verified')
+    recovery_host = recovery_checkpoint('preflight')
+    require(bool(re.fullmatch('[a-z0-9-]+\\.postgres\\.database\\.azure\\.com', recovery_host)),
+            'RECOVERY_HOST_INVALID')
+    recovery_checkpoint('arm')
     quiescing = True
     stop(frontend)
     stop(backend)
+    drained_at = database_command('--deployment-drain-check')
+    record('provider-and-transaction-drain-verified', drainedAtUtc=drained_at)
+    recovery_checkpoint('wait', drained_at)
     database_command('--deployment-drain-check')
-    record('provider-and-transaction-drain-verified')
+    recovery_checkpoint('verify')
     azure('containerapp', 'job', 'update', *rg_args, '--name', cfg['MIGRATION_JOB_NAME'],
           '--image', cfg['BACKEND_RELEASE_IMAGE'])
     # From this point even an uncertain start must leave the outage intact.

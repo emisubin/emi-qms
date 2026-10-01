@@ -175,6 +175,50 @@ public sealed partial class BusinessUnitIsolationTests
         AssertSafe(await checker.CheckAsync("DIRECTORY", releaseId, true, ct));
         AssertSafe(await checker.CheckAsync(BusinessUnitCodes.Osan, Guid.Empty, false, ct));
 
+        foreach (var targetCode in new[] { "DIRECTORY", BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
+        {
+            var host = databases.GetBuilder(targetCode, BusinessUnitConnectionPurpose.Migration).Host!;
+            foreach (var expectedHost in new[] { host.ToUpperInvariant(), "another.postgres.database.azure.com", "" })
+            {
+                var values = new Dictionary<string, string?>(databases.ConfigurationValues)
+                {
+                    ["Database:RecoveryPostgresHost"] = expectedHost,
+                    ["BusinessUnits:MembershipBackfill:ApprovedUserIds:0"] = AdminUserId.ToString("D")
+                };
+                var config = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+                var result = await new DeploymentDrainChecker(config, new DatabaseConnectionStringProvider(config),
+                    NullLogger<DeploymentDrainChecker>.Instance).CheckAsync(targetCode, Guid.Empty, false, ct);
+                if (expectedHost == host.ToUpperInvariant()) AssertSafe(result);
+                else
+                {
+                    Assert.Equal(DeploymentDrainChecker.ConfigurationInvalidCode, result.Code);
+                    // The same checkpoint host binds both actual write entry points,
+                    // including a separate bootstrap Job with its own credentials.
+                    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        new DatabaseRoleBootstrapper(config, privilegeManager, NullLogger<DatabaseRoleBootstrapper>.Instance)
+                            .BootstrapAsync(targetCode, ct));
+                    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        new DatabaseMigrationRunner(new DatabaseConnectionStringProvider(config), catalog, privilegeManager,
+                            config, NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(targetCode, ct));
+                }
+                if (expectedHost != host.ToUpperInvariant())
+                {
+                    var backfillError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        new BusinessUnitMembershipBackfillRunner(new DatabaseConnectionStringProvider(config), config,
+                            NullLogger<BusinessUnitMembershipBackfillRunner>.Instance, new MigrationLedgerInspector(catalog),
+                            new BusinessUnitDirectoryMigrationCatalog(catalog)).ApplyAsync(ct));
+                    Assert.Contains("migration connections are invalid", backfillError.Message, StringComparison.Ordinal);
+                }
+                foreach (var purpose in Enum.GetValues<BusinessUnitConnectionPurpose>())
+                {
+                    var target = databases.BusinessUnits.AllTargets().Single(unit => unit.Code == targetCode);
+                    var errors = databases.BusinessUnits.ValidateOperationConnections(config, purpose, [target]);
+                    if (expectedHost == host.ToUpperInvariant()) Assert.Empty(errors);
+                    else Assert.Contains(errors, error => error.EndsWith(":recovery_server_mismatch", StringComparison.Ordinal));
+                }
+            }
+        }
+
         await SetMaintenanceAsync(databases, BusinessUnitCodes.Cheongju, releaseId, "Active", ct);
         AssertSafe(await checker.CheckAsync(BusinessUnitCodes.Cheongju, releaseId, true, ct));
 

@@ -5,7 +5,8 @@ scratch="$(mktemp -d "${TMPDIR:-/tmp}/pms-first-rollout-test.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 cat >"$scratch/az" <<'PY'
 #!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 a=sys.argv[1:]; root=Path(os.environ['MOCK_STATE']); scenario=os.environ['SCENARIO']
 def arg(k): return a[a.index(k)+1]
@@ -15,6 +16,9 @@ s=json.loads(state.read_text()) if state.exists() else {
  'maintenance':{'CHEONGJU':'Idle','OSAN':'Idle'},'executions':{},'drained':[]}
 def out(v): print(json.dumps(v))
 def save(): state.write_text(json.dumps(s))
+if not state.exists():save()
+if '--only-show-errors' in a:
+ sys.exit(subprocess.run([sys.executable,os.environ['RECOVERY_MOCK_SCRIPT'],*a]).returncode)
 name=arg('--name') if '--name' in a else ''
 with (root/'calls').open('a') as f: f.write(' '.join(a[:3])+':'+name+'\n')
 if a[:2]==['account','show']: out({'id':'subscription'})
@@ -73,8 +77,12 @@ elif a[:3]==['containerapp','job','start']:
   assert entries['Database__BusinessSchemaSeparationApproved']==expected
   assert not any(s['active'].values()), 'database check while serving'
   with (root/(mode+'-targets')).open('a') as f:f.write(target+'\n')
-  if mode=='migration':assert s['drained']==['DIRECTORY','CHEONGJU','OSAN'], 'migration before all drain successes'
-  execution=name+'-'+mode+'-execution-'+target
+  assert entries['Database__RecoveryPostgresHost']=='synthetic-pg.postgres.database.azure.com'
+  if mode!='drain':
+   assert s['drained']==['DIRECTORY','CHEONGJU','OSAN']*2, 'migration before final drain'
+   evidence=list(root.glob('pms-first-maintenance-*/recovery.json'))
+   assert len(evidence)==1 and json.loads(evidence[0].read_text())['phase']=='verified', 'migration before recovery evidence'
+  execution=name+'-'+mode+'-execution-'+target+'-'+str(len(s['executions']))
   s['executions'][execution]={'job':name,'target':target,'mode':mode}
   save()
   if (scenario=='start-uncertain' and mode=='migration') or scenario=='drain-'+target+'-start-uncertain':sys.exit(1)
@@ -99,8 +107,10 @@ elif a[:4]==['containerapp','job','execution','show']:
    if scenario=='drain-'+target+'-unknown':out({'properties':{'status':'Unknown'}});sys.exit(0)
    if scenario=='drain-'+target+'-running':out({'properties':{'status':'Running'}});sys.exit(0)
    pending['status']='Failed' if scenario=='drain-'+target+'-failed' else 'Succeeded'
+   if scenario=='recovery-final-drain-failed' and len(s['drained'])>=3:pending['status']='Failed'
    if pending['status']=='Succeeded':s['drained'].append(target)
-   save();out({'properties':{'status':pending['status']}});sys.exit(0)
+   pending['endTime']=None if scenario=='recovery-missing-endtime' else datetime.now(timezone.utc).isoformat()
+   save();out({'properties':pending});sys.exit(0)
   if ((scenario=='complete-osan-running' and action=='complete' and target=='OSAN')
       or (scenario=='fail-cleanup-cheongju-running' and action=='fail' and target=='CHEONGJU')):
    out({'properties':{'status':'Running'}});sys.exit(0)
@@ -146,15 +156,18 @@ export MAINTENANCE_TITLE='Synthetic release' MAINTENANCE_BODY='Synthetic notice'
 export MAINTENANCE_STARTS_AT_UTC=2099-01-01T00:00:00Z MAINTENANCE_EXPECTED_ENDS_AT_UTC=2099-01-01T01:00:00Z
 export FIRST_ROLLOUT_AZ_BIN="$scratch/az" FIRST_ROLLOUT_HTTP_BIN="$scratch/curl"
 export FIRST_ROLLOUT_ALLOW_TEST_OVERRIDES=true FIRST_ROLLOUT_POLL_ATTEMPTS=1 FIRST_ROLLOUT_POLL_INTERVAL_SECONDS=0
+export RECOVERY_POSTGRES_SERVER_NAME=synthetic-pg RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=10 RECOVERY_CHECKPOINT_POLL_SECONDS=1
+export RECOVERY_MOCK_SCRIPT="$root/scripts/test-support/azure-recovery-mock.py"
 scenarios=(success approval-true mail-exception invalid-mail-exception stop-failure migration-failure start-uncertain update-failure \
   complete-failure prepare-osan-failure activate-osan-failure complete-osan-failure \
   complete-osan-start-response-lost complete-osan-running complete-osan-status-unknown \
   fail-cleanup-cheongju-running \
   no-approval malformed-approval unsafe-retry unsafe-parallel unsafe-completion unsafe-containers)
+for failure in wrong-server timeout read-failed foreign-backup incomplete-list future-backup missing-time active-app job-running terminal-job final-backup-missing evidence-failed final-drain-failed missing-endtime; do scenarios+=("recovery-${failure}"); done
 for target in DIRECTORY CHEONGJU OSAN; do
   for failure in failed unknown running start-uncertain; do scenarios+=("drain-${target}-${failure}"); done
 done
-for stale in DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do scenarios+=("stale-${stale}"); done
+for stale in Database__RecoveryPostgresHost Database:RecoveryPostgresHost DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do scenarios+=("stale-${stale}"); done
 # Both exact duplicates and .NET-equivalent spellings are rejected before stop/start.
 for stale in database__migrationtarget dAtAbAsE__BootstrapTarget database__businessschemaseparationapproved deploymentdrain__requiremaintenance DeploymentDrain__releaseid \
   Database:MigrationTarget Database:BootstrapTarget Database:BusinessSchemaSeparationApproved DeploymentDrain:RequireMaintenance DeploymentDrain:ReleaseId; do scenarios+=("stale-${stale}"); done
@@ -166,6 +179,8 @@ for scenario in "${scenarios[@]}"; do
   export SCENARIO="$scenario" MOCK_STATE="$scratch/$case_number-$scenario"
   mkdir "$MOCK_STATE"
   export FIRST_MAINTENANCE_ROLLOUT_APPROVED=true
+  export RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=10
+  [[ "$scenario" != recovery-timeout ]] || export RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=1
   unset BUSINESS_SCHEMA_SEPARATION_APPROVED ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256
   if [[ "$scenario" == mail-exception ]]; then
     ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="$(printf '1%.0s' {1..64})"
@@ -185,17 +200,17 @@ assert (status==0)==(scenario in ['success','approval-true','mail-exception']), 
 assert 'synthetic-secret-value-must-not-log' not in (root/'result').read_text()
 if scenario in ['no-approval','malformed-approval','invalid-mail-exception']:
  assert not (root/'calls').exists()
-elif scenario.startswith(('stale-','maintenance-stale-','duplicate-','unsafe-')):
+elif scenario.startswith(('stale-','maintenance-stale-','duplicate-','unsafe-')) or scenario=='recovery-wrong-server':
  calls=(root/'calls').read_text()
  assert 'containerapp revision deactivate:' not in calls
  assert 'containerapp job start:' not in calls
  assert 'containerapp job update:' not in calls
 else:
  state=json.loads((root/'state.json').read_text())
- if scenario in ['success','approval-true','mail-exception','stop-failure'] or scenario.startswith(('drain-','stale-')):assert all(state['active'].values())
+ if scenario in ['success','approval-true','mail-exception','stop-failure'] or scenario.startswith(('drain-','stale-','recovery-')):assert all(state['active'].values())
  else:assert not any(state['active'].values())
  calls=(root/'calls').read_text()
- if scenario=='stop-failure' or scenario.startswith(('drain-','stale-')):
+ if scenario=='stop-failure' or scenario.startswith(('drain-','stale-','recovery-')):
   assert not (root/'migration-targets').exists()
   assert 'containerapp job update:migration' not in calls
  if scenario.startswith('drain-'):
@@ -204,11 +219,11 @@ else:
   assert (root/'drain-targets').read_text().splitlines()==expected
   assert state['drained']==expected[:-1]
  if scenario.startswith('stale-'):assert 'containerapp job start:' not in calls
- if scenario not in ['success','approval-true','mail-exception','stop-failure'] and not scenario.startswith(('drain-','stale-')):assert 'containerapp revision activate' not in calls
+ if scenario not in ['success','approval-true','mail-exception','stop-failure'] and not scenario.startswith(('drain-','stale-','recovery-')):assert 'containerapp revision activate' not in calls
  if scenario in ['success','approval-true','mail-exception']:
   assert (root/'migration-targets').read_text()=='DIRECTORY\nCHEONGJU\nOSAN\n'
-  assert (root/'drain-targets').read_text()=='DIRECTORY\nCHEONGJU\nOSAN\n'
-  assert state['drained']==['DIRECTORY','CHEONGJU','OSAN']
+  assert (root/'drain-targets').read_text()=='DIRECTORY\nCHEONGJU\nOSAN\n'*2
+  assert state['drained']==['DIRECTORY','CHEONGJU','OSAN']*2
   assert (root/'actions').read_text()=='prepare-CHEONGJU\nprepare-OSAN\nactivate-CHEONGJU\nactivate-OSAN\ncomplete-CHEONGJU\ncomplete-OSAN\n'
   assert state['maintenance']=={'CHEONGJU':'Completed','OSAN':'Completed'}
  expected_actions={

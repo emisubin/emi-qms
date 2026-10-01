@@ -21,6 +21,7 @@ BUSINESS_SCHEMA_SEPARATION_APPROVED=false # C/O0131 구조 변경을 명시 승�
 ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256= # 승인된 과거 오산 메일 1건만; 기본은 예외 없음
 SOURCE_SHA
 AZURE_SUBSCRIPTION_ID AZURE_RESOURCE_GROUP ACR_LOGIN_SERVER PUBLIC_HOSTNAME
+RECOVERY_POSTGRES_SERVER_NAME
 BACKEND_APP_NAME FRONTEND_APP_NAME MIGRATION_JOB_NAME MAINTENANCE_JOB_NAME
 BACKEND_RELEASE_IMAGE FRONTEND_RELEASE_IMAGE
 MAINTENANCE_RELEASE_ID MAINTENANCE_ACTOR_USER_ID MAINTENANCE_TITLE MAINTENANCE_BODY
@@ -29,18 +30,18 @@ MAINTENANCE_STARTS_AT_UTC MAINTENANCE_EXPECTED_ENDS_AT_UTC
 
 이미지는 해당 registry의 `pms-backend@sha256:…`, `pms-frontend@sha256:…`만 허용한다. 시각은 timezone을 포함하며 종료 예정은 실행 시점보다 뒤여야 한다. `FIRST_ROLLOUT_POLL_ATTEMPTS` 기본값 90, 간격 기본값 10초다. 테스트 실행파일 교체는 별도 test flag와 synthetic hostname을 동시에 요구한다.
 
-저장된 Job template에는 `Database__MigrationTarget`, `Database__BootstrapTarget`, `Database__BusinessSchemaSeparationApproved`, `DeploymentDrain__*`, `Maintenance__*`를 두지 않는다. 대소문자와 .NET 설정 구분자 표기를 정규화해 중복·영구 저장된 실행값을 거부한다. 실행마다 명시적으로 전달하며 기존 secret 참조와 자원 크기는 보존한다. 임의 진단 파일은 더 이상 사용하지 않는다.
+저장된 Job template에는 `Database__MigrationTarget`, `Database__BootstrapTarget`, `Database__BusinessSchemaSeparationApproved`, `Database__RecoveryPostgresHost`, `DeploymentDrain__*`, `Maintenance__*`를 두지 않는다. 대소문자와 .NET 설정 구분자 표기를 정규화해 중복·영구 저장된 실행값을 거부한다. 실행마다 명시적으로 전달하며 기존 secret 참조와 자원 크기는 보존한다. 임의 진단 파일은 더 이상 사용하지 않는다.
 
 `BUSINESS_SCHEMA_SEPARATION_APPROVED`는 기본 false이고 잘못된 문자열은 거부한다. true도 선택한 청주/오산의 정확한0131 트랜잭션에만 적용된다. Directory·역할 준비·종료 확인에는 false를 전달한다. SQL 직접 실행의 승인값과 별개로 runner가 실행 승인값을 덮어쓰므로 예전 연결 옵션에 남은 승인값으로 우회할 수 없다. common0001~0130과 이미 적용한0131 재실행은 기존 원장을 따른다.
 
 ## 실행 순서와 증거
 
-1. subscription·Single revision·immutable baseline·ready 상태·공개 `200/401/401`·Manual job과 실행 중복을 확인한다.
+1. subscription·Single revision·immutable baseline·ready 상태·공개 `200/401/401`·Manual job과 실행 중복을 확인한다. 복구 helper의 preflight로 PostgreSQL resource ID/FQDN/Ready·보관기간 14일 이상·복구 하한·사용 가능한 Full 백업을 확인한다. `arm`에서 현재 Job execution 이력을 고정한다.
 2. frontend, backend 순으로 active revision을 deactivate하고 모든 revision의 replica가 0인지 확인한다. 단순 scale-to-zero를 사용하지 않는다. Azure는 SIGTERM 이후 제한 시간 내 종료되지 않는 컨테이너를 강제 종료할 수 있으므로 replica 0은 provider 처리의 성공을 보장하지 않는다.
-3. 양 앱 replica 0 확인 후 기존 migration Job을 새 image의 읽기 전용 종료 확인 모드로 DIRECTORY→CHEONGJU→OSAN 한 번씩 실행한다. 모두 Succeeded인 경우에만 구조 변경으로 진행한다. 실패·시간 초과·시작/조회 응답 불명확 시 migration을 실행하지 않고 구 revision을 복구한다. 이 최초 도입 검사에서는 점검 표가 없거나 Idle/Completed인 경우만 허용한다. 이후 D/C/O migration도 각각 한 execution씩 실행하며, 첫 변경 실행 요청 직전에 경계를 기록한다. 응답이 불확정해도 자동 재실행하지 않는다.
+3. 양 앱 replica 0 확인 후 기존 migration Job을 새 image의 읽기 전용 종료 확인 모드로 DIRECTORY→CHEONGJU→OSAN 실행한다. 마지막 execution의 **Azure `endTime`**을 drain 완료 기준으로 삼는다. 아래 복구 checkpoint에서 그 시각 뒤 완료된 Full/Automatic 백업을 기다린 뒤 D/C/O drain을 다시 실행하고 백업을 재검증한다. 모든 단계가 통과해야 D/C/O migration을 각각 한 execution씩 실행하며, 첫 변경 요청 직전에 경계를 기록한다. 실패·시간 초과·시작/조회 응답 불명확 시 migration을 실행하지 않고 기존 revision을 복구한다. 최초 도입 drain은 점검 표가 없거나 Idle/Completed인 경우만 허용한다. 응답이 불확정인 변경을 자동 재실행하지 않는다.
 4. 새 digest의 유지보수 prepare/activate를 실행한다. 영구 공지는 중단 중 생성되어 재개 시 조회된다. 일반 공지 팝업은 켜지 않는다.
 5. Backend, Frontend image만 교체하고 각각 exact ready revision을 확인한다. Frontend 교체 시 조회·로그인은 재개될 수 있으며 저장은 유지보수 gate가 막는다. 공개 보안 smoke 후 complete가 exact ledger를 검사하고 저장을 재개한다.
-6. 출력된 private 임시 폴더의 `baseline.json`과 `events.jsonl`로 실행 SHA·이전 image/revision·job execution을 확인한다. baseline은 secret 값 없이 secretRef만 보존한다. 실행별 유지보수 payload는 성공·실패 모두 즉시 제거한다. 증거 폴더는 자동 삭제하지 않으며 필요 기간 보관 후 소유자가 정리한다.
+6. 출력된 private 임시 폴더의 `baseline.json`·`events.jsonl`·`recovery.json`으로 실행 SHA·이전 image/revision·job execution을 확인한다. baseline은 secret 값 없이 secretRef만 보존한다. 실행별 유지보수 payload는 성공·실패 모두 즉시 제거한다. 증거 폴더는 자동 삭제하지 않으며 필요 기간 보관 후 소유자가 정리한다.
 
 Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTemplate` 형식의 YAML/JSON을 받는다. runner는 기존 job template을 보존하고 image·args·release 환경만 덮어써 임시 JSON으로 전달한다. secret 값을 조회하거나 출력하지 않는다.
 
@@ -57,7 +58,7 @@ Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTempl
 
 일반 수동 workflow의 `approve_business_schema_separation`는 기본 false다. [확정0131 정리 범위](../../database/README.md#cheongjuosan-database-isolation)에 따라 청주27표/projects7열, 오산153표/projects24열/알림3열과 불필요 함수·연결·오산 독립 sequence2개, 오산 권한28개·해당 역할 연결·미사용 부스바 역할1개 제거를 실행할 때에만 별도 운영 승인 범위에 맞춰 선택한다. 이 선택은 이미지 게시·운영 배포 승인과 별개이며 로컬 코드 구현 승인이 실제 운영 실행 승인을 대체하지 않는다.
 
-일반 release는 양 사업부 점검을 같은 release ID로 활성화한 뒤 양 앱의 모든 revision/replica를 멈춘다. 동일한 읽기 전용 CLI를 D/C/O별로 실행하되 `DeploymentDrain__RequireMaintenance=true`로 두 업무 DB의 해당 release 상태가 Active/Delayed인지 확인한다. Directory는 업무용 점검 표를 조회하지 않는다. 최초 도입만 false를 사용한다. 검사 통과 뒤 명시 대상별 역할 준비/구조 변경을 진행한다. DB 변경 시작 이후에는 구 image를 자동 재기동하지 않고 중단 상태에서 승인된 보정을 결정한다. Job 결과가 불명확하면 기존 execution부터 확인하며 무조건 재실행하지 않는다.
+일반 release는 양 사업부 점검을 같은 release ID로 활성화한 뒤 양 앱의 모든 revision/replica를 멈춘다. 동일한 읽기 전용 CLI를 D/C/O별로 실행하되 `DeploymentDrain__RequireMaintenance=true`로 두 업무 DB의 해당 release 상태가 Active/Delayed인지 확인한다. Directory는 업무용 점검 표를 조회하지 않는다. 최초 도입만 false를 사용한다. 일반 release도 공지/activate 완료 뒤 `arm`, 최초 drain, 복구 checkpoint, 최종 drain·백업 재검증을 거친 뒤 명시 대상별 역할 준비/구조 변경을 진행한다. DB 변경 시작 이후에는 구 image를 자동 재기동하지 않고 중단 상태에서 승인된 보정을 결정한다. Job 결과가 불명확하면 기존 execution부터 확인하며 무조건 재실행하지 않는다.
 
 종료 검사는 해당 시점의 DB 상태를 확인한다. 외부 메일/EC 서비스에서 실제 처리가 끝났다고 단정하거나 진행 중 작업의 성공/실패를 추측하지 않는다. 기본값은 모든 불명확 발송을 차단하며, 일반 관리자 확인·목록 제외나 다음 재시도의 성공만으로 해제되지 않는다. 실제 시험 발송이나 임의 reset을 하지 않는다. 검사와 migration 사이 새 접속을 막는 운영 통제도 유지한다.
 
@@ -77,19 +78,34 @@ Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTempl
 
 2026-10-01의 준비 계획이다. 사용자 직접 검수는 명시적으로 생략됐으며 required CI·자동 검증은 유지한다. 이번 승인은 준비까지다. 실제 공지·main 병합·이미지 게시·운영 구조 변경·앱 교체는 최종 실행 단계에 남는다.
 
-- 시작 기준 T0는 기술 준비와 최종 실행 승인이 끝난 뒤 공지한 실제 중단 시작시각이다. 별도 시간대 답변이 없으므로 가장 이른 가능한 시점을 기본안으로 두되, 지금 중단을 예약하거나 시각을 확정하지 않는다. **60분을 작업 창의 계획 예산**으로 잡는다. 이는 완료 보장이 아니며, 지연 시 상태와 다음 판단 시각을 알리고 검증 없이 저장을 재개하지 않는다.
+- 시작 기준 T0는 기술 준비와 최종 실행 승인이 끝난 뒤 공지한 실제 중단 시작시각이다. 자동 Full 백업의 최근 완료 패턴과 가용성을 확인하여 실행 창 후보를 잡되, 지금 중단을 예약하거나 시각을 확정하지 않는다. **60분을 작업 창의 계획 예산**으로 잡는다. 이는 완료 보장이 아니며, 지연 시 상태와 다음 판단 시각을 알리고 검증 없이 저장을 재개하지 않는다.
 - 중단 전에 정확한 main SHA/필수 CI, 검증한 두 image digest, 기존 revision/image·설정·세 연결 secret의 버전, Manual job 중복 없음, 백업 보관/복구 연습 유효성, 승인된 메일 snapshot, 공지·실행값을 준비한다. 기존 backend 한 개와 현재 자원량을 유지한다. pgAdmin·중계·수동 DB 연결을 닫고 다른 운영자/자동화의 접속을 멈춘다.
-- T0 이후 순서는 대체 사전 공지 확인 → frontend/backend 모든 replica 종료 → D/C/O 읽기 전용 drain → 복구 기준시각 기록 → D/C/O migration → 점검 공지 준비/활성화 → 새 backend/frontend readiness·보안 검사 → exact ledger 확인·저장 재개다. 첫 migration 요청 전에 복구 기준이 확보되지 않거나 drain이 실패하면 DB 변경을 시작하지 않는다.
-- 복구 기준시각은 세 DB의 쓰기가 멈추고 기존 처리가 종료된 이후이면서 **첫 migration 요청 이전**인 UTC 시각으로 정한다. Azure의 사용 가능한 PITR 범위에 해당 시각이 들어왔는지 최종 단계에서 확인하고, 확인할 수 없으면 중단한다. 오늘 확인한 일일 backup 완료시각 자체를 배포 직전 복구시각으로 대체하지 않는다. DB 변경 뒤에 `latest` 복구를 선택하면 변경 후 상태가 복원될 수 있으므로 기록한 custom 시각을 사용한다.
+- T0 이후 순서는 대체 사전 공지 확인 → frontend/backend 모든 replica 종료 → D/C/O 읽기 전용 drain → 이후 완료된 자동 Full 백업 확인 → D/C/O drain 재검사·동일 백업 재검증 → D/C/O migration → 점검 공지 준비/활성화 → 새 backend/frontend readiness·보안 검사 → exact ledger 확인·저장 재개다. 첫 migration 요청 전에 복구 기준이 확보되지 않거나 drain이 실패하면 DB 변경을 시작하지 않는다.
+- 복구 기준은 **최초 drain의 Azure `endTime`보다 뒤에 완료되어 Azure backup list에 표시된 Full/Automatic 백업의 정확한 `completedTime`**이다. helper는 원본 시각 문자열을 보존한다. `earliestRestoreDate`는 복원 하한 확인에만 쓰며 현재시각·임의 대기·과거 일일 백업만으로 최신 복구 가능성을 추정하지 않는다. `latest` 대신 선택한 백업의 완료시각으로 full backup 복원을 요청한다.
 
-**실행 준비의 미완료 선행조건:** 현재 최초 전환 runner는 drain 후 바로 migration을 시작하며 위 복구시각 기록·확인 checkpoint가 없다. 따라서 이 계획을 근거로 현재 runner를 그대로 실행하면 안 된다. 최종 운영 실행 준비에서 해당 checkpoint와 실패 시 migration 미시작을 구현·시험하고 독립 검토를 마친 뒤에만 T0를 확정한다. Azure에서 확인 가능한 복구 범위의 증거도 먼저 정해야 하며, 일정 시간 대기나 일일 backup 성공만으로 임의의 직전 시각 복원을 증명했다고 간주하지 않는다. 이번 1~3번 범위는 메일 예외 구현·검수 생략·계획 작성이며 이 실행기 보완과 실제 운영 전환까지 완료한 것은 아니다.
+### 복구 checkpoint의 실행 계약
+
+- `scripts/azure-recovery-checkpoint.py`를 최초 runner와 일반 migration release가 공통 사용한다. 정상 앱 교체만 하는 release에는 DB checkpoint를 요구하지 않는다.
+- preflight에서 명시한 subscription/resource group/server와 실제 FQDN을 대조한다. `Database:RecoveryPostgresHost`를 실행별로 주입하여 D/C/O drain과 실제 migration·role bootstrap의 Runtime/Migration/Administrator 연결도 같은 서버를 가리키게 한다. 선택적으로 실행하는 membership backfill 역시 실행 override로 같은 host를 받고 첫 DB 접속 전에 사용 대상 Migration 연결 세 개를 검증한다. 빈 값·다른 host는 DB 쓰기 전에 차단하고 일반 웹앱/영구 Job template에는 이 실행값을 저장하지 않는다.
+- `arm` 뒤에는 두 앱의 모든 revision 비활성·replica 0과 resource group 내 모든 Manual Job을 매회 확인한다. 기준선에 없던 실행은 이미 Succeeded/Failed/Stopped여도 거부한다. 이 runner가 받은 최초 drain 3개와 최종 drain 3개의 정확한 execution ID만 예외이며, 재사용·누락도 차단한다. 배포 창 동안 다른 운영자·자동화의 수동 DB/Job 접속 금지는 계속 필요하다.
+- 후보 백업은 정확한 원본 서버에 속한 Full/Automatic만 허용한다. 미래 시각·잘못된 타입/ID·부분 페이지·중복·조회 실패는 차단한다. 마지막 drain 뒤에도 같은 백업과 복구 범위·앱/Job 상태를 재검증한 후에만 첫 DB 변경을 요청한다.
+- 대기는 `RECOVERY_CHECKPOINT_TIMEOUT_SECONDS` 기본 900초, 허용 1~1800초이며 `RECOVERY_CHECKPOINT_POLL_SECONDS` 기본 30초, 허용 1~60초다. 공지한 종료 예정시각이 먼저 오면 그 시각까지만 기다린다. 조건이 안 되면 DB migration을 시작하지 않고 기존 서비스 복구를 검증한다. 작업 창에 맞는 자동 백업이 없으면 배포 창을 다시 정한다. 자동 백업의 실행/완료를 이 runner가 보장하지 않는다.
+- 원본 서버는 Burstable이므로 지원하지 않는 on-demand 백업을 강행하지 않는다. helper는 백업 조회만 하며 새 백업·서버·유료 자원을 생성하지 않는다. **Azure에 복구 가능한 백업이 표시됨**을 검증하는 단계이지 실제 복원 연습을 새로 완료한 것은 아니다.
+- private `recovery.json`은 SHA/release/server/앱 binding, 기준 Job 실행 이력, Azure drain 종료시각, 선택 백업 ID/완료시각, 검증시각을 저장한다. 디렉터리 0700·파일 0600과 원자적 교체를 사용하며 저장 실패도 차단한다. secret·connection string·메일 승인값·업무 row는 저장하지 않는다. 최초 runner의 실행 폴더는 보존된다. 공개 저장소의 일반 workflow는 OpenSSL 3의 CMS AES-256-GCM·RSA-OAEP(SHA-256)로 암호화한 `recovery.p7m` 하나만 Actions artifact로 14일 보존한다. 수신자 인증서의 주체/발급자 이름도 envelope에 넣지 않도록 `-keyid`를 사용한다. 평문 JSON·상위 폴더를 게시하거나 암호화 실패 시 평문으로 대체하지 않는다. preflight에서도 암호화를 검증하고 최종 verified 기록의 암호화·저장 성공 후에만 DB 변경을 허용한다. runner 자체 손실에는 artifact 게시를 보장할 수 없으므로 실제 운영자는 실행 중 비공개 증거의 보관 가능성도 확인한다.
+- 일반 workflow는 `azure-pilot-image-publish` Environment의 `PMS_POSTGRES_SERVER_NAME` 및 `PMS_RECOVERY_EVIDENCE_CERTIFICATE_PEM` 변수를 읽는다. 후자는 Subject Key Identifier를 가진 RSA 2048비트 이상의 공개 인증서이며 공개 인증서만 전달한다. 대응 private key는 운영자가 별도 비공개 보관하고 실제 키로 합성 기록을 복호화할 수 있음을 실행 전에 확인한다. 인증서 누락/오류·지원되지 않는 OpenSSL·암호화/저장 실패는 앱 정지 전에 또는 DB 변경 전에 차단한다. 최초 로컬 runner는 기존 비공개 JSON 보관만 사용해도 된다. 이번 준비에서 운영 변수는 변경하지 않았으며 최종 실행 설정에 실제 원본 서버 이름을 지정한다. release Job 제한은 기존 작업 30분에 기본 backup 대기 15분을 더한 45분이며, 사용자가 공지한 작업 창과 별개다.
+
+구현·합성 실패 검사·독립 검토 결과는 Change031 최신 기록을 따른다. 실제 backup 후보 선택·복원 연습·main 병합·운영 전환은 아직 실행한 것으로 기록하지 않는다.
 
 | 실패 경계 | 실행할 복구 |
 | --- | --- |
 | 첫 migration 요청 전 | DB를 바꾸지 않았음을 확인하고 기존 backend/frontend revision을 재개한 뒤 readiness·공개 보안을 확인한다. |
 | 첫 migration 요청 이후, 실행 결과 불명확 포함 | 앱 중단을 유지한다. 기존 execution·세 DB ledger/identity·점검 상태를 먼저 확인하고 승인 범위의 forward fix를 선택한다. runner 전체 재실행·구 image 재기동·역migration으로 추측 복구하지 않는다. |
-| DB를 원래 시점으로 복원해야 하는 경우 | 기록한 custom 시각으로 별도 PostgreSQL 서버에 PITR한다. 청주·오산·Directory 세 DB를 같은 시점으로 확인하고 schema/원장·보존 수량·사업부 권한/연결·private network·설정·secret 참조를 검증한다. 복원 DB에 맞는 이전 앱 버전과 연결을 함께 전환한 뒤 공개 보안과 로그인/핵심 기능을 확인한다. 기존 운영 서버는 덮어쓰거나 삭제하지 않는다. |
+| DB를 원래 시점으로 복원해야 하는 경우 | 기록한 Full 백업의 정확한 `completedTime`을 restore-time으로 사용하여 별도 PostgreSQL 서버에 복원한다. 청주·오산·Directory 세 DB를 같은 시점으로 확인하고 schema/원장·보존 수량·사업부 권한/연결·private network·설정·secret 참조를 검증한다. 복원 DB에 맞는 이전 앱 버전과 연결을 함께 전환한 뒤 공개 보안과 로그인/핵심 기능을 확인한다. 기존 운영 서버는 덮어쓰거나 삭제하지 않는다. |
 
 PITR은 새 서버를 생성하므로 임시 비용과 연결 전환이 수반된다. 이 준비에서 새 유료 자원을 만들지 않았고, 실제 복구 실행 시 필요한 대상·비용 범위를 최종 운영 승인에 포함한다. 복구 시간은 별도이며 60분 배포 창 안에 완료된다고 보장하지 않는다. 재개 전까지 사용자 쓰기를 막아 복구시각 이후의 업무 데이터 유실을 피한다. 재개 후 문제가 발견되면 이후 입력분을 따로 보존·대조할 계획 없이 과거 시점으로 전환하지 않는다.
 
-Microsoft 근거: [PostgreSQL backup/PITR 및 복원 후 확인 항목](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore). 새 서버 생성, custom 시각, 원본 미덮어쓰기, 네트워크·서버 설정 재확인 조건을 반영했다. 이번 관측값과 검증 증거는 [Change 031](../../tasks/azure-deploy-001-change-031.md)의 최신 기록을 따른다.
+Microsoft 근거: [PostgreSQL backup/PITR 및 복원 후 확인 항목](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore). 새 서버 생성, 선택한 시각, 원본 미덮어쓰기, 네트워크·서버 설정 재확인 조건을 반영했다. 이번 관측값과 검증 증거는 [Change 031](../../tasks/azure-deploy-001-change-031.md)의 최신 기록을 따른다.
+
+복구시각 선택 근거: [Azure Full 백업 목록과 completedTime 복원](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/how-to-restore-full-backup), [사용 가능한 백업 목록 API](https://learn.microsoft.com/en-us/rest/api/postgresql/backups-automatic-and-on-demand/list-by-server?view=rest-postgresql-2025-08-01).
+
+암호화 근거와 복호화: [OpenSSL CMS 공식 문서](https://docs.openssl.org/3.0/man1/openssl-cms/). 운영자는 private 작업 폴더에서 `openssl cms -decrypt -binary -inform DER -in recovery.p7m -recip recipient.pem -inkey recipient.key -out recovery.json`의 종료 성공을 확인한 뒤 JSON을 읽는다. 실제 키 준비·설정·복호화 확인은 이번 합성 검증에 포함되지 않는다.

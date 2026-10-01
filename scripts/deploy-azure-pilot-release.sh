@@ -202,6 +202,11 @@ maintenance_job_memory=''
 maintenance_active='false'
 maintenance_uncertain='false'
 job_terminal='false'
+recovery_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/azure-recovery-checkpoint.py"
+recovery_state=''
+recovery_postgres_host=''
+recovery_drained_at=''
+recovery_drains=()
 
 load_job_execution_override() {
   local job_name="$1" purpose="${2:-backfill}"
@@ -289,7 +294,7 @@ load_job_execution_override() {
     fi
     seen_environment_names+="${normalized_environment_name}"$'\n'
     case "${normalized_environment_name}" in
-      database:migrationtarget|database:bootstraptarget|database:businessschemaseparationapproved|deploymentdrain:*|maintenance:*)
+      database:migrationtarget|database:bootstraptarget|database:businessschemaseparationapproved|database:recoverypostgreshost|deploymentdrain:*|maintenance:*)
         job_override_configuration_error='stale-execution-configuration'
         return 1 ;;
     esac
@@ -370,7 +375,7 @@ try:
         assert key not in env
         assert (item.get("value") is not None) != (item.get("secretRef") is not None)
         env[key] = item
-        assert key not in {"database:migrationtarget", "database:bootstraptarget", "database:businessschemaseparationapproved"}
+        assert key not in {"database:migrationtarget", "database:bootstraptarget", "database:businessschemaseparationapproved", "database:recoverypostgreshost"}
         assert not key.startswith(("deploymentdrain:", "maintenance:"))
         if key.startswith("connectionstrings:"):
             assert re.fullmatch(r"[a-z0-9-]+", item.get("secretRef", ""))
@@ -617,6 +622,7 @@ run_maintenance_job() {
 
 run_drain_check() {
   local database_target execution_name
+  recovery_drains=()
   local -a accepted_snapshot_environment
   load_job_execution_override "${MIGRATION_JOB_NAME}" database || return 1
   for database_target in DIRECTORY CHEONGJU OSAN; do
@@ -633,10 +639,16 @@ run_drain_check() {
       "Database__BusinessSchemaSeparationApproved=false" \
       "DeploymentDrain__RequireMaintenance=true" \
       "DeploymentDrain__ReleaseId=${MAINTENANCE_RELEASE_ID}" \
+      "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
       ${accepted_snapshot_environment[@]+"${accepted_snapshot_environment[@]}"} \
       --args=--deployment-drain-check --query name)" || execution_name=''
     [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
       && wait_for_job "${MIGRATION_JOB_NAME}" "${execution_name}" || return 1
+    recovery_drained_at="$(azure_read containerapp job execution show \
+      --resource-group "${AZURE_RESOURCE_GROUP}" --name "${MIGRATION_JOB_NAME}" \
+      --job-execution-name "${execution_name}" --query properties.endTime)" || return 1
+    [[ -n "${recovery_drained_at}" ]] || return 1
+    recovery_drains+=(--drain-execution "${execution_name}")
   done
 }
 
@@ -660,6 +672,7 @@ run_database_job() {
       --cpu "${job_override_cpu}" --memory "${job_override_memory}" \
       --env-vars "${job_override_environment[@]}" "${setting}=${database_target}" \
       "Database__BusinessSchemaSeparationApproved=${schema_approved}" \
+      "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
       --args="${command}" --query name)" || execution_name=''
     [[ -n "${execution_name}" && ! "${execution_name}" =~ [[:space:]] ]] \
       && wait_for_job "${job_name}" "${execution_name}" || return 1
@@ -826,6 +839,25 @@ if [[ "${baseline_live_status}" != '200' \
 fi
 
 if [[ "${maintenance_release}" == 'true' ]]; then
+  if [[ "${RUN_MIGRATION}" == true && "${MAINTENANCE_PREPARE_ONLY}" != true ]]; then
+    recovery_directory="$(mktemp -d "${TMPDIR:-/tmp}/pms-recovery-checkpoint.XXXXXX")"
+    recovery_state="${recovery_directory}/recovery.json"
+    printf 'azurePilotRecoveryEvidence=%s\n' "${recovery_directory}"
+    if ! recovery_postgres_host="$(python3 "${recovery_helper}" preflight \
+      --state "${recovery_state}" --az-bin "${azure_cli_bin}")"; then
+      printf 'azurePilotRelease=RECOVERY_PREFLIGHT_FAILED\n' >&2
+      exit 79
+    fi
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      # Never expose raw identifiers through an Actions artifact, even if a
+      # caller accidentally omits the workflow's encryption-required flag.
+      [[ -f "${recovery_directory}/recovery.p7m" ]] || {
+        printf 'azurePilotRelease=RECOVERY_ENCRYPTED_EVIDENCE_REQUIRED\n' >&2
+        exit 79
+      }
+      printf 'recovery_evidence=%s\n' "${recovery_directory}/recovery.p7m" >>"${GITHUB_OUTPUT}"
+    fi
+  fi
   if ! load_job_execution_override "${MAINTENANCE_JOB_NAME}" maintenance; then
     printf 'azurePilotRelease=MAINTENANCE_JOB_CONFIGURATION_INVALID\n' >&2
     exit 79
@@ -874,8 +906,16 @@ if [[ "${maintenance_release}" == 'true' ]]; then
 fi
 
 if [[ "${RUN_MIGRATION}" == 'true' ]]; then
-  if ! quiesce_apps; then
+  if ! python3 "${recovery_helper}" arm --state "${recovery_state}" --az-bin "${azure_cli_bin}" \
+    || ! quiesce_apps; then
     printf 'azurePilotRelease=QUIESCENCE_OR_DRAIN_FAILED\n' >&2
+    exit 79
+  fi
+  if ! python3 "${recovery_helper}" wait --state "${recovery_state}" \
+    --az-bin "${azure_cli_bin}" --drained-at "${recovery_drained_at}" "${recovery_drains[@]}" \
+    || ! run_drain_check \
+    || ! python3 "${recovery_helper}" verify --state "${recovery_state}" --az-bin "${azure_cli_bin}" "${recovery_drains[@]}"; then
+    printf 'azurePilotRelease=RECOVERY_CHECKPOINT_FAILED\n' >&2
     exit 79
   fi
 fi
@@ -965,6 +1005,10 @@ if [[ "${INSPECT_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
 fi
 
 if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
+  if ! load_job_execution_override "${MEMBERSHIP_BACKFILL_JOB_NAME}"; then
+    printf 'azurePilotRelease=MEMBERSHIP_BACKFILL_CONFIGURATION_INVALID\n' >&2
+    exit 75
+  fi
   if ! azure_mutate containerapp job update \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
@@ -976,6 +1020,11 @@ if [[ "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ]]; then
   membership_backfill_execution="$(azure_read containerapp job start \
     --resource-group "${AZURE_RESOURCE_GROUP}" \
     --name "${MEMBERSHIP_BACKFILL_JOB_NAME}" \
+    --container-name "${MEMBERSHIP_BACKFILL_JOB_NAME}" --image "${BACKEND_RELEASE_IMAGE}" \
+    --cpu "${job_override_cpu}" --memory "${job_override_memory}" \
+    --env-vars "${job_override_environment[@]}" \
+    "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
+    --args=--backfill-business-unit-memberships \
     --query name)" || membership_backfill_execution=''
   if [[ -z "${membership_backfill_execution}" || "${membership_backfill_execution}" =~ [[:space:]] ]] \
     || ! wait_for_job "${MEMBERSHIP_BACKFILL_JOB_NAME}" "${membership_backfill_execution}"; then

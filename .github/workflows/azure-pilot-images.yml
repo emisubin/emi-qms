@@ -388,7 +388,7 @@ jobs:
         && (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
       }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment: azure-pilot-image-publish
     permissions:
       contents: read
@@ -425,6 +425,9 @@ jobs:
       RUN_MIGRATION: ${{ needs.scope.outputs.run_migration }}
       BUSINESS_SCHEMA_SEPARATION_APPROVED: ${{ inputs.approve_business_schema_separation }}
       ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256: ${{ secrets.PMS_ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256 }}
+      RECOVERY_POSTGRES_SERVER_NAME: ${{ vars.PMS_POSTGRES_SERVER_NAME }}
+      RECOVERY_EVIDENCE_ENCRYPTION_REQUIRED: 'true'
+      RECOVERY_EVIDENCE_CERTIFICATE_PEM: ${{ vars.PMS_RECOVERY_EVIDENCE_CERTIFICATE_PEM }}
       RUN_DATABASE_BOOTSTRAP: ${{ inputs.run_database_bootstrap }}
       RUN_MEMBERSHIP_BACKFILL: ${{ inputs.run_membership_backfill }}
       INSPECT_MEMBERSHIP_BACKFILL: ${{ inputs.inspect_membership_backfill }}
@@ -450,8 +453,17 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Run migration and replace production revisions
+        id: release
         shell: bash
         run: scripts/deploy-azure-pilot-release.sh
+      - name: Preserve encrypted recovery checkpoint evidence
+        if: ${{ always() && steps.release.outputs.recovery_evidence != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: recovery-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.release.outputs.recovery_evidence }}
+          if-no-files-found: error
+          retention-days: 14
       - name: Record privacy-safe release results
         shell: bash
         env:

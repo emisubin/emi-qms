@@ -82,6 +82,11 @@ else
       .github/workflows/azure-pilot-images.yml \
         | scripts/deploy-azure-pilot-release.sh \
         | scripts/test-azure-pilot-release.sh \
+        | scripts/bootstrap-azure-maintenance.sh \
+        | scripts/test-bootstrap-azure-maintenance.sh \
+        | scripts/azure-recovery-checkpoint.py \
+        | scripts/test-azure-recovery-checkpoint.py \
+        | scripts/test-support/azure-recovery-mock.py \
         | scripts/validate-azure-image-publish-inputs.sh \
         | scripts/test-azure-image-publish-inputs.sh \
         | scripts/validate-azure-pilot-artifacts.sh \

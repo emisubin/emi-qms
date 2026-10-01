@@ -28,6 +28,11 @@ public sealed class BusinessUnitMembershipBackfillRunner(
             throw new InvalidOperationException("Business-unit membership backfill requires enabled multi-database mode.");
         }
 
+        var connectionErrors = businessUnits.ValidateOperationConnections(
+            configuration, BusinessUnitConnectionPurpose.Migration);
+        if (connectionErrors.Count > 0)
+            throw new InvalidOperationException("Business-unit membership backfill migration connections are invalid.");
+
         var approvedUserIds = ReadApprovedIds("ApprovedUserIds");
         if (approvedUserIds.Count == 0)
         {

@@ -390,7 +390,13 @@ try:
         assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:]*", name)
         key = name.replace("__", ":").lower()
         assert key not in env
-        assert (item.get("value") is not None) != (item.get("secretRef") is not None)
+        reference = item.get("secretRef")
+        if reference not in (None, ""):
+            # Azure CLI can serialize value="" alongside a secret reference.
+            assert re.fullmatch(r"[a-z0-9-]+", reference)
+            assert item.get("value") in (None, "")
+        else:
+            assert item.get("value") is not None
         env[key] = item
         assert key not in {"database:migrationtarget", "database:bootstraptarget", "database:businessschemaseparationapproved", "database:recoverypostgreshost"}
         assert not key.startswith(("deploymentdrain:", "maintenance:"))

@@ -202,9 +202,9 @@ class LogicalRecoveryTests(unittest.TestCase):
         validated = module._parse_config(self.config)
         recovery = module.PostgresLogicalRecovery(validated)
         sql = recovery._inventory_sql(validated.targets[1]).decode()
-        self.assertIn("qms_database_identity", sql)
-        self.assertIn("schema_migrations", sql)
-        self.assertIn("deployment_maintenance", sql)
+        self.assertIn("public.qms_database_identity", sql)
+        self.assertIn("public.schema_migrations", sql)
+        self.assertIn("public.deployment_maintenance", sql)
         self.assertIn("count(*)", sql)
         self.assertIn("sha256(convert_to(to_jsonb(t)::text", sql)
         self.assertIn("pg_sequences", sql)
@@ -776,6 +776,7 @@ class LogicalRecoveryDockerEndToEndTests(unittest.TestCase):
     def _initialize_source(self):
         password = self._sql_literal(self.password)
         self._psql("postgres", f"""
+ALTER ROLE postgres SET search_path TO "$user";
 CREATE ROLE backup_reader LOGIN SUPERUSER PASSWORD {password};
 CREATE ROLE directory_runtime NOLOGIN;
 CREATE ROLE cheongju_runtime NOLOGIN;
@@ -804,6 +805,7 @@ CREATE TABLE deployment_maintenance(singleton boolean PRIMARY KEY, enabled boole
 INSERT INTO deployment_maintenance VALUES (true, false);
 """
             self._psql(database, f"""
+SET search_path TO public;
 CREATE TABLE qms_database_identity(
   singleton boolean PRIMARY KEY, database_kind text NOT NULL,
   business_unit_code text, schema_contract text NOT NULL);

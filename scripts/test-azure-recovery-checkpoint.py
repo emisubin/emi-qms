@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import copy
+from concurrent.futures import Future
 from contextlib import redirect_stderr
 from datetime import datetime, timedelta, timezone
 import importlib.util
@@ -87,6 +88,67 @@ class CheckpointTests(unittest.TestCase):
                           side_effect=subprocess.TimeoutExpired(cmd=["az"], timeout=30)):
             with self.assertRaisesRegex(RuntimeError, "^AZURE_READ_TIMEOUT$"):
                 module.Checkpoint.read(self.checkpoint, "account", "show")
+
+    def test_azure_read_retries_only_classified_transient_failures_within_budget(self):
+        self.checkpoint.deadline = None
+        transient = SimpleNamespace(returncode=1, stdout="", stderr="ERROR: (ServiceUnavailable) private host password=value")
+        success = SimpleNamespace(returncode=0, stdout="[]", stderr="")
+        with patch.object(module.subprocess, "run", side_effect=[transient, success]) as run, \
+                patch.object(module.time, "sleep") as sleep:
+            self.assertEqual([], module.Checkpoint.read(self.checkpoint, "containerapp", "replica", "list"))
+            self.assertEqual(2, run.call_count)
+            sleep.assert_called_once_with(2)
+        for stderr in ("ERROR: (AuthorizationFailed) secret", "ERROR: (ResourceNotFound) secret",
+                       "unknown private failure", "ERROR: (TooManyRequests) secret\nRetry-After: 600"):
+            with self.subTest(stderr=stderr), patch.object(module.subprocess, "run",
+                    return_value=SimpleNamespace(returncode=1, stdout="", stderr=stderr)) as run, \
+                    patch.object(module.time, "sleep") as sleep:
+                with self.assertRaisesRegex(module.AzureReadError, "^AZURE_READ_FAILED$") as raised:
+                    module.Checkpoint.read(self.checkpoint, "containerapp", "replica", "list", "--name", "private-app")
+                self.assertEqual(1, run.call_count)
+                sleep.assert_not_called()
+                self.assertNotIn("secret", json.dumps(raised.exception.diagnostic))
+                self.assertNotIn("private", json.dumps(raised.exception.diagnostic))
+        with patch.object(module.subprocess, "run", return_value=transient) as run, \
+                patch.object(module.time, "sleep"):
+            with self.assertRaises(module.AzureReadError) as raised:
+                module.Checkpoint.read(self.checkpoint, "containerapp", "replica", "list")
+            self.assertEqual(3, run.call_count)
+            self.assertEqual(503, raised.exception.diagnostic["httpStatus"])
+            self.assertEqual(3, raised.exception.diagnostic["attempt"])
+
+    def test_azure_read_deadline_and_malformed_success_never_pass(self):
+        self.checkpoint.deadline = time.monotonic() + 0.5
+        with patch.object(module.subprocess, "run", return_value=SimpleNamespace(
+                returncode=1, stdout="", stderr="ERROR: (InternalServerError) private")) as run, \
+                patch.object(module.time, "sleep") as sleep:
+            with self.assertRaises(module.AzureReadError):
+                module.Checkpoint.read(self.checkpoint, "containerapp", "replica", "list")
+            self.assertLessEqual(run.call_args.kwargs["timeout"], 0.5)
+            sleep.assert_not_called()
+        with patch.object(module.subprocess, "run", return_value=SimpleNamespace(
+                returncode=0, stdout="not-json", stderr="")) as run:
+            with self.assertRaises(json.JSONDecodeError):
+                module.Checkpoint.read(self.checkpoint, "containerapp", "replica", "list")
+            self.assertEqual(1, run.call_count)
+
+    def test_main_saves_only_structured_read_failure_without_advancing_gate(self):
+        diagnostic = {"command": "containerapp replica list", "atUtc": self.drained,
+                      "attempt": 3, "exitCode": 1, "httpStatus": 503,
+                      "errorClass": "ServiceUnavailable"}
+        failure = module.AzureReadError("AZURE_READ_FAILED", diagnostic)
+        output = io.StringIO()
+        with patch.object(module, "Checkpoint", return_value=self.checkpoint), \
+                patch.object(self.checkpoint, "wait", side_effect=failure), \
+                patch.object(sys, "argv", ["checkpoint", "wait", "--state", str(self.path)]), \
+                redirect_stderr(output):
+            self.assertEqual(1, module.main())
+        state = json.loads(self.path.read_text())
+        self.assertEqual("armed", state["phase"])
+        self.assertEqual(diagnostic, state["azureReadFailure"])
+        self.assertEqual(0o600, self.path.stat().st_mode & 0o777)
+        self.assertNotIn("ServiceUnavailable", output.getvalue())
+        self.assertIn("reason=AZURE_READ_FAILED", output.getvalue())
 
     def verify(self):
         for key in self.final_drains:
@@ -192,6 +254,43 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual("armed", json.loads(self.path.read_text())["phase"])
         self.assertEqual("UNEXPECTED_FAILURE", json.loads(self.path.read_text())["logicalBackupFailureCode"])
         self.assertNotIn("private diagnostic", self.path.read_text())
+
+    def test_simultaneous_observation_and_worker_failure_preserves_both_boundaries(self):
+        self.logical_mode()
+        released = threading.Event()
+        real_quiet = self.checkpoint.quiet
+        calls = []
+        def create(_):
+            released.wait(2)
+            raise self.checkpoint.logical_module.RecoveryError("RESTORED_INVENTORY_MISMATCH")
+        def quiet(state):
+            calls.append(1)
+            if len(calls) > 1:
+                released.set()
+                raise module.AzureReadError("AZURE_READ_FAILED", {"command": "containerapp replica list"})
+            real_quiet(state)
+        self.checkpoint.logical_module.create_backup = create
+        self.checkpoint.quiet = quiet
+        result = Future.result
+        with patch.object(Future, "result", lambda future, timeout=None: result(
+                future, min(timeout, 0.01) if timeout is not None else None)):
+            with self.assertRaisesRegex(module.AzureReadError, "^AZURE_READ_FAILED$"):
+                self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+        state = json.loads(self.path.read_text())
+        self.assertEqual("armed", state["phase"])
+        self.assertEqual("RESTORED_INVENTORY_MISMATCH", state["logicalBackupFailureCode"])
+
+    def test_worker_completing_at_wait_timeout_is_still_validated(self):
+        self.logical_mode()
+        result = Future.result
+        def finish_at_timeout(future, timeout=None):
+            value = result(future, timeout)
+            if timeout is not None:
+                raise module.FutureTimeout()
+            return value
+        with patch.object(Future, "result", finish_at_timeout):
+            self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+        self.assertEqual("candidate", json.loads(self.path.read_text())["phase"])
 
     def test_logical_failure_preserves_only_driver_codes_in_private_evidence(self):
         self.logical_mode()

@@ -24,6 +24,8 @@ required_files=(
   "${repository_root}/scripts/test-bootstrap-azure-maintenance.sh"
   "${repository_root}/scripts/azure-recovery-checkpoint.py"
   "${repository_root}/scripts/test-azure-recovery-checkpoint.py"
+  "${repository_root}/scripts/postgres-logical-recovery.py"
+  "${repository_root}/scripts/test-postgres-logical-recovery.py"
   "${repository_root}/scripts/test-support/azure-recovery-mock.py"
   "${repository_root}/frontend/Dockerfile.azure"
   "${azure_directory}/nginx.conf.template"
@@ -360,6 +362,7 @@ NODE
 "${repository_root}/scripts/test-pwa-assets.sh" >/dev/null
 "${repository_root}/scripts/test-azure-image-publish-inputs.sh" >/dev/null
 python3 "${repository_root}/scripts/test-azure-recovery-checkpoint.py" >/dev/null
+python3 "${repository_root}/scripts/test-postgres-logical-recovery.py" >/dev/null
 "${repository_root}/scripts/test-azure-pilot-release.sh" >/dev/null
 
 if [[ "${compile_templates}" == 'true' ]]; then

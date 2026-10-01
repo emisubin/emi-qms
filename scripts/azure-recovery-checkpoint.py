@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Select an Azure-listed, post-drain full backup. Never create or restore one."""
+"""Verify post-drain recovery evidence before a production schema change."""
 import argparse
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from datetime import datetime, timedelta, timezone
+import importlib.util
 import json
 import hashlib
 import os
@@ -75,6 +77,10 @@ SAFE_FAILURE_REASONS = frozenset({
     "JOB_MODE_INVALID",
     "JOB_SET_CHANGED",
     "JOB_STILL_RUNNING",
+    "INVALID_RECOVERY_EVIDENCE_KIND",
+    "LOGICAL_BACKUP_CONFIGURATION_INVALID",
+    "LOGICAL_BACKUP_FAILED",
+    "LOGICAL_BACKUP_EVIDENCE_INVALID",
     "MISSING_CONFIGURATION",
     "NO_AVAILABLE_FULL_BACKUP",
     "PUBLIC_CERTIFICATE_ONLY",
@@ -134,6 +140,35 @@ class Checkpoint:
                         "apps": [environment["BACKEND_APP_NAME"], environment["FRONTEND_APP_NAME"]],
                         "evidenceCertificateSha256": hashlib.sha256(self.certificate.encode()).hexdigest()
                             if self.certificate else None}
+        self.evidence_kind = environment.get("RECOVERY_EVIDENCE_KIND", "AzureAvailableFullBackup")
+        require(self.evidence_kind in ("AzureAvailableFullBackup", "VerifiedLogicalDatabaseBackup"),
+                "INVALID_RECOVERY_EVIDENCE_KIND")
+        self.logical_config = None
+        self.logical_module = None
+        config_path = environment.get("RECOVERY_LOGICAL_BACKUP_CONFIG", "")
+        if self.evidence_kind == "VerifiedLogicalDatabaseBackup":
+            require(bool(self.certificate) and bool(config_path), "LOGICAL_BACKUP_CONFIGURATION_INVALID")
+            path = Path(config_path)
+            require(path.is_absolute() and not path.is_symlink() and path.is_file()
+                    and stat.S_IMODE(path.stat().st_mode) & 0o077 == 0
+                    and not path.parent.is_symlink()
+                    and stat.S_IMODE(path.parent.stat().st_mode) & 0o077 == 0,
+                    "LOGICAL_BACKUP_CONFIGURATION_INVALID")
+            raw = path.read_bytes()
+            self.logical_config = json.loads(raw)
+            expected = {key: self.binding[key] for key in ("sourceSha", "releaseId", "serverId", "expectedHost")}
+            require(self.logical_config.get("binding") == expected, "LOGICAL_BACKUP_CONFIGURATION_INVALID")
+            require(Path(self.logical_config["certificatePath"]).read_text().strip() == self.certificate,
+                    "LOGICAL_BACKUP_CONFIGURATION_INVALID")
+            self.binding.update(evidenceKind=self.evidence_kind, logicalConfigSha256=hashlib.sha256(raw).hexdigest())
+            spec = importlib.util.spec_from_file_location(
+                "pms_postgres_logical_recovery", Path(__file__).with_name("postgres-logical-recovery.py"))
+            self.logical_module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = self.logical_module
+            spec.loader.exec_module(self.logical_module)
+            self.logical_config["binding"] = dict(self.binding)
+        else:
+            require(not config_path, "LOGICAL_BACKUP_CONFIGURATION_INVALID")
         self.rg = ["--resource-group", environment["AZURE_RESOURCE_GROUP"]]
 
     def read(self, *args):
@@ -272,6 +307,11 @@ class Checkpoint:
     def preflight(self, path):
         server = self.server()
         require(self.backups(), "NO_AVAILABLE_FULL_BACKUP")
+        if self.logical_config is not None:
+            try:
+                self.logical_module.validate_config(self.logical_config)
+            except Exception:
+                raise RuntimeError("LOGICAL_BACKUP_CONFIGURATION_INVALID") from None
         state = {"schemaVersion": 1, "binding": self.binding, "preparedAtUtc": utc_now().isoformat(),
                  "server": server, "jobs": self.jobs(), "phase": "prepared"}
         self.save(path, state, new=True)
@@ -302,6 +342,9 @@ class Checkpoint:
         require(instant(state["armedAtUtc"]) <= drained, "DRAIN_BEFORE_ARMED")
         require(drained <= utc_now(), "DRAIN_TIME_IN_FUTURE")
         self.deadline = time.monotonic() + min(self.timeout, (self.ends_at - utc_now()).total_seconds())
+        if self.logical_config is not None:
+            self.create_logical_candidate(path, state, drained_at)
+            return
         while True:
             require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
             self.quiet(state)
@@ -317,6 +360,50 @@ class Checkpoint:
                 return
             time.sleep(max(0, min(self.interval, self.deadline - time.monotonic())))
 
+    def logical_configuration(self, drained_at):
+        return dict(self.logical_config,
+                    drainedAtUtc=instant(drained_at).isoformat().replace("+00:00", "Z"),
+                    deadlineUtc=min(self.ends_at, utc_now() + timedelta(
+                        seconds=max(0, self.deadline - time.monotonic()))).isoformat().replace("+00:00", "Z"))
+
+    def create_logical_candidate(self, path, state, drained_at):
+        self.quiet(state)
+        server = self.server()
+        config = self.logical_configuration(drained_at)
+        # The fixed backup implementation only reads production and restores into
+        # its own offline local cluster. Keep watching the existing write freeze
+        # while that work runs; an observation failure never produces a candidate.
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            future = worker.submit(self.logical_module.create_backup, config)
+            while True:
+                try:
+                    evidence = future.result(timeout=min(30, max(0.01, self.deadline - time.monotonic())))
+                    break
+                except FutureTimeout:
+                    require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
+                    self.quiet(state)
+                except Exception:
+                    raise RuntimeError("LOGICAL_BACKUP_FAILED") from None
+        require(time.monotonic() < self.deadline, "BACKUP_WAIT_EXPIRED")
+        self.validate_logical_evidence(evidence, config)
+        self.quiet(state)
+        state.update(phase="candidate", drainedAtUtc=drained_at, server=server,
+                     logicalBackup=evidence, allowedDrains=self.allowed_drains,
+                     selectedAtUtc=utc_now().isoformat(), evidenceKind=self.evidence_kind)
+        self.save(path, state)
+
+    def validate_logical_evidence(self, evidence, config):
+        require(isinstance(evidence, dict) and evidence.get("binding") == self.binding
+                and evidence.get("evidenceKind") == "VerifiedLogicalDatabaseBackup"
+                and instant(evidence.get("drainedAtUtc")) == instant(config["drainedAtUtc"]),
+                "LOGICAL_BACKUP_EVIDENCE_INVALID")
+        require(instant(config["drainedAtUtc"]) < instant(evidence["startedAtUtc"])
+                <= instant(evidence["completedAtUtc"]) <= utc_now(), "LOGICAL_BACKUP_EVIDENCE_INVALID")
+        try:
+            self.logical_module.verify_backup(evidence, config)
+        except Exception:
+            raise RuntimeError("LOGICAL_BACKUP_EVIDENCE_INVALID") from None
+
     def verify(self, path, drain_executions):
         state = self.load(path)
         require(state["phase"] == "candidate" and utc_now() < self.ends_at, "CHECKPOINT_NOT_READY")
@@ -324,10 +411,15 @@ class Checkpoint:
         self.deadline = time.monotonic() + min(120, (self.ends_at - utc_now()).total_seconds())
         self.quiet(state)
         server = self.server()
-        require(state["backup"] in self.backups()
-                and instant(state["backup"]["completedTime"]) > instant(state["drainedAtUtc"])
-                and instant(state["backup"]["completedTime"]) > instant(server["earliestRestoreDate"]),
-                "SELECTED_BACKUP_NO_LONGER_AVAILABLE")
+        if self.logical_config is not None:
+            require(state.get("evidenceKind") == self.evidence_kind, "LOGICAL_BACKUP_EVIDENCE_INVALID")
+            self.validate_logical_evidence(state["logicalBackup"],
+                                           self.logical_configuration(state["drainedAtUtc"]))
+        else:
+            require(state["backup"] in self.backups()
+                    and instant(state["backup"]["completedTime"]) > instant(state["drainedAtUtc"])
+                    and instant(state["backup"]["completedTime"]) > instant(server["earliestRestoreDate"]),
+                    "SELECTED_BACKUP_NO_LONGER_AVAILABLE")
         self.quiet(state)
         state.update(phase="verified", allowedDrains=self.allowed_drains, verifiedAtUtc=utc_now().isoformat(), server=server)
         self.save(path, state)
@@ -354,7 +446,8 @@ def main():
             print("recoveryCheckpoint=CANDIDATE_REQUIRES_FINAL_DRAIN")
         else:
             checkpoint.verify(args.state, args.drain_execution)
-            print("recoveryCheckpoint=VERIFIED_AVAILABLE_FULL_BACKUP")
+            print("recoveryCheckpoint=VERIFIED_LOGICAL_DATABASE_BACKUP" if checkpoint.logical_config is not None
+                  else "recoveryCheckpoint=VERIFIED_AVAILABLE_FULL_BACKUP")
     except Exception as error:
         # Provider stderr, secrets and private identifiers never become release logs.
         print("recoveryCheckpoint=FAILED_NO_DATABASE_CHANGE_ALLOWED"

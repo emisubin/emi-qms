@@ -127,7 +127,7 @@ azure_sha="$(git -C "${synthetic_repository}" rev-parse HEAD)"
 assert_scope azure 'classification=azure-policy-only' "${workflow_sha}" "${azure_sha}"
 assert_scope azure-validation 'run_azure_validation=true' "${workflow_sha}" "${azure_sha}"
 
-for checkpoint_path in scripts/azure-recovery-checkpoint.py scripts/test-azure-recovery-checkpoint.py scripts/test-support/azure-recovery-mock.py scripts/bootstrap-azure-maintenance.sh scripts/test-bootstrap-azure-maintenance.sh; do
+for checkpoint_path in scripts/azure-recovery-checkpoint.py scripts/test-azure-recovery-checkpoint.py scripts/postgres-logical-recovery.py scripts/test-postgres-logical-recovery.py scripts/test-support/azure-recovery-mock.py scripts/bootstrap-azure-maintenance.sh scripts/test-bootstrap-azure-maintenance.sh; do
   checkpoint_base="$(git -C "${synthetic_repository}" rev-parse HEAD)"
   commit_file "$checkpoint_path" recovery
   checkpoint_head="$(git -C "${synthetic_repository}" rev-parse HEAD)"

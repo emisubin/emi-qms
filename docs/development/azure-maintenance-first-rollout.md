@@ -76,31 +76,43 @@ Azure CLI 2.88.0의 `start_containerappjob_execution_yaml`은 `JobExecutionTempl
 
 ## 이번 구조 분리의 배포 창과 복구 계획
 
-2026-10-01의 준비 계획이다. 사용자 직접 검수는 명시적으로 생략됐으며 required CI·자동 검증은 유지한다. 이번 승인은 준비까지다. 실제 공지·main 병합·이미지 게시·운영 구조 변경·앱 교체는 최종 실행 단계에 남는다.
+2026-10-01 사용자는 코드·DB 구조 병합과 공개배포를 승인하고 실행 시점은 “지금”으로 확정했다. 사용자 직접 검수는 명시적으로 생략됐으며 required CI·자동 검증은 유지한다. 실제 진행 상태는 Change031 최신 기록이 소유한다. 운영02028에는 공지·점검 기능이 있고 Sep25 최초 도입 예외는 이미 사용했으므로 아래 정상 공지 순서를 따른다.
 
-- 시작 기준 T0는 기술 준비와 최종 실행 승인이 끝난 뒤 공지한 실제 중단 시작시각이다. 자동 Full 백업의 최근 완료 패턴과 가용성을 확인하여 실행 창 후보를 잡되, 지금 중단을 예약하거나 시각을 확정하지 않는다. **60분을 작업 창의 계획 예산**으로 잡는다. 이는 완료 보장이 아니며, 지연 시 상태와 다음 판단 시각을 알리고 검증 없이 저장을 재개하지 않는다.
+- 시작 기준 T0는 기술 준비 뒤 공지한 실제 중단 시작시각이다. **60분을 작업 창의 계획 예산**으로 잡는다. 이는 완료 보장이 아니며, 지연 시 상태와 다음 판단 시각을 알리고 검증 없이 저장을 재개하지 않는다. 자동 Full 방식은 최근 완료 패턴에 맞는 창이 필요하다. 지금 실행에는 아래 검증된 논리 사본 방식을 명시적으로 선택한다.
 - 중단 전에 정확한 main SHA/필수 CI, 검증한 두 image digest, 기존 revision/image·설정·세 연결 secret의 버전, Manual job 중복 없음, 백업 보관/복구 연습 유효성, 승인된 메일 snapshot, 공지·실행값을 준비한다. 기존 backend 한 개와 현재 자원량을 유지한다. pgAdmin·중계·수동 DB 연결을 닫고 다른 운영자/자동화의 접속을 멈춘다.
-- T0 이후 순서는 대체 사전 공지 확인 → frontend/backend 모든 replica 종료 → D/C/O 읽기 전용 drain → 이후 완료된 자동 Full 백업 확인 → D/C/O drain 재검사·동일 백업 재검증 → D/C/O migration → 점검 공지 준비/활성화 → 새 backend/frontend readiness·보안 검사 → exact ledger 확인·저장 재개다. 첫 migration 요청 전에 복구 기준이 확보되지 않거나 drain이 실패하면 DB 변경을 시작하지 않는다.
-- 복구 기준은 **최초 drain의 Azure `endTime`보다 뒤에 완료되어 Azure backup list에 표시된 Full/Automatic 백업의 정확한 `completedTime`**이다. helper는 원본 시각 문자열을 보존한다. `earliestRestoreDate`는 복원 하한 확인에만 쓰며 현재시각·임의 대기·과거 일일 백업만으로 최신 복구 가능성을 추정하지 않는다. `latest` 대신 선택한 백업의 완료시각으로 full backup 복원을 요청한다.
+- 순서는 공지 게시/별도 팝업 준비 성공 → main 병합/검증된 이미지 준비 → T0에 점검 활성화 → frontend/backend 모든 replica 종료 → D/C/O 읽기 전용 drain → 선택한 방식의 복구 증거 확보 → D/C/O drain 재검사·동일 백업 재검증 → D/C/O migration → 새 backend/frontend readiness·보안 검사 → exact ledger 확인·저장 재개다. 첫 migration 요청 전에 복구 기준이 확보되지 않거나 drain이 실패하면 DB 변경을 시작하지 않는다.
+- 기본 Azure Full 방식의 기준은 **최초 drain의 Azure `endTime`보다 뒤에 완료되어 Azure backup list에 표시된 Full/Automatic 백업의 정확한 `completedTime`**이다. helper는 원본 시각 문자열을 보존한다. `earliestRestoreDate`는 복원 하한 확인에만 쓰며 현재시각·임의 대기·과거 일일 백업만으로 최신 복구 가능성을 추정하지 않는다. `latest` 대신 선택한 백업의 완료시각으로 full backup 복원을 요청한다. 논리 사본 방식은 이 시각 조건을 무시하지 않고 별도의 실제 복구 증거로 대체한다.
 
 ### 복구 checkpoint의 실행 계약
 
 - `scripts/azure-recovery-checkpoint.py`를 최초 runner와 일반 migration release가 공통 사용한다. 정상 앱 교체만 하는 release에는 DB checkpoint를 요구하지 않는다.
 - preflight에서 명시한 subscription/resource group/server와 실제 FQDN을 대조한다. `Database:RecoveryPostgresHost`를 실행별로 주입하여 D/C/O drain과 실제 migration·role bootstrap의 Runtime/Migration/Administrator 연결도 같은 서버를 가리키게 한다. 선택적으로 실행하는 membership backfill 역시 실행 override로 같은 host를 받고 첫 DB 접속 전에 사용 대상 Migration 연결 세 개를 검증한다. 빈 값·다른 host는 DB 쓰기 전에 차단하고 일반 웹앱/영구 Job template에는 이 실행값을 저장하지 않는다.
 - `arm` 뒤에는 두 앱의 모든 revision 비활성·replica 0과 resource group 내 모든 Manual Job을 매회 확인한다. 기준선에 없던 실행은 이미 Succeeded/Failed/Stopped여도 거부한다. 이 runner가 받은 최초 drain 3개와 최종 drain 3개의 정확한 execution ID만 예외이며, 재사용·누락도 차단한다. 배포 창 동안 다른 운영자·자동화의 수동 DB/Job 접속 금지는 계속 필요하다.
-- 후보 백업은 정확한 원본 서버에 속한 Full/Automatic만 허용한다. 미래 시각·잘못된 타입/ID·부분 페이지·중복·조회 실패는 차단한다. 마지막 drain 뒤에도 같은 백업과 복구 범위·앱/Job 상태를 재검증한 후에만 첫 DB 변경을 요청한다.
+- 기본 Azure 방식의 후보 백업은 정확한 원본 서버에 속한 Full/Automatic만 허용한다. 미래 시각·잘못된 타입/ID·부분 페이지·중복·조회 실패는 차단한다. 두 방식 모두 마지막 drain 뒤에도 같은 백업과 복구 범위·앱/Job 상태를 재검증한 후에만 첫 DB 변경을 요청한다.
 - 대기는 `RECOVERY_CHECKPOINT_TIMEOUT_SECONDS` 기본 900초, 허용 1~1800초이며 `RECOVERY_CHECKPOINT_POLL_SECONDS` 기본 30초, 허용 1~60초다. 공지한 종료 예정시각이 먼저 오면 그 시각까지만 기다린다. 조건이 안 되면 DB migration을 시작하지 않고 기존 서비스 복구를 검증한다. 작업 창에 맞는 자동 백업이 없으면 배포 창을 다시 정한다. 자동 백업의 실행/완료를 이 runner가 보장하지 않는다.
-- 원본 서버는 Burstable이므로 지원하지 않는 on-demand 백업을 강행하지 않는다. helper는 백업 조회만 하며 새 백업·서버·유료 자원을 생성하지 않는다. **Azure에 복구 가능한 백업이 표시됨**을 검증하는 단계이지 실제 복원 연습을 새로 완료한 것은 아니다.
+- 원본 서버는 Burstable이므로 지원하지 않는 on-demand snapshot을 강행하지 않는다. Azure 방식은 백업 조회만 하며 새 백업·서버·유료 자원을 생성하지 않는다. 이 방식의 **Azure에 복구 가능한 백업이 표시됨**과 아래 논리 방식의 실제 로컬 복구 성공은 다른 증거다.
 - private `recovery.json`은 SHA/release/server/앱 binding, 기준 Job 실행 이력, Azure drain 종료시각, 선택 백업 ID/완료시각, 검증시각을 저장한다. 디렉터리 0700·파일 0600과 원자적 교체를 사용하며 저장 실패도 차단한다. secret·connection string·메일 승인값·업무 row는 저장하지 않는다. 최초 runner의 실행 폴더는 보존된다. 공개 저장소의 일반 workflow는 OpenSSL 3의 CMS AES-256-GCM·RSA-OAEP(SHA-256)로 암호화한 `recovery.p7m` 하나만 Actions artifact로 14일 보존한다. 수신자 인증서의 주체/발급자 이름도 envelope에 넣지 않도록 `-keyid`를 사용한다. 평문 JSON·상위 폴더를 게시하거나 암호화 실패 시 평문으로 대체하지 않는다. preflight에서도 암호화를 검증하고 최종 verified 기록의 암호화·저장 성공 후에만 DB 변경을 허용한다. runner 자체 손실에는 artifact 게시를 보장할 수 없으므로 실제 운영자는 실행 중 비공개 증거의 보관 가능성도 확인한다.
 - 일반 workflow는 `azure-pilot-image-publish` Environment의 `PMS_POSTGRES_SERVER_NAME` 및 `PMS_RECOVERY_EVIDENCE_CERTIFICATE_PEM` 변수를 읽는다. 후자는 Subject Key Identifier를 가진 RSA 2048비트 이상의 공개 인증서이며 공개 인증서만 전달한다. 대응 private key는 운영자가 별도 비공개 보관하고 실제 키로 합성 기록을 복호화할 수 있음을 실행 전에 확인한다. 인증서 누락/오류·지원되지 않는 OpenSSL·암호화/저장 실패는 앱 정지 전에 또는 DB 변경 전에 차단한다. 최초 로컬 runner는 기존 비공개 JSON 보관만 사용해도 된다. 이번 준비에서 운영 변수는 변경하지 않았으며 최종 실행 설정에 실제 원본 서버 이름을 지정한다. release Job 제한은 기존 작업 30분에 기본 backup 대기 15분을 더한 45분이며, 사용자가 공지한 작업 창과 별개다.
 
 구현·합성 실패 검사·독립 검토 결과는 Change031 최신 기록을 따른다. 실제 backup 후보 선택·복원 연습·main 병합·운영 전환은 아직 실행한 것으로 기록하지 않는다.
 
+### 자동 백업을 기다리지 않는 논리 복구 증거
+
+- 기본값은 `RECOVERY_EVIDENCE_KIND=AzureAvailableFullBackup`이다. 로컬 정상 runner에서만 명시적으로 `VerifiedLogicalDatabaseBackup`과 `RECOVERY_LOGICAL_BACKUP_CONFIG`를 함께 설정한다. config는 Git 밖 0700 폴더의0600 JSON이며 임의 명령/검증기를 지정할 수 없다. 동일 source/release/server, 세 DB 및 runtime 역할, 고정 PG16 image ID, loopback 중계 포트, TLS root certificate, 전용 사본 폴더와 키를 지정한다. 키나 credential은 로그·Actions·Git에 보내지 않는다. config hash도 checkpoint binding에 묶어 실행 도중 바뀌면 거부한다.
+- frontend를 통한 기존 중계는 앱 중단 시 끊긴다. 이번 실행은 같은 environment의 기존 ClamAV 앱에 시간 제한이 있는 단일 exec/SSH relay를 사용한다. PostgreSQL host/5432만 허용하고 DB TLS를 끝까지 검증한다. DB credential은 로컬 client만 보유하며 ClamAV 설정·identity·public ingress를 바꾸지 않는다. 이 통로 외 pgAdmin/수동 DB 연결은 종료한다. 중계가 살아 있어도 실제 DB 세션은 최초·최종 drain 때0이어야 한다.
+- helper는 최초 drain 뒤 고정된 `postgres-logical-recovery.py`를 호출한다. 세 DB를 PG16 도구로 dump하고 globals는 `--no-role-passwords`로 수집한다. 같은 PG16의 단일 network-none/tmpfs cluster에 **실제 보관할 암호문을 복호화하여** owner/ACL을 유지한 채 복구한다. 복구 오류, DB identity/원장·schema/owner/ACL·표 데이터·sequence·large object·runtime DB 접근 차이는 모두 실패다. source의 client는읽기 전용이며 백업 전후와 최종 drain까지 serving 앱 정지와 Job 이력 고정을 유지한다.
+- Azure의 OID10 bootstrap 역할을 원본에서 확인하여 로컬 cluster도 동일하게 초기화한다. 복구용 globals에서 이미 생성된 그 역할의 `CREATE ROLE` 정확히 한 문장만 제외한다. 원본 globals는 그대로 보관한다. Azure 전용 `pg_signal_autovacuum_worker`의 관리 역할 GRANT는 upstream PG16에 없어, 확인된 한 문장이 한 번만 등장하고 세 DB schema에 의존성이 없을 때만 로컬 검증에서 제외한다. 제외 문장·원본 hash·사유는 암호화 manifest에 남기며 다른 권한 오류는 허용하지 않는다. 따라서 이 검증은 해당 플랫폼 차이를 명시한 업무 DB 복구이며 Azure 관리 기능까지 동일하다는 의미가 아니다. 관측된 `/mnt/pg_tmp`는 로컬 tmpfs로만 준비하며 다른 tablespace 경로는 거부한다.
+- 같은 조건식도 PostgreSQL 재파싱 뒤 괄호 표현이 달라질 수 있다. 별도로 읽은 원본 schema SQL을 격리 cluster에 적용해 PostgreSQL 자체가 만든 canonical schema를 기대값으로 보관하고, 실제 전체 복구 결과와 비교한다. 원본 SQL과 데이터 dump는 그대로 보존하며 운영 원본의 변경 여부는 raw schema와 데이터 proof로 다시 검사한다. SQL 괄호·제약조건을 임의 삭제하거나 문자열 차이를 통째 무시하지 않는다. 빈 schema 검증 DB 제거와 전체 복구는 소유·image·network가 확인된 로컬 cluster 안에서만 수행한다.
+- 복구 작업에는 helper의 남은 배포 창과 driver의 최대 예산 중 작은 값을 적용한다. source client와 restore container는 실행별 이름·소유 label로 추적하며, 시간 초과 이후에도 별도의 제한된 정리 예산으로 해당 실행 자원만 제거하고 부재를 확인한다.
+- 논리 사본은 DB 구조/업무 데이터의 복구 수단이다. Azure 서버/방화벽/관리 identity나 role 비밀번호를 백업한 것으로 해석하지 않는다. 기존 서버 설정·Key Vault 참조/버전을 별도로 보존하며 실제 복구 시 해당 설정과 인증정보를 다시 결합한다. 외부 첨부 객체는 이번 구조 변경 대상이 아니며 기존 저장소를 유지한다.
+- 암호화 사본, 복구 결과 manifest, SHA·release·원본 서버·drain 시각·파일 hash를 개인 사본 폴더에 보존한다. 첫 DB 변경 직전 동일 암호문/manifest와 앱·Job·세 DB 종료 상태를 다시 확인한다. 누락·변조·다른 실행 사본·복호화/복구 오류·대상 불일치에는 migration을 허용하지 않는다. 평문 임시 사본과 소유 복구 cluster는 성공/실패 모두 정리하고 암호화 사본은 보존한다.
+- 02028 공지는 old CLI execution 한 번으로 청주·오산을 함께 준비한다. 이후 새 정상 runner는 `MAINTENANCE_PREPARED=true`, `MAINTENANCE_PREPARATION_IMAGE=<검증된 새 backend digest>`를 사용해 두 사업부의 동일 공지를 검증한다. old 이미지를 새 target loop에 반복 호출하거나 사전 공지 뒤 기본 workflow를 실행하면 중복 준비/활성화가 되므로 사용하지 않는다.
+
 | 실패 경계 | 실행할 복구 |
 | --- | --- |
 | 첫 migration 요청 전 | DB를 바꾸지 않았음을 확인하고 기존 backend/frontend revision을 재개한 뒤 readiness·공개 보안을 확인한다. |
 | 첫 migration 요청 이후, 실행 결과 불명확 포함 | 앱 중단을 유지한다. 기존 execution·세 DB ledger/identity·점검 상태를 먼저 확인하고 승인 범위의 forward fix를 선택한다. runner 전체 재실행·구 image 재기동·역migration으로 추측 복구하지 않는다. |
-| DB를 원래 시점으로 복원해야 하는 경우 | 기록한 Full 백업의 정확한 `completedTime`을 restore-time으로 사용하여 별도 PostgreSQL 서버에 복원한다. 청주·오산·Directory 세 DB를 같은 시점으로 확인하고 schema/원장·보존 수량·사업부 권한/연결·private network·설정·secret 참조를 검증한다. 복원 DB에 맞는 이전 앱 버전과 연결을 함께 전환한 뒤 공개 보안과 로그인/핵심 기능을 확인한다. 기존 운영 서버는 덮어쓰거나 삭제하지 않는다. |
+| DB를 원래 시점으로 복원해야 하는 경우 | Azure 방식은 기록한 Full 백업 `completedTime`을 사용한다. 논리 방식은 동일 중단 구간의 검증된3DB 사본·globals를 사용한다. 별도 승인된 대상에 복원하여 schema/원장·보존 수량·사업부 권한/연결·private network·서버 설정·기존 Key Vault 인증 참조를 검증한다. 복원 DB에 맞는 이전 앱 버전과 연결을 함께 전환한 뒤 공개 보안과 로그인/핵심 기능을 확인한다. 기존 운영 서버를 덮어쓰거나 삭제하지 않는다. |
 
 PITR은 새 서버를 생성하므로 임시 비용과 연결 전환이 수반된다. 이 준비에서 새 유료 자원을 만들지 않았고, 실제 복구 실행 시 필요한 대상·비용 범위를 최종 운영 승인에 포함한다. 복구 시간은 별도이며 60분 배포 창 안에 완료된다고 보장하지 않는다. 재개 전까지 사용자 쓰기를 막아 복구시각 이후의 업무 데이터 유실을 피한다. 재개 후 문제가 발견되면 이후 입력분을 따로 보존·대조할 계획 없이 과거 시점으로 전환하지 않는다.
 

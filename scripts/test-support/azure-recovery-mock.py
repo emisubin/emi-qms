@@ -66,13 +66,15 @@ elif a[:3] == ["containerapp", "revision", "list"]:
         print("synthetic-secret-value-must-not-log", file=sys.stderr)
         sys.exit(1)
     out = [{"name": arg("--name") + "--old", "properties": {
-        "active": active[arg("--name")] or (quiet and scenario == "recovery-active-app")}}]
+        "active": active[arg("--name")] or (quiet and scenario == "recovery-active-app"),
+        "replicas": 1 if active[arg("--name")] or (quiet and scenario in (
+            "recovery-active-app", "recovery-replica-running")) else 0}}]
     if quiet and scenario in ("recovery-multiple-inactive", "recovery-replica-running"):
         out.extend({"name": arg("--name") + f"--inactive-{index}",
-                    "properties": {"active": False}} for index in range(1, 4))
+                    "properties": {"active": False, "replicas": 0}} for index in range(1, 4))
     if quiet and scenario == "recovery-mixed-active-revision":
         out.append({"name": arg("--name") + "--unexpected-active",
-                    "properties": {"active": True}})
+                    "properties": {"active": True, "replicas": 0}})
     if "--all" not in a:
         out = [revision for revision in out if revision["properties"]["active"]]
 elif a[:3] == ["containerapp", "replica", "list"]:

@@ -271,7 +271,6 @@ class Checkpoint:
         return jobs
 
     def quiet(self, state):
-        revision_scopes = []
         for name in self.binding["apps"]:
             revisions = self.read(
                 "containerapp", "revision", "list", *self.rg, "--name", name, "--all")
@@ -280,32 +279,16 @@ class Checkpoint:
             for revision in revisions:
                 require(isinstance(revision, dict)
                         and isinstance(revision.get("name"), str) and revision["name"]
+                        and re.fullmatch(r"[a-zA-Z0-9-]+", revision["name"])
                         and revision["name"] not in revision_names
                         and isinstance(revision.get("properties"), dict),
                         "REVISION_LIST_INVALID")
                 revision_names.add(revision["name"])
-                require(revision["properties"].get("active") is False, "APP_REACTIVATED")
-                revision_scopes.append((name, revision["name"]))
-
-        replica_failures = []
-        with ThreadPoolExecutor(max_workers=min(8, len(revision_scopes))) as workers:
-            futures = [workers.submit(
-                self.read, "containerapp", "replica", "list", *self.rg,
-                "--name", app_name, "--revision", revision_name)
-                for app_name, revision_name in revision_scopes]
-            for future in futures:
-                try:
-                    replicas = future.result()
-                    if not isinstance(replicas, list) or replicas:
-                        replica_failures.append(RuntimeError("REPLICA_STILL_RUNNING"))
-                except Exception as error:
-                    replica_failures.append(error)
-        if replica_failures:
-            first = replica_failures[0]
-            if (isinstance(first, RuntimeError) and len(first.args) == 1
-                    and first.args[0] in SAFE_FAILURE_REASONS):
-                raise first
-            raise RuntimeError("AZURE_READ_FAILED") from first
+                properties = revision["properties"]
+                require(properties.get("active") is False, "APP_REACTIVATED")
+                replicas = properties.get("replicas")
+                require(type(replicas) is int and replicas >= 0, "REVISION_LIST_INVALID")
+                require(replicas == 0, "REPLICA_STILL_RUNNING")
         current = self.jobs()
         require(current.keys() == state["jobs"].keys(), "JOB_SET_CHANGED")
         migration = self.env["MIGRATION_JOB_NAME"]

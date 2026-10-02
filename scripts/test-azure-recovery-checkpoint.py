@@ -70,7 +70,8 @@ class CheckpointTests(unittest.TestCase):
         if args[:3] == ("containerapp", "revision", "list"):
             if not self.active and "--all" not in args:
                 return []
-            return [{"name": "synthetic-revision", "properties": {"active": self.active}}]
+            return [{"name": "synthetic-revision", "properties": {
+                "active": self.active, "replicas": 1 if self.replicas else 0}}]
         if args[:3] == ("containerapp", "replica", "list"):
             return [{}] if self.replicas else []
         if args[:3] == ("containerapp", "job", "list"):
@@ -480,39 +481,59 @@ class CheckpointTests(unittest.TestCase):
         self.checkpoint.deadline = time.monotonic() + 5
         return json.loads(self.path.read_text())
 
-    def test_quiet_reads_all_inactive_revisions_and_rejects_each_unsafe_state(self):
+    def test_quiet_uses_two_revision_reads_for_130_revisions_and_no_replica_reads(self):
         state = self.quiet_state()
         original = self.checkpoint.read
         revision_list_calls = []
+        replica_list_calls = []
 
         def revisions(*args):
             if args[:3] == ("containerapp", "revision", "list"):
                 revision_list_calls.append(args)
                 self.assertIn("--all", args)
-                return [
-                    {"name": "inactive-one", "properties": {"active": False}},
-                    {"name": "inactive-two", "properties": {"active": False}},
-                ]
+                app = args[args.index("--name") + 1]
+                return [{"name": f"{app}-{index}", "properties": {
+                    "active": False, "replicas": 0}} for index in range(65)]
+            if args[:3] == ("containerapp", "replica", "list"):
+                replica_list_calls.append(args)
             return original(*args)
 
         self.checkpoint.read = revisions
         self.checkpoint.quiet(state)
-        self.assertEqual(len(self.checkpoint.binding["apps"]), len(revision_list_calls))
+        self.assertEqual(2, len(revision_list_calls))
+        self.assertEqual([], replica_list_calls)
 
-        for revisions_value, replicas, error in (
-                ([], set(), "REVISION_LIST_INVALID"),
-                ([{"name": "inactive", "properties": {"active": False}},
-                  {"name": "active", "properties": {"active": True}}], set(), "APP_REACTIVATED"),
-                ([{"name": "inactive-one", "properties": {"active": False}},
-                  {"name": "inactive-two", "properties": {"active": False}}],
-                 {"inactive-two"}, "REPLICA_STILL_RUNNING")):
+    def test_quiet_revision_summary_fails_closed_for_every_unsafe_shape(self):
+        state = self.quiet_state()
+        original = self.checkpoint.read
+        valid = {"name": "inactive", "properties": {"active": False, "replicas": 0}}
+        for revisions_value, error in (
+                ([], "REVISION_LIST_INVALID"),
+                ({"value": [valid]}, "REVISION_LIST_INVALID"),
+                ([None], "REVISION_LIST_INVALID"),
+                ([{"name": "", "properties": {"active": False, "replicas": 0}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "invalid/name", "properties": {"active": False, "replicas": 0}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "duplicate", "properties": {"active": False, "replicas": 0}},
+                  {"name": "duplicate", "properties": {"active": False, "replicas": 0}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "inactive", "properties": {"active": False}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "inactive", "properties": {"active": False, "replicas": -1}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "inactive", "properties": {"active": False, "replicas": "0"}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "inactive", "properties": {"active": False, "replicas": False}}],
+                 "REVISION_LIST_INVALID"),
+                ([{"name": "active", "properties": {"active": True, "replicas": 0}}],
+                 "APP_REACTIVATED"),
+                ([{"name": "inactive", "properties": {"active": False, "replicas": 1}}],
+                 "REPLICA_STILL_RUNNING")):
             with self.subTest(error=error):
-                def unsafe(*args, revisions_value=revisions_value, replicas=replicas):
+                def unsafe(*args, revisions_value=revisions_value):
                     if args[:3] == ("containerapp", "revision", "list"):
                         return copy.deepcopy(revisions_value)
-                    if args[:3] == ("containerapp", "replica", "list"):
-                        revision = args[args.index("--revision") + 1]
-                        return [{}] if revision in replicas else []
                     return original(*args)
                 self.checkpoint.read = unsafe
                 with self.assertRaisesRegex(RuntimeError, f"^{error}$"):
@@ -520,49 +541,17 @@ class CheckpointTests(unittest.TestCase):
 
         def read_failure(*args):
             if args[:3] == ("containerapp", "revision", "list"):
-                return [{"name": "inactive", "properties": {"active": False}}]
-            if args[:3] == ("containerapp", "replica", "list"):
                 raise RuntimeError("AZURE_READ_FAILED")
             return original(*args)
         self.checkpoint.read = read_failure
         with self.assertRaisesRegex(RuntimeError, "^AZURE_READ_FAILED$"):
             self.checkpoint.quiet(state)
 
-    def test_replica_reads_are_bounded_to_eight_and_all_workers_are_awaited(self):
+    def test_quiet_still_rejects_new_jobs_after_valid_revision_summary(self):
         state = self.quiet_state()
-        original = self.checkpoint.read
-        lock = threading.Lock()
-        current = 0
-        maximum = 0
-        completed = 0
-        revision_count = 20
-
-        def concurrent(*args):
-            nonlocal current, maximum, completed
-            if args[:3] == ("containerapp", "revision", "list"):
-                app = args[args.index("--name") + 1]
-                return [{"name": f"{app}-{index}", "properties": {"active": False}}
-                        for index in range(revision_count)]
-            if args[:3] == ("containerapp", "replica", "list"):
-                revision = args[args.index("--revision") + 1]
-                with lock:
-                    current += 1
-                    maximum = max(maximum, current)
-                time.sleep(0.01)
-                with lock:
-                    current -= 1
-                    completed += 1
-                if revision.endswith("-0"):
-                    raise RuntimeError("AZURE_READ_FAILED")
-                return []
-            return original(*args)
-
-        self.checkpoint.read = concurrent
-        with self.assertRaisesRegex(RuntimeError, "^AZURE_READ_FAILED$"):
+        self.extra_job = True
+        with self.assertRaisesRegex(RuntimeError, "^JOB_SET_CHANGED$"):
             self.checkpoint.quiet(state)
-        self.assertGreater(maximum, 1)
-        self.assertLessEqual(maximum, 8)
-        self.assertEqual(revision_count * len(self.checkpoint.binding["apps"]), completed)
 
     def test_selected_backup_disappearance_or_range_change_blocks_verification(self):
         self.candidate()

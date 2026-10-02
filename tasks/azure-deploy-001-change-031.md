@@ -1,5 +1,7 @@
 # TASK-AZURE-DEPLOY-001 Change 031 — 오산 1단계 등록 전용 공개 배포
 
+> **현재 상태(2026-10-02 10:26 KST): 공개배포 완료.** 사용자 전체 승인 범위에서 PR165까지 main에 병합하고, 실제 운영 DB의 사업부별0131과 제품 source `4affefc`의 backend/frontend 이미지를 적용했다. 배포 후 SQL은 **청주182/오산56/Directory8개 표, 원장131/131/4, 권한·CONNECT 분리·양쪽 Completed** PASS다. 청주·오산 인증된 업무 홈과 점검 안내 해제도 직접 확인했다. backend1개와 기존 자원량을 유지했다. 최신 실행/검증/복구 증거는 이 문서 마지막의 v7 완료 기록이 소유하며, 아래 준비·NO-GO 문구는 해당 날짜의 보존 이력이다.
+
 > 현재 준비(2026-10-01): 복구 checkpoint의 최초/일반 DB 배포 경로 구현·격리 검증·독립 검토가 **GO**다. RECOVERY-CHECKPOINT-P2와 후속 서버/Job/증거 보정은 해소했다. 사용자 직접 검수는 **WAIVED**다. 동일 PR159의 새 head 필수 CI와 원격 상태는 [PR Checks](https://github.com/emisubin/emi-qms/pull/159/checks), 최신 검증/잔여 사항은 마지막 절을 따른다. 아래 요약은 각 시점의 이력이며 main 병합·운영0131·공개배포 완료를 뜻하지 않는다.
 
 > 최신 작업(2026-09-30 기준정보 정리): **오산 권한28개·미사용 역할1개 정리의 로컬 구현과 추가 전체 검증 완료(GO), 운영 전환은 보류(NO-GO)**. 유지 권한7개와 기존 역할 연결·사용자 배정·업무/감사 데이터를 보존하며, 모르는 정의나 사용 중인 삭제 대상 역할은 전환을 중단한다. Backend 전체1032건의 초기 실패25건과 skip92건을 각각 보정 재검증/전용 DB 검사로 해소했고 일반 browser64건의 초기 실패5건도 보정 후 통과했다. 운영은 마지막 조회 C209/O209/D8이고 목표 C182/O56/D8은 미적용이다. 불명확 메일1건은 보낸편지함 일치 기록0건까지 확인했으나 미발송 확정은 아니다. Backend1개·자원량을 유지했고 운영/메일 변경·원격 게시·배포는 하지 않았다. 과거 승인 대기 상태는 최신 사용자 승인으로 해소됐으며 최종 근거와 남은 범위는 마지막 절을 따른다.
@@ -24,9 +26,9 @@
 - initialSourceHead: `b62e5aebdb1b857c11c25f10ae708c869bfdd2ac`
 - productionDeploymentApproved: `true`
 - gitPublicationApproved: `true`
-- mainMergeApproved: `false`
+- mainMergeApproved: `true`
 - selectorUserValidation: `WAIVED_BY_USER_2026_10_01`
-- status: `DRAFT_PR_DEPLOYMENT_PREPARATION`
+- status: `DEPLOYED_AND_VERIFIED_2026_10_02`
 
 ## 승인과 목적
 
@@ -760,3 +762,10 @@ source-of-truth 충돌, destructive operation, 기존 데이터 불일치, 실�
 - v6 암호화manifest를비공개임시폴더에서복호화해회차/evidenceKind와3DB sourceProofSha256=restoreProofSha256를독립확인했다. 기록된create시작08:48:46/완료09:15:45 KST이며role비밀번호는복원하지않고인증정보재결합필요가명시돼있다. manifest평문은즉시정리했다. 복구wrapper8af35620/33a1b8fb는old완료CLI실행exit0, 후속SQL에서C209/130·O209/130·D8/4와정확v6 Completed를확인했고소유relay를정상종료했다. 새배포성공과구분하며원backup/CMS와실패증거는보존한다.
 
 - **반복 감시 보정 검증 완료:** helper798358be/unit a80a4b5b/mock31e5040e 고정본에서 unit30/30 PASS 및 release141/141 PASS(exit0), Python syntax/diff-check PASS다. 별도 reviewer의 실제5파일·계약·공식 API/설치CLI pagination 검토는 GO, 새P1/P2 없음이다. `--all`은 nextLink를 끝까지 읽으며 앱당 CLI1회로 모든실행본을 검사한다(HTTP요청수가항상1회라는뜻아님). exact-head required CI·병합·새v7 backup/배포는 다음 상태로 남긴다. 사용자의 반복된전체승인범위에서같은작업의재승인은요청하지않는다.
+
+- **PR165 병합·v7 시작:** required CI36946589053의 분류·Workflow Validation·CI Gate 성공(제품3개 영향없음skip) 후09:39:16 KST main9c7bcd7d126920e9c5c75d963392e77bd99fcf2d로병합했다. mainCI36947070732도success다. 기존squash이력의Task append충돌은현재기록을보존해통합했고검토690408d대비tree diff0이다. immutableops실행3파일바이트일치·image4aff 전체build입력diff0을확인했다. v7 wrapper독립GO(93507814/9b46f9cd),직전v6Completedfresh/별도회차/재실행방지/기존backup·drain조건을유지하며새본배포session94687을시작했다. 완료전까지새배포성공으로기록하지않는다.
+- **v7 복구사본 candidate 통과:** 안내09:40:44~10:55:44 KST, prepare/양쪽AnnouncedSQL PASS, 공개청주UI의업데이트팝업·저장제한표시를확인했다. checkpointZSA4oV는09:45:13 armed,첫drain3개뒤09:50:12~10:17:35 실제3DB backup/create·격리fullrestore·source/restore proof동일·원본재조회불변을통과했다. 암호화archive3660323798bytes/manifest4508bytes가게시됐고10:18:45이전candidate를확인했다. v6에서실패한반복감시구간은이번에통과했다. 최종drain/verify·0131·신이미지·공개검증은이후실행결과로구분한다.
+
+- **v7 공개배포·최종 확인 완료(2026-10-02):** checkpoint최종verified후D/C/O migration3개가각각Succeeded였으며release는10:26:34 KST exit0이다. 운영후독립SQL은정확table set C182/O56/D8,exact ledger131/131/4,프로젝트열36/19,DB identity,오산유지권한7개/제거역할0,런타임상위권한·schemaCREATE없음,Directory runtime DML/defaultDML없음,각runtime의자기DB CONNECT만허용,foreign server/table0,양쪽정확회차Completed/중복공지연결없음을모두통과했다. 실제업무쓰기테스트나실제메일재발송은하지않았다.
+- 최종이미지는backend `a74a6d9b7c42244e36c6f40bffd959a633d361fb5d93035294d95357798a51df`(revision0000069),frontend `ddc5f58718b632b6bbd8911383b5c939b8641834c055842fde0bfeadcf21687b`(revision0000060)이며두앱latest=ready/Running/Succeeded를확인했다. 공개익명health/live200·root401·api/projects401 PASS,실제로그인된청주홈과오산전환후홈정상·점검팝업/저장제한해제관찰PASS다. 새Container App생성없이기존backend1CPU/2Gi,frontend0.25CPU/0.5Gi를유지했다.
+- 소유relay정상종료·ready/stop파일없음,소유복원Docker0개,backup평문작업폴더0개를확인했다. 작업소유임시접속설정7개와역할/구조진단평문·오산inventory진단폴더를정리했다. 암호화backup2회차·키·v7암호화checkpoint와비밀값없는완료요약은승인된 `/Users/parksubin/Documents/PMS-Recovery/2026-10-01-business-schema`에보존한다. 기존불명확메일1건의상태는변경하지않았고원본checkout WIP도보존했다. 이번DB분리공개배포의필수잔여작업은없다.

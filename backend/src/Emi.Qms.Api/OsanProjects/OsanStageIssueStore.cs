@@ -95,8 +95,7 @@ public sealed partial class OsanProgressStore
                     """;
             }
             await cmd.ExecuteNonQueryAsync(ct);
-            cmd.CommandText = "update osan_photo_edit_requests set invalidated_at=now() where step_id=@step and used_at is null and invalidated_at is null";
-            await cmd.ExecuteNonQueryAsync(ct);
+
             await OsanStageRecords.RecalculateAsync(c, tx, projectId, target.TargetId, ct);
             if (resolve || issueId is null) await OsanStageRecords.NotifyAsync(c, tx, projectId, step.StepId, input.OperationId, actor,
                 resolve ? OsanNotificationKind.StepIssueResolved : OsanNotificationKind.StepIssueRegistered, input.Comment, photos.Count, ct);

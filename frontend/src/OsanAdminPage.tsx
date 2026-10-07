@@ -286,13 +286,13 @@ export function OsanGateSettingsPage({ developmentUserKey, mutationAllowed = tru
       await fetchJson('/api/osan/admin/gates', developmentUserKey, { method: 'PUT',
         body: JSON.stringify({ expectedVersion: data.version,
           gates: draft.map(gate => ({ stageSequence: gate.stageSequence, departmentIds: gate.departmentIds })) }) });
-      setDraft(null); setFeedback('Gate 설정을 저장했습니다.'); setRevision(value => value + 1);
+      setDraft(null); setFeedback('부서별 권한 설정을 저장했습니다.'); setRevision(value => value + 1);
     } catch (error) { setFeedback(errorMessage(error)); }
     finally { setBusy(false); }
   }
-  return <section className="osan-page osan-admin-page osan-gate-page" aria-label="Gate 설정">
-    <OsanMenuHeading title="Gate 설정" description="각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다." />
-    {state.kind === 'loading' && <OsanInlineState kind="loading">Gate 설정을 불러오는 중입니다.</OsanInlineState>}
+  return <section className="osan-page osan-admin-page osan-gate-page" aria-label="부서별 권한 설정">
+    <OsanMenuHeading title="부서별 권한 설정" description="각 단계의 Gate 완료·조치 완료가 가능한 부서를 설정합니다." />
+    {state.kind === 'loading' && <OsanInlineState kind="loading">부서별 권한 설정을 불러오는 중입니다.</OsanInlineState>}
     {state.kind === 'error' && <OsanInlineState kind="error" onRetry={() => setRevision(value => value + 1)}>{state.message}</OsanInlineState>}
     {data && <><div className="osan-gate-toolbar"><span className={changed ? 'unsaved' : ''}>{draft ? changed ? '변경 사항 있음 · 저장 필요' : '완료 가능한 Gate를 체크하세요' : '부서별 완료 권한 · 7개 Gate'}</span><div>
       {draft ? <><OsanButton type="button" disabled={busy} onClick={() => { setDraft(null); setFeedback('변경을 취소했습니다.'); }}>취소</OsanButton><OsanButton type="button" tone="primary" disabled={!changed || busy} onClick={() => void save()}>{busy ? '저장 중…' : '변경 저장'}</OsanButton></>

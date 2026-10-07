@@ -499,3 +499,21 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 - 실제 배포 전 저장 보호 및 진행 요청 종료 대기, 앱 교체 후 public security PASS. maintenance 완료 job `maintenance-qemh08y`에서 CHEONGJU/OSAN 모두 `Completed Version=3`(23:27:56 KST), 저장 제한 해제 확인. DB migration/bootstrap/backfill 미실행, 업무 데이터 조작 없음.
 - public health200, 익명 root/api401 기존 접근 게이트 유지. 보조 검증기의 root200 기대값은 기존 runner의 root401 계약에 맞게 수정 후 PASS(제품 수정 아님). 공개 브라우저 새로고침 후 로그인 세션 확인·오산 홈·알림 설정 조회 정상, 설정 저장/시험 발송은 하지 않았다.
 - 배포 증거 `/private/tmp/emi-push-release-20260925/deploy-release.log`, `final-verification.json`. 실제 아이폰에서 재연결 버튼 클릭 이후 푸시 표시 여부는 사용자 단말 확인이 남는다. 만료 복구 기능 배포 완료와 실제 기기 복구를 구분한다.
+
+## 2026-10-07 사진 직접 수정·개인별 권한 설정 (로컬 구현)
+
+사용자가 하이웍스 사용자 관리 A안 PC·모바일 시안을 확정하고 로컬 구현을 승인했다. 기존 Gate 설정은 **부서별 권한 설정**, 새 사용자별 Project.Create 설정은 **개인별 권한 설정**으로 표시한다. 기존 공통 목록/필터/버튼을 재사용한다.
+
+- 해당 Gate 진행 권한 사용자는 사진·코멘트를 승인 없이 수정하며 매 저장마다 수정 사유가 필수다. 요청·승인 API/화면/대기 메뉴와 1회 잠금은 제거한다. 과거 요청·승인 및 모든 저장 사진·코멘트·사유·처리자·시간은 보존한다. 서버 권한, 납품완료 관리자 제한, 공정 이상 조치 경로, 동시 수정/재시도 보호는 유지한다.
+- 오산/총괄 관리자가 개인별 프로젝트 생성 권한을 지정한다. 단건과 엑셀에 동일 적용하고 기존 생성 가능자는 초기 보존, 신규 사용자는 기본 미허용이다. 생성 권한으로 수정/삭제나 관리자 권한을 부여하지 않는다.
+- 범위: `codex/osan-direct-edit-user-create`, 기준선 `7ea7167`, `/private/tmp/emi-osan-direct-edit`. 원격 반영/운영 DB/공개배포는 미승인·미실행.
+- 검증: 관련 FE/BE 테스트·권한 allow/deny·기존 이력 조회·반복/경쟁 저장·격리 DB migration, PC/모바일 실제 화면 및 독립 검토. 현재 구현 진행 중.
+- 시안 근거: [하이웍스 사용자 관리](https://www.hiworks.com/manual#/hiworks/22400/22489), [KRDS 체크박스](https://www.krds.go.kr/html/site/component/component_06_02.html). 확정 시안 `docs/design/osan-customer-match/user-permissions.html`, 사진 수정은 기존 Gate 구성 재사용.
+
+### 로컬 구현·검증 완료
+- Gate 설정의 사용자 노출 명칭을 부서별 권한 설정으로 변경하고 개인별 권한 설정을 관리자 메뉴에 추가했다. 기존 공통 검색·다중 필터·버튼을 재사용한다. 관리자 고정 허용, 기존 대상 초기 권한, 신규 사용자 기본 거부, 버전 충돌 후 최신 목록 재조회와 변경 이력을 구현했다.
+- 사진 수정 요청/승인/대기 메뉴 및 API를 제거하고 Gate 권한에 따른 직접 수정과 필수 사유를 적용했다. 이전 요청·승인·사진·코멘트·사유는 이력에서 보존하며 반복 수정과 동일 요청 재시도를 검증했다.
+- 검증: FE 77파일 604테스트 PASS, TypeScript/Vite build PASS(기존 번들 크기 경고). BE 기존 사진 관련 45건 PASS; 최종 권한·격리·정책·legacy 보존 26건 PASS(`/tmp/osan-user-project-create-final.log`). Backend build 경고0/오류0. 시험 DB·컨테이너·네트워크 정리 완료. 운영 DB는 접근/변경하지 않았다.
+- 독립 reviewer가 legacy 사유 누락과 권한409 복구 P2를 발견해 보정했다. 최신 diff 재검토에서 미해결 P1/P2 없음. 요청 모델 Astra, 실제 모델 관측값 NOT_REPORTED.
+- PC 및 모바일390px에서 실제 React 컴포넌트 배치·필터·사진 수정·사유/코멘트 이력을 확인했다. 로컬5261 확인 화면은 합성 응답을 사용하는 UI 확인용이며 DB 연결 검수 환경은 아니다. 서버 통합 동작은 위 disposable DB 테스트로 별도 검증했다. 두 local-direct-edit-review 파일은 로컬 확인 전용으로 커밋에서 제외한다.
+- 상태: 로컬 구현·자동 검증 완료, 사용자 검수 대기. 원격 push/PR/병합/공개배포 미실행. 하이웍스 사용자 목록의 조밀한 행 구성 및 KRDS 체크박스 지침을 적용하되 PMS 공통 필터·회사색·기존 권한 계약을 유지했다.

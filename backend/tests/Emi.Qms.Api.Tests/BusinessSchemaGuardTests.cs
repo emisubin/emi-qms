@@ -21,7 +21,9 @@ public sealed partial class BusinessUnitIsolationTests
             await ApplyCommonSchemaBeforeSeparationAsync(databases, catalog, code, ct);
             await using var connection = await databases.OpenAsync(code, BusinessUnitConnectionPurpose.Migration, ct);
             await BusinessUnitDatabaseIdentity.BindOrVerifyAsync(connection, databases.BusinessUnits.GetBusiness(code), ct);
-            var migration = await File.ReadAllTextAsync(catalog.GetBusinessMigrationFiles(code).Single(), ct);
+            var migration = await File.ReadAllTextAsync(
+                catalog.GetBusinessMigrationFiles(code)
+                    .Single(path => Path.GetFileName(path).StartsWith("0131_", StringComparison.Ordinal)), ct);
             var opposite = code == BusinessUnitCodes.Cheongju ? BusinessUnitCodes.Osan : BusinessUnitCodes.Cheongju;
             var mutations = new List<(string Sql, string State, string Message)>
             {

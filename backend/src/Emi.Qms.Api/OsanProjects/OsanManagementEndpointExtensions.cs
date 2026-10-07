@@ -48,32 +48,7 @@ public static class OsanManagementEndpointExtensions
         }).RequireAuthorization(QmsPolicies.ProjectDelete)
           .WithName("DeleteOsanProject");
 
-        api.MapGet("/progress/photo-edits", async (Guid projectId, OsanProjectStore projects,
-            OsanPhotoEditStore store, OsanDatabase db, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var denied = await Guard(projectId, projects, db, user, false, ct);
-            return denied ?? Results.Ok(new { canApprove = user.IsInRole(QmsRoles.SystemAdministrator),
-                currentUserId = ProjectEndpointExtensions.GetCurrentUserId(user), items = await store.ListAsync(projectId, ct) });
-        });
-        api.MapPost("/progress/photo-edits", async (Guid projectId, OsanPhotoEditRequest request,
-            OsanProjectStore projects, OsanPhotoEditStore store, OsanDatabase db,
-            ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var denied = await Guard(projectId, projects, db, user, false, ct);
-            return denied ?? Result(await store.RequestAsync(projectId, request,
-                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct,
-                user.IsInRole(QmsRoles.SystemAdministrator)));
-        }).RequireAuthorization(QmsPolicies.ManufacturingUpdate)
-          .WithName("RequestOsanProgressPhotoEdit");
-        api.MapPost("/progress/photo-edits/{requestId:guid}/approve", async (Guid projectId, Guid requestId,
-            OsanProjectStore projects, OsanPhotoEditStore store, OsanDatabase db,
-            ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var denied = await Guard(projectId, projects, db, user, true, ct);
-            return denied ?? Result(await store.ApproveAsync(projectId, requestId,
-                ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct));
-        }).WithName("ApproveOsanProgressPhotoEdit");
-        api.MapPost("/progress/photo-edits/{requestId:guid}/save", async (Guid projectId, Guid requestId,
+        api.MapPost("/progress/steps/{stepId:guid}/edit", async (Guid projectId, Guid stepId,
             HttpRequest request, OsanProjectStore projects, OsanPhotoEditStore store,
             OsanDatabase db, ClaimsPrincipal user, CancellationToken ct) =>
         {
@@ -81,11 +56,10 @@ public static class OsanManagementEndpointExtensions
             if (denied is not null) return denied;
             var parsed = await OsanProgressEndpointExtensions.ReadCompletionAsync(request, ct);
             if (parsed.Input is null) return Results.ValidationProblem(parsed.Errors);
-            return Result(await store.SaveAsync(projectId, requestId, parsed.Input,
+            return Result(await store.SaveAsync(projectId, stepId, parsed.Input,
                 ProjectEndpointExtensions.GetCurrentUserId(user)!.Value, ct, user.IsInRole(QmsRoles.SystemAdministrator)));
-        }).RequireAuthorization(QmsPolicies.ManufacturingUpdate)
-          .WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
-        .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
+        }).WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
+          .WithMetadata(new UploadTotalSizeLimitAttribute(OsanProgressPhotoValidator.MaximumTotalBytes))
           .WithMetadata(new RequestSizeLimitAttribute(OsanProgressPhotoValidator.MaximumMultipartBytes))
           .WithName("SaveOsanProgressPhotoEdit");
         api.MapGet("/progress/steps/{stepId:guid}/history", async (Guid projectId,Guid stepId,OsanProgressStore store,

@@ -16,9 +16,9 @@ it('모바일 일반 메뉴와 관리자 전용 하위 메뉴를 구분하고 �
  expect(onNavigate).toHaveBeenLastCalledWith('notice-board');
  page.rerender(<OsanMobileTools admin current="home" onNavigate={onNavigate} onScan={vi.fn()}/>);
  fireEvent.click(screen.getByRole('button', {name:'메뉴 열기'}));
- expect(screen.getByRole('button', {name:'Gate 설정'})).toBeInTheDocument();
- fireEvent.click(screen.getByRole('button', {name:'Gate 승인 대기'}));
- expect(onNavigate).toHaveBeenLastCalledWith('osan-gate-approvals');
+ expect(screen.getByRole('button', {name:'부서별 권한 설정'})).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button', {name:'개인별 권한 설정'}));
+ expect(onNavigate).toHaveBeenLastCalledWith('osan-user-permissions');
  expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
 });
 

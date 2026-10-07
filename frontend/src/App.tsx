@@ -251,7 +251,7 @@ import { OsanCustomerMatch } from './OsanCustomerMatch';
 import { MaintenanceAnnouncement } from './MaintenanceAnnouncement';
 import { useMaintenanceStatus } from './useMaintenanceStatus';
 import { OsanCustomerAdminPage, OsanGateSettingsPage } from './OsanAdminPage';
-import { OsanGateApprovalsPage } from './OsanGateApprovalsPage';
+import { OsanUserPermissionsPage } from './OsanUserPermissionsPage';
 import { PrivacyNoticePage } from './PrivacyNoticePage';
 import { Ul891SetWorkspace } from './Ul891SetWorkspace';
 import type { CreateUl891SetSpecInput, Ul891SetStructure } from './ul891Sets';
@@ -363,7 +363,7 @@ import type {
 type View =
   | { kind: 'home' }
   | { kind: 'privacy-notice' }
-  | { kind: 'osan-customer-admin' | 'osan-gate-settings' | 'osan-gate-approvals' }
+  | { kind: 'osan-customer-admin' | 'osan-gate-settings' | 'osan-user-permissions' }
   | { kind: 'notice-board'; noticeId?: string; compose?: boolean }
   | { kind: 'qr-scan'; token: string }
   | { kind: 'osan-qr'; projectId: string; targetId?: string }
@@ -427,7 +427,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
     case 'interior-busbar': return 'InteriorBusbar';
     case 'home': return 'Home';
     case 'privacy-notice': return 'PrivacyNotice';
-    case 'osan-customer-admin': case 'osan-gate-settings': case 'osan-gate-approvals': return 'Administration';
+    case 'osan-customer-admin': case 'osan-gate-settings': case 'osan-user-permissions': return 'Administration';
     case 'notice-board': return 'NoticeBoard';
     case 'my-work': return 'MyWork';
     case 'teams-activity':
@@ -769,7 +769,7 @@ function initialViewFromLocation(): View {
 
   if (window.location.pathname === '/osan/admin/customers') return {kind:'osan-customer-admin'};
   if (window.location.pathname === '/osan/admin/gates') return {kind:'osan-gate-settings'};
-  if (window.location.pathname === '/osan/gate-approvals') return {kind:'osan-gate-approvals'};
+  if (window.location.pathname === '/osan/admin/user-permissions') return {kind:'osan-user-permissions'};
   if (window.location.pathname === '/notices') {
     return { kind: 'notice-board', compose: new URLSearchParams(window.location.search).get('compose') === '1' };
   }
@@ -1379,7 +1379,7 @@ function pathForView(view: View) {
       return '/privacy-notice';
     case 'osan-customer-admin': return '/osan/admin/customers';
     case 'osan-gate-settings': return '/osan/admin/gates';
-    case 'osan-gate-approvals': return '/osan/gate-approvals';
+    case 'osan-user-permissions': return '/osan/admin/user-permissions';
     case 'notice-board':
       return view.noticeId ? `/notices/${view.noticeId}` : `/notices${view.compose ? '?compose=1' : ''}`;
     case 'qr-scan':
@@ -2651,10 +2651,10 @@ function QmsAppShellContent({
         { label: '프로젝트', view: { kind: 'list' }, active: view.kind === 'list' },
         { label: '진행 현황', view: { kind: 'osan-progress' }, active: view.kind === 'osan-progress' },
         ...(isSystemAdministrator ? [
-          {label:'관리자',view:{kind:'osan-customer-admin'} as View,active:['osan-customer-admin','osan-gate-settings','osan-gate-approvals'].includes(view.kind),children:[
+          {label:'관리자',view:{kind:'osan-customer-admin'} as View,active:['osan-customer-admin','osan-gate-settings','osan-user-permissions'].includes(view.kind),children:[
             {key:'osan-customers',label:'고객사 관리',view:{kind:'osan-customer-admin'} as View,active:view.kind==='osan-customer-admin'},
-            {key:'osan-gates',label:'Gate 설정',view:{kind:'osan-gate-settings'} as View,active:view.kind==='osan-gate-settings'},
-            {key:'osan-approvals',label:'Gate 승인 대기',view:{kind:'osan-gate-approvals'} as View,active:view.kind==='osan-gate-approvals'}]}
+            {key:'osan-gates',label:'부서별 권한 설정',view:{kind:'osan-gate-settings'} as View,active:view.kind==='osan-gate-settings'},
+            {key:'osan-user-permissions',label:'개인별 권한 설정',view:{kind:'osan-user-permissions'} as View,active:view.kind==='osan-user-permissions'}]}
         ] : [])
       ]
     : cheongjuNavigationItems;
@@ -2932,10 +2932,10 @@ function QmsAppShellContent({
         <PrivacyNoticePage onBack={() => setView({ kind: 'home' })} />
       ) : null}
 
-      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && ['osan-customer-admin','osan-gate-settings','osan-gate-approvals'].includes(view.kind) && (isSystemAdministrator ?
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && isOsan && ['osan-customer-admin','osan-gate-settings','osan-user-permissions'].includes(view.kind) && (isSystemAdministrator ?
         view.kind === 'osan-customer-admin' ? <OsanCustomerAdminPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/> :
         view.kind === 'osan-gate-settings' ? <OsanGateSettingsPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/> :
-        <OsanGateApprovalsPage developmentUserKey={developmentUserKey} onOpenStage={(projectId,targetId,stage)=>setView({kind:'osan-progress',projectId,targetId,stage:String(stage)})}/>
+        <OsanUserPermissionsPage developmentUserKey={developmentUserKey} mutationAllowed={mutationEnabled}/>
         : <p role="alert">관리자만 접근할 수 있습니다.</p>)}
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'notice-board' ? (
         isOsan ? <OsanNoticeBoard key={`${currentUser.data.userId}:${developmentUserKey}`} userKey={developmentUserKey} noticeId={view.noticeId} compose={view.compose} admin={isSystemAdministrator} enabled={mutationEnabled} onList={()=>setView({kind:'notice-board'})} onOpen={noticeId=>setView({kind:'notice-board',noticeId})} onCompose={()=>setView({kind:'notice-board',compose:true})}/> : <NoticeBoardPage
@@ -3012,6 +3012,7 @@ function QmsAppShellContent({
           initialStage={view.stage}
           developmentUserKey={developmentUserKey}
           mutationAllowed={mutationEnabled && canUpdateManufacturing}
+          photoMutationAllowed={mutationEnabled}
           onBack={() => setView({ kind: notificationOrigin.current ? 'notifications' : 'osan-progress' })}
           onOpenTarget={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })}
         /> : <OsanDashboardPage
@@ -5882,7 +5883,7 @@ function businessUnitMembershipMutationDisabledReason(runtimeMode: LoadState<Run
 }
 
 function isOsanViewAllowed(view: View) {
-  if (["notice-board","osan-customer-admin","osan-gate-settings","osan-gate-approvals"].includes(view.kind)) return true;
+  if (["notice-board","osan-customer-admin","osan-gate-settings","osan-user-permissions"].includes(view.kind)) return true;
   if (view.kind === 'home'
     || view.kind === 'privacy-notice'
     || view.kind === 'list'

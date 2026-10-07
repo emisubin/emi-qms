@@ -178,9 +178,7 @@ public static partial class AuditMutationRegistry
         POST /api/osan/projects/{projectId:guid}/progress/issues/records
         POST /api/osan/projects/{projectId:guid}/progress/issues/resolve
         POST /api/osan/projects/{projectId:guid}/progress/completions
-        POST /api/osan/projects/{projectId:guid}/progress/photo-edits
-        POST /api/osan/projects/{projectId:guid}/progress/photo-edits/{requestId:guid}/approve
-        POST /api/osan/projects/{projectId:guid}/progress/photo-edits/{requestId:guid}/save
+        POST /api/osan/projects/{projectId:guid}/progress/steps/{stepId:guid}/edit
         POST /api/pending-types/
         POST /api/pending-types/{code}/activate
         POST /api/pending-types/{code}/deactivate
@@ -281,6 +279,7 @@ public static partial class AuditMutationRegistry
         PUT /api/osan/admin/customer-assignments/{userId:guid}
         PUT /api/osan/admin/customers/{customerId:guid}
         PUT /api/osan/admin/gates
+        PUT /api/osan/admin/user-project-create-permissions/
         PUT /api/osan/notices/{id:guid}/settings
         PUT /api/sales/targets
         """);

@@ -29,7 +29,8 @@ public sealed class OsanPolicyContractTests
         foreach(var path in new[] {
             "/api/osan/customers", "/api/osan/admin/customers",
             "/api/osan/admin/customer-assignments",
-            "/api/osan/admin/gates", "/api/osan/gate-approvals" })
+            "/api/osan/admin/gates",
+            "/api/osan/admin/user-project-create-permissions/" })
         {
             var route=Assert.Single(routes,e=>e.RoutePattern.RawText==path &&
                 e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(HttpMethods.Get)==true);

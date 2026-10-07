@@ -17,14 +17,14 @@ import {
 } from './osanProgress';
 
 export interface OsanProgressPageProps {
-  projectId: string; initialTargetId?: string; initialStage?: string; developmentUserKey: string | undefined; mutationAllowed: boolean; onBack?: () => void;
+  projectId: string; initialTargetId?: string; initialStage?: string; developmentUserKey: string | undefined; mutationAllowed: boolean; photoMutationAllowed?: boolean; onBack?: () => void;
   onOpenTarget?: (projectId: string, targetId: string) => void;
 }
 export function OsanProgressPage(props: OsanProgressPageProps) {
   return <OsanProgressWorkspace key={`${props.projectId}:${props.initialTargetId ?? ''}:${props.initialStage ?? ''}:${props.developmentUserKey ?? ''}`} {...props} />;
 }
 function message(error: unknown) { return error instanceof Error ? error.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.'; }
-function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, developmentUserKey, mutationAllowed, onBack, onOpenTarget }: OsanProgressPageProps) {
+function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, developmentUserKey, mutationAllowed, photoMutationAllowed = mutationAllowed, onBack, onOpenTarget }: OsanProgressPageProps) {
   const initialized = useRef(false);
   const entryIsMobile = useRef(!(window.matchMedia?.('(min-width: 861px)').matches ?? false));
   const [project, setProject] = useState<OsanProgressDetail>();
@@ -121,7 +121,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
   const completionSelected = completionIds ? selected.filter(t => completionIds.includes(t.targetId)) : selected;
   const completionMode = completionSelected.length === 1 ? 'individual' : mode;
   const unavailable = completionUnavailable(completionSelected, stage, completionMode);
-  const mixedSelection = selected.some(t => { const s = t.steps.find(s => s.sequenceNumber === stage); return s?.openIssue || s?.editOpen || s?.status === 'Completed'; });
+  const mixedSelection = selected.some(t => { const s = t.steps.find(s => s.sequenceNumber === stage); return s?.openIssue || s?.rejected || s?.status === 'Completed'; });
   const selectedStageCompleted = selected.length > 0 && selected.every(target => target.steps.find(step => step.sequenceNumber === stage)?.status === 'Completed');
   const selectionLabel = selected.length === 1 ? selected[0].displayName : `${selected.length}개 대상 선택`;
   function changeSelection(ids: string[], nextMode: 'individual' | 'batch') {
@@ -173,7 +173,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
         {step.openIssue.photos.length ? <OsanPhotoGallery projectId={projectId} photos={step.openIssue.photos} userKey={developmentUserKey}/> : <div className="osan-progress-photo-region osan-progress-photo-region--empty"><p>등록된 이상 사진이 없습니다.</p></div>}
         <div className="osan-record-comment"><span>이상 내용 · 최근 기록</span><p>{step.openIssue.comment}</p></div>
         <div className="osan-progress-completed"><span>{step.openIssue.lastRecordedByDisplayName}</span><time>{new Date(step.openIssue.lastRecordedAtUtc).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</time></div>
-        <OsanStageActions key={`${target.targetId}:${stage}`} title={`${target.displayName} · ${step.stepName}`}><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{issueActions(target)}{workRequest(target)}<OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/><p>다음 단계는 진행할 수 있습니다. 포장 전에는 이상 조치를 완료해야 합니다.</p>{issueActions(target, true)}{!step.canResolveIssue && <p>선행 Gate 완료 또는 공정 이상 발생 여부를 확인해 주세요.</p>}</OsanStageActions>
+        <OsanStageActions key={`${target.targetId}:${stage}`} title={`${target.displayName} · ${step.stepName}`}><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{issueActions(target)}{workRequest(target)}<OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={photoMutationAllowed} canManageStages={!!project?.canManageStages} onSaved={refresh}/><p>다음 단계는 진행할 수 있습니다. 포장 전에는 이상 조치를 완료해야 합니다.</p>{issueActions(target, true)}{!step.canResolveIssue && <p>선행 Gate 완료 또는 공정 이상 발생 여부를 확인해 주세요.</p>}</OsanStageActions>
       </> : step?.status === 'Completed' ? <>
         <p className="osan-progress-completed-title">Gate 완료</p>
         {step.photos.length ? <>
@@ -182,10 +182,10 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
         </> : <div className="osan-progress-photo-region osan-progress-photo-region--empty"><p>등록된 완료 사진이 없습니다.</p></div>}
         <div className="osan-record-comment"><span>코멘트</span><p>{step.comment || '등록된 코멘트가 없습니다.'}</p></div>
         <div className="osan-progress-completed"><span>{step.completedByDisplayName ?? '작업자 정보 없음'}</span><time dateTime={step.completedAtUtc ?? undefined}>{step.completedAtUtc ? new Date(step.completedAtUtc).toLocaleString('ko-KR') : '완료 일시 정보 없음'}</time></div>
-        <OsanStageActions key={`${target.targetId}:${stage}`} title={`${target.displayName} · ${step.stepName}`}><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/><OsanPhotoEditor key={`${target.targetId}:${stage}:${developmentUserKey}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/>{issueActions(target)}{workRequest(target)}</OsanStageActions>
-      </> : step && <><p className="osan-progress-not-completed">{step.rejected ? '반려 · 수정 후 저장해 주세요.' : '미완료'}</p><OsanStageActions key={`${target.targetId}:${stage}`} title={`${target.displayName} · ${step.stepName}`}><OsanStageHistory actionPlacement={step.editOpen ? 'visible' : 'secondary'} projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{issueActions(target)}{workRequest(target)}{step.editOpen && <OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={mutationAllowed} onSaved={refresh}/>}
-        {!step.editOpen && (mixedSelection || selected.length === 1) && <OsanStageAction placement="primary" type="button" disabled={busy || refreshing || !mutationAllowed || !step.canCompleteIndividual || (selected.length === 1 && !!unavailable)} onClick={() => { setCompletionIds([target.targetId]); pendingCompletion.current = null; setFiles([]); setComment(''); setFileError(''); setModalOpen(true); setError(''); }}>Gate 완료</OsanStageAction>}
-        {selected.length === 1 && !step.editOpen && unavailable && <p>{unavailable}</p>}
+        <OsanStageActions key={`${target.targetId}:${stage}`} title={`${target.displayName} · ${step.stepName}`}><OsanStageHistory projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/><OsanPhotoEditor key={`${target.targetId}:${stage}:${developmentUserKey}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={photoMutationAllowed} canManageStages={!!project?.canManageStages} onSaved={refresh}/>{issueActions(target)}{workRequest(target)}</OsanStageActions>
+      </> : step && <><p className="osan-progress-not-completed">{step.rejected ? '반려 · 수정 후 저장해 주세요.' : '미완료'}</p><OsanStageActions key={`${target.targetId}:${stage}`} title={`${target.displayName} · ${step.stepName}`}><OsanStageHistory actionPlacement={step.rejected ? 'visible' : 'secondary'} projectId={projectId} stepId={step.stepId} title={`${target.displayName} · ${step.stepName}`} userKey={developmentUserKey}/>{issueActions(target)}{workRequest(target)}{step.rejected && <OsanPhotoEditor key={`${target.targetId}:${stage}:${reload}`} projectId={projectId} target={target} stage={stage} userKey={developmentUserKey} mutationAllowed={photoMutationAllowed} canManageStages={!!project?.canManageStages} onSaved={refresh}/>}
+        {!step.rejected && (mixedSelection || selected.length === 1) && <OsanStageAction placement="primary" type="button" disabled={busy || refreshing || !mutationAllowed || !step.canCompleteIndividual || (selected.length === 1 && !!unavailable)} onClick={() => { setCompletionIds([target.targetId]); pendingCompletion.current = null; setFiles([]); setComment(''); setFileError(''); setModalOpen(true); setError(''); }}>Gate 완료</OsanStageAction>}
+        {selected.length === 1 && !step.rejected && unavailable && <p>{unavailable}</p>}
         </OsanStageActions></>}
     </section>;
   }

@@ -313,10 +313,16 @@ public sealed partial class BusinessUnitIsolationTests
         await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
-            """
+            $"""
             delete from role_permissions
             where role_id = (select id from roles where code='sales')
               and permission_id = (select id from permissions where code='Project.Read.All');
+
+            insert into osan_user_project_create_permissions(user_id, allowed, version)
+            values ('{SalesUserId:D}', true, 1)
+            on conflict (user_id) do update
+            set allowed = excluded.allowed,
+                version = excluded.version;
             """,
             TestContext.Current.CancellationToken);
 
@@ -327,9 +333,9 @@ public sealed partial class BusinessUnitIsolationTests
         using var client = factory.CreateClient();
 
         // Business-unit-scoped department policy must reach both /me and real endpoint authorization.
-        foreach (var (department, canCreate, canProgress) in new[] {
-            ("sales", true, false), ("production-planning", true, false),
-            ("manufacturing", false, true), ("quality", false, true), ("logistics", false, false) })
+        foreach (var (department, canProgress) in new[] {
+            ("sales", false), ("production-planning", false),
+            ("manufacturing", true), ("quality", true), ("logistics", false) })
         {
             await databases.ExecuteAsync(BusinessUnitCodes.Osan, BusinessUnitConnectionPurpose.Migration,
                 $"update qms_users set department_id=(select id from departments where code='{department}') where id='{SalesUserId:D}';",
@@ -340,11 +346,11 @@ public sealed partial class BusinessUnitIsolationTests
             using var me = JsonDocument.Parse(await meResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
             var permissions = me.RootElement.GetProperty("permissions").EnumerateArray().Select(value => value.GetString()).ToArray();
             Assert.Contains(QmsPermissions.ProjectReadAll, permissions);
-            Assert.Equal(canCreate, permissions.Contains(QmsPermissions.ProjectCreate));
+            Assert.Contains(QmsPermissions.ProjectCreate, permissions);
             Assert.Equal(canProgress, permissions.Contains(QmsPermissions.ManufacturingUpdate));
             using var createRequest = Request(HttpMethod.Get, "/api/osan/projects/import/template", "dev-sales", BusinessUnitCodes.Osan);
             using var createResponse = await client.SendAsync(createRequest, TestContext.Current.CancellationToken);
-            Assert.Equal(canCreate ? HttpStatusCode.OK : HttpStatusCode.Forbidden, createResponse.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
             using var progressRequest = Request(HttpMethod.Post, $"/api/osan/projects/{Guid.NewGuid():D}/progress/completions", "dev-sales", BusinessUnitCodes.Osan);
             using var progressResponse = await client.SendAsync(progressRequest, TestContext.Current.CancellationToken);
             // Completion now checks the configured Gate department after project lookup.

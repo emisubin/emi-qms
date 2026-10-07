@@ -118,192 +118,60 @@ public sealed partial class BusinessUnitIsolationTests
             Assert.Equal(unit==BusinessUnitCodes.Osan?HttpStatusCode.OK:HttpStatusCode.Forbidden,response.StatusCode);
         }
 
-        var requestId = Guid.NewGuid();
-        using (var blankReasonRequest = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
-        {
-            blankReasonRequest.Content = JsonContent.Create(new
-            {
-                requestId = Guid.NewGuid(),
-                targetId = completedTargetId,
-                stageSequence = 1,
-                reason = "   "
-            });
-            using var response = await client.SendAsync(blankReasonRequest, cancellationToken);
-            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        }
-        for (var replay = 0; replay < 2; replay++)
-        {
-            using var requestEdit = Request(
-                HttpMethod.Post,
-                $"/api/osan/projects/{projectId:D}/progress/photo-edits",
-                "dev-manufacturing",
-                BusinessUnitCodes.Osan);
-            requestEdit.Content = JsonContent.Create(new
-            {
-                requestId,
-                targetId = completedTargetId,
-                stageSequence = 1,
-                reason = "배선 상태가 잘 보이는 사진으로 교체합니다."
-            });
-            using var response = await client.SendAsync(requestEdit, cancellationToken);
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-        Assert.Equal(1L, await CountPhotoEditAuditEventsAsync(
-            databases,
-            "RequestOsanProgressPhotoEdit",
-            cancellationToken));
-        using (var pendingApprovals = Request(
-                   HttpMethod.Get,
-                   "/api/osan/gate-approvals",
-                   "dev-admin",
-                   BusinessUnitCodes.Osan))
-        using (var response = await client.SendAsync(pendingApprovals, cancellationToken))
-        {
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-            var pending = Assert.Single(body.RootElement.GetProperty("items").EnumerateArray(),
-                item => item.GetProperty("requestId").GetGuid() == requestId);
-            Assert.Equal("배선 상태가 잘 보이는 사진으로 교체합니다.", pending.GetProperty("reason").GetString());
-        }
-
         var replacementBytes = CreateValidPng();
         var operationId = Guid.NewGuid();
-        MultipartFormDataContent SaveContent() => CreateProgressCompletionContent(
-            operationId,
-            "individual",
-            1,
-            JsonSerializer.Serialize(new[]
-            {
-                new { targetId = completedTargetId, expectedVersion = 2 }
-            }),
-            replacementBytes);
-
-        using (var beforeApproval = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/save",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
+        MultipartFormDataContent SaveContent(string reason = "배선 상태가 잘 보이는 사진으로 교체합니다.")
         {
-            beforeApproval.Content = SaveContent();
-            using var response = await client.SendAsync(beforeApproval, cancellationToken);
+            var body = CreateProgressCompletionContent(operationId, "individual", 1,
+                JsonSerializer.Serialize(new[] { new { targetId = completedTargetId, expectedVersion = 2 } }), replacementBytes);
+            body.Add(new StringContent(reason), "reason");
+            return body;
+        }
+        foreach (var pair in new[] { ("dev-sales", BusinessUnitCodes.Osan), ("dev-admin", BusinessUnitCodes.Cheongju) })
+        {
+            using var denied = Request(HttpMethod.Post, $"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/edit", pair.Item1, pair.Item2);
+            denied.Content = SaveContent();
+            using var response = await client.SendAsync(denied, cancellationToken);
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
-        using (var nonAdminApproval = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/approve",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
+        using (var blank = Request(HttpMethod.Post, $"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/edit", "dev-manufacturing", BusinessUnitCodes.Osan))
         {
-            using var response = await client.SendAsync(nonAdminApproval, cancellationToken);
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            blank.Content = SaveContent("   ");
+            using var response = await client.SendAsync(blank, cancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
-        using (var wrongUnitApproval = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/approve",
-                   "dev-admin",
-                   BusinessUnitCodes.Cheongju))
-        {
-            using var response = await client.SendAsync(wrongUnitApproval, cancellationToken);
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        }
-        for (var replay = 0; replay < 2; replay++)
-        {
-            using var approval = Request(
-                HttpMethod.Post,
-                $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/approve",
-                "dev-admin",
-                BusinessUnitCodes.Osan);
-            using var response = await client.SendAsync(approval, cancellationToken);
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-        Assert.Equal(1L, await CountPhotoEditAuditEventsAsync(
-            databases,
-            "ApproveOsanProgressPhotoEdit",
-            cancellationToken));
-        using (var differentUserSave = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/save",
-                   "dev-sales",
-                   BusinessUnitCodes.Osan))
-        {
-            differentUserSave.Content = SaveContent();
-            using var response = await client.SendAsync(differentUserSave, cancellationToken);
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        }
-
         uploadScanner.Status = UploadMalwareScanStatus.Unavailable;
-        using (var unavailableSave = Request(
-                   HttpMethod.Post,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/save",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
+        using (var unavailable = Request(HttpMethod.Post, $"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/edit", "dev-manufacturing", BusinessUnitCodes.Osan))
         {
-            unavailableSave.Content = SaveContent();
-            using var response = await client.SendAsync(unavailableSave, cancellationToken);
+            unavailable.Content = SaveContent();
+            using var response = await client.SendAsync(unavailable, cancellationToken);
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         }
         uploadScanner.Status = UploadMalwareScanStatus.Clean;
-
         for (var replay = 0; replay < 2; replay++)
         {
-            using var save = Request(
-                HttpMethod.Post,
-                $"/api/osan/projects/{projectId:D}/progress/photo-edits/{requestId:D}/save",
-                "dev-manufacturing",
-                BusinessUnitCodes.Osan);
+            using var save = Request(HttpMethod.Post, $"/api/osan/projects/{projectId:D}/progress/steps/{stepId:D}/edit", "dev-manufacturing", BusinessUnitCodes.Osan);
             save.Content = SaveContent();
             using var response = await client.SendAsync(save, cancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
-        Assert.Equal(1L, await CountPhotoEditAuditEventsAsync(
-            databases,
-            "SaveOsanProgressPhotoEdit",
-            cancellationToken));
-        Assert.Equal(3L, await databases.ReadScalarAsync<long>(
-            BusinessUnitCodes.Osan,
-            BusinessUnitConnectionPurpose.Migration,
-            """
-            select count(*)
-            from audit_events
-            where target_type='osan_photo_edit_requests'
-              and outcome='Succeeded';
-            """,
-            cancellationToken));
-
         Guid revisionPhotoId;
-        using (var listEdits = Request(
-                   HttpMethod.Get,
-                   $"/api/osan/projects/{projectId:D}/progress/photo-edits",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
-        using (var response = await client.SendAsync(listEdits, cancellationToken))
+        using (var progress = Request(HttpMethod.Get, $"/api/osan/projects/{projectId:D}/progress", "dev-manufacturing", BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(progress, cancellationToken))
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-            var item = Assert.Single(body.RootElement.GetProperty("items").EnumerateArray());
-            Assert.NotEqual(JsonValueKind.Null, item.GetProperty("approvedAt").ValueKind);
-            Assert.NotEqual(JsonValueKind.Null, item.GetProperty("usedAt").ValueKind);
-            revisionPhotoId = Assert.Single(item.GetProperty("photoIds").EnumerateArray()).GetGuid();
+            var target = body.RootElement.GetProperty("targets").EnumerateArray().Single(item => item.GetProperty("targetId").GetGuid() == completedTargetId);
+            var step = target.GetProperty("steps").EnumerateArray().Single(item => item.GetProperty("stepId").GetGuid() == stepId);
+            Assert.True(step.GetProperty("canEdit").GetBoolean());
+            revisionPhotoId = Assert.Single(step.GetProperty("photos").EnumerateArray()).GetProperty("photoId").GetGuid();
         }
-        using (var downloadRevision = Request(
-                   HttpMethod.Get,
-                   $"/api/osan/projects/{projectId:D}/progress/photos/{revisionPhotoId:D}",
-                   "dev-manufacturing",
-                   BusinessUnitCodes.Osan))
-        using (var response = await client.SendAsync(downloadRevision, cancellationToken))
+        using (var download = Request(HttpMethod.Get, $"/api/osan/projects/{projectId:D}/progress/photos/{revisionPhotoId:D}", "dev-manufacturing", BusinessUnitCodes.Osan))
+        using (var response = await client.SendAsync(download, cancellationToken))
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             Assert.Equal(replacementBytes, await response.Content.ReadAsByteArrayAsync(cancellationToken));
         }
-        Assert.Equal(1L, await databases.ReadScalarAsync<long>(
-            BusinessUnitCodes.Osan,
-            BusinessUnitConnectionPurpose.Migration,
-            $"select count(*) from osan_photo_revision_files where request_id='{requestId:D}';",
-            cancellationToken));
 
         await AssertRejectedStageOverallRecipientsAsync(databases,client,projectId,completedTargetId,stepId);
 
@@ -425,18 +293,4 @@ public sealed partial class BusinessUnitIsolationTests
         Assert.Equal(recipients,mailRecipients);
     }
 
-    private static Task<long> CountPhotoEditAuditEventsAsync(
-        IsolationDatabaseSet databases,
-        string action,
-        CancellationToken cancellationToken) => databases.ReadScalarAsync<long>(
-            BusinessUnitCodes.Osan,
-            BusinessUnitConnectionPurpose.Migration,
-            $"""
-            select count(*)
-            from audit_events
-            where target_type='osan_photo_edit_requests'
-              and action='{action}'
-              and outcome='Succeeded';
-            """,
-            cancellationToken);
 }

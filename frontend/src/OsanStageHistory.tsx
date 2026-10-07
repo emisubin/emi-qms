@@ -17,6 +17,7 @@ export function OsanStageHistory({projectId,stepId,title,userKey,actionPlacement
  {error?<p role="alert">{error} <button type="button" onClick={()=>setRetry(n=>n+1)}>다시 불러오기</button></p>:!items?<p role="status">이력 불러오는 중…</p>:!items.length?<p>등록된 이력이 없습니다.</p>:<div className="history-timeline">{items.map((item,i)=><details key={item.id} className="history-entry" open={i===0?true:undefined}>
  <summary><span className="history-event">{labels[item.eventType]??item.eventType}</span><span className="history-meta">{item.actorDisplayName} · {new Date(item.occurredAtUtc).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})}</span><span className="history-expand" aria-hidden="true"/></summary>
  <div className="history-entry-body">{item.eventType==='WorkRequested' && <><p className="history-label">요청 수신자</p><p>{item.recipients?.map(p=>`${p.displayName}${p.departmentName ? ` (${p.departmentName})` : ''}`).join(', ') || '수신자 기록 없음'}</p></>}{!!item.photos.length&&<><p className="history-label">당시 사진 · {item.photos.length}장</p><OsanPhotoGallery projectId={projectId} photos={item.photos} userKey={userKey} history/></>}
- {item.eventType !== 'WorkRequested' && (item.reason?<><p className="history-label">사유 / 처리 내용</p><p className="history-comment">{item.reason}</p></>:<><p className="history-label">당시 코멘트</p><p className="history-comment">{item.comment||'등록된 코멘트가 없습니다.'}</p></>)}
+ {item.eventType !== 'WorkRequested' && (item.reason&&<><p className="history-label">사유 / 처리 내용</p><p className="history-comment">{item.reason}</p></>)}
+ {item.eventType !== 'WorkRequested' && <><p className="history-label">당시 코멘트</p><p className="history-comment">{item.comment||'등록된 코멘트가 없습니다.'}</p></>}
  </div></details>)}</div>}</dialog></>;
 }

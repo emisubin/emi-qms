@@ -367,3 +367,12 @@ it('혼합 선택에서 응답 불명확 후 다른 대상은 이전 요청을 �
  await waitFor(()=>expect(api.completeOsanProgress).toHaveBeenCalledTimes(2));
  const calls=vi.mocked(api.completeOsanProgress).mock.calls;expect(calls[1][1].targets).toEqual([{targetId:'target-3',expectedVersion:1}]);expect(calls[1][1].operationId).not.toBe(calls[0][1].operationId);
 });
+
+it('사진 수정은 일반 제조 권한과 별개로 서버가 허용한 Gate 권한을 따른다', async () => {
+  const data=project();data.targets=data.targets.slice(0,1);data.targets[0].steps[0].status='Completed';data.targets[0].steps[0].canEdit=true;
+  vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+  const view=render(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="gate-department" mutationAllowed={false} photoMutationAllowed />);
+  expect(await screen.findByRole('button',{name:'사진 수정'})).toBeEnabled();
+  view.rerender(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="gate-department" mutationAllowed={false} photoMutationAllowed={false}/>);
+  expect(screen.queryByRole('button',{name:'사진 수정'})).not.toBeInTheDocument();
+});

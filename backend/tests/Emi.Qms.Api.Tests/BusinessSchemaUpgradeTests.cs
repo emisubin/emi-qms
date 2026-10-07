@@ -86,7 +86,9 @@ public sealed partial class BusinessUnitIsolationTests
             await using var transaction = await connection.BeginTransactionAsync(ct);
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = await File.ReadAllTextAsync(catalog.GetBusinessMigrationFiles(code).Single(), ct);
+            command.CommandText = await File.ReadAllTextAsync(
+                catalog.GetBusinessMigrationFiles(code)
+                    .Single(path => Path.GetFileName(path).StartsWith("0131_", StringComparison.Ordinal)), ct);
             var consentError = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
             Assert.Equal("P0001", consentError.SqlState);
             Assert.Equal("business_schema_explicit_consent_required", consentError.MessageText);

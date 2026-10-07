@@ -63,11 +63,6 @@
 .app-shell .osan-gate-table-wrap td label { display: grid; min-height: 43px; place-items: center; cursor: pointer; }
 .app-shell .osan-gate-mark { color: var(--osan-brand,#da2127); font-size: 23px; font-weight: 700; }
 .app-shell .osan-admin-page :is(button:not(.osan-button), input):focus-visible { outline: 2px solid #282828; outline-offset: 2px; }
-.app-shell .osan-admin-approval-head, .app-shell .osan-admin-approval-row { display: grid; grid-template-columns: minmax(180px, 2fr) 100px 110px minmax(140px, 1fr) 160px; align-items: center; gap: 12px; padding: 10px 12px; }
-.app-shell .osan-admin-approval-head { border-top: 1px solid #777; border-bottom: 1px solid #ddd; background: #fafafa; color: #777; font-size: 12px; }
-.app-shell .osan-admin-approval-row { min-height: 52px; border-bottom: 1px solid #eee; }
-.app-shell .osan-admin-approval-row small { display: block; color: #777; }
-.app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-button):not(.osan-admin-primary) { border: 0; background: transparent; padding: 0; text-align: left; text-decoration: underline; }
 /* The shared wireframe loads after this page and uses important selected-button:not(.osan-button) colors. */
 .app-shell .osan-admin-page .osan-admin-tabs > button:not(.osan-button):not(:disabled) { border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; background: transparent !important; color: #888 !important; box-shadow: none !important; }
 .app-shell .osan-admin-page .osan-admin-tabs > button:not(.osan-button)[aria-selected='true']:not(:disabled) { border-bottom-color: #282828 !important; background: transparent !important; color: #282828 !important; }
@@ -104,20 +99,6 @@
   .app-shell .osan-gate-table-wrap thead th.split-stage span { display: block; white-space: nowrap; }
   .app-shell .osan-gate-table-wrap tbody th { padding-left: 5px; }
   .app-shell .osan-gate-mark { font-size: 21px; }
-  .app-shell .osan-admin-approval-head { display: none; }
-  .app-shell .osan-admin-approval-row { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 7px 4px; min-height: 0; font-size: 12px; line-height: 16px; }
-  .app-shell .osan-admin-approval-row > :first-child { grid-column: 1; }
-  .app-shell .osan-admin-approval-row > :nth-child(2) { grid-column: 2; grid-row: 1; }
-  .app-shell .osan-admin-approval-row > :nth-child(3) { grid-column: 1; grid-row: 2; font-size: 11px; }
-  .app-shell .osan-admin-approval-row > :nth-child(4) { grid-column: 1; grid-row: 3; font-size: 11px; }
-  .app-shell .osan-admin-approval-row > :last-child { grid-column: 2; grid-row: 2 / 4; }
-  .app-shell .osan-admin-approval-row button:not(.osan-button) { min-height: 0; line-height: 18px; font-size: 12px; }
-  .app-shell .osan-admin-approval-row .osan-admin-primary { min-height: 30px; padding: 4px 8px; }
-  .app-shell .osan-admin-approval-row small { font-size: 10px; line-height: 14px; }
-}
-
-@media(max-width:700px){
- .app-shell .osan-admin-approval-row [role='cell'] > button:not(.osan-button):not(.osan-admin-primary){min-height:18px!important;height:auto!important;line-height:18px;padding:0!important;overflow-wrap:anywhere}
 }
 
 /* MYBOX: compact rows, one overflow control; mobile actions live outside the row. */
@@ -144,23 +125,6 @@
  .app-shell .osan-admin-page .osan-admin-action-menu button:not(.osan-button) { min-height: 44px; font-size: 14px; }
 }
 
-/* Approval requests navigate as compact whole rows, without a separate action column. */
-.app-shell .osan-gate-approvals-page .osan-admin-approval-head,
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row { grid-template-columns: minmax(180px,2fr) 100px 110px minmax(150px,1fr); padding: 5px 12px; }
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row { min-height:40px; cursor:pointer; font-size:13px; line-height:16px; }
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row:hover { background:#f7f7f7; }
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row:focus-visible { outline:2px solid var(--osan-brand,#da2127); outline-offset:-2px; }
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row small { font-size:10px; line-height:13px; }
-@media(max-width:700px){
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row { grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding:6px 4px; min-height:44px; font-size:12px; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :first-child { min-width:0; grid-column:1; grid-row:1; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row .osan-approval-project-title { overflow-wrap:anywhere; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row small { display:inline; margin-left:6px; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :nth-child(2) { grid-column:2;grid-row:1; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :nth-child(3) { grid-column:1;grid-row:2; font-size:11px; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :last-child { grid-column:2;grid-row:2; font-size:10px; }
-}
-
 .app-shell .osan-admin-toolbar { flex-wrap: wrap; }
 .app-shell .osan-admin-toolbar select { width: auto; max-width: 170px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
 .app-shell .osan-customer-counts :is(.osan-admin-record-head, .osan-admin-record) { grid-template-columns: minmax(140px, 2fr) minmax(90px, 1fr) minmax(90px, 1fr) 44px; }
@@ -175,13 +139,6 @@
  .app-shell .osan-admin-toolbar select { max-width: 120px; }
 }
 
-.app-shell .osan-gate-approvals-page :is(.osan-admin-approval-head, .osan-admin-approval-row) { grid-template-columns: minmax(150px,2fr) 86px 90px 205px minmax(140px,2fr); }
-.app-shell .osan-gate-approvals-page .osan-approval-reason { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-@media(max-width:700px) {
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row { grid-template-columns: minmax(0,1fr) auto; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row .osan-approval-reason { grid-column: 1 / -1; grid-row: 3; margin-top: 3px; font-size: 11px; color: #666; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row .osan-approval-reason::before { content: '사유 · '; color: #888; }
-}
 @media(max-width:700px) {
  .app-shell .osan-customer-counts .osan-admin-record > :first-child { grid-column: 1; grid-row: 1; }
  .app-shell .osan-customer-counts .osan-admin-record > :nth-child(2) { grid-column: 2; grid-row: 1; }
@@ -189,15 +146,4 @@
 }
 @media(max-width:700px) {
  .app-shell .osan-admin-toolbar > input[type='search'] { flex: 1 0 100%; width: 100%; box-sizing: border-box; }
-}
-
-.app-shell .osan-gate-approvals-page .osan-admin-approval-row > time { white-space: nowrap; }
-@media(max-width:1000px){
- .app-shell .osan-gate-approvals-page .osan-admin-approval-head { display:none; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row { grid-template-columns:minmax(0,1fr) auto; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :first-child { grid-column:1; grid-row:1; min-width:0; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :nth-child(2) { grid-column:2; grid-row:1; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > :nth-child(3) { grid-column:1; grid-row:2; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row > time { grid-column:2; grid-row:2; font-size:10px; }
- .app-shell .osan-gate-approvals-page .osan-admin-approval-row .osan-approval-reason { grid-column:1 / -1; grid-row:3; }
 }

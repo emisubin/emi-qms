@@ -38,9 +38,9 @@ export function NavigationIcon({ label }: { label: string }) {
       return <svg {...common}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></svg>;
     case '고객사 관리':
       return <svg {...common}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M18 8v6M15 11h6" /></svg>;
-    case 'Gate 설정':
+    case '부서별 권한 설정':
       return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" /></svg>;
-    case 'Gate 승인 대기':
+    case '개인별 권한 설정':
       return <svg {...common}><path d="M5 3h14v18H5ZM8 12l3 3 5-6" /></svg>;
     case '관리자':
       return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4.2 3.4-6.5 8-6.5s7.2 2.3 8 6.5" /><path d="m17.5 4.5 1 1 2-2" /></svg>;

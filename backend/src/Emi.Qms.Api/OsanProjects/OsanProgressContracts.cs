@@ -15,7 +15,7 @@ public sealed record CompleteOsanProgressInput(
     IReadOnlyList<OsanProgressTargetRequest?> Targets,
     IReadOnlyList<OsanProgressPhotoInput> Photos,
     string Comment = "",
-    IReadOnlyList<Guid>? RetainedPhotoIds = null);
+    IReadOnlyList<Guid>? RetainedPhotoIds = null, string? Reason = null);
 
 public sealed record OsanProgressPhotoInput(
     string FileName,
@@ -73,7 +73,7 @@ public sealed record OsanProgressStepResponse(
     string? GuidanceDescription,
     IReadOnlyList<OsanGuidancePhotoResponse> GuidancePhotos,
     IReadOnlyList<OsanProgressPhotoResponse> Photos,
-    string Comment = "", bool EditOpen = false, bool Rejected = false, OsanStageIssueResponse? OpenIssue = null,
+    string Comment = "", bool CanEdit = false, bool Rejected = false, OsanStageIssueResponse? OpenIssue = null,
     bool CanRegisterIssue = false, bool CanResolveIssue = false);
 
 public sealed record OsanGuidancePhotoResponse(Guid PhotoId, string AltText);

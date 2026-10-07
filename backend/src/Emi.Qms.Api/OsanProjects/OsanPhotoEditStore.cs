@@ -1,177 +1,59 @@
 using Emi.Qms.Api.BusinessUnits;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using Npgsql;
 
 namespace Emi.Qms.Api.OsanProjects;
-
-public sealed record OsanPhotoEditRequest(Guid RequestId, Guid TargetId, int StageSequence, string? Reason);
-public sealed record OsanPhotoEditItem(Guid RequestId, Guid TargetId, Guid StepId, Guid RequestedBy,
-    string RequestedByName, DateTimeOffset RequestedAt, DateTimeOffset? ApprovedAt,
-    string? ApprovedByName, DateTimeOffset? UsedAt, IReadOnlyList<Guid> PhotoIds, IReadOnlyList<Guid> OriginalPhotoIds,
-    string? Reason, DateTimeOffset? InvalidatedAt = null);
 
 public sealed class OsanPhotoEditStore(OsanDatabase db)
 {
     private RuntimeDataSourceLease Source() => db.RentDataSource(db.GetConnectionString()
         ?? throw new InvalidOperationException("QMS database connection string is not configured."));
 
-    private static OsanManagementResult OpenIssueConflict() => new(409, Message: "미해결 이상이 있습니다. 이상 해결로 처리해 주세요.");
-
-    private static async Task<bool> RequestHasOpenIssueAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
-        Guid project, Guid requestId, CancellationToken ct)
+    public async Task<OsanManagementResult> SaveAsync(Guid project, Guid step, CompleteOsanProgressInput input,
+        Guid actor, CancellationToken ct, bool isAdministrator=false)
     {
-        await using var command = connection.CreateCommand(); command.Transaction = transaction;
-        command.CommandText = """
-            select 1 from osan_photo_edit_requests r join osan_stage_issues i on i.step_id=r.step_id
-            where r.project_id=@project and r.id=@request and i.status='Open';
-            """;
-        command.Parameters.AddWithValue("project", project); command.Parameters.AddWithValue("request", requestId);
-        return await command.ExecuteScalarAsync(ct) is not null;
-    }
-
-    public async Task<IReadOnlyList<OsanPhotoEditItem>> ListAsync(Guid project, CancellationToken ct)
-    {
-        await using var source = Source();
-        await using var cmd = source.CreateCommand("""
-            select r.id,r.target_id,r.step_id,r.requested_by,u.display_name,r.requested_at,
-              r.approved_at,a.display_name,r.used_at,
-              array(select f.id from osan_photo_revision_files f where f.request_id=r.id order by f.display_order),
-              array(select l.photo_id from osan_progress_step_photos l join osan_progress_photos p on p.id=l.photo_id
-                where l.step_id=r.step_id order by p.display_order),r.reason,r.invalidated_at
-            from osan_photo_edit_requests r join qms_users u on u.id=r.requested_by
-            left join qms_users a on a.id=r.approved_by where r.project_id=@id order by r.requested_at desc;
-            """);
-        cmd.Parameters.AddWithValue("id", project);
-        var items = new List<OsanPhotoEditItem>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while(await reader.ReadAsync(ct)) items.Add(new(reader.GetGuid(0),reader.GetGuid(1),reader.GetGuid(2),
-            reader.GetGuid(3),reader.GetString(4),reader.GetFieldValue<DateTimeOffset>(5),
-            reader.IsDBNull(6)?null:reader.GetFieldValue<DateTimeOffset>(6),reader.IsDBNull(7)?null:reader.GetString(7),
-            reader.IsDBNull(8)?null:reader.GetFieldValue<DateTimeOffset>(8),reader.GetFieldValue<Guid[]>(9),reader.GetFieldValue<Guid[]>(10),
-            reader.IsDBNull(11)?null:reader.GetString(11),reader.IsDBNull(12)?null:reader.GetFieldValue<DateTimeOffset>(12)));
-        return items;
-    }
-
-    private static async Task<bool> LockProject(NpgsqlConnection c, NpgsqlTransaction tx, Guid project, CancellationToken ct)
-    {
-        await using var cmd = c.CreateCommand(); cmd.Transaction=tx;
-        cmd.CommandText="select id from projects where id=@id and deleted_at_utc is null for update";
-        cmd.Parameters.AddWithValue("id",project);
-        return await cmd.ExecuteScalarAsync(ct) is not null;
-    }
-
-    private static async Task<bool> IsProjectDeliveredAsync(NpgsqlConnection c,NpgsqlTransaction tx,
-        Guid project,CancellationToken ct)
-    {
-        await using var command=c.CreateCommand();command.Transaction=tx;
-        command.CommandText="""
-            select status='Completed' and delivery_date < (now() at time zone 'Asia/Seoul')::date
-            from projects where id=@project
-            """;
-        command.Parameters.AddWithValue("project",project);
-        return await command.ExecuteScalarAsync(ct) is true;
-    }
-
-    public async Task<OsanManagementResult> RequestAsync(Guid project, OsanPhotoEditRequest request, Guid actor, CancellationToken ct,
-        bool isAdministrator=false)
-    {
-        var reason=request.Reason?.Trim();
-        if(request.RequestId==Guid.Empty || request.StageSequence is <1 or >7 || string.IsNullOrWhiteSpace(reason) || reason.Length>1000)
-            return new(400,Message:"사진 수정 승인 요청 사유를 1~1000자로 입력해 주세요.");
-        await using var source=Source(); await using var c=await source.OpenConnectionAsync(ct);
-        await using var tx=await c.BeginTransactionAsync(ct);
-        if(!await LockProject(c,tx,project,ct)) return new(404);
-        if(!isAdministrator && await IsProjectDeliveredAsync(c,tx,project,ct))
-            return new(403,Message:"납품 완료 프로젝트는 관리자만 변경할 수 있습니다.");
-        await using var cmd=c.CreateCommand(); cmd.Transaction=tx;
-        cmd.Parameters.AddWithValue("project",project); cmd.Parameters.AddWithValue("target",request.TargetId);
-        cmd.Parameters.AddWithValue("stage",request.StageSequence);cmd.Parameters.AddWithValue("actor",actor);
-        cmd.Parameters.AddWithValue("id",request.RequestId);cmd.Parameters.AddWithValue("reason",reason);
-        cmd.CommandText = """
-            select 1 from osan_stage_issues i join osan_project_target_steps s on s.id=i.step_id
-            where i.project_id=@project and i.target_id=@target and s.sequence_number=@stage and i.status='Open';
-            """;
-        if (await cmd.ExecuteScalarAsync(ct) is not null) return OpenIssueConflict();
-        cmd.CommandText="""
-            insert into osan_photo_edit_requests(id,project_id,target_id,step_id,requested_by,reason)
-            select @id,@project,@target,id,@actor,@reason from osan_active_project_target_steps
-            where project_id=@project and target_id=@target and sequence_number=@stage and status='Completed'
-              and not exists(select 1 from osan_stage_issues i where i.step_id=osan_active_project_target_steps.id and i.status='Open')
-            on conflict do nothing;
-            """;
-        await cmd.ExecuteNonQueryAsync(ct);
-        cmd.CommandText="""
-            select r.id from osan_photo_edit_requests r join osan_active_project_target_steps s on s.id=r.step_id
-            where r.project_id=@project and r.target_id=@target and s.sequence_number=@stage
-              and r.requested_by=@actor and r.used_at is null and r.invalidated_at is null
-              and not exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open');
-            """;
-        var id=await cmd.ExecuteScalarAsync(ct);
-        if(id is null) return new(409,Message:"완료된 단계만 요청할 수 있습니다. 다른 사용자의 요청이 있다면 관리자에게 확인해 주세요.");
-        cmd.CommandText="select step_id from osan_photo_edit_requests where id=@id";
-        cmd.Parameters["id"].Value=(Guid)id;
-        var step=(Guid)(await cmd.ExecuteScalarAsync(ct))!;
-        cmd.CommandText="select 1 from osan_stage_records where operation_id=@id and event_type='Request'";
-        if(await cmd.ExecuteScalarAsync(ct) is null)
-            await OsanStageRecords.AddAsync(c,tx,project,step,(Guid)id,"Request",actor,"",null,[],ct);
-        await tx.CommitAsync(ct); return new(200,new { requestId=(Guid)id });
-    }
-
-    public async Task<OsanManagementResult> ApproveAsync(Guid project, Guid requestId, Guid actor, CancellationToken ct)
-    {
-        await using var source=Source(); await using var c=await source.OpenConnectionAsync(ct);
-        await using var tx=await c.BeginTransactionAsync(ct);
-        if(!await LockProject(c,tx,project,ct))return new(404);
-        await using var cmd=c.CreateCommand();cmd.Transaction=tx;
-        cmd.CommandText="""
-            update osan_photo_edit_requests set approved_by=coalesce(approved_by,@actor),approved_at=coalesce(approved_at,now())
-            where project_id=@project and id=@id and used_at is null and invalidated_at is null
-              and not exists(select 1 from osan_stage_issues i where i.step_id=osan_photo_edit_requests.step_id and i.status='Open') returning step_id;
-            """;
-        cmd.Parameters.AddWithValue("project",project);cmd.Parameters.AddWithValue("id",requestId);cmd.Parameters.AddWithValue("actor",actor);
-        if (await RequestHasOpenIssueAsync(c, tx, project, requestId, ct)) return OpenIssueConflict();
-        var step=await cmd.ExecuteScalarAsync(ct);
-        if(step is null)return new(409,Message:"이미 사용했거나 찾을 수 없는 요청입니다.");
-        cmd.CommandText="select 1 from osan_stage_records where operation_id=@id and event_type='Approve'";
-        if(await cmd.ExecuteScalarAsync(ct) is null)
-            await OsanStageRecords.AddAsync(c,tx,project,(Guid)step,requestId,"Approve",actor,"",null,[],ct);
-        await tx.CommitAsync(ct);return new(200,new{approved=true});
-    }
-
-    public async Task<OsanManagementResult> SaveAsync(Guid project, Guid requestId, CompleteOsanProgressInput input, Guid actor, CancellationToken ct, bool isAdministrator=false)
-    {
+        var reason=input.Reason?.Trim();
         var retained=input.RetainedPhotoIds?.ToArray()??[];
-        if(input.Targets.Count!=1 || input.Targets[0] is null || retained.Distinct().Count()!=retained.Length
+        if(input.OperationId==Guid.Empty || input.StageSequence is <1 or >7 || input.Targets.Count!=1
+            || input.Targets[0] is null || string.IsNullOrWhiteSpace(reason) || reason.Length>1000
+            || retained.Distinct().Count()!=retained.Length
             || OsanStageRecords.ValidateContent(input,isAdministrator,retained.Length).Count>0
-            || input.Photos.Sum(p=>(long)p.Content.Length)>OsanProgressPhotoValidator.MaximumTotalBytes) return new(400,Message:"사진 및 코멘트 입력 조건을 확인해 주세요.");
-        var fingerprint=OsanStageRecords.Fingerprint(new { project,requestId,actor,target=input.Targets[0]!.TargetId,input.StageSequence,input.Comment,retained,
-                photos=input.Photos.Select(p=>new{p.FileName,p.Sha256}) });
+            || input.Photos.Sum(p=>(long)p.Content.Length)>OsanProgressPhotoValidator.MaximumTotalBytes)
+            return new(400,Message:"사진·코멘트와 수정 사유(1~1000자)를 확인해 주세요.");
+        var fingerprint=OsanStageRecords.Fingerprint(new { project,step,actor,input.StageSequence,input.Comment,reason,
+            target=input.Targets[0],retained,photos=input.Photos.Select(p=>new{p.FileName,p.Sha256}) });
         await using var source=Source();await using var c=await source.OpenConnectionAsync(ct);
         await using var tx=await c.BeginTransactionAsync(ct);
-        if(!await LockProject(c,tx,project,ct))return new(404);
-        if(!isAdministrator && await IsProjectDeliveredAsync(c,tx,project,ct))
-            return new(403,Message:"납품 완료 프로젝트는 관리자만 변경할 수 있습니다.");
         await using var cmd=c.CreateCommand();cmd.Transaction=tx;
-        cmd.Parameters.AddWithValue("project",project);cmd.Parameters.AddWithValue("id",requestId);
-        cmd.Parameters.AddWithValue("actor",actor);cmd.Parameters.AddWithValue("target",input.Targets[0]!.TargetId);
+        cmd.Parameters.AddWithValue("project",project);
+        cmd.CommandText="select id from projects where id=@project and deleted_at_utc is null for update";
+        if(await cmd.ExecuteScalarAsync(ct) is null)return new(404);
+        if(!await OsanPolicyStore.CanCompleteAsync(c,tx,actor,input.StageSequence,isAdministrator,ct))
+            return new(403,Message:"해당 Gate 진행 권한이 없습니다.");
+        cmd.CommandText="select status='Completed' and delivery_date < (now() at time zone 'Asia/Seoul')::date from projects where id=@project";
+        if(!isAdministrator && await cmd.ExecuteScalarAsync(ct) is true)
+            return new(403,Message:"납품 완료 프로젝트는 관리자만 변경할 수 있습니다.");
+        cmd.Parameters.AddWithValue("operation",input.OperationId);
+        cmd.CommandText="select fingerprint from osan_stage_records where operation_id=@operation";
+        var old=await cmd.ExecuteScalarAsync(ct);
+        if(old is not null)return old.ToString()==fingerprint
+            ?new(200,new{saved=true,replayed=true}):new(409,Message:"같은 요청 식별자가 다른 처리에 사용되었습니다.");
+        cmd.Parameters.AddWithValue("target",input.Targets[0]!.TargetId);
         cmd.Parameters.AddWithValue("stage",input.StageSequence);
-        if (await RequestHasOpenIssueAsync(c, tx, project, requestId, ct)) return OpenIssueConflict();
+        cmd.Parameters.AddWithValue("stepId",step);
         cmd.CommandText="""
-            select r.approved_at,r.used_at,r.fingerprint,s.id,r.invalidated_at from osan_photo_edit_requests r
-            join osan_active_project_target_steps s on s.id=r.step_id
-            where r.project_id=@project and r.id=@id and r.target_id=@target and s.sequence_number=@stage
-              and (s.status='Completed' or s.rejected)
-              and not exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open') for update of r;
+            select s.status,s.rejected,t.version,
+                exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open')
+            from osan_active_project_target_steps s join osan_active_project_targets t on t.id=s.target_id
+            where s.project_id=@project and s.id=@stepId and s.target_id=@target and s.sequence_number=@stage;
             """;
-        Guid step;
         await using(var reader=await cmd.ExecuteReaderAsync(ct))
         {
-            if(!await reader.ReadAsync(ct) || reader.IsDBNull(0) || !reader.IsDBNull(4))return new(403,Message:"해당 대상·단계에 대한 관리자 승인이 필요합니다.");
-            if(!reader.IsDBNull(1))return reader.GetString(2)==fingerprint
-                ? new(200,new{saved=true,replayed=true}):new(409,Message:"이미 사용한 승인입니다. 다시 승인받아 주세요.");
-            step=reader.GetGuid(3);
+            if(!await reader.ReadAsync(ct))return new(404);
+            if(reader.GetInt32(2)!=input.Targets[0]!.ExpectedVersion)
+                return new(409,Message:"진행 상태가 변경되었습니다. 다시 조회해 주세요.");
+            if(reader.GetBoolean(3))return new(409,Message:"미해결 공정 이상은 조치 완료로 처리해 주세요.");
+            if(reader.GetString(0)!="Completed" && !reader.GetBoolean(1))
+                return new(409,Message:"완료되었거나 반려된 단계만 수정할 수 있습니다.");
         }
         cmd.Parameters.AddWithValue("step",step);cmd.Parameters.AddWithValue("retained",retained);
         cmd.CommandText="select id,byte_size,sha256 from osan_current_progress_photos where project_id=@project and step_id=@step and id=any(@retained)";
@@ -186,20 +68,17 @@ public sealed class OsanPhotoEditStore(OsanDatabase db)
             var photoId=Guid.NewGuid();photoIds.Add(photoId);
             await using var insert=c.CreateCommand();insert.Transaction=tx;
             insert.CommandText="""
-                insert into osan_photo_revision_files(id,request_id,display_order,original_file_name,normalized_mime,sha256,content)
-                values(@id,@request,@ordering,@name,@mime,@hash,@content);
+                insert into osan_direct_edit_files(id,project_id,operation_id,uploaded_by_user_id,display_order,original_file_name,normalized_mime,sha256,content)
+                values(@id,@project,@operation,@actor,@ordering,@name,@mime,@hash,@content);
                 """;
-            insert.Parameters.AddWithValue("id",photoId);insert.Parameters.AddWithValue("request",requestId);
+            insert.Parameters.AddWithValue("id",photoId);insert.Parameters.AddWithValue("project",project); insert.Parameters.AddWithValue("operation",input.OperationId); insert.Parameters.AddWithValue("actor",actor);
             insert.Parameters.AddWithValue("ordering",++order);insert.Parameters.AddWithValue("name",p.FileName);
             insert.Parameters.AddWithValue("mime",p.NormalizedMime);insert.Parameters.AddWithValue("hash",p.Sha256);
             insert.Parameters.AddWithValue("content",p.Content);await insert.ExecuteNonQueryAsync(ct);
         }
-        cmd.Parameters.AddWithValue("fingerprint",fingerprint);
-        cmd.CommandText="update osan_photo_edit_requests set used_at=now(),fingerprint=@fingerprint,saved_by=@actor where id=@id";
-        await cmd.ExecuteNonQueryAsync(ct);
-        await OsanStageRecords.AddAsync(c,tx,project,step,requestId,"Edit",actor,input.Comment,null,photoIds.ToArray(),ct);
+        await OsanStageRecords.AddAsync(c,tx,project,step,input.OperationId,"Edit",actor,input.Comment,reason,photoIds.ToArray(),ct,fingerprint);
         await OsanStageRecords.RecalculateAsync(c,tx,project,input.Targets[0]!.TargetId,ct);
-        await OsanStageRecords.NotifyAsync(c,tx,project,step,requestId,actor,Emi.Qms.Api.Notifications.OsanNotificationKind.StepEdited,input.Comment,photoIds.Count,ct);
+        await OsanStageRecords.NotifyAsync(c,tx,project,step,input.OperationId,actor,Emi.Qms.Api.Notifications.OsanNotificationKind.StepEdited,input.Comment,photoIds.Count,ct);
         await tx.CommitAsync(ct);
         return new(200,new{saved=true,replayed=false});
     }

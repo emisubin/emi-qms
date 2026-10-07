@@ -14,7 +14,7 @@ export interface OsanProgressStep {
   stepId: string; sequenceNumber: number; stepCode: string; stepName: string; status: string;
   startedAtUtc: string | null; completedByUserId: string | null; canCompleteIndividual: boolean; canCompleteBatch: boolean;
   guidanceDescription: string | null; guidancePhotos: { photoId: string; altText: string }[];
-  completedAtUtc: string | null; completedByDisplayName: string | null; photos: OsanProgressPhoto[]; comment?: string | null; editOpen?: boolean; rejected?: boolean;
+  completedAtUtc: string | null; completedByDisplayName: string | null; photos: OsanProgressPhoto[]; comment?: string | null; canEdit?: boolean; rejected?: boolean;
 }
 export interface OsanProgressTarget {
   targetId: string; sequenceNumber: number; displayName: string; status: string; version: number; steps: OsanProgressStep[];

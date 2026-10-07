@@ -8,11 +8,11 @@ type Placement = 'primary' | 'visible' | 'secondary' | 'management';
 const Slots = createContext<{ slots: Record<Placement, HTMLDivElement | null>; close: () => void } | null>(null);
 
 /** Only the trigger moves; forms, requests and permission checks stay in their owning component. */
-export function OsanStageAction({ placement = 'secondary', onClick, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { placement?: Placement }) {
+export function OsanStageAction({ placement = 'secondary', tone, onClick, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { placement?: Placement; tone?: 'neutral' | 'primary' }) {
   const context = useContext(Slots);
   const handleClick: ButtonHTMLAttributes<HTMLButtonElement>['onClick'] = event => { context?.close(); onClick?.(event); };
   const button = placement === 'primary' || placement === 'visible'
-    ? <OsanButton {...props} size="stage" tone={placement === 'primary' ? 'primary' : 'neutral'} onClick={handleClick} />
+    ? <OsanButton {...props} size="stage" tone={tone ?? (placement === 'primary' ? 'primary' : 'neutral')} onClick={handleClick} />
     : <button {...props} onClick={handleClick} />;
   return context ? (context.slots[placement] ? createPortal(button, context.slots[placement]) : null) : button;
 }

@@ -477,6 +477,39 @@ describe('App', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([[true,true],[false,true],[true,false]] as const)('오산 기존 QR은 실제 진행현황으로 연결한다 (Gate 허용 %s, 패널 지정 %s)', async (allowed, panelQr) => {
+    HTMLDialogElement.prototype.showModal = function(){this.open=true;};
+    HTMLDialogElement.prototype.close = function(){this.open=false;};
+    const targetId = panelIds[0];
+    selectBusinessUnit('OSAN');
+    window.history.replaceState(null, '', `/osan/qr/${projectId}${panelQr ? `/${targetId}` : ''}`);
+    const historyLength = window.history.length;
+    const progress = { projectId, title: 'QR 연결 장비', projectCode: 'QR-TEST', status: 'InProgress', completedStepCount: 0, totalStepCount: 7,
+      targets: [{ targetId, sequenceNumber: 1, displayName: 'QR 패널', status: 'NotStarted', version: 1,
+        steps: ['입고검사','배치검사','배선검사','8계통','동작검사','출하검사','포장'].map((stepName,i)=>({
+          stepId: `step-${i}`, sequenceNumber:i+1,stepName,stepCode:String(i),status:'NotStarted',photos:[],
+          canCompleteIndividual:allowed && i===0,canCompleteBatch:allowed && i===0,canEdit:false,canRegisterIssue:false,canResolveIssue:false
+        })) }] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url=new URL(String(input));
+      if(url.pathname==='/osan/api/runtime-mode') return mockFetch(new URL('/access/api/runtime-mode',url),init);
+      if(url.pathname==='/osan/api/me') return json({...currentUser('dev-sales'), permissions:['projects.read','Project.Read.All'],
+        businessUnitAccess:{status:'selected',selectedBusinessUnit:'OSAN',allowedBusinessUnits:['OSAN'],isOverallAdministrator:false,errorCode:null}});
+      if(url.pathname===`/osan/api/osan/projects/${projectId}/progress`) return json(progress);
+      if(url.pathname===`/osan/api/osan/projects/${projectId}/progress/related-panels`) return json({sourceProjectId:projectId,workOrderNumber:null,panels:[]});
+      return mockFetch(input,init);
+    }));
+    render(<App />);
+    const complete=await screen.findByRole('button',{name:'Gate 완료'});
+    await waitFor(()=>expect(window.location.pathname).toBe('/progress'));
+    expect(new URLSearchParams(window.location.search).get('projectId')).toBe(projectId);
+    expect(new URLSearchParams(window.location.search).get('targetId')).toBe(panelQr ? targetId : null);
+    expect(window.history.length).toBe(historyLength);
+    expect(screen.queryByText('오산 · 프로젝트 조회')).not.toBeInTheDocument();
+    if(allowed){expect(complete).toBeEnabled();fireEvent.click(complete);expect(await screen.findByRole('button',{name:'사진 저장 및 Gate 완료'})).toBeEnabled();}
+    else expect(complete).toBeDisabled();
+  });
+
   it('shows project registration actions for Sales users', async () => {
     render(<App />);
 

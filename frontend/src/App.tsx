@@ -53,7 +53,6 @@ import { WebPushFirstRunPrompt } from './WebPushSettings';
 import { deactivateCurrentWebPushForLogout } from './webPushLogout';
 import { PanelQrManager } from './PanelQrManager';
 import { QrScanLandingPage } from './QrScanLandingPage';
-import { OsanQrPage } from './OsanQrPage';
 import { OsanQrPrintDialog } from './OsanQrPrintDialog';
 import { useActionFeedback, type ActionFeedbackState, type ActionFeedbackTone } from './useActionFeedback';
 import type { QualityInspectionStage } from './qualityInspections';
@@ -2348,10 +2347,14 @@ function QmsAppShellContent({
   ]);
 
   useEffect(() => {
-    if (view.kind === 'osan-qr' && currentUser.kind === 'ready' && !isAccessBlocked
-      && !isOsan && businessUnitAccess.allowedBusinessUnits.includes('OSAN')
+    if (view.kind !== 'osan-qr' || currentUser.kind !== 'ready' || isAccessBlocked) return;
+    if (isOsan) {
+      // Keep printed QR URLs valid; use the actual workspace and replace the
+      // entry URL so Back cannot loop through the QR redirect.
+      replaceView({ kind: 'osan-progress', projectId: view.projectId, targetId: view.targetId });
+    } else if (businessUnitAccess.allowedBusinessUnits.includes('OSAN')
       && businessUnitRequestState.inFlightMutationCount === 0) selectBusinessUnit('OSAN');
-  }, [view.kind, currentUser, isAccessBlocked, isOsan, businessUnitAccess.allowedBusinessUnits, businessUnitRequestState.inFlightMutationCount]);
+  }, [view, currentUser, isAccessBlocked, isOsan, businessUnitAccess.allowedBusinessUnits, businessUnitRequestState.inFlightMutationCount, replaceView]);
 
   const switchBusinessUnitContext = useCallback((businessUnit: BusinessUnitCode) => {
     if (typeof window !== 'undefined') {
@@ -2551,8 +2554,7 @@ function QmsAppShellContent({
   if (view.kind === 'osan-qr') {
     if (currentUser.kind !== 'ready') return <p role="status">로그인 정보를 확인하는 중…</p>;
     if (!isOsan) return <main className="auth-gate"><p role="status">{businessUnitAccess.allowedBusinessUnits.includes('OSAN') ? '오산 프로젝트 조회를 준비하는 중…' : '오산 프로젝트를 볼 권한이 없습니다.'}</p></main>;
-    return <><OsanQrPage key={`${view.projectId}:${view.targetId ?? ""}:${developmentUserKey}`} projectId={view.projectId} targetId={view.targetId} userKey={developmentUserKey} />
-      {(layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${view.projectId}:${view.targetId}`} current="osan-progress" onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}</>;
+    return <p role="status">해당 패널의 진행현황을 여는 중…</p>;
   }
 
   const permissions = user?.permissions ?? [];

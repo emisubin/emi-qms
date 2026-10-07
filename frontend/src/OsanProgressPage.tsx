@@ -195,8 +195,12 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
   const canAct = (mutationAllowed && project.canManageStages) || project.targets.some(target => target.steps.some(step =>
     (mutationAllowed && (step.canCompleteIndividual || step.canCompleteBatch || step.canRegisterIssue || step.canResolveIssue))
     || (photoMutationAllowed && step.canEdit && !step.openIssue)));
+  const guidanceInitiallyOpen = selected.length > 0 && selected.every(target => {
+    const step = target.steps.find(item => item.sequenceNumber === stage);
+    return step?.status === 'NotStarted' && !step.openIssue && !step.rejected;
+  });
   const stageContent = <>
-    <details key={stage} className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details>
+    <details key={`${stage}:${selected.map(target => target.targetId).join(',')}:${guidanceInitiallyOpen}`} open={guidanceInitiallyOpen} className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details>
     <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
     {selected.length !== 1 && !selectedStageCompleted && !mixedSelection && <div className="osan-progress-actions"><button type="button" disabled={busy || refreshing || !mutationAllowed || !!unavailable} onClick={() => { setCompletionIds(null); pendingCompletion.current = null; setFiles([]); setComment(''); setFileError(''); setModalOpen(true); setError(''); }}>Gate 완료</button>{unavailable && <p>{unavailable}</p>}</div>}
   </>;

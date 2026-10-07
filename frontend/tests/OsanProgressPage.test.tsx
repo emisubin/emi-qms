@@ -414,3 +414,22 @@ it('조치 완료 허용과 이상 기록 등록 권한은 분리되고 운영 �
   expect(screen.queryByRole('button',{name:'조치 완료'})).not.toBeInTheDocument();
   expect(screen.getByText(/읽기 전용입니다/)).toBeVisible();
 });
+
+
+describe('단계 설명 초기 펼침', () => {
+  it.each(['before', 'completed', 'issue', 'rejected'])('%s 상태의 설명 기본 표시', async state => {
+    const data = project();
+    for (const target of data.targets) {
+      const step = target.steps[0];
+      if (state === 'completed') step.status = 'Completed';
+      if (state === 'rejected') step.rejected = true;
+      if (state === 'issue') step.openIssue = {issueId:'issue',registeredAtUtc:'2026-10-07T00:00:00Z',registeredByUserId:'worker',registeredByDisplayName:'작업자',comment:'이상',photos:[],lastRecordedAtUtc:'2026-10-07T00:00:00Z',lastRecordedByDisplayName:'작업자'};
+    }
+    vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+    renderPage('project-a', '1');
+    const guidance = await screen.findByText('단계 설명');
+    expect(guidance.closest('details')?.open).toBe(state === 'before');
+    fireEvent.click(guidance);
+    expect(guidance.closest('details')?.open).toBe(state !== 'before');
+  });
+});

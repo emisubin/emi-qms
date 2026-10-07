@@ -162,7 +162,7 @@ describe('Osan project registration', () => {
     expect(new URLSearchParams(window.location.search).get('targetId')).toBe(data.targets[1].targetId);
   });
 
-  it.each([true, false])('opens the progress deep link and enforces manufacturing mutation permission (%s)', async (allowed) => {
+  it.each([true, false])('opens the progress deep link and enforces server Gate permission (%s)', async (allowed) => {
     const project = projectDetail(1);
     const progress = {
       ...project,
@@ -171,7 +171,7 @@ describe('Osan project registration', () => {
       targets: project.targets.map(target => ({
         ...target, version: 1,
         steps: target.steps.map(step => ({
-          ...step, canCompleteIndividual: true, canCompleteBatch: true,
+          ...step, canCompleteIndividual: allowed, canCompleteBatch: allowed,
           completedAtUtc: null, completedByDisplayName: null, photos: []
         }))
       }))

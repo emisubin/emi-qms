@@ -295,22 +295,3 @@
 .osan-progress-stage-overview .is-next-work .osan-stage-light { outline:2px solid #282828; outline-offset:3px; }
 
 .app-shell .osan-progress-page .osan-record-actions button:not(.osan-button).osan-issue-register{color:#da2127!important}.osan-progress-history>.osan-progress-actions{grid-column:1/-1;}
-
-
-/* Approved direct edit layout: photographs left, comments and required reason right. */
-.app-shell .osan-direct-edit { display:grid; grid-template-columns:minmax(0,2fr) minmax(260px,1fr); gap:16px 24px; }
-.osan-direct-edit-intro { grid-column:1/-1; }
-.osan-direct-edit-photos,.osan-direct-edit-text { min-width:0; }
-.app-shell .osan-direct-edit-text .osan-comment-input:first-child { margin-top:0; }
-.osan-direct-edit-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
-@media(max-width:860px) { .app-shell .osan-direct-edit { grid-template-columns:minmax(0,1fr); } }
-.osan-progress-history:has(.osan-direct-edit) > .osan-progress-photo-region,
-.osan-progress-history:has(.osan-direct-edit) > .osan-record-comment,
-.osan-progress-history:has(.osan-direct-edit) > .osan-progress-completed { display:none; }
-.app-shell .osan-stage-dialog .osan-progress-history:has(.osan-direct-edit) > .osan-record-actions { grid-column:1/-1; grid-row:2; width:100%; }
-.osan-stage-action-details:has(.osan-direct-edit) { width:100%; }
-.app-shell .osan-photo-editor .osan-retained-photos label { display:block; }
-.app-shell .osan-photo-editor .osan-retained-photos input[type=checkbox] { width:auto; }
-.app-shell .osan-stage-dialog .osan-direct-edit .osan-retained-photos img,
-.app-shell .osan-direct-edit .osan-retained-photos img { width:100%!important; height:200px!important; max-height:200px!important; object-fit:contain!important; }
-.app-shell .osan-direct-edit input[type=checkbox] { accent-color:var(--osan-brand,#da2127)!important; }

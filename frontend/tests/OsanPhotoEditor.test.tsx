@@ -24,21 +24,21 @@ beforeEach(()=>{vi.resetAllMocks();HTMLDialogElement.prototype.showModal=functio
 describe('오산 사진 직접 수정',()=>{
  it('Gate 권한이 있으면 승인 조회 없이 수정하며 매 저장에 사유가 필수다',async()=>{
   const view=show();expect(fetchJson).not.toHaveBeenCalled();expect(screen.queryByText(/승인 요청/)).not.toBeInTheDocument();enter();
-  expect(screen.getByRole('button',{name:'사진 변경 저장'})).toBeDisabled();reason('   ');expect(screen.getByRole('button',{name:'사진 변경 저장'})).toBeDisabled();reason();
-  fireEvent.click(screen.getByRole('button',{name:'사진 변경 저장'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();reason('   ');expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();reason();
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());
   const [url,,options]=vi.mocked(fetchJson).mock.calls[0];expect(url).toBe('/api/osan/projects/project-a/progress/steps/step-a/edit');const body=options!.body as FormData;
   expect(body.get('reason')).toBe('사진 초점을 보정합니다.');expect(JSON.parse(body.get('targets') as string)).toEqual([{targetId:'target-a',expectedVersion:2}]);
   expect(screen.getByRole('button',{name:'사진 수정'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));expect(screen.getByRole('textbox',{name:/수정 사유/})).toHaveValue('');
  });
  it('Gate 권한이 없으면 수정 버튼을 숨긴다',()=>{show(false);expect(screen.queryByRole('button',{name:'사진 수정'})).not.toBeInTheDocument();expect(fetchJson).not.toHaveBeenCalled();});
- it('열린 입력도 읽기 전용 전환 시 잠근다',()=>{const view=show();enter();view.rerender(<OsanPhotoEditor projectId="project-a" target={view.current} stage={1} mutationAllowed={false} onSaved={view.onSaved}/>);expect(screen.getByLabelText('사진 선택')).toBeDisabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeDisabled();expect(screen.getByRole('button',{name:'사진 변경 저장'})).toBeDisabled();});
+ it('열린 입력도 읽기 전용 전환 시 잠근다',()=>{const view=show();enter();view.rerender(<OsanPhotoEditor projectId="project-a" target={view.current} stage={1} mutationAllowed={false} onSaved={view.onSaved}/>);expect(screen.getByLabelText('사진 선택')).toBeDisabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeDisabled();expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();});
  it('응답 불확실 시 같은 본문/식별자로 재시도하고 입력을 잠근다',async()=>{
-  const view=show();enter();reason();vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(503,'결과 확인 실패'));fireEvent.click(screen.getByRole('button',{name:'사진 변경 저장'}));
+  const view=show();enter();reason();vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(503,'결과 확인 실패'));fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));
   await screen.findByText('결과 확인 실패');expect(screen.getByLabelText('사진 선택')).toBeDisabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeDisabled();expect(screen.getByRole('button',{name:'취소'})).toBeDisabled();
   const body=vi.mocked(fetchJson).mock.calls[0][2]!.body;fireEvent.click(screen.getByRole('button',{name:'같은 사진으로 저장 재시도'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());expect(vi.mocked(fetchJson).mock.calls[1][2]!.body).toBe(body);
  });
- it('서버 입력 거부는 수정하여 재시도할 수 있다',async()=>{show();enter();reason();vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(422,'손상된 사진입니다.'));fireEvent.click(screen.getByRole('button',{name:'사진 변경 저장'}));await screen.findByText('손상된 사진입니다.');expect(screen.getByLabelText('사진 선택')).toBeEnabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeEnabled();});
- it('관리자는 사진 없이 코멘트와 수정 사유로 저장한다',async()=>{const view=show(true,true);fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));fireEvent.change(screen.getByRole('textbox',{name:/^코멘트/}),{target:{value:'검사 확인'}});reason();fireEvent.click(screen.getByRole('button',{name:'사진 변경 저장'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());});
+ it('서버 입력 거부는 수정하여 재시도할 수 있다',async()=>{show();enter();reason();vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(422,'손상된 사진입니다.'));fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await screen.findByText('손상된 사진입니다.');expect(screen.getByLabelText('사진 선택')).toBeEnabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeEnabled();});
+ it('관리자는 사진 없이 코멘트와 수정 사유로 저장한다',async()=>{const view=show(true,true);fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));fireEvent.change(screen.getByRole('textbox',{name:/^코멘트/}),{target:{value:'검사 확인'}});reason();fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());});
 });
 describe('오산 단계 저장 이력', () => {
   it('별도 이력 조회에서 이전 사진·코멘트·등록자와 초기화 사유를 보존해 표시한다', async () => {

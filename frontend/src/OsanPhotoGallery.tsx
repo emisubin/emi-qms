@@ -3,7 +3,7 @@ import { dismissOnBackdrop } from './dialogBackdrop';
 import { useEffect, useRef, useState } from 'react';
 import { getOsanProgressPhoto, type OsanProgressPhoto } from './osanProgress';
 
-export function SavedPhoto({ projectId, photo, userKey }: { projectId: string; photo: OsanProgressPhoto; userKey?: string }) {
+export function SavedPhoto({ projectId, photo, userKey, preview = false }: { projectId: string; photo: OsanProgressPhoto; userKey?: string; preview?: boolean }) {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -17,6 +17,7 @@ export function SavedPhoto({ projectId, photo, userKey }: { projectId: string; p
     }).catch(() => { if (!controller.signal.aborted) setError('사진을 불러오지 못했습니다.'); });
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [projectId, photo.photoId, photo.contentType, userKey, attempt]);
+  if (preview) return url ? <img src={url} alt={`사진 ${photo.displayOrder}`} /> : <p role={error ? 'alert' : 'status'}>{error || '사진 불러오는 중…'}</p>;
   return <figure className="osan-progress-saved-photo">
     {url ? <button type="button" className="osan-photo-zoom-trigger" aria-label="사진 크게 보기" onClick={() => setOpen(true)}><img src={url} alt={`사진 ${photo.displayOrder}`} onError={() => { setUrl(''); setError('사진을 표시하지 못했습니다. 다시 불러와 주세요.'); }} /></button>
       : error ? <><p role="alert">{error}</p><button type="button" onClick={() => setAttempt(n => n + 1)}>사진 다시 불러오기</button></> : <p role="status">사진 불러오는 중…</p>}

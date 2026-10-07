@@ -173,7 +173,9 @@ public sealed partial class BusinessUnitIsolationTests
             await identity.GetProfileByDevelopmentUserKeyAsync("dev-sales", ct));
         Assert.True(sales.HasPermission(QmsPermissions.ProjectRead));
         Assert.True(sales.HasPermission(QmsPermissions.ProjectReadAll));
-        Assert.True(sales.HasPermission(QmsPermissions.ProjectCreate));
+        // This account is seeded after 0132, so its per-user creation grant
+        // must start denied even though its department retains legacy mappings.
+        Assert.False(sales.HasPermission(QmsPermissions.ProjectCreate));
         Assert.False(sales.HasPermission(QmsPermissions.ManufacturingUpdate));
         var quality = Assert.IsType<UserAuthorizationProfile>(
             await identity.GetProfileByDevelopmentUserKeyAsync("dev-quality", ct));

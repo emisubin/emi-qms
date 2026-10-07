@@ -579,3 +579,6 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 - 2026-10-07 사용자 검수 후 main 병합·공개배포 명시 승인. PR167, head196852e 필수 CI에서 프런트/워크플로 통과, 통합 오산 생성 테스트 실패를 확인했다. migration 후 생성되는 합성 사용자의 개인별 권한 기본 거부는 정상이며 기존 E2E가 부서만으로 생성을 기대한 것이 원인이다.
 - 통합 테스트는 신규 계정 기본 거부를 확인한 뒤 실제 관리자 권한 API로 명시 허용하고 프로젝트 등록을 진행하도록 보정한다. 제품 권한 완화 없음. 공지·팝업은 기존 서버 CLI를 사용하며 브라우저 로그인은 필수 아님.
 - 보정 검증 완료: 실제 관리자 API로 개인 권한 부여 후 오산 생성/조회 및 청주 보존 Full-stack E2E PASS, 일회용3DB·역할·container 정리 확인. 배포 workflow는 기존 prepared 검증 모드를 선택 입력으로 연결하여 사전 서버 공지를 재사용하도록 했다. 독립 검토 새 finding 없음, actionlint/배포 정적·계약 검사 PASS(OpenSSL3 사용). 초기 macOS 기본 OpenSSL 복호화 시험 실패는 OpenSSL3 재실행으로 통과했으며 제품 코드 변경 없음.
+
+- 후속 CI37567330263: Frontend/Full-stack/Workflow PASS, Backend1053/1056 PASS·3FAIL. 새0132/0133의3개 오산 표가 정확한 schema 기대 목록에서 누락되고, migration 이후 seed한 sales 계정의 기본 생성 권한 기대값이 이전 정책으로 남아 있었다. 제품 코드·권한은 변경하지 않고 현행59표 목록과0131 이전 보존 목록을 분리했다. upgrade의3개 호출만 이전 목록으로 전후 비교하며 worker 경계 검사는 새 표까지 포함한다. 신규 seed 계정은 명시 권한 부여 전 거부를 검증한다.
+- 최종 보정본의 관련 BusinessSchema18/18 PASS(skip0), 일회용 DB/container 정리 확인, 별도 검토 GO. 최초 보정의 snapshot 공용 사용처 누락은 검토 지적 후 수정했다. 새 head required CI를 다시 완료하기 전 main 병합·운영 DB 변경은 하지 않는다. 서버 CLI의 청주·오산 공지 준비는 완료했으며 저장 차단·배포는 미실행이다.

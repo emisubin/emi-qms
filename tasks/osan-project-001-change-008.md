@@ -582,3 +582,6 @@ PR141 CI34734270628에서 frontend439·mock16·일반full-stack64·사업부1은
 
 - 후속 CI37567330263: Frontend/Full-stack/Workflow PASS, Backend1053/1056 PASS·3FAIL. 새0132/0133의3개 오산 표가 정확한 schema 기대 목록에서 누락되고, migration 이후 seed한 sales 계정의 기본 생성 권한 기대값이 이전 정책으로 남아 있었다. 제품 코드·권한은 변경하지 않고 현행59표 목록과0131 이전 보존 목록을 분리했다. upgrade의3개 호출만 이전 목록으로 전후 비교하며 worker 경계 검사는 새 표까지 포함한다. 신규 seed 계정은 명시 권한 부여 전 거부를 검증한다.
 - 최종 보정본의 관련 BusinessSchema18/18 PASS(skip0), 일회용 DB/container 정리 확인, 별도 검토 GO. 최초 보정의 snapshot 공용 사용처 누락은 검토 지적 후 수정했다. 새 head required CI를 다시 완료하기 전 main 병합·운영 DB 변경은 하지 않는다. 서버 CLI의 청주·오산 공지 준비는 완료했으며 저장 차단·배포는 미실행이다.
+
+- PR167 필수 CI37572444580 전체 PASS(서버1056/1056), main eb19a3f 병합 완료. 공개배포 전 실제 이미지 검증에서 패키지 시험의 별도 오산 표 목록에도0132/0133의3개 표가 누락된 것을 확인했다. 제품/DB migration은 바꾸지 않고 `test-production-migration-image.sh`의 독립 기대 목록만 최신 승인 schema와 맞춘다. 기존운영이미지 유지, 운영migration 미실행.
+- 독립 검토에서 오산 표 총수 기대값56→59도 함께 보정했다. 최종 실제 배포 이미지의 common/directory/business catalog 일치·fresh/existing/축소schema·packaged CLI 검증 PASS, 소유 일회용 자원 정리0 확인. 로컬 Docker가 config가 아닌manifest를 Id로 보고하여 원본 export의manifest/config/layer digest를 검증한 별도 결속 증거를 추가했고, 기존 repository verifier는 수정하지 않았다. 잘못된ID/config변조/layer변조/RootFS불일치4반례 거부 PASS, 별도검토 GO.

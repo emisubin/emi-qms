@@ -191,6 +191,9 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     </section>;
   }
   if (!project) return <section className="osan-progress-page">{loadError ? <><p role="alert">{loadStatus === 403 ? '이 프로젝트의 진행 정보를 조회할 권한이 없습니다.' : loadStatus === 404 ? '프로젝트를 찾을 수 없습니다.' : loadError}</p><button type="button" onClick={refresh}>다시 불러오기</button></> : <p role="status">진행 정보를 불러오는 중…</p>}</section>;
+  const canAct = (mutationAllowed && project.canManageStages) || project.targets.some(target => target.steps.some(step =>
+    (mutationAllowed && (step.canCompleteIndividual || step.canCompleteBatch || step.canRegisterIssue || step.canResolveIssue))
+    || (photoMutationAllowed && step.canEdit && !step.openIssue)));
   const stageContent = <>
     {desktop ? <details className="osan-guidance-toggle"><summary>단계 설명</summary><OsanStageGuidance stage={stage}/></details> : !selectedStageCompleted && <OsanStageGuidance stage={stage}/>}
     <div className="osan-progress-histories">{selected.map(targetHistory)}</div>
@@ -200,7 +203,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     <header className="osan-progress-header"><button type="button" onClick={onBack} disabled={busy} aria-label="진행 현황으로 돌아가기">‹</button><h1>진행 현황</h1></header>
     <div className="osan-progress-project"><h2>{project.title}</h2><p>{project.projectCode}</p><span>{project.status === 'Completed' ? '완료' : project.status === 'InProgress' ? '진행 중' : '시작 전'}</span></div>
     {loadError && <p role="alert">{loadError}</p>}
-    {!mutationAllowed && <p className="osan-progress-readonly">읽기 전용입니다. 완료 기록을 조회할 수 있습니다.</p>}
+    {!canAct && <p className="osan-progress-readonly">읽기 전용입니다. 완료 기록을 조회할 수 있습니다.</p>}
     {project.targets.length === 0 ? <p>등록된 수량 대상이 없습니다.</p> : <>
       <div ref={selector} className="osan-progress-target-selector" onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setSelectorOpen(false); }}>
         <button ref={selectorTrigger} type="button" className="osan-progress-target-trigger" disabled={busy} aria-expanded={selectorOpen} aria-controls="osan-target-options" onClick={() => setSelectorOpen(value => !value)}>{selectorOpen ? '패널 선택' : selectionLabel}<span className="osan-progress-selector-arrow" aria-hidden="true" /></button>

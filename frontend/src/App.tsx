@@ -3011,7 +3011,7 @@ function QmsAppShellContent({
           initialTargetId={view.targetId}
           initialStage={view.stage}
           developmentUserKey={developmentUserKey}
-          mutationAllowed={mutationEnabled && canUpdateManufacturing}
+          mutationAllowed={mutationEnabled}
           photoMutationAllowed={mutationEnabled}
           onBack={() => setView({ kind: notificationOrigin.current ? 'notifications' : 'osan-progress' })}
           onOpenTarget={(projectId, targetId) => setView({ kind: 'osan-progress', projectId, targetId })}

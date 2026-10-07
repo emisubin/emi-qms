@@ -373,6 +373,40 @@ it('사진 수정은 일반 제조 권한과 별개로 서버가 허용한 Gate 
   vi.mocked(api.getOsanProgress).mockResolvedValue(data);
   const view=render(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="gate-department" mutationAllowed={false} photoMutationAllowed />);
   expect(await screen.findByRole('button',{name:'사진 수정'})).toBeEnabled();
+  expect(screen.queryByText('읽기 전용입니다. 완료 기록을 조회할 수 있습니다.')).not.toBeInTheDocument();
   view.rerender(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="gate-department" mutationAllowed={false} photoMutationAllowed={false}/>);
   expect(screen.queryByRole('button',{name:'사진 수정'})).not.toBeInTheDocument();
+});
+
+
+it('Gate 허용 부서는 완료할 수 있지만 공정 이상 등록은 서버 권한 없으면 표시하지 않는다', async () => {
+  const data=project();data.targets=data.targets.slice(0,1);
+  data.targets[0].steps.forEach(step=>{step.canRegisterIssue=false;});
+  vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+  render(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="sales-gate" mutationAllowed />);
+  expect(await screen.findByRole('button',{name:'Gate 완료'})).toBeEnabled();
+  expect(screen.queryByRole('button',{name:'공정 이상 발생'})).not.toBeInTheDocument();
+  expect(screen.queryByText(/읽기 전용입니다/)).not.toBeInTheDocument();
+});
+
+it('서버가 모든 동작을 거부하면 실행 가능 상태여도 읽기 전용이다', async () => {
+  const data=project();data.targets=data.targets.slice(0,1);
+  data.targets[0].steps.forEach(step=>{step.canCompleteIndividual=false;step.canCompleteBatch=false;step.canEdit=false;step.canRegisterIssue=false;step.canResolveIssue=false;});
+  vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+  renderPage('project-a','1');
+  expect(await screen.findByText(/읽기 전용입니다/)).toBeVisible();
+  expect(screen.getByRole('button',{name:'Gate 완료'})).toBeDisabled();
+});
+
+it('조치 완료 허용과 이상 기록 등록 권한은 분리되고 운영 저장 차단은 모두 잠근다', async () => {
+  const data=project();data.targets=data.targets.slice(0,1);const step=data.targets[0].steps[0];
+  step.canResolveIssue=true;step.canRegisterIssue=false;
+  step.openIssue={issueId:'issue',registeredAtUtc:'2026-10-07T00:00:00Z',registeredByUserId:'worker',registeredByDisplayName:'작업자',comment:'이상',photos:[],lastRecordedAtUtc:'2026-10-07T00:00:00Z',lastRecordedByDisplayName:'작업자'};
+  vi.mocked(api.getOsanProgress).mockResolvedValue(data);
+  const view=render(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="sales-gate" mutationAllowed />);
+  expect(await screen.findByRole('button',{name:'조치 완료'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'기록 추가',hidden:true})).toBeDisabled();
+  view.rerender(<OsanProgressPage projectId="project-a" initialStage="1" developmentUserKey="sales-gate" mutationAllowed={false} />);
+  expect(screen.queryByRole('button',{name:'조치 완료'})).not.toBeInTheDocument();
+  expect(screen.getByText(/읽기 전용입니다/)).toBeVisible();
 });

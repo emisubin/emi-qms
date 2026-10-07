@@ -73,7 +73,7 @@
 .osan-progress-photo-inputs { display: flex; justify-content: space-between; padding: 0 7px; margin: 16px 0 6px; }
 .osan-progress-photo-inputs button:not(.osan-button) { width: 83px; height: 24px; border: 0; padding: 0; border-radius: 10.5px; background: #ddd; color: #282828; font-size: 11px; font-weight: 600; }
 .osan-progress-previews:empty { display: none; }
-.osan-progress-previews { height: 140px; overflow: auto; }
+.osan-progress-previews { height: auto; overflow: visible; }
 .osan-progress-previews figure { margin: 0; padding: 6px; }
 .osan-progress-previews img { display: block; width: 100%; height: 88px; margin: auto; object-fit: contain; }
 .osan-progress-previews figcaption { overflow-wrap: anywhere; font-size: 10px; }
@@ -141,8 +141,8 @@
   .app-shell .osan-progress-completion-modal h2 { font-size: 16px; line-height: 22px; }
   .app-shell .osan-progress-photo-placeholder,
   .app-shell .osan-progress-previews { width: 100%; }
-  .app-shell .osan-progress-previews { height: auto; max-height: 50vh; }
-  .app-shell .osan-progress-previews img { width: auto; max-width: 100%; height: auto; }
+  .app-shell .osan-progress-previews { height: auto; max-height: none; }
+  .app-shell .osan-progress-previews img { width: 100%; max-width: 100%; height: auto; max-height: 32vh; object-fit: contain; }
   .app-shell .osan-progress-photo-inputs button:not(.osan-button),
   .app-shell .osan-progress-submit { height: 36px; min-height: 36px; font-size: 13px; }
 }

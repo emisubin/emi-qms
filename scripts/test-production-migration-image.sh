@@ -330,7 +330,7 @@ assert_target_schema() {
       ;;
     OSAN)
       suffix=osan
-      expected_tables='audit_coverage_state,audit_event_changes,audit_events,authorization_audit_events,data_export_events,departments,deployment_maintenance,deployment_maintenance_popup_receipts,notice_attachments,notice_popup_receipts,notice_post_revisions,notice_posts,notice_reads,notice_setting_events,notification_deliveries,notification_delivery_attempts,notification_recipients,notifications,osan_customer_assignment_versions,osan_customer_assignments,osan_customers,osan_gate_configuration,osan_gate_departments,osan_notification_events,osan_notification_global_preference_profiles,osan_notification_global_preferences,osan_notification_preference_profiles,osan_notification_preferences,osan_photo_edit_requests,osan_photo_revision_files,osan_progress_operations,osan_progress_photos,osan_progress_step_photos,osan_project_completion_notifications,osan_project_create_operations,osan_project_events,osan_project_management_history,osan_project_target_steps,osan_project_targets,osan_stage_issues,osan_stage_records,osan_stage_work_request_recipients,osan_stage_work_requests,permissions,projects,qms_database_identity,qms_users,role_permissions,roles,schema_migrations,user_profile_photo_audit_events,user_profile_photos,user_project_access,user_roles,web_push_subscription_events,web_push_subscriptions'
+      expected_tables='audit_coverage_state,audit_event_changes,audit_events,authorization_audit_events,data_export_events,departments,deployment_maintenance,deployment_maintenance_popup_receipts,notice_attachments,notice_popup_receipts,notice_post_revisions,notice_posts,notice_reads,notice_setting_events,notification_deliveries,notification_delivery_attempts,notification_recipients,notifications,osan_customer_assignment_versions,osan_customer_assignments,osan_customers,osan_direct_edit_files,osan_gate_configuration,osan_gate_departments,osan_notification_events,osan_notification_global_preference_profiles,osan_notification_global_preferences,osan_notification_preference_profiles,osan_notification_preferences,osan_photo_edit_requests,osan_photo_revision_files,osan_progress_operations,osan_progress_photos,osan_progress_step_photos,osan_project_completion_notifications,osan_project_create_operations,osan_project_events,osan_project_management_history,osan_project_target_steps,osan_project_targets,osan_stage_issues,osan_stage_records,osan_stage_work_request_recipients,osan_stage_work_requests,osan_user_project_create_permission_events,osan_user_project_create_permissions,permissions,projects,qms_database_identity,qms_users,role_permissions,roles,schema_migrations,user_profile_photo_audit_events,user_profile_photos,user_project_access,user_roles,web_push_subscription_events,web_push_subscriptions'
       expected_sequences='audit_event_changes_id_seq'
       expected_views='osan_active_project_target_steps,osan_active_project_targets,osan_all_progress_photos,osan_current_progress_photos'
       ;;
@@ -404,7 +404,7 @@ assert_target_schema() {
     (select count(*) from information_schema.columns where table_schema='public' and column_name='project_profile')::text;")"
   case "${target}" in
     CHEONGJU) expected=182:36:14:46:0 ;;
-    OSAN) expected=56:19:12:45:0 ;;
+    OSAN) expected=59:19:12:45:0 ;;
   esac
   [[ "${actual}" == "${expected}" ]] || { echo "Business migration schema contract failed for ${target}." >&2; return 1; }
   # These are uncustomized synthetic fixtures. Production retains existing links

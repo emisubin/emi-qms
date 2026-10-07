@@ -30,6 +30,22 @@ describe('오산 사진 직접 수정',()=>{
   expect(body.get('reason')).toBe('사진 초점을 보정합니다.');expect(JSON.parse(body.get('targets') as string)).toEqual([{targetId:'target-a',expectedVersion:2}]);
   expect(screen.getByRole('button',{name:'사진 수정'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));expect(screen.getByRole('textbox',{name:/수정 사유/})).toHaveValue('');
  });
+ it('일반 사용자는 마지막 사진 제외 시 저장할 수 없고 복원 또는 새 사진으로만 저장한다',async()=>{
+  const photo={photoId:'old',displayOrder:1,fileName:'old.jpg',contentType:'image/jpeg',sizeBytes:3};
+  const current={...target,steps:[{...target.steps[0],comment:'기존 코멘트',photos:[photo]}]};
+  const onSaved=vi.fn();render(<OsanPhotoEditor projectId="project-a" target={current} stage={1} mutationAllowed canManageStages={false} onSaved={onSaved}/>);
+  fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));reason();
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'사진 제외'}));
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();expect(screen.getByRole('alert')).toHaveTextContent('사진을 1장 이상');
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));expect(fetchJson).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'복원'}));expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'사진 제외'}));
+  fireEvent.change(screen.getByLabelText('사진 선택'),{target:{files:[new File(['new'],'new.jpg',{type:'image/jpeg'})]}});
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());
+  const body=vi.mocked(fetchJson).mock.calls[0][2]!.body as FormData;expect(body.get('retainedPhotoIds')).toBe('[]');expect(body.getAll('photos')).toHaveLength(1);
+ });
  it('Gate 권한이 없으면 수정 버튼을 숨긴다',()=>{show(false);expect(screen.queryByRole('button',{name:'사진 수정'})).not.toBeInTheDocument();expect(fetchJson).not.toHaveBeenCalled();});
  it('열린 입력도 읽기 전용 전환 시 잠근다',()=>{const view=show();enter();view.rerender(<OsanPhotoEditor projectId="project-a" target={view.current} stage={1} mutationAllowed={false} onSaved={view.onSaved}/>);expect(screen.getByLabelText('사진 선택')).toBeDisabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeDisabled();expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();});
  it('응답 불확실 시 같은 본문/식별자로 재시도하고 입력을 잠근다',async()=>{

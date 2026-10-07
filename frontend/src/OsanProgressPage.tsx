@@ -1,3 +1,4 @@
+import { OsanRecordPhoto } from './OsanRecordPhoto';
 import { OsanStageActions, OsanStageAction } from './OsanStageActions';
 import { OsanWorkRequest } from './OsanWorkRequest';
 import { OsanStageIssueActions } from './OsanStageIssueActions';
@@ -255,7 +256,7 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     <dialog ref={modal} className="osan-progress-completion-modal" aria-labelledby="osan-completion-title" onClick={event => dismissOnBackdrop(event, () => { if (!busy) setModalOpen(false); })} onCancel={event => { if (busy) event.preventDefault(); else setModalOpen(false); }}>
       <h2 id="osan-completion-title">해당 Gate를 완료하셨나요?</h2><p>{completionSelected.map(t => t.displayName).join(', ')}</p>
       {files.length === 0 && <div className="osan-progress-photo-placeholder" aria-label="완료 사진을 선택할 영역"><span aria-hidden="true">+</span></div>}
-      <div className="osan-progress-previews">{files.map((file, index) => <figure key={`${file.name}:${file.lastModified}:${index}`}><OsanPhotoPreview file={file} projectId={projectId} userKey={developmentUserKey} /><figcaption>{file.name}</figcaption><button type="button" disabled={busy} onClick={() => { pendingCompletion.current = null; setFiles(current => current.filter((_, position) => position !== index)); setError(''); setFileError(''); }}>사진 제거</button></figure>)}</div>
+      <div className="osan-progress-previews">{files.map((file, index) => <OsanRecordPhoto key={`${file.name}:${file.lastModified}:${index}`} name={file.name} action="사진 제거" disabled={busy} onAction={() => { pendingCompletion.current = null; setFiles(current => current.filter((_, position) => position !== index)); setError(''); setFileError(''); }}><OsanPhotoPreview file={file} projectId={projectId} userKey={developmentUserKey} /></OsanRecordPhoto>)}</div>
       <div className="osan-progress-photo-inputs"><button type="button" disabled={busy} onClick={() => cameraInput.current?.click()}>촬영</button><button type="button" disabled={busy} onClick={() => albumInput.current?.click()}>업로드</button></div>
       <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" aria-label="카메라 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files, true); event.target.value = ''; }} />
       <input ref={albumInput} hidden type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="기존 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files); event.target.value = ''; }} />

@@ -295,3 +295,10 @@
 .osan-progress-stage-overview .is-next-work .osan-stage-light { outline:2px solid #282828; outline-offset:3px; }
 
 .app-shell .osan-progress-page .osan-record-actions button:not(.osan-button).osan-issue-register{color:#da2127!important}.osan-progress-history>.osan-progress-actions{grid-column:1/-1;}
+
+/* Photo-level actions share one placement in completion and edit forms. */
+.osan-progress-previews .osan-record-photo { text-align:center; }
+.osan-record-photo-action { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:6px; }
+.osan-record-photo-action > span { font-size:11px; color:#737373; }
+.osan-record-photo[data-excluded] .osan-record-photo-image { opacity:.4; }
+.app-shell[data-osan-shell='true'] .osan-record-photo-action .osan-button { min-height:24px!important; padding:1px 7px!important; font-size:11px!important; line-height:20px!important; }

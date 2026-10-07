@@ -305,20 +305,26 @@
 
 /* Approved mobile Gate layout: compact overview, expandable guidance, scoped actions. */
 @media(max-width:860px){
-  .app-shell .osan-progress-page{padding:14px 18px 20px}
-  .osan-progress-project{margin:10px 0 12px}
-  .osan-progress-stage-card{margin-top:16px;padding-bottom:16px}
+  .app-shell .osan-progress-page{padding:14px 18px 12px}
+  .osan-progress-page .osan-progress-refresh{margin-top:12px}
+  .osan-progress-project{margin:6px 0 8px}
+  .osan-progress-stage-card{margin-top:10px;padding-bottom:12px}
   .osan-progress-stage-heading{display:flex;align-items:center;justify-content:center;gap:4px;min-width:0}
   .osan-progress-stage-heading h2{display:flex;align-items:center;gap:6px;margin:0}
   .osan-progress-stage-heading small{font-size:10px;color:#777;font-weight:400;white-space:nowrap}
-  .osan-progress-stage-card>.osan-guidance-toggle{width:calc(100% - 28px);margin:8px 14px 12px;border:0;border-bottom:1px solid #eee;border-radius:0}
-  .osan-progress-stage-card>.osan-guidance-toggle summary{padding:8px 0;min-height:36px;font-size:12px}
-  .app-shell .osan-progress-stage-card .osan-progress-guidance{width:100%;box-shadow:none;padding:8px 0}
-  .osan-progress-stage-card .osan-progress-completed-title{margin:10px 0 12px!important;text-align:left;line-height:20px}
-  .osan-progress-stage-card .osan-photo-track>.osan-progress-saved-photo>.osan-photo-zoom-trigger img{height:clamp(150px,26dvh,225px)}
+  .osan-progress-stage-card>.osan-guidance-toggle{width:calc(100% - 28px);margin:4px 14px 8px;border:0;border-bottom:1px solid #eee;border-radius:0}
+  .osan-progress-stage-card>.osan-guidance-toggle summary{padding:4px 0;min-height:32px;font-size:12px}
+  .app-shell .osan-progress-stage-card .osan-progress-guidance{width:100%;box-shadow:none;padding:4px 0;gap:8px}
+  .app-shell .osan-progress-stage-card .osan-progress-guidance>p{line-height:1.4}
+  .osan-progress-stage-card .osan-guidance-examples{margin-top:4px}
+  .osan-progress-stage-card .osan-guidance-examples{--osan-guidance-photo-height:clamp(96px,16dvh,135px)}
+  .osan-progress-stage-card .osan-guidance-examples figcaption{margin-top:2px}
+  .osan-progress-stage-card .osan-guidance-examples>p{margin-bottom:4px}
+  .osan-progress-stage-card .osan-progress-completed-title{margin:6px 0 8px!important;text-align:left;line-height:20px}
+  .osan-progress-stage-card .osan-photo-track>.osan-progress-saved-photo>.osan-photo-zoom-trigger img{height:clamp(120px,21dvh,178px)}
   .osan-progress-stage-card .osan-photo-controls{margin-top:6px;gap:6px}
   .osan-progress-stage-card .osan-photo-count{margin-bottom:6px}
-  .osan-progress-stage-card .osan-record-comment{margin:10px 0 0;padding:10px 12px;font-size:13px}
+  .osan-progress-stage-card .osan-record-comment{margin:6px 0 0;padding:6px 10px;font-size:13px}
   .osan-progress-stage-card .osan-progress-completed{padding:6px 0;font-size:10px}
   .osan-progress-stage-card .osan-record-actions{margin-top:0}
 }

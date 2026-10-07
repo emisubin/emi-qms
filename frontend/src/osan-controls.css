@@ -1,6 +1,6 @@
 /* Existing approved compact and Gate geometries, shared without changing dialog layouts. */
 .app-shell[data-osan-shell='true'] .osan-button.osan-button {
-  width:auto!important;min-width:0!important;margin:0!important;
+  width:var(--osan-button-width,auto)!important;min-width:0!important;margin:0!important;
   min-height:30px!important;height:auto!important;padding:4px 9px!important;
   border:1px solid var(--osan-control-border,#d8d8d8)!important;border-radius:4px!important;
   background:var(--osan-surface,#fff)!important;color:var(--osan-control-text,#333)!important;
@@ -15,3 +15,5 @@
 .app-shell[data-osan-shell='true'] .osan-button.osan-button:focus-visible {outline:2px solid var(--osan-brand,#da2127)!important;outline-offset:2px}
 @media(max-width:760px){.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-size='compact']{min-height:32px!important;padding:5px 9px!important}}
 @media(max-width:860px){.app-shell[data-osan-shell='true'] .osan-button.osan-button[data-size='stage']{min-height:44px!important;padding:10px 12px!important}}
+
+.app-shell[data-osan-shell='true'] .osan-button[data-full-width='true']{--osan-button-width:100%}

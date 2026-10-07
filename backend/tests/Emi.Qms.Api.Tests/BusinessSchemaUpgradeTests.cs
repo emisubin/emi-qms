@@ -76,7 +76,7 @@ public sealed partial class BusinessUnitIsolationTests
         var snapshots = new Dictionary<string, Dictionary<string, string>>();
         foreach (var code in new[] { BusinessUnitCodes.Cheongju, BusinessUnitCodes.Osan })
         {
-            snapshots[code] = await SnapshotOwnedDataAsync(databases, code, ct);
+            snapshots[code] = await SnapshotOwnedDataAsync(databases, code, ct, OsanOwnedTablesAt0131);
             // Direct execution without the exact per-target opt-in must fail before
             // any destructive statement; this does not rely on the runner guard.
             var builder = databases.GetBuilder(code, BusinessUnitConnectionPurpose.Migration);
@@ -86,7 +86,9 @@ public sealed partial class BusinessUnitIsolationTests
             await using var transaction = await connection.BeginTransactionAsync(ct);
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = await File.ReadAllTextAsync(catalog.GetBusinessMigrationFiles(code).Single(), ct);
+            command.CommandText = await File.ReadAllTextAsync(
+                catalog.GetBusinessMigrationFiles(code)
+                    .Single(path => Path.GetFileName(path).StartsWith("0131_", StringComparison.Ordinal)), ct);
             var consentError = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(ct));
             Assert.Equal("P0001", consentError.SqlState);
             Assert.Equal("business_schema_explicit_consent_required", consentError.MessageText);
@@ -120,11 +122,11 @@ public sealed partial class BusinessUnitIsolationTests
                 }
                 Assert.Equal(130L, await databases.ReadScalarAsync<long>(code, BusinessUnitConnectionPurpose.Migration,
                     "select count(*) from schema_migrations", ct));
-                var unchanged = await SnapshotOwnedDataAsync(databases, code, ct);
+                var unchanged = await SnapshotOwnedDataAsync(databases, code, ct, OsanOwnedTablesAt0131);
                 foreach (var (table, rows) in snapshots[code]) Assert.Equal(rows, unchanged[table]);
             }
             await runner.ApplyAndVerifyAsync(code, ct);
-            var after = await SnapshotOwnedDataAsync(databases, code, ct);
+            var after = await SnapshotOwnedDataAsync(databases, code, ct, OsanOwnedTablesAt0131);
             foreach (var (table, beforeRows) in snapshots[code]) Assert.Equal(beforeRows, after[table]);
             await runner.ApplyAndVerifyAsync(code, ct);
         }
@@ -180,9 +182,11 @@ public sealed partial class BusinessUnitIsolationTests
     }
 
     private static async Task<Dictionary<string, string>> SnapshotOwnedDataAsync(
-        IsolationDatabaseSet databases, string code, CancellationToken ct)
+        IsolationDatabaseSet databases, string code, CancellationToken ct,
+        IReadOnlyList<string>? osanTables = null)
     {
-        var tables = code == BusinessUnitCodes.Osan ? OsanOwnedTables : CheongjuOwnedTables;
+        // Upgrade callers select retained rows explicitly; current-state checks include new tables.
+        var tables = code == BusinessUnitCodes.Osan ? osanTables ?? OsanOwnedTables : CheongjuOwnedTables;
         var result = new Dictionary<string, string>();
         foreach (var table in tables.Where(table => table != "schema_migrations"))
         {

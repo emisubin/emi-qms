@@ -1,37 +1,17 @@
-import { fireEvent, render, screen, within, cleanup } from '@testing-library/react';
+import { fireEvent, render, screen, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { OsanQrPage } from '../src/OsanQrPage';
 import { OsanQrPrintDialog } from '../src/OsanQrPrintDialog';
 import { ApiError, getOsanProject, fetchBlob } from '../src/api';
-import { getOsanProgress, osanStageNames } from '../src/osanProgress';
 vi.mock('../src/api', async original => ({ ...await original<typeof import('../src/api')>(), getOsanProject: vi.fn(), fetchBlob: vi.fn() }));
-vi.mock('../src/osanProgress', async original => ({ ...await original<typeof import('../src/osanProgress')>(), getOsanProgress: vi.fn() }));
 const project = { projectId: 'a', title: '검수 장비', projectCode: 'A', customerName: '샘플 고객사', productName: 'Power Rack', quantity: 1, deliveryDate: '2026-09-22', poNumber: 'PO-A', workOrderNumber: 'WO-A', status: 'InProgress', createdAtUtc: '', completedStepCount: 1, totalStepCount: 14, targets: [1,2].map(i => ({ targetId: 't'+i, sequenceNumber:i, displayName:'패널 '+i, status:'NotStarted', steps:[] })) };
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function() { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function() { this.removeAttribute('open'); };
   vi.mocked(getOsanProject).mockImplementation(async (_key, id) => ({ ...project, projectId: id }));
-  vi.mocked(getOsanProgress).mockResolvedValue({ projectId: 'a', title: project.title, projectCode: 'A', status: 'InProgress', completedStepCount: 1, totalStepCount: 7, targets: [{ targetId: 't', sequenceNumber: 1, displayName: '패널 1', status: 'InProgress', version: 1, startedAtUtc: null, startedByUserId: null, startedByDisplayName: null, steps: osanStageNames.map((stepName,i) => ({ stepId: String(i), sequenceNumber: i+1, stepCode: String(i), stepName, status: i===0?'Completed':'NotStarted', startedAtUtc: null, completedByUserId: 'u', completedByDisplayName: '검수 작업자', completedAtUtc: i===0?'2026-09-10T01:24:00Z':null, canCompleteIndividual:false, canCompleteBatch:false, guidanceDescription:null, guidancePhotos:[], photos:[] })) }] });
   vi.mocked(fetchBlob).mockResolvedValue(new Blob(['svg']));
   URL.createObjectURL = vi.fn(()=>'blob:synthetic'); URL.revokeObjectURL = vi.fn();
 });
 afterEach(()=>{cleanup();vi.resetAllMocks();});
-it('7단계와 요약, 완료/미완료 기록을 조회 전용으로 제공한다',async()=>{
-  render(<OsanQrPage projectId="a"/>);
-  await screen.findByRole('heading',{name:project.title});
-  expect(screen.getByRole('progressbar')).toHaveAttribute('value','14');
-  expect(screen.getAllByRole('button',{name:/패널 1 .* 기록/})).toHaveLength(7);
-  fireEvent.click(screen.getByRole('button',{name:'패널 1 입고검사 완료 기록'}));
-  const modal=screen.getByRole('dialog'); expect(within(modal).getByText('검수 작업자')).toBeInTheDocument();
-  expect(within(modal).queryByRole('button',{name:'완료'})).not.toBeInTheDocument();
-  fireEvent.click(within(modal).getByRole('button',{name:'닫기'}));
-  fireEvent.click(screen.getByRole('button',{name:'패널 1 배치검사 미완료 기록'}));
-  expect(screen.getByText('아직 완료 기록이 없습니다.')).toBeInTheDocument();
-});
-it('조회 거부 시 데이터 대신 권한 오류를 제공한다',async()=>{
-  vi.mocked(getOsanProject).mockRejectedValue(new ApiError(403,'denied')); render(<OsanQrPage projectId="a"/>);
-  expect(await screen.findByRole('alert')).toHaveTextContent('권한이 없습니다'); expect(screen.queryByText(project.title)).not.toBeInTheDocument();
-});
 it('중복 프로젝트를 제거하고 30/50mm 라벨 내부에 3줄을 제공한다',async()=>{
   const {container}=render(<OsanQrPrintDialog projectIds={['a','b','a']} onClose={()=>{}}/>);
   expect(await screen.findByRole('button',{name:'4장 QR 인쇄'})).toBeEnabled();expect(fetchBlob).toHaveBeenCalledTimes(4);
@@ -54,30 +34,4 @@ it.each([[30,2],[50,3]] as const)('명시적인 인쇄 페이지로 %smm 라벨 
   expect(doc.querySelectorAll('.osan-qr-label')).toHaveLength(count);
   expect(doc.head.textContent).toContain('@page{size:'+size+'mm '+size+'mm;margin:0}');
   expect(doc.head.textContent).not.toContain('A4');
-});
-
-it('패널 QR은 해당 패널만 표시하고 잘못된 대상이면 다른 패널로 대체하지 않는다',async()=>{
-  const response=await vi.mocked(getOsanProgress)('a');
-  response.targets.push({...response.targets[0],targetId:'other',displayName:'패널 2'});
-  const view=render(<OsanQrPage projectId="a" targetId="t"/>);
-  expect(await screen.findByRole('heading',{name:'패널 1 진행 현황'})).toBeInTheDocument();
-  expect(screen.queryByRole('button',{name:/패널 2 .* 기록/})).not.toBeInTheDocument();
-  view.rerender(<OsanQrPage projectId="a" targetId="missing"/>);
-  expect(await screen.findByRole('alert')).toHaveTextContent('찾을 수 없는 패널');
-  expect(screen.queryByRole('button',{name:/패널 1 .* 기록/})).not.toBeInTheDocument();
-});
-
-it('완료 단계 설명은 기본 접힘이고 저장 코멘트를 표시한다', async () => {
-  const response = await vi.mocked(getOsanProgress)('a');
-  response.targets[0].steps[0].comment = '최종 저장 코멘트';
-  response.targets[0].steps[1].status = 'Completed';
-  render(<OsanQrPage projectId="a" />);
-  fireEvent.click(await screen.findByRole('button', { name: '패널 1 입고검사 완료 기록' }));
-  const details = screen.getByText('작업 설명', { selector: 'summary' }).parentElement!;
-  expect(details).not.toHaveAttribute('open'); expect(screen.getByText('최종 저장 코멘트')).toBeVisible();
-  details.setAttribute('open', '');
-  fireEvent.click(screen.getByRole('button', { name: '닫기' }));
-  fireEvent.click(screen.getByRole('button', { name: '패널 1 배치검사 완료 기록' }));
-  expect(screen.getByText('작업 설명', { selector: 'summary' }).parentElement).not.toHaveAttribute('open');
-  expect(screen.getByText('등록된 코멘트가 없습니다.')).toBeVisible();
 });

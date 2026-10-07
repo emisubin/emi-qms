@@ -7,8 +7,8 @@ namespace Emi.Qms.Api.Tests;
 public sealed class OsanDepartmentPermissionsTests
 {
     [Theory]
-    [InlineData("sales", true, false)]
-    [InlineData("production-planning", true, false)]
+    [InlineData("sales", false, false)]
+    [InlineData("production-planning", false, false)]
     [InlineData("manufacturing", false, true)]
     [InlineData("quality", false, true)]
     [InlineData("design", false, false)]
@@ -44,6 +44,23 @@ public sealed class OsanDepartmentPermissionsTests
         var result = OsanDepartmentPermissions.Apply(profile, BusinessUnitCodes.Osan);
         Assert.True(result.HasPermission(QmsPermissions.ProjectCreate));
         Assert.True(result.HasPermission(QmsPermissions.ManufacturingUpdate));
+    }
+
+    [Theory]
+    [InlineData("sales")]
+    [InlineData("production-planning")]
+    [InlineData("quality")]
+    public void ExplicitUserGrantOverridesDepartmentProjectCreateDefault(string department)
+    {
+        var result = OsanDepartmentPermissions.Apply(Profile(department), BusinessUnitCodes.Osan, projectCreateAllowed: true);
+        Assert.True(result.HasPermission(QmsPermissions.ProjectCreate));
+    }
+
+    [Fact]
+    public void ExplicitUserDenialRemovesLegacyRolePermission()
+    {
+        var result = OsanDepartmentPermissions.Apply(Profile("sales"), BusinessUnitCodes.Osan, projectCreateAllowed: false);
+        Assert.False(result.HasPermission(QmsPermissions.ProjectCreate));
     }
 
     private static UserAuthorizationProfile Profile(string department) => new(

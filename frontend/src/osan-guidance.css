@@ -3,7 +3,7 @@
 .osan-guidance-examples > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
 .osan-guidance-examples figure { margin: 0; min-width: 0; }
 .app-shell .osan-guidance-image, .osan-qr-dialog .osan-guidance-image { display: block; width: 100%; padding: 0 !important; background: #f4f4f4 !important; border: 1px solid #e4e4e4 !important; border-radius: 8px !important; overflow: hidden; cursor: zoom-in; }
-.app-shell .osan-guidance-image img, .osan-qr-dialog .osan-guidance-image img { display: block; width: 100% !important; height: 230px !important; max-height: none !important; object-fit: contain !important; }
+.app-shell .osan-guidance-image img, .osan-qr-dialog .osan-guidance-image img { display: block; width: 100% !important; height: var(--osan-guidance-photo-height, 230px) !important; max-height: none !important; object-fit: contain !important; }
 .osan-guidance-examples figcaption { text-align: center; font-size: 12px; line-height: 20px; margin-top: 6px; }
 .app-shell .osan-guidance-zoom, .osan-guidance-zoom { box-sizing: border-box; width: calc(100vw - 24px); max-width: 1300px; height: calc(100dvh - 24px); max-height: none; padding: 16px; border: 0; border-radius: 12px; background: #242424 !important; color: #fff !important; }
 .osan-guidance-zoom[open] { display: flex; flex-direction: column; gap: 12px; }

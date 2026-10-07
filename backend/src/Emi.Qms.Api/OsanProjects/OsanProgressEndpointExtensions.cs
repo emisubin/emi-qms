@@ -222,6 +222,8 @@ public static class OsanProgressEndpointExtensions
         var actor=ProjectEndpointExtensions.GetCurrentUserId(user);
         var allowed=actor is null ? new HashSet<int>() : await new OsanPolicyStore(db)
             .AllowedGateStagesAsync(actor.Value,admin,ct);
+        var project=await new OsanProjectStore(db).GetAsync(progress.ProjectId,ct);
+        var delivered=project?.Status=="Completed" && project.DeliveryDate < DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow,TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul")));
         return progress with
         {
             CanManageStages = admin,
@@ -229,6 +231,7 @@ public static class OsanProgressEndpointExtensions
             {
                 Steps = target.Steps.Select(step => step with
                 {
+                    CanEdit = step.CanEdit && allowed.Contains(step.SequenceNumber) && (admin || !delivered),
                     CanCompleteIndividual = step.CanCompleteIndividual && allowed.Contains(step.SequenceNumber),
                     CanCompleteBatch = step.CanCompleteBatch && allowed.Contains(step.SequenceNumber),
                     CanRegisterIssue = step.CanRegisterIssue && canUpdate,
@@ -412,7 +415,7 @@ public static class OsanProgressEndpointExtensions
             completionMode,
             stageSequence,
             targets,
-            photos, comment, retained), errors);
+            photos, comment, retained, form["reason"].ToString()), errors);
     }
 
     private static IResult ToResult(OsanProgressMutationResult result) =>

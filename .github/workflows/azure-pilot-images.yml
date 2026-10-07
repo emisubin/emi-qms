@@ -51,6 +51,15 @@ on:
         description: UUID for this public deployment announcement (required when replacing an application)
         required: false
         type: string
+      maintenance_prepared:
+        description: Reuse an already prepared server announcement and verify its exact content
+        required: true
+        default: false
+        type: boolean
+      maintenance_preparation_image:
+        description: Exact trusted backend image used for the prepared announcement (required when reusing)
+        required: false
+        type: string
       maintenance_title:
         description: Public deployment notice title
         required: false
@@ -416,6 +425,8 @@ jobs:
       MAINTENANCE_JOB_NAME: ${{ vars.AZURE_MAINTENANCE_JOB_NAME }}
       MAINTENANCE_ACTOR_USER_ID: ${{ vars.AZURE_MAINTENANCE_ACTOR_USER_ID }}
       MAINTENANCE_RELEASE_ID: ${{ inputs.maintenance_release_id }}
+      MAINTENANCE_PREPARED: ${{ inputs.maintenance_prepared }}
+      MAINTENANCE_PREPARATION_IMAGE: ${{ inputs.maintenance_preparation_image }}
       MAINTENANCE_TITLE: ${{ inputs.maintenance_title }}
       MAINTENANCE_BODY: ${{ inputs.maintenance_body }}
       MAINTENANCE_STARTS_AT_UTC: ${{ inputs.maintenance_starts_at_utc }}

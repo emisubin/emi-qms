@@ -67,6 +67,20 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
   await page.getByRole('navigation', { name: '공통 메뉴' }).getByRole('button', { name: '프로젝트' }).click();
   await expect(page.getByRole('heading', { name: '프로젝트 목록' })).toBeVisible();
   await expect(page.getByText('등록된 프로젝트가 없습니다.')).toBeVisible();
+  // This synthetic account is created after migration, so individual creation starts denied.
+  await expect(page.getByRole('button', { name: '신규 프로젝트' })).toHaveCount(0);
+  const permissionsUrl = `${backendUrl}/osan/api/osan/admin/user-project-create-permissions`;
+  const permissionsResponse = await request.get(permissionsUrl, { headers: adminHeaders });
+  expect(permissionsResponse.status()).toBe(200);
+  const permissions = await permissionsResponse.json() as { items: Array<{ userId: string; allowed: boolean; version: number }> };
+  const salesPermission = permissions.items.find(item => item.userId === sales!.userId);
+  expect(salesPermission?.allowed).toBe(false);
+  const permissionSaved = await request.put(permissionsUrl, {
+    headers: adminHeaders,
+    data: { items: [{ userId: sales!.userId, allowed: true, expectedVersion: salesPermission!.version }] }
+  });
+  expect(permissionSaved.status()).toBe(200);
+  await page.reload();
   await page.getByRole('button', { name: '신규 프로젝트' }).first().click();
 
   await page.getByLabel('장비명').fill('  오산 통합 프로젝트  ');

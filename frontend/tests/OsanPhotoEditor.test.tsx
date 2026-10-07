@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { SavedPhoto } from '../src/OsanPhotoGallery';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, fetchJson } from '../src/api';
 import { OsanPhotoEditor } from '../src/OsanPhotoEditor';
@@ -10,167 +11,52 @@ vi.mock('../src/osanProgress', async original => ({ ...await original<typeof imp
 const target: OsanProgressTarget = {
   targetId: 'target-a', sequenceNumber: 1, displayName: '합성 대상', status: 'InProgress', version: 2,
   startedAtUtc: null, startedByUserId: null, startedByDisplayName: null,
-  steps: [{ stepId: 'step-a', sequenceNumber: 1, stepCode: 'INCOMING', stepName: '입고검사', status: 'Completed',
+  steps: [{ stepId: 'step-a', sequenceNumber: 1, stepCode: 'INCOMING', stepName: '입고검사', status: 'Completed', canEdit: true,
     startedAtUtc: null, completedByUserId: 'worker', canCompleteIndividual: false, canCompleteBatch: false,
     guidanceDescription: null, guidancePhotos: [], completedAtUtc: '2026-09-10T00:00:00Z', completedByDisplayName: '합성 작업자', photos: [] }]
 };
-const path = '/api/osan/projects/project-a/progress/photo-edits';
-function editRequest() {
-  return { requestId: 'request-a', targetId: target.targetId, stepId: 'step-a', requestedBy: 'worker', requestedByName: '합성 작업자',
-    requestedAt: '2026-09-10T00:00:00Z', approvedAt: null as string | null, approvedByName: null as string | null,
-    usedAt: null as string | null, photoIds: ['previous-photo'], reason: '흐린 사진을 교체합니다.' };
+function show(canEdit=true,canManageStages=false,mutationAllowed=true){
+ const onSaved=vi.fn();const current={...target,steps:target.steps.map(s=>({...s,canEdit}))};
+ return {...render(<OsanPhotoEditor projectId="project-a" target={current} stage={1} userKey="worker" mutationAllowed={mutationAllowed} canManageStages={canManageStages} onSaved={onSaved}/>),onSaved,current};
 }
-function state(items = [editRequest()], currentUserId = 'worker', canApprove = false) { return { items, currentUserId, canApprove }; }
-function fileContent(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-function show(userKey = 'worker', mutationAllowed = true) {
-  const onSaved = vi.fn();
-  return { ...render(<OsanPhotoEditor projectId="project-a" target={target} stage={1} userKey={userKey} mutationAllowed={mutationAllowed} onSaved={onSaved} />), onSaved };
-}
-beforeEach(() => {
-  vi.resetAllMocks();
-  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
-  HTMLDialogElement.prototype.close = function () { this.open = false; };
-  URL.createObjectURL = vi.fn(() => 'blob:synthetic-photo');
-  URL.revokeObjectURL = vi.fn();
-  vi.mocked(getOsanProgressPhoto).mockResolvedValue(new Blob(['old photo'], { type: 'image/jpeg' }));
-  vi.mocked(fetchJson).mockResolvedValue(state([]));
+function enter(){fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));fireEvent.change(screen.getByLabelText('사진 선택'),{target:{files:[new File(['jpeg'],'replacement.jpg',{type:'image/jpeg'})]}});}
+function reason(value='사진 초점을 보정합니다.'){fireEvent.change(screen.getByRole('textbox',{name:/수정 사유/}),{target:{value}});}
+beforeEach(()=>{vi.resetAllMocks();HTMLDialogElement.prototype.showModal=function(){this.open=true};HTMLDialogElement.prototype.close=function(){this.open=false};URL.createObjectURL=vi.fn(()=>'blob:synthetic');URL.revokeObjectURL=vi.fn();vi.mocked(getOsanProgressPhoto).mockResolvedValue(new Blob(['old'],{type:'image/jpeg'}));vi.mocked(fetchJson).mockResolvedValue({});});
+describe('오산 사진 직접 수정',()=>{
+ it('Gate 권한이 있으면 승인 조회 없이 수정하며 매 저장에 사유가 필수다',async()=>{
+  const view=show();expect(fetchJson).not.toHaveBeenCalled();expect(screen.queryByText(/승인 요청/)).not.toBeInTheDocument();enter();
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();reason('   ');expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();reason();
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());
+  const [url,,options]=vi.mocked(fetchJson).mock.calls[0];expect(url).toBe('/api/osan/projects/project-a/progress/steps/step-a/edit');const body=options!.body as FormData;
+  expect(body.get('reason')).toBe('사진 초점을 보정합니다.');expect(JSON.parse(body.get('targets') as string)).toEqual([{targetId:'target-a',expectedVersion:2}]);
+  expect(screen.getByRole('button',{name:'사진 수정'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));expect(screen.getByRole('textbox',{name:/수정 사유/})).toHaveValue('');
+ });
+ it('일반 사용자는 마지막 사진 제외 시 저장할 수 없고 복원 또는 새 사진으로만 저장한다',async()=>{
+  const photo={photoId:'old',displayOrder:1,fileName:'old.jpg',contentType:'image/jpeg',sizeBytes:3,sha256:'sample',uploadedAtUtc:'2026-10-07T00:00:00Z',uploadedByUserId:'worker',uploadedByDisplayName:'작업자'};
+  const current={...target,steps:[{...target.steps[0],comment:'기존 코멘트',photos:[photo]}]};
+  const onSaved=vi.fn();render(<OsanPhotoEditor projectId="project-a" target={current} stage={1} mutationAllowed canManageStages={false} onSaved={onSaved}/>);
+  fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));reason();
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'사진 제외'}));
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();expect(screen.getByRole('alert')).toHaveTextContent('사진을 1장 이상');
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));expect(fetchJson).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'복원'}));expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'사진 제외'}));
+  fireEvent.change(screen.getByLabelText('사진 선택'),{target:{files:[new File(['new'],'new.jpg',{type:'image/jpeg'})]}});
+  expect(screen.getByRole('button',{name:'수정 저장'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());
+  const body=vi.mocked(fetchJson).mock.calls[0][2]!.body as FormData;expect(body.get('retainedPhotoIds')).toBe('[]');expect(body.getAll('photos')).toHaveLength(1);
+ });
+ it('Gate 권한이 없으면 수정 버튼을 숨긴다',()=>{show(false);expect(screen.queryByRole('button',{name:'사진 수정'})).not.toBeInTheDocument();expect(fetchJson).not.toHaveBeenCalled();});
+ it('열린 입력도 읽기 전용 전환 시 잠근다',()=>{const view=show();enter();view.rerender(<OsanPhotoEditor projectId="project-a" target={view.current} stage={1} mutationAllowed={false} onSaved={view.onSaved}/>);expect(screen.getByLabelText('사진 선택')).toBeDisabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeDisabled();expect(screen.getByRole('button',{name:'수정 저장'})).toBeDisabled();});
+ it('응답 불확실 시 같은 본문/식별자로 재시도하고 입력을 잠근다',async()=>{
+  const view=show();enter();reason();vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(503,'결과 확인 실패'));fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));
+  await screen.findByText('결과 확인 실패');expect(screen.getByLabelText('사진 선택')).toBeDisabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeDisabled();expect(screen.getByRole('button',{name:'취소'})).toBeDisabled();
+  const body=vi.mocked(fetchJson).mock.calls[0][2]!.body;fireEvent.click(screen.getByRole('button',{name:'같은 사진으로 저장 재시도'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());expect(vi.mocked(fetchJson).mock.calls[1][2]!.body).toBe(body);
+ });
+ it('서버 입력 거부는 수정하여 재시도할 수 있다',async()=>{show();enter();reason();vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(422,'손상된 사진입니다.'));fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await screen.findByText('손상된 사진입니다.');expect(screen.getByLabelText('사진 선택')).toBeEnabled();expect(screen.getByRole('textbox',{name:/수정 사유/})).toBeEnabled();});
+ it('관리자는 사진 없이 코멘트와 수정 사유로 저장한다',async()=>{const view=show(true,true);fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));fireEvent.change(screen.getByRole('textbox',{name:/^코멘트/}),{target:{value:'검사 확인'}});reason();fireEvent.click(screen.getByRole('button',{name:'수정 저장'}));await waitFor(()=>expect(view.onSaved).toHaveBeenCalledOnce());});
 });
-
-describe('오산 사진 수정 승인', () => {
-  it('승인 전 편집을 막고 승인 후 다른 등록 권한 사용자에게도 편집을 허용한다', async () => {
-    vi.mocked(fetchJson).mockResolvedValue(state([editRequest()], 'other-worker'));
-    const view = show('other-worker');
-    await screen.findByText('합성 작업자 · 관리자 승인 대기');
-    expect(screen.queryByRole('button', { name: '사진 수정 1회 승인' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '사진 수정' })).not.toBeInTheDocument();
-    view.unmount();
-    vi.mocked(fetchJson).mockResolvedValue(state([{ ...editRequest(), approvedAt: '2026-09-10T01:00:00Z' }], 'other-worker', false));
-    show('other-worker');
-    await screen.findByText(/수정 승인됨/);
-    expect(screen.getByRole('button', { name: '사진 수정' })).toBeEnabled();
-  });
-
-  it('요청→관리자 승인→다른 사용자 1회 저장 후 재잠금을 적용한다', async () => {
-    let items: ReturnType<typeof editRequest>[] = [];
-    vi.mocked(fetchJson).mockImplementation(async (url, user, init) => {
-      if (!init?.method) return state(items.map(item => ({ ...item })), user, user === 'admin');
-      if (url === path) {
-        const body = JSON.parse(init.body as string);
-        expect(body).toMatchObject({ targetId: 'target-a', stageSequence: 1, reason: '흐린 사진을 교체합니다.' });
-        items = [{ ...editRequest(), requestId: body.requestId }];
-      } else if (url.endsWith('/approve')) {
-        expect(user).toBe('admin');
-        items = [{ ...items[0], approvedAt: '2026-09-10T01:00:00Z', approvedByName: '합성 관리자' }];
-      } else if (url.endsWith('/save')) {
-        expect(user).toBe('other-worker');
-        const body = init.body as FormData;
-        expect(body.get('operationId')).toBe(items[0].requestId);
-        expect(body.get('completionMode')).toBe('individual');
-        expect(body.get('stageSequence')).toBe('1');
-        expect(JSON.parse(body.get('targets') as string)).toEqual([{ targetId: 'target-a', expectedVersion: 2 }]);
-        expect((body.get('photos') as File).name).toBe('replacement.jpg');
-        items = [{ ...items[0], usedAt: '2026-09-10T02:00:00Z' }];
-      } else throw new Error(`Unexpected request ${url}`);
-      return {};
-    });
-    const requester = show();
-    fireEvent.click(await screen.findByRole('button', { name: '사진 수정 승인 요청' }));
-    expect(screen.getByRole('dialog', { name: '사진 수정 승인 요청' })).toBeVisible();
-    const submitRequest = screen.getByRole('button', { name: '승인 요청 보내기' });
-    expect(submitRequest).toBeDisabled();
-    fireEvent.change(screen.getByRole('textbox', { name: '수정 요청 사유' }), { target: { value: '  흐린 사진을 교체합니다.  ' } });
-    fireEvent.click(submitRequest);
-    await screen.findByText('합성 작업자 · 관리자 승인 대기');
-    expect(screen.getByText('요청 사유: 흐린 사진을 교체합니다.')).toBeVisible();
-    expect(screen.queryByRole('dialog', { name: '사진 수정 승인 요청' })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('사진 선택')).not.toBeInTheDocument();
-    requester.unmount();
-    const admin = show('admin');
-    fireEvent.click(await screen.findByRole('button', { name: '사진 수정 1회 승인' }));
-    await screen.findByText(/수정 승인됨/);
-    expect(screen.getByRole('button', { name: '사진 수정' })).toBeEnabled();
-    admin.unmount();
-    const approvedRequester = show('other-worker');
-    fireEvent.click(await screen.findByRole('button', { name: '사진 수정' }));
-    fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [new File(['jpeg'], 'replacement.jpg', { type: 'image/jpeg' })] } });
-    fireEvent.click(screen.getByRole('button', { name: '사진 변경 저장' }));
-    await waitFor(() => expect(approvedRequester.onSaved).toHaveBeenCalledOnce());
-    expect(screen.queryByLabelText('사진 선택')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '사진 수정' })).not.toBeInTheDocument();
-    await screen.findByRole('button', { name: '사진 수정 승인 요청' });
-    expect(vi.mocked(fetchJson).mock.calls.filter(([, , init]) => init?.method === 'POST')).toHaveLength(3);
-  });
-
-  it('읽기 전용으로 전환되면 이미 열린 사진 입력과 저장을 잠근다', async () => {
-    vi.mocked(fetchJson).mockResolvedValue(state([{ ...editRequest(), approvedAt: '2026-09-10T01:00:00Z' }]));
-    const view = show();
-    fireEvent.click(await screen.findByRole('button', { name: '사진 수정' }));
-    view.rerender(<OsanPhotoEditor projectId="project-a" target={target} stage={1} userKey="worker" mutationAllowed={false} onSaved={view.onSaved} />);
-    expect(screen.getByLabelText('사진 선택')).toBeDisabled();
-    expect(screen.getByLabelText('카메라 촬영')).toBeDisabled();
-    expect(screen.getByRole('button', { name: '사진 변경 저장' })).toBeDisabled();
-    expect(vi.mocked(fetchJson).mock.calls.filter(([, , init]) => init?.method)).toHaveLength(0);
-  });
-
-  it('저장 중과 결과 불확실 시 파일·취소를 잠그고 같은 요청과 원본으로 재시도한다', async () => {
-    const approved = state([{ ...editRequest(), approvedAt: '2026-09-10T01:00:00Z' }]);
-    vi.mocked(fetchJson).mockResolvedValue(approved);
-    const view = show();
-    fireEvent.click(await screen.findByRole('button', { name: '사진 수정' }));
-    const file = new File(['jpeg'], 'retry.jpg', { type: 'image/jpeg' });
-    fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [file] } });
-    let reject!: (error: Error) => void;
-    vi.mocked(fetchJson).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
-    fireEvent.click(screen.getByRole('button', { name: '사진 변경 저장' }));
-    expect(screen.getByLabelText('사진 선택')).toBeDisabled();
-    expect(screen.getByRole('button', { name: '취소' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '저장 중…' })).toBeDisabled();
-    await act(async () => reject(new ApiError(503, '등록 결과 확인 실패')));
-    const first = vi.mocked(fetchJson).mock.calls[1];
-    expect(await screen.findByRole('button', { name: '같은 사진으로 저장 재시도' })).toBeEnabled();
-    expect(screen.getByLabelText('사진 선택')).toBeDisabled();
-    expect(screen.getByRole('button', { name: '취소' })).toBeDisabled();
-    vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(403, '현재 권한으로 결과를 확인할 수 없습니다.'));
-    fireEvent.click(screen.getByRole('button', { name: '같은 사진으로 저장 재시도' }));
-    await screen.findByText('현재 권한으로 결과를 확인할 수 없습니다.');
-    expect(screen.getByLabelText('사진 선택')).toBeDisabled();
-    expect(screen.getByRole('button', { name: '취소' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '같은 사진으로 저장 재시도' }));
-    await waitFor(() => expect(view.onSaved).toHaveBeenCalledOnce());
-    const retried = vi.mocked(fetchJson).mock.calls[3];
-    expect(retried[0]).toBe(first[0]);
-    const originalBody = first[2]!.body as FormData, retriedBody = retried[2]!.body as FormData;
-    expect(retriedBody.get('operationId')).toBe(originalBody.get('operationId'));
-    expect(retriedBody.get('targets')).toBe(originalBody.get('targets'));
-    expect((retriedBody.get('photos') as File).name).toBe('retry.jpg');
-    expect(await fileContent(retriedBody.get('photos') as File)).toBe(await fileContent(originalBody.get('photos') as File));
-  });
-
-  it('잘못된 파일은 요청 전에 차단하고 서버 입력 거부는 재선택을 허용한다', async () => {
-    vi.mocked(fetchJson).mockResolvedValue(state([{ ...editRequest(), approvedAt: '2026-09-10T01:00:00Z' }]));
-    show();
-    fireEvent.click(await screen.findByRole('button', { name: '사진 수정' }));
-    fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [new File(['heic'], 'camera.gif', { type: 'image/gif' })] } });
-    expect(screen.getByRole('button', { name: '사진 변경 저장' })).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('JPEG·PNG·HEIC 사진을 선택해 주세요.');
-    expect(fetchJson).toHaveBeenCalledTimes(1);
-    fireEvent.change(screen.getByLabelText('사진 선택'), { target: { files: [new File(['jpeg'], 'camera.jpg', { type: 'image/jpeg' })] } });
-    vi.mocked(fetchJson).mockRejectedValueOnce(new ApiError(422, '손상된 사진입니다.'));
-    fireEvent.click(screen.getByRole('button', { name: '사진 변경 저장' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('손상된 사진입니다.');
-    expect(screen.getByLabelText('사진 선택')).toBeEnabled();
-    expect(screen.getByRole('button', { name: '취소' })).toBeEnabled();
-  });
-});
-
-
 describe('오산 단계 저장 이력', () => {
   it('별도 이력 조회에서 이전 사진·코멘트·등록자와 초기화 사유를 보존해 표시한다', async () => {
     HTMLDialogElement.prototype.showModal = function() { this.open = true; };
@@ -194,32 +80,17 @@ describe('오산 단계 저장 이력', () => {
   });
 });
 
-describe('Gate 더보기와 기존 승인 동작 연결', () => {
-  it('관리 기능은 더보기에 모으고 선택 후 메뉴를 닫아 사유 입력을 유지한다', async () => {
-    HTMLDialogElement.prototype.showModal = function() { this.open = true; };
-    HTMLDialogElement.prototype.close = function() { this.open = false; };
-    vi.mocked(fetchJson).mockResolvedValue(state([editRequest()], 'admin', true));
-    const { OsanStageActions } = await import('../src/OsanStageActions');
-    render(<OsanStageActions title="합성 대상 · 입고검사"><OsanPhotoEditor projectId="project-a" target={target} stage={1} userKey="admin" mutationAllowed onSaved={vi.fn()}/></OsanStageActions>);
-    expect(await screen.findByRole('button', { name: '사진 수정 1회 승인' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: '초기화' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '더보기' }));
-    expect(screen.getByRole('button', { name: '반려' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '초기화' }));
-    expect(screen.queryByRole('dialog', { name: /더보기/ })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox', { name: '초기화 사유' }), { target: { value: '합성 검증 사유' } });
-    fireEvent.click(screen.getByRole('button', { name: '초기화 처리' }));
-    await waitFor(() => expect(fetchJson).toHaveBeenCalledWith('/api/osan/projects/project-a/progress/steps/step-a/reset', 'admin', expect.objectContaining({method: 'POST', body: expect.stringContaining('합성 검증 사유')})));
-  });
-  it('수정 승인 후에는 반려를 메뉴에서도 노출하지 않는다', async () => {
-    HTMLDialogElement.prototype.showModal = function() { this.open = true; };
-    HTMLDialogElement.prototype.close = function() { this.open = false; };
-    vi.mocked(fetchJson).mockResolvedValue(state([{...editRequest(), approvedAt:'2026-09-24T00:00:00Z'}], 'admin', true));
-    const { OsanStageActions } = await import('../src/OsanStageActions');
-    render(<OsanStageActions title="합성 대상 · 입고검사"><OsanPhotoEditor projectId="project-a" target={target} stage={1} userKey="admin" mutationAllowed onSaved={vi.fn()}/></OsanStageActions>);
-    await screen.findByRole('button', {name:'사진 수정'});
-    fireEvent.click(screen.getByRole('button', {name:'더보기'}));
-    expect(screen.queryByRole('button', {name:'반려'})).not.toBeInTheDocument();
-    expect(screen.getByRole('button', {name:'초기화'})).toBeVisible();
-  });
+
+it('이력에서 수정 사유와 당시 코멘트를 함께 표시한다',async()=>{vi.mocked(fetchJson).mockResolvedValue([{id:'edited',eventType:'Edited',actorDisplayName:'수정자',occurredAtUtc:'2026-10-07T00:00:00Z',comment:'변경된 검사 기록',reason:'사진 교체 필요',photos:[]}]);render(<OsanStageHistory projectId="p" stepId="s" title="입고검사"/>);fireEvent.click(screen.getByRole('button',{name:'이력 보기'}));expect(await screen.findByText('사진 교체 필요')).toBeVisible();expect(screen.getByText('변경된 검사 기록')).toBeVisible();});
+
+describe('공통 기존 사진 오류 복구',()=>{
+ it('수정 미리보기도 다운로드 실패와 이미지 표시 실패에서 재시도한다',async()=>{
+  const photo={photoId:'old',displayOrder:1,fileName:'old.jpg',contentType:'image/jpeg',sizeBytes:3,sha256:'s',uploadedAtUtc:'2026-10-07T00:00:00Z',uploadedByUserId:'worker',uploadedByDisplayName:'작업자'};
+  vi.mocked(getOsanProgressPhoto).mockRejectedValueOnce(new Error('offline'));
+  render(<SavedPhoto projectId="p" photo={photo} preview/>);
+  fireEvent.click(await screen.findByRole('button',{name:'사진 다시 불러오기'}));
+  const img=await screen.findByRole('img',{name:'사진 1'});fireEvent.error(img);
+  fireEvent.click(await screen.findByRole('button',{name:'사진 다시 불러오기'}));
+  await screen.findByRole('img',{name:'사진 1'});expect(getOsanProgressPhoto).toHaveBeenCalledTimes(3);
+ });
 });

@@ -5,7 +5,7 @@ namespace Emi.Qms.Api.Tests;
 public sealed partial class OsanProjectRegistrationApiTests
 {
     [Fact]
-    public async Task StageRecords_ResetRejectHistoryAndSharedOneUseEdit_PreserveEvidence()
+    public async Task StageRecords_ResetRejectHistoryAndConcurrentDirectEdit_PreserveEvidence()
     {
         var ct=TestContext.Current.CancellationToken;
         await using var database=await PostgreSqlTestDatabase.CreateAsync(ct);
@@ -40,18 +40,18 @@ public sealed partial class OsanProjectRegistrationApiTests
         detail=(await progress.GetAsync(id,ct))!;target=detail.Targets[0];step=target.Steps[0];var original=Assert.Single(step.Photos).PhotoId;
         Assert.Equal("Completed",detail.Status);
         Assert.Equal(200,(await progress.StageActionAsync(id,step.StepId,new(Guid.NewGuid(),"fix",target.Version),"Reject",UserId,ct)).Status);
-        var active=(await edits.ListAsync(id,ct)).Single(r=>r.UsedAt is null && r.InvalidatedAt is null);
+        target=(await progress.GetAsync(id,ct))!.Targets[0];
         Assert.Equal(409,(await progress.StageActionAsync(id,step.StepId,new(Guid.NewGuid(),"again",target.Version+1),"Reject",UserId,ct)).Status);
-        var edit=completion with{Photos=[],RetainedPhotoIds=[original],Comment="updated"};
-        var saves=await Task.WhenAll(edits.SaveAsync(id,active.RequestId,edit,other,ct),edits.SaveAsync(id,active.RequestId,edit,UserId,ct));
+        var edit=completion with{OperationId=Guid.NewGuid(),Targets=[new(target.TargetId,target.Version)],Photos=[],RetainedPhotoIds=[original],Comment="updated",Reason="반려 조치"};
+        var saves=await Task.WhenAll(edits.SaveAsync(id,step.StepId,edit,other,ct),edits.SaveAsync(id,step.StepId,edit,UserId,ct,true));
         Assert.Single(saves,r=>r.Status==200);Assert.Single(saves,r=>r.Status==409);
-        detail=(await progress.GetAsync(id,ct))!;step=detail.Targets[0].Steps[0];Assert.Equal("updated",step.Comment);Assert.False(step.EditOpen);Assert.False(step.Rejected);
+        detail=(await progress.GetAsync(id,ct))!;step=detail.Targets[0].Steps[0];Assert.Equal("updated",step.Comment);Assert.True(step.CanEdit);Assert.False(step.Rejected);
         Assert.NotNull(await progress.GetPhotoAsync(id,original,ct));Assert.Single(step.Photos);
         Assert.Contains((await progress.HistoryAsync(id,step.StepId,ct))!,r=>r.EventType=="Reject" && r.Reason=="fix");
-        var req=new OsanPhotoEditRequest(Guid.NewGuid(),target.TargetId,1,"사진 기록 정정");await edits.RequestAsync(id,req,other,ct);await edits.ApproveAsync(id,req.RequestId,UserId,ct);
-        Assert.Equal(400,(await edits.SaveAsync(id,req.RequestId,edit with{RetainedPhotoIds=[Guid.NewGuid()]},other,ct)).Status);
-        Assert.Equal(400,(await edits.SaveAsync(id,req.RequestId,edit with{RetainedPhotoIds=[]},other,ct)).Status);
-        Assert.Equal(200,(await edits.SaveAsync(id,req.RequestId,edit with{RetainedPhotoIds=[],Comment="admin only"},UserId,ct,true)).Status);
+        target=detail.Targets[0];edit=edit with{OperationId=Guid.NewGuid(),Targets=[new(target.TargetId,target.Version)]};
+        Assert.Equal(400,(await edits.SaveAsync(id,step.StepId,edit with{RetainedPhotoIds=[Guid.NewGuid()]},other,ct)).Status);
+        Assert.Equal(400,(await edits.SaveAsync(id,step.StepId,edit with{RetainedPhotoIds=[]},other,ct)).Status);
+        Assert.Equal(200,(await edits.SaveAsync(id,step.StepId,edit with{RetainedPhotoIds=[],Comment="admin only"},UserId,ct,true)).Status);
         step=(await progress.GetAsync(id,ct))!.Targets[0].Steps[0];Assert.Empty(step.Photos);Assert.Equal(UserId,step.CompletedByUserId);Assert.Equal("admin only",step.Comment);
         Assert.NotNull(await progress.GetPhotoAsync(id,original,ct));
     }

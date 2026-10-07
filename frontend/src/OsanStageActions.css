@@ -23,3 +23,10 @@
 .app-shell .osan-stage-more-dialog button{min-height:48px!important;padding:12px!important;font-size:14px!important}
 .app-shell .osan-stage-more-dialog .osan-stage-menu-close{display:block!important;text-align:center!important;background:#f3f3f3!important;margin-top:8px!important}
 }
+/* Mobile Gate heading owns its action menu; existing dialogs keep their owners. */
+.app-shell .osan-progress-stage-heading .osan-stage-more--compact{border:0;background:transparent;padding:0;width:36px;height:40px;min-height:40px;display:grid;place-items:center}
+.app-shell .osan-stage-actions .osan-stage-actionbar:not(:has(button)){display:none}
+
+.osan-stage-action-details .osan-photo-editor:empty{display:none}
+
+.app-shell .osan-stage-actions[data-compact='true'],.app-shell .osan-stage-actions[data-compact='true'] .osan-stage-actionbar{width:100%}

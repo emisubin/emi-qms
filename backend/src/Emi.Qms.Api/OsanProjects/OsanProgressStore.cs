@@ -117,7 +117,10 @@ public sealed partial class OsanProgressStore(OsanDatabase connectionStringProvi
             union all
             select f.original_file_name,f.normalized_mime,f.content
             from osan_photo_revision_files f join osan_photo_edit_requests r on r.id=f.request_id
-            where r.project_id=@project_id and f.id=@photo_id and r.used_at is not null;
+            where r.project_id=@project_id and f.id=@photo_id and r.used_at is not null
+            union all
+            select original_file_name,normalized_mime,content from osan_direct_edit_files
+            where project_id=@project_id and id=@photo_id;
             """);
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("photo_id", photoId);
@@ -824,9 +827,7 @@ public sealed partial class OsanProgressStore(OsanDatabase connectionStringProvi
                     starter.display_name,
                     step.id, step.sequence_number, step.step_code, step.step_name, step.status,
                     step.started_at_utc, step.completed_at_utc, step.completed_by_user_id,
-                    completer.display_name,step.comment,step.rejected,
-                    exists(select 1 from osan_photo_edit_requests r where r.step_id=step.id and r.approved_at is not null
-                        and r.used_at is null and r.invalidated_at is null)
+                    completer.display_name,step.comment,step.rejected
                 from osan_active_project_targets target
                 join osan_active_project_target_steps step on step.target_id = target.id
                 left join qms_users starter on starter.id = target.started_by_user_id
@@ -861,7 +862,7 @@ public sealed partial class OsanProgressStore(OsanDatabase connectionStringProvi
                     reader.IsDBNull(12) ? null : reader.GetFieldValue<DateTimeOffset>(12),
                     reader.IsDBNull(13) ? null : reader.GetFieldValue<DateTimeOffset>(13),
                     reader.IsDBNull(14) ? null : reader.GetGuid(14),
-                    reader.IsDBNull(15) ? null : reader.GetString(15), reader.GetString(16), reader.GetBoolean(17), reader.GetBoolean(18)));
+                    reader.IsDBNull(15) ? null : reader.GetString(15), reader.GetString(16), reader.GetBoolean(17)));
             }
         }
 
@@ -1061,7 +1062,7 @@ public sealed partial class OsanProgressStore(OsanDatabase connectionStringProvi
         DateTimeOffset? startedAtUtc,
         DateTimeOffset? completedAtUtc,
         Guid? completedByUserId,
-        string? completedByDisplayName, string comment, bool rejected, bool editOpen)
+        string? completedByDisplayName, string comment, bool rejected)
     {
         public Guid StepId { get; } = stepId;
         public int SequenceNumber { get; } = sequenceNumber;
@@ -1087,6 +1088,6 @@ public sealed partial class OsanProgressStore(OsanDatabase connectionStringProvi
                 canCompleteBatch,
                 null,
                 [],
-                Photos, comment, editOpen, Rejected, OpenIssue, canRegisterIssue, canResolveIssue);
+                Photos, comment, (Status == "Completed" || Rejected) && OpenIssue is null, Rejected, OpenIssue, canRegisterIssue, canResolveIssue);
     }
 }

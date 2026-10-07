@@ -27,7 +27,9 @@ public sealed partial class BusinessUnitIsolationTests
         var ct = TestContext.Current.CancellationToken;
         await using var databases = await IsolationDatabaseSet.CreateAsync(ct);
         var (catalog, _) = await PrepareCommonOsanTaxonomyAsync(databases, ct);
-        var migration = await File.ReadAllTextAsync(catalog.GetBusinessMigrationFiles(BusinessUnitCodes.Osan).Single(), ct);
+        var migration = await File.ReadAllTextAsync(
+            catalog.GetBusinessMigrationFiles(BusinessUnitCodes.Osan)
+                .Single(path => Path.GetFileName(path).StartsWith("0131_", StringComparison.Ordinal)), ct);
         var mutations = new (string Sql, string Error)[]
         {
             ("insert into permissions(id,code,name) values('30000000-0000-0000-0000-000000000099','custom.permission','Synthetic custom permission')",
@@ -171,7 +173,9 @@ public sealed partial class BusinessUnitIsolationTests
             await identity.GetProfileByDevelopmentUserKeyAsync("dev-sales", ct));
         Assert.True(sales.HasPermission(QmsPermissions.ProjectRead));
         Assert.True(sales.HasPermission(QmsPermissions.ProjectReadAll));
-        Assert.True(sales.HasPermission(QmsPermissions.ProjectCreate));
+        // This account is seeded after 0132, so its per-user creation grant
+        // must start denied even though its department retains legacy mappings.
+        Assert.False(sales.HasPermission(QmsPermissions.ProjectCreate));
         Assert.False(sales.HasPermission(QmsPermissions.ManufacturingUpdate));
         var quality = Assert.IsType<UserAuthorizationProfile>(
             await identity.GetProfileByDevelopmentUserKeyAsync("dev-quality", ct));

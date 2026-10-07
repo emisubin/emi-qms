@@ -12,8 +12,11 @@ public sealed partial class OsanProgressStore
         cmd.Parameters.AddWithValue("project",project);cmd.Parameters.AddWithValue("step",step);
         if(await cmd.ExecuteScalarAsync(ct) is null)return null;
         cmd.CommandText="""
-            select r.id,r.event_type,u.display_name,r.occurred_at_utc,r.comment,r.reason,r.photo_ids
+            select r.id,r.event_type,u.display_name,r.occurred_at_utc,r.comment,coalesce(r.reason,legacy.reason),r.photo_ids
             from osan_stage_records r join qms_users u on u.id=r.actor_user_id
+            left join osan_photo_edit_requests legacy on legacy.id=r.operation_id
+                and legacy.project_id=r.project_id and legacy.step_id=r.step_id
+                and r.event_type in ('Request','Approve','Edit')
             where r.project_id=@project and r.step_id=@step order by r.occurred_at_utc desc,r.id desc;
             """;
         var records=new List<(Guid Id,string Type,string Actor,DateTimeOffset Time,string Comment,string? Reason,Guid[] Photos)>();
@@ -61,7 +64,6 @@ public sealed partial class OsanProgressStore
         if(old is not null)return old.ToString()==fingerprint?new(200,new{replayed=true}):new(409,Message:"같은 요청 식별자가 다른 처리에 사용되었습니다.");
         cmd.CommandText="""
             select s.target_id,s.status,t.version,
-              exists(select 1 from osan_photo_edit_requests r where r.step_id=s.id and r.used_at is null and r.invalidated_at is null and r.approved_at is not null),
               exists(select 1 from osan_stage_issues i where i.step_id=s.id and i.status='Open')
             from osan_active_project_target_steps s join osan_active_project_targets t on t.id=s.target_id
             where s.project_id=@project and s.id=@step;
@@ -72,10 +74,8 @@ public sealed partial class OsanProgressStore
             if(!await reader.ReadAsync(ct))return new(404);
             target=reader.GetGuid(0);
             if(reader.GetInt32(2)!=input.ExpectedVersion)return new(409,Message:"진행 상태가 변경되었습니다. 다시 조회해 주세요.");
-            if(action=="Reject" && (reader.GetString(1)!="Completed" || reader.GetBoolean(3) || reader.GetBoolean(4)))return new(409,Message:"수정 승인 중이거나 미완료 단계는 반려할 수 없습니다.");
+            if(action=="Reject" && (reader.GetString(1)!="Completed" || reader.GetBoolean(3)))return new(409,Message:"공정 이상이 있거나 미완료 단계는 반려할 수 없습니다.");
         }
-        cmd.CommandText="update osan_photo_edit_requests set invalidated_at=now() where step_id=@step and used_at is null and invalidated_at is null";
-        await cmd.ExecuteNonQueryAsync(ct);
         cmd.Parameters.AddWithValue("actor",actor);cmd.Parameters.AddWithValue("target",target);cmd.Parameters.AddWithValue("reject",action=="Reject");
         cmd.CommandText="""
             update osan_project_target_steps set status='NotStarted',completed_at_utc=null,completed_by_user_id=null,
@@ -83,14 +83,6 @@ public sealed partial class OsanProgressStore
               comment=case when @reject then comment else '' end,rejected=@reject,updated_at_utc=now() where id=@step;
             """;
         await cmd.ExecuteNonQueryAsync(ct);
-        if(action=="Reject")
-        {
-            cmd.CommandText="""
-                insert into osan_photo_edit_requests(id,project_id,target_id,step_id,requested_by,approved_by,approved_at)
-                values(@operation,@project,@target,@step,@actor,@actor,now());
-                """;
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
         var record = await OsanStageRecords.AddAsync(c,tx,project,step,input.OperationId,action,actor,"",input.Reason,[],ct,fingerprint);
         if (action == "Reset")
         {

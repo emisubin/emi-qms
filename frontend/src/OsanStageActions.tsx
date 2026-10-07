@@ -5,19 +5,20 @@ import { dismissOnBackdrop } from './dialogBackdrop';
 import './OsanStageActions.css';
 
 type Placement = 'primary' | 'visible' | 'secondary' | 'management';
-const Slots = createContext<{ slots: Record<Placement, HTMLDivElement | null>; close: () => void } | null>(null);
+const Slots = createContext<{ slots: Record<Placement, HTMLDivElement | null>; close: () => void; compact: boolean } | null>(null);
 
 /** Only the trigger moves; forms, requests and permission checks stay in their owning component. */
-export function OsanStageAction({ placement = 'secondary', onClick, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { placement?: Placement }) {
+export function OsanStageAction({ placement = 'secondary', tone, onClick, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { placement?: Placement; tone?: 'neutral' | 'primary' }) {
   const context = useContext(Slots);
+  const slot = context?.compact && (placement === 'visible' || (placement === 'primary' && tone === 'neutral')) ? 'secondary' : placement;
   const handleClick: ButtonHTMLAttributes<HTMLButtonElement>['onClick'] = event => { context?.close(); onClick?.(event); };
-  const button = placement === 'primary' || placement === 'visible'
-    ? <OsanButton {...props} size="stage" tone={placement === 'primary' ? 'primary' : 'neutral'} onClick={handleClick} />
+  const button = slot === 'primary' || slot === 'visible'
+    ? <OsanButton {...props} fullWidth={context?.compact && slot === 'primary'} size="stage" tone={tone ?? (placement === 'primary' ? 'primary' : 'neutral')} onClick={handleClick} />
     : <button {...props} onClick={handleClick} />;
-  return context ? (context.slots[placement] ? createPortal(button, context.slots[placement]) : null) : button;
+  return context ? (context.slots[slot] ? createPortal(button, context.slots[slot]) : null) : button;
 }
 
-export function OsanStageActions({ title, children }: { title: string; children: ReactNode }) {
+export function OsanStageActions({ title, children, compact = false, triggerContainer }: { title: string; children: ReactNode; compact?: boolean; triggerContainer?: HTMLElement | null }) {
   const [primary, setPrimary] = useState<HTMLDivElement | null>(null);
   const [visible, setVisible] = useState<HTMLDivElement | null>(null);
   const [secondary, setSecondary] = useState<HTMLDivElement | null>(null);
@@ -36,11 +37,14 @@ export function OsanStageActions({ title, children }: { title: string; children:
     menu.style.top = `${r.bottom + height + 8 < window.innerHeight ? r.bottom + 8 : Math.max(8, r.top - height - 8)}px`;
     setOpen(true);
   }
-  return <Slots.Provider value={{ slots: { primary, visible, secondary, management }, close }}>
-    <div className="osan-record-actions osan-stage-actions">
+  const moreButton = compact
+    ? <button ref={trigger} className="osan-stage-more osan-stage-more--compact" type="button" aria-label={`${title} 더보기`} aria-haspopup="dialog" aria-expanded={open} onClick={show}><span aria-hidden="true">⋮</span></button>
+    : <OsanButton size="stage" ref={trigger} className="osan-stage-more" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>더보기 <span aria-hidden="true">⋯</span></OsanButton>;
+  return <Slots.Provider value={{ slots: { primary, visible, secondary, management }, close, compact }}>
+    <div className="osan-record-actions osan-stage-actions" data-compact={compact || undefined}>
       <div className="osan-stage-actionbar">
         <div className="osan-stage-primary" ref={setPrimary}/><div className="osan-stage-visible" ref={setVisible}/>
-        <OsanButton size="stage" ref={trigger} className="osan-stage-more" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>더보기 <span aria-hidden="true">⋯</span></OsanButton>
+        {triggerContainer ? createPortal(moreButton, triggerContainer) : moreButton}
       </div>
       <div className="osan-stage-action-details">{children}</div>
       <dialog ref={dialog} className="osan-stage-more-dialog" aria-label={`${title} 더보기`} onCancel={close} onClose={() => setOpen(false)} onClick={event => dismissOnBackdrop(event, close)}>

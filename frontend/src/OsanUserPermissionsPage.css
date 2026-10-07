@@ -1,0 +1,24 @@
+.app-shell .osan-user-permission-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 0 10px; color:#777; font-size:12px; }
+.app-shell .osan-user-permission-toolbar > div { display:flex; gap:6px; }
+.app-shell .osan-user-permission-table-wrap table { min-width:0; }
+.app-shell .osan-user-permission-table-wrap th:first-child { width:38%; }
+.app-shell .osan-user-permission-table-wrap th:nth-child(2) { width:34%; }
+.app-shell .osan-user-permission-table-wrap th:last-child,
+.app-shell .osan-user-permission-table-wrap td:last-child { text-align:center; }
+.app-shell .osan-user-permission-table-wrap tbody th { padding:0 14px; font-size:13px; font-weight:500; }
+.app-shell .osan-user-permission-table-wrap tbody tr.changed :is(th,td) { background:#fff6f6; }
+.app-shell .osan-user-permission-table-wrap td label { display:grid; min-width:44px; min-height:43px; place-items:center; cursor:pointer; }
+.app-shell .osan-user-permission-table-wrap input[type='checkbox'] { width:17px; height:17px; accent-color:var(--osan-brand,#da2127)!important; }
+.app-shell .osan-user-permission-admin { color:#777; font-size:11px; }
+.app-shell .osan-user-permission-empty { height:70px; color:#777; text-align:center!important; }
+.app-shell .osan-user-permission-feedback { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.app-shell .osan-user-permission-feedback p { margin:0; }
+@media(max-width:700px){
+  .app-shell .osan-user-permission-table-wrap th:first-child { width:34%; }
+  .app-shell .osan-user-permission-table-wrap th:nth-child(2) { width:28%; }
+  .app-shell .osan-user-permission-table-wrap th,
+  .app-shell .osan-user-permission-table-wrap td,
+  .app-shell .osan-user-permission-table-wrap tbody th { padding:0 8px; font-size:12px; }
+  .app-shell .osan-user-permission-admin { font-size:10px; }
+  .app-shell .osan-user-permission-feedback { align-items:flex-start; flex-direction:column; }
+}

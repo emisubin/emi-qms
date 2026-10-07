@@ -467,7 +467,7 @@ public sealed class PublicDeploymentSecurityTests
 
     [Theory]
     [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/completions")]
-    [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-edits/91000000-0000-0000-0000-000000000002/save")]
+    [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/steps/91000000-0000-0000-0000-000000000002/edit")]
     [InlineData("/osan/api/osan/projects/91000000-0000-0000-0000-000000000001/progress/photo-preview")]
     public async Task UploadSecurity_OsanMultipart40MiBReachesScanner(string path)
     {

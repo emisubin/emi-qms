@@ -72,12 +72,6 @@ public static class OsanPolicyEndpointExtensions
             var denied=Guard(db,user,true);
             return denied ?? Result(await store.SetGatesAsync(request.Gates,request.ExpectedVersion,ct));
         }).WithName("SetOsanGateConfiguration");
-        api.MapGet("/gate-approvals",async(OsanPolicyStore store,OsanDatabase db,
-            ClaimsPrincipal user,CancellationToken ct)=>
-        {
-            var denied=Guard(db,user,true);
-            return denied ?? Results.Ok(new {items=await store.PendingApprovalsAsync(ct)});
-        }).WithName("ListOsanGateApprovals");
         return app;
     }
 

@@ -877,7 +877,11 @@ describe('business-unit access shell', () => {
       expect(calls.some(c => c.path.startsWith('/osan/api/osan/projects/'))).toBe(false);
       expect(getBusinessUnitRequestState().selectedBusinessUnit).toBe('CHEONGJU');
     }
-    expect(window.location.pathname).toBe('/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    expect(window.location.pathname).toBe(allowed ? '/progress' : '/osan/qr/' + projectId + '/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    if (allowed) {
+      expect(new URLSearchParams(window.location.search).get('projectId')).toBe(projectId);
+      expect(new URLSearchParams(window.location.search).get('targetId')).toBe('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    }
   });
 
   it('keeps a hintless notification detail fail-closed until the user selects a server-allowed business', async () => {

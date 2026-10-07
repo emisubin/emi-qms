@@ -4,7 +4,10 @@ namespace Emi.Qms.Api.Identity;
 
 public static class OsanDepartmentPermissions
 {
-    public static UserAuthorizationProfile Apply(UserAuthorizationProfile profile, string? businessUnitCode)
+    public static UserAuthorizationProfile Apply(
+        UserAuthorizationProfile profile,
+        string? businessUnitCode,
+        bool projectCreateAllowed = false)
     {
         // Apply only after the local profile has its existing approved read access.
         if (businessUnitCode != BusinessUnitCodes.Osan || !profile.User.IsActive
@@ -16,7 +19,7 @@ public static class OsanDepartmentPermissions
         {
             codes.Remove(QmsPermissions.ProjectCreate);
             codes.Remove(QmsPermissions.ManufacturingUpdate);
-            if (profile.Department?.Code is "sales" or "production-planning")
+            if (projectCreateAllowed)
                 codes.Add(QmsPermissions.ProjectCreate);
             if (profile.Department?.Code is "manufacturing" or "quality")
                 codes.Add(QmsPermissions.ManufacturingUpdate);

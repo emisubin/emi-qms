@@ -68,8 +68,10 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         var path = request.Path;
         if (HttpMethods.IsGet(request.Method) && (path.Equals("/api/osan/my/home", StringComparison.OrdinalIgnoreCase) || path.Equals("/api/osan/my/home/", StringComparison.OrdinalIgnoreCase))) return true;
         if (path.Equals("/api/osan/customers",StringComparison.OrdinalIgnoreCase) && HttpMethods.IsGet(request.Method)) return true;
-        if (path.Equals("/api/osan/gate-approvals",StringComparison.OrdinalIgnoreCase) && HttpMethods.IsGet(request.Method)) return true;
-        if (path.StartsWithSegments("/api/osan/admin/customers") || path.StartsWithSegments("/api/osan/admin/customer-assignments") || path.Equals("/api/osan/admin/gates",StringComparison.OrdinalIgnoreCase)) return true;
+        if (path.StartsWithSegments("/api/osan/admin/customers")
+            || path.StartsWithSegments("/api/osan/admin/customer-assignments")
+            || path.Equals("/api/osan/admin/gates",StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/osan/admin/user-project-create-permissions")) return true;
         if (path.StartsWithSegments("/api/maintenance")) return true;
         if (path.StartsWithSegments("/api/notices") || path.StartsWithSegments("/api/osan/notices")) return true;
         if (path.StartsWithSegments("/api/notifications", out var notificationPath))
@@ -158,7 +160,8 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             && string.Equals(segments[2], "steps", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(segments[3], out _))
             return (HttpMethods.IsGet(method) && string.Equals(segments[4], "history", StringComparison.OrdinalIgnoreCase))
                 || (HttpMethods.IsPost(method) && (string.Equals(segments[4], "reject", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(segments[4], "reset", StringComparison.OrdinalIgnoreCase)));
+                    || string.Equals(segments[4], "reset", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(segments[4], "edit", StringComparison.OrdinalIgnoreCase)));
 
         if (HttpMethods.IsGet(method))
         {
@@ -169,8 +172,7 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
                     && Guid.TryParse(segments[2], out _)
                     && string.Equals(segments[3], "qr", StringComparison.OrdinalIgnoreCase))
                 || (segments.Length == 3 && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
-                    && (string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(segments[2], "related-panels", StringComparison.OrdinalIgnoreCase)
+                    && (string.Equals(segments[2], "related-panels", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(segments[2], "work-request-recipients", StringComparison.OrdinalIgnoreCase)))
                 || (segments.Length == 2
                     && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase))
@@ -195,14 +197,6 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             return true;
         }
         if (segments.Length == 1 && (HttpMethods.IsPut(method) || HttpMethods.IsDelete(method))) return true;
-        if (HttpMethods.IsPost(method) && segments.Length >= 3
-            && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(segments[2], "photo-edits", StringComparison.OrdinalIgnoreCase))
-        {
-            return segments.Length == 3 || (segments.Length == 5 && Guid.TryParse(segments[3], out _)
-                && (string.Equals(segments[4], "approve", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(segments[4], "save", StringComparison.OrdinalIgnoreCase)));
-        }
         return HttpMethods.IsPost(method)
             && segments.Length == 3
             && string.Equals(segments[1], "progress", StringComparison.OrdinalIgnoreCase)

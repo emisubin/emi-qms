@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { OsanQrScanner } from './OsanQrScanner';
 import './osan-mobile-tools.css';
 
-export type OsanMobileDestination = 'home' | 'list' | 'osan-progress' | 'notifications' | 'notice-board' | 'osan-customer-admin' | 'osan-gate-settings' | 'osan-gate-approvals';
+export type OsanMobileDestination = 'home' | 'list' | 'osan-progress' | 'notifications' | 'notice-board' | 'osan-customer-admin' | 'osan-gate-settings' | 'osan-user-permissions';
 const primaryDestinations = [['home', '홈'], ['notifications', '알림'], ['notice-board', '공지사항'], ['list', '프로젝트'], ['osan-progress', '진행 현황']] as const;
-const adminDestinations = [['osan-customer-admin', '고객사 관리'], ['osan-gate-settings', 'Gate 설정'], ['osan-gate-approvals', 'Gate 승인 대기']] as const;
+const adminDestinations = [['osan-customer-admin', '고객사 관리'], ['osan-gate-settings', '부서별 권한 설정'], ['osan-user-permissions', '개인별 권한 설정']] as const;
 function MenuIcon({ name }: { name: string }) {
   const paths: Record<string, string> = { scan: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M8 8h8v8H8Z', menu: 'M4 6h16M4 12h16M4 18h16', close: 'm6 6 12 12M6 18 18 6' };
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;

@@ -376,9 +376,28 @@ public sealed class DbIdentityStore(
         }
         var projects = await ReadProjectAccessForUserAsync(connection, user.Id, cancellationToken);
 
+        var businessUnitCode = connectionStringProvider.GetCurrentBusinessUnit()?.Code;
+        var projectCreateAllowed = businessUnitCode == BusinessUnitCodes.Osan
+            && await ReadOsanProjectCreatePermissionAsync(connection, user.Id, cancellationToken);
         return OsanDepartmentPermissions.Apply(
             new UserAuthorizationProfile(user, department, roles, permissions, projects),
-            connectionStringProvider.GetCurrentBusinessUnit()?.Code);
+            businessUnitCode,
+            projectCreateAllowed);
+    }
+
+    private static async Task<bool> ReadOsanProjectCreatePermissionAsync(
+        NpgsqlConnection connection,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select allowed
+            from osan_user_project_create_permissions
+            where user_id = @user_id;
+            """;
+        command.Parameters.AddWithValue("user_id", userId);
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 
     private static async Task<QmsUser?> ReadUserAsync(

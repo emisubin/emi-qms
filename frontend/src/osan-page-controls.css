@@ -24,11 +24,11 @@
 }
 .app-shell[data-osan-shell='true'] :is(.osan-dashboard-pagination,.board-pages,.on-pagination) .osan-button {min-width:32px!important;display:inline-flex;align-items:center;justify-content:center}
 .app-shell[data-osan-shell='true'] :is(.osan-admin-toolbar,.board-toolbar,.osan-dashboard-filter-options>label) {font-size:12px;line-height:20px}
-.app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.osan-admin-approval-head,.board-table th,.project-list-head) {font-size:12px!important;line-height:18px!important;font-weight:600}
-.app-shell[data-osan-shell='true'] :is(.osan-admin-record,.osan-admin-approval-row,.board-table td) {font-size:12px;line-height:18px}
+.app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.board-table th,.project-list-head) {font-size:12px!important;line-height:18px!important;font-weight:600}
+.app-shell[data-osan-shell='true'] :is(.osan-admin-record,.board-table td) {font-size:12px;line-height:18px}
 .app-shell[data-osan-shell='true'] :is(.osan-admin-tabs,.on-filters,.osan-personal-home .tabs) button {font-size:12px!important;line-height:20px!important}
 @media(max-width:760px){
   .app-shell[data-osan-shell='true'] {--osan-page-control-height:32px;--osan-page-input-font:16px}
-      .app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.osan-admin-approval-head,.board-table th,.project-list-head){font-size:11px!important}
-  .app-shell[data-osan-shell='true'] :is(.osan-admin-record,.osan-admin-approval-row,.board-table td){font-size:11px;line-height:17px}
+      .app-shell[data-osan-shell='true'] :is(.osan-admin-record-head,.board-table th,.project-list-head){font-size:11px!important}
+  .app-shell[data-osan-shell='true'] :is(.osan-admin-record,.board-table td){font-size:11px;line-height:17px}
 }

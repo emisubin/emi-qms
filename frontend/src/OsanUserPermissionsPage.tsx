@@ -62,7 +62,7 @@ export function OsanUserPermissionsPage({ developmentUserKey, mutationAllowed = 
     return () => controller.abort();
   }, [developmentUserKey, revision]);
 
-  const items = state.kind === 'ready' ? state.data.items : [];
+  const items = useMemo(() => state.kind === 'ready' ? state.data.items : [], [state]);
   const departments = useMemo(() => [...new Set(items.map(item => item.departmentName).filter((value): value is string => !!value))]
     .sort((left, right) => left.localeCompare(right, 'ko')), [items]);
   const currentAllowed = (item: UserPermission) => draft[item.userId] ?? item.allowed;

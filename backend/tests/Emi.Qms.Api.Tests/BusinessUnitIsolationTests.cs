@@ -3096,10 +3096,16 @@ public sealed partial class BusinessUnitIsolationTests
         await databases.ExecuteAsync(
             BusinessUnitCodes.Osan,
             BusinessUnitConnectionPurpose.Migration,
-            """
+            $"""
             delete from role_permissions
             where role_id = (select id from roles where code = 'sales')
               and permission_id = (select id from permissions where code = 'Project.Read.All');
+
+            insert into osan_user_project_create_permissions(user_id, allowed, version)
+            values ('{SalesUserId:D}', true, 1)
+            on conflict (user_id) do update
+            set allowed = excluded.allowed,
+                version = excluded.version;
             """,
             TestContext.Current.CancellationToken);
         var uploadScanner = new CapturingCleanUploadMalwareScanner();

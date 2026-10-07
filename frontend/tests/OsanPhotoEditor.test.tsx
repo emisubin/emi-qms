@@ -1,3 +1,4 @@
+import { SavedPhoto } from '../src/OsanPhotoGallery';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, fetchJson } from '../src/api';
@@ -31,7 +32,7 @@ describe('오산 사진 직접 수정',()=>{
   expect(screen.getByRole('button',{name:'사진 수정'})).toBeEnabled();fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));expect(screen.getByRole('textbox',{name:/수정 사유/})).toHaveValue('');
  });
  it('일반 사용자는 마지막 사진 제외 시 저장할 수 없고 복원 또는 새 사진으로만 저장한다',async()=>{
-  const photo={photoId:'old',displayOrder:1,fileName:'old.jpg',contentType:'image/jpeg',sizeBytes:3};
+  const photo={photoId:'old',displayOrder:1,fileName:'old.jpg',contentType:'image/jpeg',sizeBytes:3,sha256:'sample',uploadedAtUtc:'2026-10-07T00:00:00Z',uploadedByUserId:'worker',uploadedByDisplayName:'작업자'};
   const current={...target,steps:[{...target.steps[0],comment:'기존 코멘트',photos:[photo]}]};
   const onSaved=vi.fn();render(<OsanPhotoEditor projectId="project-a" target={current} stage={1} mutationAllowed canManageStages={false} onSaved={onSaved}/>);
   fireEvent.click(screen.getByRole('button',{name:'사진 수정'}));reason();
@@ -81,3 +82,15 @@ describe('오산 단계 저장 이력', () => {
 
 
 it('이력에서 수정 사유와 당시 코멘트를 함께 표시한다',async()=>{vi.mocked(fetchJson).mockResolvedValue([{id:'edited',eventType:'Edited',actorDisplayName:'수정자',occurredAtUtc:'2026-10-07T00:00:00Z',comment:'변경된 검사 기록',reason:'사진 교체 필요',photos:[]}]);render(<OsanStageHistory projectId="p" stepId="s" title="입고검사"/>);fireEvent.click(screen.getByRole('button',{name:'이력 보기'}));expect(await screen.findByText('사진 교체 필요')).toBeVisible();expect(screen.getByText('변경된 검사 기록')).toBeVisible();});
+
+describe('공통 기존 사진 오류 복구',()=>{
+ it('수정 미리보기도 다운로드 실패와 이미지 표시 실패에서 재시도한다',async()=>{
+  const photo={photoId:'old',displayOrder:1,fileName:'old.jpg',contentType:'image/jpeg',sizeBytes:3,sha256:'s',uploadedAtUtc:'2026-10-07T00:00:00Z',uploadedByUserId:'worker',uploadedByDisplayName:'작업자'};
+  vi.mocked(getOsanProgressPhoto).mockRejectedValueOnce(new Error('offline'));
+  render(<SavedPhoto projectId="p" photo={photo} preview/>);
+  fireEvent.click(await screen.findByRole('button',{name:'사진 다시 불러오기'}));
+  const img=await screen.findByRole('img',{name:'사진 1'});fireEvent.error(img);
+  fireEvent.click(await screen.findByRole('button',{name:'사진 다시 불러오기'}));
+  await screen.findByRole('img',{name:'사진 1'});expect(getOsanProgressPhoto).toHaveBeenCalledTimes(3);
+ });
+});

@@ -1,3 +1,4 @@
+import { selectOsanRecordPhotos } from './osanRecordPhotoSelection';
 import { OsanRecordPhoto } from './OsanRecordPhoto';
 import { OsanStageActions, OsanStageAction } from './OsanStageActions';
 import { OsanWorkRequest } from './OsanWorkRequest';
@@ -13,7 +14,7 @@ import { OsanStageHistory } from './OsanStageHistory';
 import { OsanStageGuidance } from './OsanStageGuidance';
 import {
   completeOsanProgress, completionUnavailable, getOsanProgress, getOsanRelatedPanels, osanStageNames,
-  validateOsanPhotos, validateOsanRecord,
+  validateOsanRecord,
   type OsanCompletionRequest, type OsanProgressDetail, type OsanProgressTarget, type OsanRelatedPanel
 } from './osanProgress';
 
@@ -136,10 +137,9 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
     setSelectorOpen(false);
     onOpenTarget(panel.projectId, panel.targetId);
   }
-  function selectFiles(next: FileList | null, append = false) {
-    if (busyRef.current || !next) return;
-    const chosen = [...(append ? files : []), ...Array.from(next)];
-    const validation = validateOsanPhotos(chosen);
+  function selectFiles(input: HTMLInputElement, append = false) {
+    if (busyRef.current) return;
+    const { files: chosen, error: validation } = selectOsanRecordPhotos(input, files, append);
     if (validation) { setError(validation); setFileError(validation); return; }
     setFileError('');
     pendingCompletion.current = null; setFiles(chosen); setError('');
@@ -258,8 +258,8 @@ function OsanProgressWorkspace({ projectId, initialTargetId, initialStage, devel
       {files.length === 0 && <div className="osan-progress-photo-placeholder" aria-label="완료 사진을 선택할 영역"><span aria-hidden="true">+</span></div>}
       <div className="osan-progress-previews">{files.map((file, index) => <OsanRecordPhoto key={`${file.name}:${file.lastModified}:${index}`} name={file.name} action="사진 제거" disabled={busy} onAction={() => { pendingCompletion.current = null; setFiles(current => current.filter((_, position) => position !== index)); setError(''); setFileError(''); }}><OsanPhotoPreview file={file} projectId={projectId} userKey={developmentUserKey} /></OsanRecordPhoto>)}</div>
       <div className="osan-progress-photo-inputs"><button type="button" disabled={busy} onClick={() => cameraInput.current?.click()}>촬영</button><button type="button" disabled={busy} onClick={() => albumInput.current?.click()}>업로드</button></div>
-      <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" aria-label="카메라 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files, true); event.target.value = ''; }} />
-      <input ref={albumInput} hidden type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="기존 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target.files); event.target.value = ''; }} />
+      <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" aria-label="카메라 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target, true); }} />
+      <input ref={albumInput} hidden type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="기존 사진 선택" disabled={busy} onChange={event => { selectFiles(event.target); }} />
       <p className="osan-progress-photo-instruction">{project.canManageStages ? '관리자는 사진 없이 코멘트만으로 저장할 수 있습니다.' : '사진을 1장 이상 첨부해 주세요.'} {completionSelected.map(t => t.displayName).join(', ')} · {osanStageNames[stage - 1]}</p>
       <label className="osan-comment-input">코멘트 <small>{!files.length && project.canManageStages ? '사진 미첨부 시 필수' : '선택'}</small><textarea value={comment} maxLength={1000} disabled={busy} onChange={e => {setComment(e.target.value);pendingCompletion.current=null;}}/><span>{comment.length} / 1000자</span></label>
       {completionMode === 'batch' && <p>같은 사진과 코멘트가 선택한 {completionSelected.length}개 대상에 모두 적용됩니다.</p>}

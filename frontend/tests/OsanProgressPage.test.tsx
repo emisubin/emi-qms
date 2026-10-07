@@ -223,7 +223,7 @@ describe('오산 진행 상세', () => {
     result.targets[0].steps[0] = { ...result.targets[0].steps[0], status: 'Completed', completedByDisplayName: '작업자 A', completedAtUtc: '2026-09-09T00:00:00Z', photos: [{ photoId: 'photo-1', fileName: 'evidence.png', contentType: 'image/png', sizeBytes: 1, displayOrder: 1, sha256: 'hash', uploadedAtUtc: '2026-09-09T00:00:00Z', uploadedByUserId: 'user', uploadedByDisplayName: '작업자 A' }] };
     vi.mocked(api.getOsanProgress).mockResolvedValue(result);
     vi.mocked(api.getOsanProgressPhoto).mockResolvedValue(new Blob(['photo'], { type: 'image/png' }));
-    renderPage('project-a', '1'); fireEvent.click(await screen.findByRole('button', { name: '제품 1', exact: true }));
+    renderPage('project-a', '1'); fireEvent.click(await screen.findByRole('button', { name: '제품 1' }));
     fireEvent.click(screen.getByLabelText('전체 선택')); fireEvent.click(screen.getByRole('button', { name: '패널 선택' }));
     expect(within(screen.getByRole('region', { name: '제품 1 완료 기록' })).getByText('작업자 A')).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: '제품 2 완료 기록' })).getByText('미완료')).toBeInTheDocument();

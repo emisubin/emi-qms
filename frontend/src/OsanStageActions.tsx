@@ -13,7 +13,7 @@ export function OsanStageAction({ placement = 'secondary', tone, onClick, ...pro
   const slot = context?.compact && (placement === 'visible' || (placement === 'primary' && tone === 'neutral')) ? 'secondary' : placement;
   const handleClick: ButtonHTMLAttributes<HTMLButtonElement>['onClick'] = event => { context?.close(); onClick?.(event); };
   const button = slot === 'primary' || slot === 'visible'
-    ? <OsanButton {...props} size="stage" tone={tone ?? (placement === 'primary' ? 'primary' : 'neutral')} onClick={handleClick} />
+    ? <OsanButton {...props} fullWidth={context?.compact && slot === 'primary'} size="stage" tone={tone ?? (placement === 'primary' ? 'primary' : 'neutral')} onClick={handleClick} />
     : <button {...props} onClick={handleClick} />;
   return context ? (context.slots[slot] ? createPortal(button, context.slots[slot]) : null) : button;
 }
@@ -41,7 +41,7 @@ export function OsanStageActions({ title, children, compact = false, triggerCont
     ? <button ref={trigger} className="osan-stage-more osan-stage-more--compact" type="button" aria-label={`${title} 더보기`} aria-haspopup="dialog" aria-expanded={open} onClick={show}><span aria-hidden="true">⋮</span></button>
     : <OsanButton size="stage" ref={trigger} className="osan-stage-more" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={show}>더보기 <span aria-hidden="true">⋯</span></OsanButton>;
   return <Slots.Provider value={{ slots: { primary, visible, secondary, management }, close, compact }}>
-    <div className="osan-record-actions osan-stage-actions">
+    <div className="osan-record-actions osan-stage-actions" data-compact={compact || undefined}>
       <div className="osan-stage-actionbar">
         <div className="osan-stage-primary" ref={setPrimary}/><div className="osan-stage-visible" ref={setVisible}/>
         {triggerContainer ? createPortal(moreButton, triggerContainer) : moreButton}

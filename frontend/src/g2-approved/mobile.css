@@ -1,0 +1,190 @@
+/* Copied from g2-mobile-review.html. Only selector scope and cascade priority are adapted. */
+@media(max-width:860px){
+#g2-approved-scope *{box-sizing:border-box !important}
+#g2-approved-scope .g2-approved{margin:0 !important;background:#eee !important;color:#282828 !important;font:14px Arial,'Apple SD Gothic Neo',sans-serif !important}
+#g2-approved-scope button,#g2-approved-scope input,#g2-approved-scope select,#g2-approved-scope textarea{font:inherit !important;color:inherit !important}
+#g2-approved-scope button{cursor:pointer !important;background:#fff !important;border:1px solid #ddd !important;border-radius:4px !important;min-height:44px !important;padding:8px 12px !important}
+#g2-approved-scope button:focus-visible,#g2-approved-scope input:focus-visible,#g2-approved-scope select:focus-visible,#g2-approved-scope textarea:focus-visible{outline:2px solid #b72028 !important;outline-offset:2px !important}
+#g2-approved-scope .phone{max-width:430px !important;margin:auto !important;background:#fff !important;min-height:100dvh !important}
+#g2-approved-scope .brandbar{padding:12px 16px !important;border-bottom:1px solid #ddd !important;display:flex !important;justify-content:space-between !important;align-items:center !important;font-size:12px !important}
+#g2-approved-scope .brandbar strong{color:#c6242b !important;font-size:20px !important}
+#g2-approved-scope .heading{display:flex !important;align-items:center !important;justify-content:space-between !important;padding:16px !important;gap:8px !important}
+#g2-approved-scope .heading h1{font-size:17px !important;margin:0 !important}
+#g2-approved-scope .primary{background:#cf242c !important;color:#fff !important;border-color:#cf242c !important}
+#g2-approved-scope .month-block{margin:0 16px !important;text-align:center !important;border-block:1px solid #ddd !important;padding:12px 0 !important}
+#g2-approved-scope .month-label{font-size:12px !important;color:#666 !important;margin-bottom:4px !important}
+#g2-approved-scope .month-title-row{position:relative !important;line-height:44px !important}
+#g2-approved-scope .month-title-row strong{font-size:18px !important}
+#g2-approved-scope .month-title-row button{position:absolute !important;right:0 !important;top:0 !important;width:44px !important;border:0 !important;display:grid !important;place-items:center !important}
+#g2-approved-scope #summary{margin:0 16px !important;padding:12px 0 !important;border-bottom:1px solid #ddd !important}
+#g2-approved-scope .summary-period{color:#777 !important;font-size:12px !important;text-align:right !important;margin-bottom:8px !important}
+#g2-approved-scope table{width:100% !important;border-collapse:collapse !important;table-layout:fixed !important;font-size:13px !important}
+#g2-approved-scope th,#g2-approved-scope td{padding:7px 3px !important;text-align:center !important;font-weight:400 !important}
+#g2-approved-scope thead th{font-size:12px !important;color:#777 !important}
+#g2-approved-scope th:first-child{width:28% !important;font-weight:500 !important}
+#g2-approved-scope td{font-variant-numeric:tabular-nums !important}
+#g2-approved-scope .stock-summary{border-top:1px solid #eee !important;padding-top:10px !important;display:flex !important;justify-content:space-between !important;font-size:12px !important;color:#666 !important;gap:8px !important}
+#g2-approved-scope .list-caption{display:flex !important;justify-content:space-between !important;padding:16px 16px 8px !important;font-size:12px !important;color:#777 !important}
+#g2-approved-scope .day{border-bottom:1px solid #ddd !important;padding:0 16px !important}
+#g2-approved-scope .day-main{display:block !important;width:100% !important;padding:12px 0 0 !important;border:0 !important;border-radius:0 !important;text-align:left !important}
+#g2-approved-scope .day-heading{display:flex !important;justify-content:space-between !important;align-items:center !important;margin-bottom:7px !important}
+#g2-approved-scope .day-heading strong{font-size:15px !important}
+#g2-approved-scope .day-heading span{font-size:12px !important;color:#888 !important}
+#g2-approved-scope .inventory{display:flex !important;justify-content:space-between !important;padding:8px 0 !important;font-size:12px !important;color:#666 !important}
+#g2-approved-scope .row-note{display:flex !important;align-items:center !important;gap:16px !important;text-align:left !important;width:100% !important;border:0 !important;border-radius:0 !important;padding:8px 0 !important;font-size:12px !important;min-height:44px !important}
+#g2-approved-scope .row-note>span:first-child{flex-shrink:0 !important;color:#777 !important}
+#g2-approved-scope .row-note>span:last-child{line-height:1.5 !important;overflow-wrap:anywhere !important}
+#g2-approved-scope .red{color:#cb2734 !important}
+#g2-approved-scope .blue{color:#2469b4 !important}
+#g2-approved-scope .day-detail{background:#f7f7f7 !important;padding:14px 12px !important;margin:0 -4px 14px !important}
+#g2-approved-scope .day-detail h3{font-size:13px !important;margin:0 0 8px !important}
+#g2-approved-scope .day-detail table{background:white !important}
+#g2-approved-scope .day-detail th,#g2-approved-scope .day-detail td{border:1px solid #e3e3e3 !important}
+#g2-approved-scope .day-detail dl{display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px !important;margin:14px 0 !important;font-size:13px !important}
+#g2-approved-scope .day-detail dd{margin:0 !important;text-align:center !important}
+#g2-approved-scope .note{border-top:1px solid #ddd !important;padding-top:12px !important;font-size:12px !important}
+#g2-approved-scope .note p{white-space:pre-wrap !important;min-height:18px !important;line-height:1.6 !important}
+#g2-approved-scope .detail-entry{width:100% !important}
+#g2-approved-scope .calendar{display:grid !important;grid-template-columns:repeat(7,minmax(0,1fr)) !important;margin:0 12px !important}
+#g2-approved-scope .calendar-legend{font-size:11px !important;color:#777 !important;padding:12px 16px !important}
+#g2-approved-scope .weekday{text-align:center !important;padding:8px 0 !important;font-size:12px !important}
+#g2-approved-scope .calendar button{border:0 !important;border-radius:0 !important;min-width:0 !important;height:72px !important;padding:4px 1px !important;border-top:1px solid #eee !important;font-size:11px !important;display:flex !important;align-items:center !important;flex-direction:column !important;gap:4px !important}
+#g2-approved-scope .calendar b{font-weight:500 !important;font-size:13px !important}
+#g2-approved-scope .calendar .selected{background:#fce9ea !important;box-shadow:inset 0 0 0 1px #c24 !important}
+#g2-approved-scope .calendar button span{min-height:13px !important}
+#g2-approved-scope .selected-day{border-top:6px solid #f2f2f2 !important;margin-top:12px !important}
+#g2-approved-scope .footnote{padding:12px 16px !important;color:#777 !important;font-size:11px !important;line-height:1.7 !important}
+#g2-approved-scope .demo-status{padding:0 16px !important;color:#a61920 !important;font-size:12px !important}
+#g2-approved-scope .demo-status:empty{display:none !important}
+#g2-approved-scope .refs{padding:16px !important;background:#fafafa !important;font-size:11px !important;line-height:1.8 !important}
+#g2-approved-scope .refs a{color:#666 !important}
+#g2-approved-scope .modal-layer{display:none !important;position:fixed !important;inset:0 !important;z-index:20 !important;background:#0005 !important;justify-content:center !important}
+#g2-approved-scope .modal-layer.open{display:flex !important}
+#g2-approved-scope .dialog{width:100% !important;max-width:430px !important;background:#fff !important;height:100dvh !important;display:flex !important;flex-direction:column !important}
+#g2-approved-scope .dialoghead{padding:14px 16px !important;display:flex !important;align-items:center !important;justify-content:space-between !important;border-bottom:1px solid #ddd !important;background:#fff !important;min-height:60px !important}
+#g2-approved-scope .dialoghead h2{font-size:17px !important;margin:0 !important}
+#g2-approved-scope .dialoghead .close{font-size:25px !important;border:0 !important;min-width:44px !important}
+#g2-approved-scope .dialogbody{padding:20px 16px !important;overflow:auto !important;flex:1 !important}
+#g2-approved-scope #entry-form{display:flex !important;flex-direction:column !important;flex:1 !important;min-height:0 !important}
+#g2-approved-scope .dialogfoot{padding:12px 16px max(12px,env(safe-area-inset-bottom)) !important;display:flex !important;gap:8px !important;justify-content:flex-end !important;border-top:1px solid #ddd !important;background:#fff !important}
+#g2-approved-scope .dialogfoot button{min-width:80px !important}
+#g2-approved-scope .dialogfoot .primary{flex:1 !important}
+#g2-approved-scope .form-row{margin-bottom:20px !important}
+#g2-approved-scope .fieldlabel,#g2-approved-scope .form-row>label{display:block !important;margin-bottom:8px !important;font-size:13px !important}
+#g2-approved-scope .form-row input:not([type=checkbox]),#g2-approved-scope select,#g2-approved-scope textarea{width:100% !important;min-width:0 !important;padding:11px !important;border:1px solid #ddd !important;border-radius:4px !important;background:white !important;font-size:16px !important;min-height:44px !important}
+#g2-approved-scope input[type=number]{text-align:center !important}
+#g2-approved-scope textarea{min-height:95px !important;resize:vertical !important}
+#g2-approved-scope .pair{display:grid !important;grid-template-columns:1fr 1fr !important;gap:8px !important}
+#g2-approved-scope .pair label{font-size:12px !important}
+#g2-approved-scope .tabs{display:flex !important;border-bottom:1px solid #ddd !important;margin-bottom:20px !important}
+#g2-approved-scope .tabs button{flex:1 !important;border:0 !important;border-radius:0 !important;background:#fff !important}
+#g2-approved-scope .tabs [aria-selected=true]{color:#b71f28 !important;border-bottom:2px solid #c24 !important;font-weight:600 !important}
+#g2-approved-scope .hint{font-size:12px !important;color:#777 !important;line-height:1.6 !important;margin:10px 0 !important}
+#g2-approved-scope .checks{display:grid !important;gap:10px !important;font-size:13px !important}
+#g2-approved-scope .checks label{min-height:32px !important;display:flex !important;gap:8px !important;align-items:center !important}
+#g2-approved-scope .preview{padding:12px !important;background:#f5f5f5 !important;font-size:12px !important;margin:12px 0 !important}
+#g2-approved-scope input[type=checkbox]{accent-color:#c24 !important}
+#g2-approved-scope .modal-open{overflow:hidden !important}
+#g2-approved-scope dialog{border:1px solid #ddd !important;border-radius:6px !important;padding:0 !important;width:350px !important;max-width:calc(100vw - 32px) !important;color:#282828 !important}
+#g2-approved-scope dialog::backdrop{background:#0005 !important}
+#g2-approved-scope dialog h2{font-size:16px !important;margin:0 !important}
+#g2-approved-scope #input-sheet{position:fixed !important;inset:auto 0 0 !important;margin:0 auto !important;width:430px !important;max-width:100% !important;border:0 !important;border-radius:12px 12px 0 0 !important;padding:0 12px max(16px,env(safe-area-inset-bottom)) !important;background:#f2f2f2 !important}
+#g2-approved-scope #input-sheet h2{padding:18px !important;text-align:center !important;font-size:13px !important;color:#777 !important}
+#g2-approved-scope #input-sheet [data-open]{display:block !important;width:100% !important;border:0 !important;border-radius:0 !important;border-bottom:1px solid #eee !important;min-height:55px !important;font-size:16px !important;color:#b71f28 !important}
+#g2-approved-scope #input-sheet [hidden]{display:none !important}
+#g2-approved-scope #sheet-cancel{width:100% !important;margin-top:8px !important;min-height:52px !important;border:0 !important}
+#g2-approved-scope .mini-nav{padding:10px 16px !important;display:flex !important;justify-content:space-between !important;gap:6px !important;background:#f5f5f5 !important}
+#g2-approved-scope .mini-nav a{font-size:12px !important;color:#666 !important;text-decoration:none !important;padding:6px 0 !important}
+#g2-approved-scope .mini-nav a.active{color:#b71f28 !important;font-weight:bold !important}
+#g2-approved-scope .calendar{margin-inline:8px !important}
+#g2-approved-scope .calendar button{height:80px !important;padding:5px 2px !important;gap:5px !important}
+#g2-approved-scope .calendar .cal-metric{display:flex !important;align-items:center !important;justify-content:center !important;gap:2px !important;white-space:nowrap !important;font-size:10px !important;line-height:15px !important;min-height:15px !important;letter-spacing:-.35px !important}
+#g2-approved-scope .cal-metric small{font-size:9px !important;color:#777 !important;letter-spacing:-.5px !important}
+#g2-approved-scope .cal-metric em{font-style:normal !important;font-variant-numeric:tabular-nums !important}
+#g2-approved-scope #layer{overflow:hidden !important}
+#g2-approved-scope #layer .dialog{overflow:hidden !important}
+#g2-approved-scope #layer .dialoghead{min-height:48px !important;padding:2px 16px !important}
+#g2-approved-scope #layer .dialogbody{overflow:visible !important;flex:1 !important;min-height:0 !important;padding:12px 16px !important}
+#g2-approved-scope #layer .form-row{margin-bottom:12px !important}
+#g2-approved-scope #layer .fieldlabel{margin-bottom:5px !important;font-size:12px !important}
+#g2-approved-scope #layer .form-row input:not([type=checkbox]){height:40px !important;min-height:40px !important;padding:8px 10px !important}
+#g2-approved-scope #layer textarea{height:62px !important;min-height:62px !important;resize:none !important;padding:8px 10px !important}
+#g2-approved-scope #layer .tabs{margin-bottom:12px !important}
+#g2-approved-scope #layer .tabs button{min-height:40px !important;padding:8px !important}
+#g2-approved-scope #layer .hint{font-size:11px !important;line-height:1.45 !important;margin:7px 0 !important}
+#g2-approved-scope #layer .dialogfoot{padding:8px 16px max(8px,env(safe-area-inset-bottom)) !important;flex-shrink:0 !important}
+#g2-approved-scope #layer .checks{gap:2px !important}
+#g2-approved-scope #layer .checks label{min-height:28px !important}
+#g2-approved-scope #layer .preview{padding:8px !important;margin:6px 0 !important;font-size:11px !important}
+#g2-approved-scope #layer .pair{gap:8px !important}
+@media(max-height:680px){
+#g2-approved-scope #layer .dialogbody{padding-block:8px !important}
+#g2-approved-scope #layer .form-row{margin-bottom:8px !important}
+#g2-approved-scope #layer .fieldlabel{margin-bottom:3px !important}
+#g2-approved-scope #layer textarea{height:48px !important;min-height:48px !important}
+#g2-approved-scope #layer .tabs{margin-bottom:8px !important}
+#g2-approved-scope #layer .hint{margin:4px 0 !important;font-size:10px !important}
+#g2-approved-scope #layer .dialoghead{min-height:44px !important}
+#g2-approved-scope #layer .preview{padding:5px !important;margin:4px 0 !important}
+}
+#g2-approved-scope .g2-approved{overflow:hidden !important}
+#g2-approved-scope .phone{height:100dvh !important;min-height:0 !important;display:flex !important;flex-direction:column !important}
+#g2-approved-scope .mini-nav,#g2-approved-scope .footnote,#g2-approved-scope .refs,#g2-approved-scope #status{display:none !important}
+#g2-approved-scope .brandbar{padding:8px 16px !important;flex-shrink:0 !important}
+#g2-approved-scope .heading{padding:8px 16px !important;flex-shrink:0 !important}
+#g2-approved-scope .month-block{padding:7px 0 !important;flex-shrink:0 !important}
+#g2-approved-scope .month-label{margin:0 !important}
+#g2-approved-scope .list-caption{padding:10px 16px 0 !important;flex-shrink:0 !important}
+#g2-approved-scope #daily{min-height:0 !important;flex:1 !important;display:flex !important;flex-direction:column !important;padding-bottom:max(8px,env(safe-area-inset-bottom)) !important}
+#g2-approved-scope .calendar-legend{padding:8px 16px !important;flex-shrink:0 !important}
+#g2-approved-scope .calendar{flex:1 !important;min-height:0 !important;grid-template-rows:24px repeat(var(--weeks),minmax(0,1fr)) !important}
+#g2-approved-scope .weekday{padding:4px 0 !important}
+#g2-approved-scope .calendar button{height:auto !important;min-height:0 !important;justify-content:flex-start !important;padding:5px 1px !important;gap:3px !important}
+#g2-approved-scope #day-popup{position:fixed !important;inset:0 !important;margin:0 auto !important;width:100% !important;max-width:430px !important;height:100dvh !important;max-height:none !important;border:0 !important;border-radius:0 !important;overflow:hidden !important;background:#fff !important}
+#g2-approved-scope #day-popup[open]{display:flex !important;flex-direction:column !important}
+#g2-approved-scope #day-popup .dialoghead{padding:2px 16px !important;min-height:48px !important;flex-shrink:0 !important}
+#g2-approved-scope #day-popup-close{border:0 !important;font-size:24px !important}
+#g2-approved-scope #day-popup-body{padding:8px 16px !important;flex:1 !important;min-height:0 !important}
+#g2-approved-scope #day-popup table{font-size:12px !important}
+#g2-approved-scope #day-popup th,#g2-approved-scope #day-popup td{padding:5px 2px !important;border-bottom:1px solid #eee !important}
+#g2-approved-scope #day-popup h3{font-size:12px !important;margin:10px 0 3px !important}
+#g2-approved-scope .popup-facts{display:grid !important;grid-template-columns:1fr 1fr !important;gap:8px 12px !important;border-block:1px solid #eee !important;padding:10px 0 !important;margin-top:10px !important;font-size:11px !important}
+#g2-approved-scope .popup-facts span{display:flex !important;justify-content:space-between !important;gap:6px !important}
+#g2-approved-scope .popup-facts b{font-weight:500 !important}
+#g2-approved-scope .popup-memos>div{display:grid !important;grid-template-columns:66px 1fr !important;gap:8px !important;border-bottom:1px solid #eee !important;padding:8px 0 !important;font-size:12px !important;line-height:1.45 !important}
+#g2-approved-scope .popup-memos b{font-weight:500 !important;color:#666 !important}
+#g2-approved-scope .popup-memos p{margin:0 !important;white-space:pre-wrap !important;overflow-wrap:anywhere !important}
+#g2-approved-scope .popup-memos .row-note{display:grid !important;grid-template-columns:66px 1fr !important;gap:8px !important}
+#g2-approved-scope #day-popup .dialogfoot{padding:8px 16px max(8px,env(safe-area-inset-bottom)) !important;flex-shrink:0 !important}
+#g2-approved-scope #day-popup .dialoghead{background:#fafafa !important;border-bottom:1px solid #e5e5e5 !important}
+#g2-approved-scope #day-popup h2{font-size:16px !important}
+#g2-approved-scope #day-popup h3{font-size:12px !important;margin:0 !important;padding:8px 0 !important;font-weight:600 !important}
+#g2-approved-scope #day-popup table{width:100% !important;table-layout:fixed !important;border-collapse:collapse !important;font-size:12px !important}
+#g2-approved-scope #day-popup td,#g2-approved-scope #day-popup th{text-align:center !important;height:27px !important;padding:3px 2px !important;font-weight:400 !important}
+#g2-approved-scope #day-popup th{color:#666 !important}
+#g2-approved-scope #day-popup .dialogfoot{border-top:1px solid #e5e5e5 !important;background:white !important}
+#g2-approved-scope #day-popup .popup-facts{grid-template-columns:1fr 1fr !important;font-size:12px !important;gap:9px 12px !important;margin:0 !important;padding:10px 0 !important}
+#g2-approved-scope .popup-memos>div,#g2-approved-scope .popup-memos .row-note{font-size:12px !important;min-height:37px !important;padding:8px 0 !important;margin:0 !important}
+#g2-approved-scope .popup-memos .row-note{width:100% !important;border:0 !important;background:white !important;text-align:left !important}
+#g2-approved-scope .popup-memos p{line-height:1.4 !important}
+#g2-approved-scope .detail-group{margin-bottom:8px !important}
+#g2-approved-scope #day-popup .detail-group:last-child{margin-bottom:0 !important}
+#g2-approved-scope #day-popup-body{background:#f5f5f5 !important;padding:8px !important}
+#g2-approved-scope .detail-group{background:white !important;border:1px solid #eee !important;padding:0 10px !important;margin-bottom:7px !important}
+#g2-approved-scope #day-popup h3{border-bottom:1px solid #eee !important;padding:7px 0 !important}
+#g2-approved-scope .popup-facts{border:0 !important}
+#g2-approved-scope #day-popup .popup-facts{padding:8px 0 !important;gap:7px 10px !important}
+#g2-approved-scope .popup-memos>div{border-bottom:1px solid #f0f0f0 !important}
+#g2-approved-scope .popup-memos>div,#g2-approved-scope .popup-memos .row-note{min-height:33px !important;padding:6px 0 !important}
+#g2-approved-scope #day-popup{inset:0 !important;margin:auto !important;width:calc(100% - 32px) !important;max-width:406px !important;height:fit-content !important;min-height:0 !important;max-height:calc(100dvh - 48px) !important;border-radius:12px !important;box-shadow:0 14px 48px #0004 !important;padding:0 !important}
+#g2-approved-scope #day-popup::backdrop{background:rgba(0,0,0,.46) !important}
+#g2-approved-scope #day-popup-body{flex:0 1 auto !important;padding:8px !important}
+#g2-approved-scope #day-popup .dialoghead{min-height:44px !important;padding:0 12px !important}
+#g2-approved-scope #day-popup .dialogfoot{padding:8px 12px max(8px,env(safe-area-inset-bottom)) !important}
+#g2-approved-scope #day-popup .detail-group{margin-bottom:6px !important;padding:0 8px !important}
+#g2-approved-scope #day-popup h3{padding:6px 0 !important}
+#g2-approved-scope #day-popup td,#g2-approved-scope #day-popup th{height:23px !important}
+#g2-approved-scope #day-popup .popup-facts{gap:6px 8px !important;padding:7px 0 !important}
+#g2-approved-scope #day-popup .popup-memos>div,#g2-approved-scope #day-popup .popup-memos .row-note{min-height:32px !important;padding:6px 0 !important}
+#g2-approved-scope osan-shell{flex-shrink:0 !important;display:block !important}
+}

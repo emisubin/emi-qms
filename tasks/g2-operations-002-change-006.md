@@ -55,3 +55,14 @@
 - Git: `codex/unified-osan-shell`에서 이 change 범위만 로컬 커밋으로 보존한다. 사용자 검수·원격 push/PR/merge·공개배포는 완료 상태가 아니다. 원래 checkout에는 요청한 DB 보고 규칙 한 줄만 추가했고 다른 WIP를 보존했다.
 
 - 마지막 store fixture 내부 DB는 테스트별 `emi_qms_e2e_{10자리 GUID}_directory`, `_cheongju`, `_osan` 규칙으로 총33개를 생성·정리했다. harness가 GUID 이름을 출력하지 않아 삭제 후 개별 전체 이름은 복원할 수 없다. 마지막 container 자체도 제거되어 잔존 DB는 없다.
+
+
+## 확정 시안 원본 코드 이식 · 2026-10-08 후속
+
+- 사용자 지적: 구현이 확정 시안과 달랐다. 이후 "시안 그대로 가져와", "비교하면서 맞추지말고 프론트엔드 코드 그대로 가져오면 되잖아" 승인에 따라 시각적 재작성 접근을 폐기했다. 앞선 디자인 일치 완료 주장은 철회한다.
+- 확정 PC/모바일 HTML 및 공통 pattern.css를 `frontend/src/g2-approved/`에 byte-identical 원본으로 보관했다. SHA256 앞16자리: PC36255283a3202210, 모바일241f2edc91a6632e, pattern4897bd40c664c654. CSS는 원본 style 블록에서 자동 추출하고 selector scope/priority만 변환한다. 원본 값과 규칙 순서는 유지한다. 재생성 경로와 실제 제품 연결 경계는 해당 README에 기록했다.
+- 콘텐츠 마크업을 원본 구조/클래스로 연결했다. 주차 rowSpan(펼친 상세 포함), 삼각형/날짜 표시, 빈 비고 안내, 원본 상세3표 및 메모 표, 원본 실적 탭/입력 폼, 모바일 달력/하단 메뉴/B 상세 section들을 사용한다. 임의 합계 열/팝업 탭 배경/추가 모바일 설명과 재작성 `data-entry-dialog.css`를 제거했다.
+- 원본 예시 데이터/저장 코드는 실행하지 않는다. 기존 API·권한·충돌/0/null·미래 비고 계약은 유지한다. native dialog의 focus/close lifecycle, 접근성 이름, 긴 비고/극소 높이 접근성, 실제 오산 shell과의 연결만 adapter로 남긴다. 계획 preview는 단일 날짜 수정 시 기존 값이 변경 대상임을 정확히 표시한다.
+- 검증: G2OperationsPage11/11 PASS, 타입·변경 경로 lint·제품 build PASS(기존 큰 bundle 안내만 존재). PC1440, 모바일390×844/360×640 직접 확인. 원본 주차 병합과 상세3표/흰 입력 버튼 확인, 모바일 B팝업 328px 폭과 본문 overflow 없음, 계획·오후 폼 모든 필드/저장 버튼 표시, 공유 비고 탭 유지 및 합성 API 저장 성공. browser warn/error 없음. 원본은 육안 모사하지 않고 실제 소스 byte 동일성까지 확인했다.
+- DB: 이번 후속은 DB 생성/수정 없음, 임시 DB 생성/정리 없음, 새 미사용 DB 없음. 기존 검증 DB 정리 기록은 위와 같다.
+- Git/배포: 후속 범위만 로컬 커밋. 원격/공개배포/운영 migration 미실행, 사용자 검수 대기.

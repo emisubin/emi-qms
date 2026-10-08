@@ -18,3 +18,14 @@
 - full-stack E2E는 선택자만 갱신했으며 이번에 DB 연결 실행하지 않음. 최종 병합 후보 전체 회귀는 사용자 검수 이후 별도 단계.
 - 검수 자원: 이 worktree의 5193 loopback Vite(session69687), 모든 API를 메모리 합성 fixture로 대체한 local-shell-review.html/ts. proxy는 127.0.0.1:9로 지정하여 운영/공유 DB 접근 없음. preview·node_modules 연결·screenshot은 commit 제외.
 - 합성 화면 증거: /Users/parksubin/.codex/visualizations/2026/10/08/01a118d1-afc8-7351-9370-0126a196e572/shared-shell/cheongju-desktop.png 및 cheongju-mobile.png. 구현자가 실제 열어 확인. Task 검수용 보관이며 실데이터 없음.
+
+
+## 청주 왼쪽 메뉴 아이콘 재지정 · 2026-10-08
+
+- 승인: 전체 상위/하위 메뉴별 후보 제안 후 사용자 “맞춰봐”. 기존 공통 틀의 배치·크기·색상 유지. 청주 desktop 메뉴만 적용하며 오산·모바일 및 메뉴 노출/순서/권한/route는 보존한다.
+- 방법: 현재 프로젝트가 사용하는 Lucide 선형 SVG 원본을 고정 SHA로 가져와 청주 desktop 전용 아이콘 배정에 연결. 기본 아이콘과 공통 메뉴 컴포넌트는 재사용하며 새 dependency는 추가하지 않는다.
+- 완료 조건/검증: 원형 fallback 메뉴의 전용 아이콘, 상하위 의미 구분, 관련 navigation 기존 테스트·타입/lint, 합성 PC 실제 화면 및 모바일/오산 영향 경계 확인.
+- 출근 관리는 공식 도형에 사용자+시계 조합이 없어 출근 기록을 뜻하는 클립보드+시계를 사용한다. 입고는 공식 import(받는 함+하향 화살표), 기준정보는 목록 필터를 사용한다.
+- 검증: 기존 App.navigation·SharedMobileNavigation 2개 suite 10/10 PASS, 타입 검사 및 변경 TSX lint PASS. 1440×900 청주 PC에서 G2·품질·생산관리·자재·물류·부스바 하위 메뉴 직접 관찰, 390×844 모바일 및 오산 PC 기존 아이콘 유지 확인. browser warn/error 없음. 기준정보/Pending 유형은 합성 계정의 노출 권한이 없어 실제 화면 검증 대상에서 제외했으며 코드 배정은 완료했다.
+- 합성 화면 증거: `/Users/parksubin/.codex/visualizations/2026/10/08/01a118d1-afc8-7351-9370-0126a196e572/cheongju-menu-icons/`에 검수용 저장, 직접 열어 확인. 기존 5193 합성 preview 재사용, 실제 API/DB 연결 없음.
+- 상태: 구현·영향 검증 완료, 사용자 검수 대기. 변경 범위 로컬 커밋만 수행하며 원격 push/PR/merge/배포 없음. DB 생성/수정/임시 DB/새 미사용 DB 없음.

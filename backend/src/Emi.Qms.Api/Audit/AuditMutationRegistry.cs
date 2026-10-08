@@ -258,7 +258,9 @@ public static partial class AuditMutationRegistry
         PUT /api/g2/defect-inventory-counts/{date}
         PUT /api/g2/inventory-counts/{date}
         PUT /api/g2/operations/{date}
+        PUT /api/g2/plans
         PUT /api/g2/targets/{targetType}/{effectiveDate}
+        PUT /api/g2/workspace/{date}
         PUT /api/logistics/packing-units/{unitId:guid}/panels
         PUT /api/logistics/{stage:regex(^(departure|delivery)$)}-batches/{batchId:guid}/units
         PUT /api/me/profile-photo

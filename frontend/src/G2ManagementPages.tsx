@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ApiError, getG2Days, saveG2Attendance, saveG2Operations } from './api';
+import { ApiError, getG2Days, saveG2Attendance } from './api';
 import { G2FilteredHorizontalTable, type G2HorizontalRow } from './G2DataViews';
-import { G2ProductionSummaryTable } from './G2ProductionSummaryTable';
 import { formatG2Date, formatG2Modified, monthBounds, todaySeoul, type G2Day, type G2MetricValue, type G2RangeResponse } from './g2';
 import { useG2Holidays } from './useG2Holidays';
 
@@ -57,55 +56,7 @@ function Field({ label, value, onChange, disabled, metric }: { label: string; va
   return <label className="g2-entry-field"><span>{label}</span><input type="number" min="0" step="1" inputMode="numeric" value={value} disabled={disabled} placeholder="미입력" onChange={event => onChange(event.target.value)} /><small>{formatG2Modified(metric)}</small></label>;
 }
 
-export function G2OperationsPage({ developmentUserKey, canEditProduction, canEditDelivery, mutationEnabled }: { developmentUserKey: string | undefined; canEditProduction: boolean; canEditDelivery: boolean; mutationEnabled: boolean }) {
-  const month = useG2Month(developmentUserKey, todaySeoul());
-  const holidays = useG2Holidays(developmentUserKey, month.state.kind === 'ready' ? month.state.data.days : []);
-  const [inputs, setInputs] = useState({ morning: '', afternoon: '', morningRepair: '', afternoonRepair: '', delivery: '', defect: '' });
-  const [baseline, setBaseline] = useState(inputs);
-  const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>(null);
-  useLayoutEffect(() => {
-    const values = { morning: metricInput(month.selected?.morningProduction ?? null), afternoon: metricInput(month.selected?.afternoonProduction ?? null), morningRepair: metricInput(month.selected?.morningRepair ?? null), afternoonRepair: metricInput(month.selected?.afternoonRepair ?? null), delivery: metricInput(month.selected?.delivery ?? null), defect: metricInput(month.selected?.defect ?? null) };
-    setInputs(values); setBaseline(values);
-  }, [month.selected]);
-
-  async function save() {
-    if (!month.selected || busy) return;
-    try {
-      const request: Parameters<typeof saveG2Operations>[2] = {};
-      if (canEditProduction && inputs.morning !== baseline.morning) request.morningProduction = { quantity: parseQuantity(inputs.morning, '오전 생산량'), expectedVersion: month.selected.morningProduction?.version ?? null };
-      if (canEditProduction && inputs.afternoon !== baseline.afternoon) request.afternoonProduction = { quantity: parseQuantity(inputs.afternoon, '오후 생산량'), expectedVersion: month.selected.afternoonProduction?.version ?? null };
-      if (canEditProduction && inputs.morningRepair !== baseline.morningRepair) request.morningRepair = { quantity: parseQuantity(inputs.morningRepair, '오전 수리량'), expectedVersion: month.selected.morningRepair?.version ?? null };
-      if (canEditProduction && inputs.afternoonRepair !== baseline.afternoonRepair) request.afternoonRepair = { quantity: parseQuantity(inputs.afternoonRepair, '오후 수리량'), expectedVersion: month.selected.afternoonRepair?.version ?? null };
-      if (canEditDelivery && inputs.delivery !== baseline.delivery) request.delivery = { quantity: parseQuantity(inputs.delivery, '일일 납품량'), expectedVersion: month.selected.delivery?.version ?? null };
-      if (canEditProduction && inputs.defect !== baseline.defect) request.defect = { quantity: parseQuantity(inputs.defect, '일일 불량 수량'), expectedVersion: month.selected.defect?.version ?? null };
-      if (Object.keys(request).length === 0) { setFeedback({ tone: 'error', message: '변경한 값을 하나 이상 입력해 주세요.' }); return; }
-      setBusy(true); setFeedback({ tone: 'status', message: '생산·납품 수량을 저장하는 중입니다.' });
-      await saveG2Operations(developmentUserKey, month.date, request); await month.reload(); setFeedback({ tone: 'status', message: '생산·납품 수량을 저장했습니다.' });
-    } catch (error) { setFeedback({ tone: 'error', message: error instanceof ApiError || error instanceof Error ? error.message : '생산·납품 수량을 저장하지 못했습니다.' }); }
-    finally { setBusy(false); }
-  }
-
-  return <G2PageState state={month.state} onRetry={month.reload}>{data => <section className="page-surface g2-page" aria-labelledby="g2-operations-title"><header className="page-header"><div><p className="eyebrow">G2 운영관리</p><h2 id="g2-operations-title">생산/출하 관리</h2><p>오전·오후 생산량과 수리량, 하루 납품량과 신규 불량을 각각 또는 한꺼번에 저장합니다.</p></div><label className="g2-date-picker">입력 날짜<input type="date" value={month.date} disabled={busy} required onChange={event => month.setDate(event.target.value)} /></label></header>
-    {month.selected?.isForecast ? <p className="g2-forecast-note"><b>예상</b> 미래 날짜의 예상 수량을 입력하고 있습니다.</p> : null}
-    {!mutationEnabled ? <p className="g2-review-safe" role="status">현재 검수 전용 읽기 모드이므로 값을 수정할 수 없습니다.</p> : null}
-    <article className="g2-card g2-entry-card">
-      <div className="g2-entry-grid g2-entry-grid-repairs">
-        <Field label="오전 생산량" value={inputs.morning} onChange={value => setInputs(current => ({ ...current, morning: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.morningProduction ?? null} />
-        <Field label="오전 수리량" value={inputs.morningRepair} onChange={value => setInputs(current => ({ ...current, morningRepair: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.morningRepair ?? null} />
-        <Field label="오후 생산량" value={inputs.afternoon} onChange={value => setInputs(current => ({ ...current, afternoon: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.afternoonProduction ?? null} />
-        <Field label="오후 수리량" value={inputs.afternoonRepair} onChange={value => setInputs(current => ({ ...current, afternoonRepair: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.afternoonRepair ?? null} />
-        <Field label="일일 납품량" value={inputs.delivery} onChange={value => setInputs(current => ({ ...current, delivery: value }))} disabled={!mutationEnabled || !canEditDelivery || busy} metric={month.selected?.delivery ?? null} />
-        <Field label="일일 불량 수량" value={inputs.defect} onChange={value => setInputs(current => ({ ...current, defect: value }))} disabled={!mutationEnabled || !canEditProduction || busy} metric={month.selected?.defect ?? null} />
-      </div>
-      <p className="g2-table-help">불량에는 해당 날짜에 새로 발생한 수량을 입력합니다. 수리 완료량은 불량재고에서 빠지며, 2026년 9월 10일 재고부터 전일 수리량을 납품가능재고에 더합니다.</p>
-      <div className="g2-live-totals"><span>입력일 불량재고 <b>{month.selected?.defectInventory ?? 0}대</b></span><small>저장된 자료 기준</small></div>
-      {(month.selected?.defectInventory ?? 0) < 0 ? <p className="g2-warning" role="alert">신규 불량과 수리 입력을 확인해 주세요. 불량재고가 음수입니다.</p> : null}
-      {feedback ? <p className="g2-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'} aria-live="polite">{feedback.message}</p> : null}<button type="button" className="primary-button" disabled={!mutationEnabled || busy || (!canEditProduction && !canEditDelivery)} onClick={() => void save()}>변경한 값 저장</button>
-    </article>
-    <G2ProductionSummaryTable days={data.days} holidays={holidays} monthly />
-  </section>}</G2PageState>;
-}
+export { G2OperationsPage } from './G2OperationsPage';
 
 export function G2AttendancePage({ developmentUserKey, canEdit, mutationEnabled }: { developmentUserKey: string | undefined; canEdit: boolean; mutationEnabled: boolean }) {
   const month = useG2Month(developmentUserKey, todaySeoul());
@@ -172,8 +123,8 @@ export function G2AttendancePage({ developmentUserKey, canEdit, mutationEnabled 
     finally { setBusy(false); }
   }
 
-  return <G2PageState state={month.state} onRetry={month.reload}>{data => <section className="page-surface g2-page" aria-labelledby="g2-attendance-title"><header className="page-header"><div><p className="eyebrow">G2 운영관리</p><h2 id="g2-attendance-title">제조 인원 출근 관리</h2><p>오전·오후의 EMI 직원과 도급 직원을 숫자로 관리합니다.</p></div><label className="g2-date-picker">입력 날짜<input type="date" value={month.date} disabled={busy} required onChange={event => month.setDate(event.target.value)} /></label></header>
-    {month.selected?.isForecast ? <p className="g2-forecast-note"><b>예상</b> 미래 날짜의 예상 출근 인원을 입력하고 있습니다.</p> : null}{!mutationEnabled ? <p className="g2-review-safe" role="status">현재 검수 전용 읽기 모드이므로 값을 수정할 수 없습니다.</p> : null}
+  return <G2PageState state={month.state} onRetry={month.reload}>{data => <section className="page-surface g2-page" aria-labelledby="g2-attendance-title"><header className="page-header"><div><p className="eyebrow">G2 운영관리</p><h2 id="g2-attendance-title">제조 인원 출근 관리</h2><p>오전·오후의 EMI 직원과 도급 직원을 숫자로 관리합니다.</p></div><label className="g2-date-picker">입력 날짜<input type="date" max={todaySeoul()} value={month.date} disabled={busy} required onChange={event => month.setDate(event.target.value)} /></label></header>
+    {!mutationEnabled ? <p className="g2-review-safe" role="status">현재 검수 전용 읽기 모드이므로 값을 수정할 수 없습니다.</p> : null}
     <article className="g2-card g2-entry-card"><div className="g2-entry-grid g2-entry-grid-four"><Field label="오전 EMI" value={inputs.morningEmi} onChange={value => setInputs(current => ({ ...current, morningEmi: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.morningEmiAttendance ?? null} /><Field label="오전 도급" value={inputs.morningContractor} onChange={value => setInputs(current => ({ ...current, morningContractor: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.morningContractorAttendance ?? null} /><Field label="오후 EMI" value={inputs.afternoonEmi} onChange={value => setInputs(current => ({ ...current, afternoonEmi: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.afternoonEmiAttendance ?? null} /><Field label="오후 도급" value={inputs.afternoonContractor} onChange={value => setInputs(current => ({ ...current, afternoonContractor: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.afternoonContractorAttendance ?? null} /></div><div className="g2-live-totals" aria-live="polite"><span>오전 합계 <b>{totals.morning}</b></span><span>오후 합계 <b>{totals.afternoon}</b></span><span>하루 총원 <b>{totals.morning + totals.afternoon}</b></span></div>{feedback ? <p className="g2-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}>{feedback.message}</p> : null}<button type="button" className="primary-button" disabled={!mutationEnabled || !canEdit || busy} onClick={() => void save()}>변경한 값 저장</button></article>
     <G2FilteredHorizontalTable title="월간 출근 현황" filterLabel="출근 현황 표시 기간" caption="제조 인원 월간 출근 현황" days={data.days} rows={attendanceRows} holidays={holidays} />
   </section>}</G2PageState>;

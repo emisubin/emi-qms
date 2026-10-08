@@ -660,8 +660,6 @@
 .g2-stack-value-morning { fill: #1e3a5f; stroke: rgb(255 255 255 / 55%); }
 .g2-stack-value-afternoon { fill: #fff; stroke: rgb(37 99 235 / 55%); }
 .g2-stack-hit { fill: transparent; stroke: none; pointer-events: all; cursor: default; }
-.g2-forecast-zone { fill: #f1f5f9; opacity: 0.72; }
-.g2-forecast-label { fill: #64748b; font-size: 9px; font-weight: 900; letter-spacing: 0.04em; }
 .g2-bar { stroke: rgb(255 255 255 / 88%); stroke-width: 1; filter: drop-shadow(0 2px 2px rgb(71 85 105 / 12%)); shape-rendering: geometricPrecision; }
 .g2-bar-production,
 .g2-bar-delivery { fill-opacity: 0.86; }
@@ -681,9 +679,7 @@
 .g2-line-halo { stroke: rgb(255 255 255 / 96%); stroke-width: 7; filter: none; pointer-events: none; }
 .g2-line-halo.g2-line-target { stroke: rgb(255 255 255 / 96%); stroke-width: 6.5; }
 .g2-line-halo.g2-line-production-average { stroke: rgb(255 255 255 / 96%); stroke-width: 6; stroke-dasharray: none; }
-.g2-line-forecast { stroke-dasharray: 4 7; }
 .g2-line-point { fill: #f87171; stroke: #f87171; stroke-width: 1.2; }
-.g2-line-point-forecast { fill: #fca5a5; stroke: #f87171; stroke-dasharray: none; }
 .g2-line-point-physical { fill: #60a5fa; stroke: #60a5fa; stroke-width: 1.5; stroke-dasharray: none; }
 .g2-physical-point-hit { fill: transparent; stroke: none; pointer-events: all; }
 .g2-inventory-value { fill: #f87171; font-size: 7px; font-weight: 950; paint-order: stroke; stroke: #fff; stroke-width: 2px; pointer-events: none; }
@@ -728,7 +724,6 @@
 .g2-chart-legend [data-series='production-target']::before { background: repeating-linear-gradient(90deg, #f87171 0 7px, transparent 7px 11px); }
 .g2-chart-legend [data-series='inventory']::before { background: #f87171; }
 .g2-chart-legend [data-series='target']::before { background: repeating-linear-gradient(90deg, #60a5fa 0 7px, transparent 7px 11px); }
-.g2-chart-legend [data-series='forecast']::before { background: repeating-linear-gradient(90deg, #f87171 0 4px, transparent 4px 8px); }
 .g2-chart-legend [data-series='morning']::before { border: 1px solid #93c5fd; background: linear-gradient(90deg, #bfdbfe, #dbeafe); }
 .g2-chart-legend [data-series='afternoon']::before { border: 1px solid #60a5fa; background: linear-gradient(90deg, #60a5fa, #93c5fd); }
 .g2-chart-legend [data-series='production-average']::before { background: repeating-linear-gradient(90deg, #2563eb 0 6px, transparent 6px 10px); }
@@ -740,7 +735,6 @@
 
 .g2-empty-note,
 .g2-review-safe,
-.g2-forecast-note,
 .g2-warning,
 .g2-feedback {
   margin: 0;
@@ -749,7 +743,6 @@
 }
 .g2-empty-note { background: #f3f4f6; color: #4b5563; }
 .g2-review-safe { background: #fff7ed; color: #9a3412; }
-.g2-forecast-note { background: #eff6ff; color: #1d4ed8; }
 .g2-warning,
 .g2-feedback[data-tone='error'] { background: #fff1f2; color: #9f1239; }
 .g2-feedback { background: #ecfdf5; color: #065f46; }
@@ -802,7 +795,6 @@
 .g2-entry-card > .primary-button { justify-self: end; }
 .g2-live-totals span { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
 .g2-live-totals b { margin-left: 8px; font-size: 1.1rem; }
-.g2-forecast-badge { display: inline-block; border: 1px dashed #2563eb; border-radius: 999px; padding: 2px 7px; color: #1d4ed8; font-size: 0.72rem; font-weight: 800; }
 .g2-negative { color: #b91c1c; font-weight: 800; }
 
 .g2-date-range {
@@ -938,10 +930,6 @@
 .g2-horizontal-table tr.g2-detail-row > th::before { margin-right: 7px; color: #94a3b8; content: '↳'; }
 .g2-horizontal-table tr.g2-inventory-row > * { border-top: 2px solid #fecaca; background: #fff1f2; color: #1e293b; font-weight: 850; }
 .g2-horizontal-table tr.g2-grand-total-row > * { border-top: 2px solid #bfdbfe; background: #eff6ff; color: #1e3a5f; font-weight: 900; }
-.g2-horizontal-table td.g2-forecast-column,
-.g2-horizontal-table td.g2-forecast-column strong { color: #2563eb; }
-.app-shell .g2-horizontal-table td.g2-forecast-column input.g2-preview-input { color: #2563eb; }
-.g2-horizontal-table td.g2-forecast-column .g2-table-total-button { color: #2563eb !important; }
 .g2-horizontal-table td.g2-red-day-column,
 .g2-horizontal-table td.g2-red-day-column strong { color: #dc2626; }
 .app-shell .g2-horizontal-table td.g2-red-day-column input.g2-preview-input { border-color: #fecaca; background: #fff7f7; color: #dc2626; }

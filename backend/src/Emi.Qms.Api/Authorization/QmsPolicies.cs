@@ -31,4 +31,8 @@ public static class QmsPolicies
     public const string G2AttendanceUpdate = "G2AttendanceUpdate";
     public const string G2InventoryManage = "G2InventoryManage";
     public const string G2TargetManage = "G2TargetManage";
+    public const string G2ProductionPlanUpdate = "G2ProductionPlanUpdate";
+    public const string G2DeliveryPlanUpdate = "G2DeliveryPlanUpdate";
+    public const string G2PlanNoteUpdate = "G2PlanNoteUpdate";
+    public const string G2NoteUpdate = "G2NoteUpdate";
 }

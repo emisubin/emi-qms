@@ -1,5 +1,6 @@
 using System.Data;
 using System.Security.Claims;
+using System.Text.Json;
 using Emi.Qms.Api.Authorization;
 using Emi.Qms.Api.Identity;
 
@@ -12,6 +13,33 @@ public static class G2OperationsEndpointExtensions
         var group = app.MapGroup("/api/g2").RequireAuthorization(QmsPolicies.G2Read);
         group.MapGet("/home", async (int? year, int? month, G2OperationsStore store, CancellationToken token) => await Safe(() => store.GetHomeAsync(year, month, token))).WithName("GetG2Home");
         group.MapGet("/days", async (DateOnly from, DateOnly to, G2OperationsStore store, CancellationToken token) => await Safe(() => store.GetRangeAsync(from, to, token))).WithName("GetG2Days");
+
+        group.MapPut("/workspace/{date}", async (DateOnly date, SaveG2WorkspaceRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
+        {
+            if (!HasAnyValue(request)) return Validation("request", "저장할 G2 항목을 하나 이상 입력해 주세요.");
+            if (request.ProductionPlan is not null && !Has(user, QmsPermissions.G2ProductionPlanUpdate)
+                || request.DeliveryPlan is not null && !Has(user, QmsPermissions.G2DeliveryPlanUpdate)
+                || request.PlanNote is not null && !Has(user, QmsPermissions.G2PlanNoteUpdate)
+                || (request.ActualNote is not null || request.RowNote is not null) && !Has(user, QmsPermissions.G2NoteUpdate)
+                || HasProductionActual(request) && !Has(user, QmsPermissions.G2ProductionUpdate)
+                || request.Delivery is not null && !Has(user, QmsPermissions.G2DeliveryUpdate)
+                || (request.PhysicalCount is not null || request.DefectInventoryCount is not null) && !Has(user, QmsPermissions.G2InventoryManage))
+                return Results.Forbid();
+            var actor = UserId(user);
+            return actor is null ? Results.Unauthorized() : await Safe(() => store.SaveWorkspaceAsync(date, request, actor.Value, token));
+        }).WithName("SaveG2Workspace");
+
+        group.MapPut("/plans", async (SaveG2PlansRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
+        {
+            if (!HasBulkValue(request.ProductionPlan) && !HasBulkValue(request.DeliveryPlan) && !HasBulkValue(request.PlanNote))
+                return Validation("request", "저장할 계획 또는 계획 메모를 하나 이상 입력해 주세요.");
+            if (HasBulkValue(request.ProductionPlan) && !Has(user, QmsPermissions.G2ProductionPlanUpdate)
+                || HasBulkValue(request.DeliveryPlan) && !Has(user, QmsPermissions.G2DeliveryPlanUpdate)
+                || HasBulkValue(request.PlanNote) && !Has(user, QmsPermissions.G2PlanNoteUpdate))
+                return Results.Forbid();
+            var actor = UserId(user);
+            return actor is null ? Results.Unauthorized() : await Safe(() => store.SavePlansAsync(request, actor.Value, token));
+        }).WithName("SaveG2Plans");
 
         group.MapPut("/operations/{date}", async (DateOnly date, SaveG2OperationsRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
         {
@@ -38,7 +66,11 @@ public static class G2OperationsEndpointExtensions
             return actor is null ? Results.Unauthorized() : await Safe(() => store.SaveInventoryCountAsync(date, request, actor.Value, token));
         }).RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("SaveG2InventoryCount");
 
-        group.MapDelete("/inventory-counts/{date}", async (DateOnly date, int? expectedVersion, G2OperationsStore store, CancellationToken token) => await Safe(() => store.DeleteInventoryCountAsync(date, expectedVersion, token)))
+        group.MapDelete("/inventory-counts/{date}", async (DateOnly date, int? expectedVersion, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
+        {
+            var actor = UserId(user);
+            return actor is null ? Results.Unauthorized() : await Safe(() => store.DeleteInventoryCountAsync(date, expectedVersion, actor.Value, token));
+        })
             .RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("DeleteG2InventoryCount");
 
         group.MapPut("/defect-inventory-counts/{date}", async (DateOnly date, SaveG2InventoryCountRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
@@ -47,7 +79,11 @@ public static class G2OperationsEndpointExtensions
             return actor is null ? Results.Unauthorized() : await Safe(() => store.SaveDefectInventoryCountAsync(date, request, actor.Value, token));
         }).RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("SaveG2DefectInventoryCount");
 
-        group.MapDelete("/defect-inventory-counts/{date}", async (DateOnly date, int? expectedVersion, G2OperationsStore store, CancellationToken token) => await Safe(() => store.DeleteDefectInventoryCountAsync(date, expectedVersion, token)))
+        group.MapDelete("/defect-inventory-counts/{date}", async (DateOnly date, int? expectedVersion, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
+        {
+            var actor = UserId(user);
+            return actor is null ? Results.Unauthorized() : await Safe(() => store.DeleteDefectInventoryCountAsync(date, expectedVersion, actor.Value, token));
+        })
             .RequireAuthorization(QmsPolicies.G2InventoryManage).WithName("DeleteG2DefectInventoryCount");
 
         group.MapPut("/targets/{targetType}/{effectiveDate}", async (string targetType, DateOnly effectiveDate, SaveG2TargetRequest request, G2OperationsStore store, ClaimsPrincipal user, CancellationToken token) =>
@@ -67,6 +103,17 @@ public static class G2OperationsEndpointExtensions
         var result = new List<G2MetricChange>(); Add(result, G2MetricCodes.MorningEmiAttendance, request.MorningEmiAttendance); Add(result, G2MetricCodes.MorningContractorAttendance, request.MorningContractorAttendance); Add(result, G2MetricCodes.AfternoonEmiAttendance, request.AfternoonEmiAttendance); Add(result, G2MetricCodes.AfternoonContractorAttendance, request.AfternoonContractorAttendance); return result;
     }
     private static void Add(List<G2MetricChange> values, string code, G2MetricChangeRequest? request) { if (request is not null) values.Add(new(code, request.Quantity, request.ExpectedVersion)); }
+    private static bool HasAnyValue(SaveG2WorkspaceRequest request) =>
+        request.ProductionPlan is not null || request.DeliveryPlan is not null
+        || request.MorningProduction is not null || request.AfternoonProduction is not null
+        || request.MorningRepair is not null || request.AfternoonRepair is not null
+        || request.Delivery is not null || request.Defect is not null
+        || request.PhysicalCount is not null || request.DefectInventoryCount is not null
+        || request.PlanNote is not null || request.ActualNote is not null || request.RowNote is not null;
+    private static bool HasProductionActual(SaveG2WorkspaceRequest request) =>
+        request.MorningProduction is not null || request.AfternoonProduction is not null
+        || request.MorningRepair is not null || request.AfternoonRepair is not null || request.Defect is not null;
+    private static bool HasBulkValue(JsonElement value) => value.ValueKind != JsonValueKind.Undefined;
     private static bool Has(ClaimsPrincipal user, string permission) => user.HasClaim(QmsClaimTypes.Permission, permission);
     private static Guid? UserId(ClaimsPrincipal user) => Guid.TryParse(user.FindFirst(QmsClaimTypes.UserId)?.Value, out var value) ? value : null;
     private static async Task<IResult> Safe<T>(Func<Task<T>> action) { try { return Results.Ok(await action()); } catch (DBConcurrencyException e) { return Results.Problem(title: e.Message, statusCode: 409); } catch (ArgumentException e) { return Validation(string.IsNullOrWhiteSpace(e.ParamName) ? "request" : e.ParamName, e.Message); } }

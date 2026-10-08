@@ -2988,7 +2988,10 @@ function QmsAppShellContent({
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-operations' ? (
-        <G2OperationsPage developmentUserKey={developmentUserKey} canEditProduction={canUpdateG2Production} canEditDelivery={canUpdateG2Delivery} mutationEnabled={mutationEnabled} />
+        <G2OperationsPage developmentUserKey={developmentUserKey} canEditProduction={canUpdateG2Production} canEditDelivery={canUpdateG2Delivery} mutationEnabled={mutationEnabled}
+          access={{ production: canUpdateG2Production, delivery: canUpdateG2Delivery, inventory: canManageG2Inventory,
+            productionPlan: permissions.includes('G2.ProductionPlan.Update'), deliveryPlan: permissions.includes('G2.DeliveryPlan.Update'),
+            planNote: permissions.includes('G2.PlanNote.Update'), note: permissions.includes('G2.Note.Update') }} />
       ) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-attendance' ? (

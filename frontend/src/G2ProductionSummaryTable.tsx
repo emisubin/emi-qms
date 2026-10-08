@@ -20,10 +20,10 @@ export function G2ProductionSummaryTable({ days, holidays, input, monthly = fals
       key: `summary-${group}`,
       label: <button type="button" className="g2-table-disclosure" aria-expanded={expanded[group]} aria-label={`${label} 상세 ${action}`} onClick={() => toggle(group)}>{label}<span aria-hidden="true">{expanded[group] ? '▾' : '▸'}</span></button>,
       rowClassName: 'g2-summary-row',
-      value: day => <button type="button" className="g2-table-total-button" aria-expanded={expanded[group]} aria-label={`${formatG2Date(day.date)} ${label} ${quantity(day) === null ? '미입력' : `${quantity(day)}대`} 상세 ${action}`} onClick={() => toggle(group)}><strong>{quantity(day) ?? '—'}</strong></button>
+      value: day => <button type="button" className="g2-table-total-button" aria-expanded={expanded[group]} aria-label={`${formatG2Date(day.date)} ${label} ${day.isForecast || quantity(day) === null ? '미입력' : `${quantity(day)}대`} 상세 ${action}`} onClick={() => toggle(group)}><strong>{day.isForecast ? '—' : quantity(day) ?? '—'}</strong></button>
     };
   }
-  const detail = (key: G2PreviewField, label: string): G2HorizontalRow => ({ key, label, rowClassName: 'g2-detail-row', value: day => input ? input(day, key, label) : day[key]?.quantity ?? '—' });
+  const detail = (key: G2PreviewField, label: string): G2HorizontalRow => ({ key, label, rowClassName: 'g2-detail-row', value: day => day.isForecast ? '—' : input ? input(day, key, label) : day[key]?.quantity ?? '—' });
   const rows: G2HorizontalRow[] = [
     summary('production', '생산', day => day.productionTotal),
     ...(expanded.production ? [detail('morningProduction', '오전 생산'), detail('afternoonProduction', '오후 생산')] : []),
@@ -37,13 +37,13 @@ export function G2ProductionSummaryTable({ days, holidays, input, monthly = fals
     summary('defect', '불량', day => day.defect?.quantity ?? null),
     ...(expanded.defect ? [
       detail('defect', monthly ? '일일 불량 수량' : '신규 불량'),
-      { key: 'defect-stock', label: '불량재고', rowClassName: 'g2-detail-row', value: (day: G2Day) => <>{day.defectInventory}{day.defectInventoryCount ? <small className="g2-count-badge" title="실사로 확인한 마감 불량재고">실사</small> : null}</>, cellClassName: (day: G2Day) => day.defectInventory < 0 ? 'g2-negative' : undefined }
+      { key: 'defect-stock', label: '불량재고', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : <>{day.defectInventory ?? '—'}{day.defectInventoryCount?.quantity != null ? <small className="g2-count-badge" title="실사로 확인한 마감 불량재고">실사</small> : null}</>, cellClassName: (day: G2Day) => day.defectInventory !== null && day.defectInventory < 0 ? 'g2-negative' : undefined }
     ] : []),
-    { key: 'inventory', label: '재고', rowClassName: 'g2-inventory-row', value: day => day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
+    { key: 'inventory', label: '재고', rowClassName: 'g2-inventory-row', value: day => day.isForecast ? '—' : day.inventory ?? '기준 없음', cellClassName: day => day.inventory !== null && day.inventory < 0 ? 'g2-negative' : undefined }
   ];
   return <>
     <p className="g2-table-help">행의 이름이나 숫자를 눌러 상세를 확인하세요. 불량재고는 마감 실사를 기준으로 다음 날부터 신규 불량을 더하고 수리량을 뺀 수량입니다. 실사가 없으면 0부터 누적합니다.</p>
-    {days.some(day => day.defectInventory < 0) ? <p className="g2-warning" role="alert">불량재고보다 수리량이 많은 날짜가 있습니다. 신규 불량과 수리 입력을 확인해 주세요.</p> : null}
+    {days.some(day => !day.isForecast && day.defectInventory !== null && day.defectInventory < 0) ? <p className="g2-warning" role="alert">불량재고보다 수리량이 많은 날짜가 있습니다. 신규 불량과 수리 입력을 확인해 주세요.</p> : null}
     {monthly
       ? <G2FilteredHorizontalTable title="월간 입력 현황" filterLabel="입력 현황 표시 기간" caption="생산·납품·재고 월간 입력 현황" days={days} rows={rows} holidays={holidays} />
       : <G2HorizontalTable days={days} caption="생산 현황" rows={rows} holidays={holidays} />}

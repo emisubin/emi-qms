@@ -127,7 +127,11 @@ public sealed partial class BusinessUnitIsolationTests
             }
             await runner.ApplyAndVerifyAsync(code, ct);
             var after = await SnapshotOwnedDataAsync(databases, code, ct, OsanOwnedTablesAt0131);
-            foreach (var (table, beforeRows) in snapshots[code]) Assert.Equal(beforeRows, after[table]);
+            foreach (var (table, beforeRows) in snapshots[code])
+            {
+                if (code == BusinessUnitCodes.Cheongju && table is "permissions" or "role_permissions") continue;
+                Assert.Equal(beforeRows, after[table]);
+            }
             await runner.ApplyAndVerifyAsync(code, ct);
         }
         await AssertApprovedSchemaAsync(databases, ct);

@@ -19,22 +19,23 @@ function previewMetric(metric: G2MetricValue | null, rawValue: string | undefine
   if (!metric && quantity === null) return null;
   return metric
     ? { ...metric, quantity }
-    : { quantity, version: 0, updatedAtUtc: '', updatedByDisplayName: '임시 예상' };
+    : { quantity, version: 0, updatedAtUtc: '', updatedByDisplayName: '임시 계산' };
 }
 
 export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Day[] {
   if (days.length === 0) return [];
   if (Object.keys(inputs).length === 0) return days;
   const first = days[0];
-  let balance: number | null = first.physicalCount === null && first.inventory !== null
+  let balance: number | null = first.physicalCount?.quantity == null && first.inventory !== null
     ? first.date < availableInventoryStartDate
       ? first.inventory - (first.productionTotal ?? 0) + (first.delivery?.quantity ?? 0) + (first.defect?.quantity ?? 0)
       : first.inventory + (first.delivery?.quantity ?? 0)
     : null;
   let previousMovement: { production: number; repair: number; delivery: number; defect: number } | null = null;
-  let defectInventory = first.defectInventory - (first.defect?.quantity ?? 0) + (first.repairTotal ?? 0);
+  let defectInventory = (first.defectInventory ?? 0) - (first.defect?.quantity ?? 0) + (first.repairTotal ?? 0);
 
   return days.map((day, index) => {
+    if (day.isForecast) return day;
     const edit = inputs[day.date] ?? {};
     const morningProduction = previewMetric(day.morningProduction, edit.morningProduction);
     const afternoonProduction = previewMetric(day.afternoonProduction, edit.afternoonProduction);
@@ -55,7 +56,7 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
       defect: defect?.quantity ?? 0
     };
 
-    if (day.physicalCount !== null) balance = day.physicalCount.quantity;
+    if (day.physicalCount?.quantity != null) balance = day.physicalCount.quantity;
     else if (balance !== null && day.date < availableInventoryStartDate) {
       balance += currentMovement.production - currentMovement.delivery - currentMovement.defect;
     } else if (balance !== null && day.date >= availableInventoryStartDate) {
@@ -66,7 +67,7 @@ export function applyG2HomePreview(days: G2Day[], inputs: G2PreviewInputs): G2Da
     }
 
     previousMovement = currentMovement;
-    defectInventory = day.defectInventoryCount
+    defectInventory = day.defectInventoryCount?.quantity != null
       ? day.defectInventoryCount.quantity
       : defectInventory + currentMovement.defect - currentMovement.repair;
     return { ...day, morningProduction, afternoonProduction, morningRepair, afternoonRepair, delivery, defect, productionTotal, repairTotal, defectInventory, inventory: balance };

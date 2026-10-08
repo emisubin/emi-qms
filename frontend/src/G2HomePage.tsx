@@ -45,7 +45,7 @@ function G2AttendanceSummaryTable({ days, holidays }: { days: G2Day[]; holidays:
   function totalButton(day: G2Day, shift: 'morning' | 'afternoon') {
     const isMorning = shift === 'morning';
     const label = isMorning ? '오전 합계' : '오후 합계';
-    const quantity = isMorning ? day.morningAttendanceTotal : day.afternoonAttendanceTotal;
+    const quantity = day.isForecast ? null : isMorning ? day.morningAttendanceTotal : day.afternoonAttendanceTotal;
     const quantityLabel = quantity === null ? '미입력' : `${quantity}명`;
     const action = expanded[shift] ? '접기' : '보기';
     return <button className="g2-table-total-button" type="button" aria-expanded={expanded[shift]} aria-label={`${formatG2Date(day.date)} ${label} ${quantityLabel} 세부 인원 ${action}`} onClick={() => toggle(shift)}><strong>{quantity ?? '—'}</strong></button>;
@@ -58,8 +58,8 @@ function G2AttendanceSummaryTable({ days, holidays }: { days: G2Day[]; holidays:
       value: day => totalButton(day, 'morning')
     },
     ...(expanded.morning ? [
-      { key: 'morning-emi', label: '오전 EMI', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.morningEmiAttendance?.quantity ?? '—' },
-      { key: 'morning-contractor', label: '오전 도급', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.morningContractorAttendance?.quantity ?? '—' }
+      { key: 'morning-emi', label: '오전 EMI', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.morningEmiAttendance?.quantity ?? '—' },
+      { key: 'morning-contractor', label: '오전 도급', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.morningContractorAttendance?.quantity ?? '—' }
     ] : []),
     {
       key: 'afternoon-total',
@@ -68,14 +68,14 @@ function G2AttendanceSummaryTable({ days, holidays }: { days: G2Day[]; holidays:
       value: day => totalButton(day, 'afternoon')
     },
     ...(expanded.afternoon ? [
-      { key: 'afternoon-emi', label: '오후 EMI', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.afternoonEmiAttendance?.quantity ?? '—' },
-      { key: 'afternoon-contractor', label: '오후 도급', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.afternoonContractorAttendance?.quantity ?? '—' }
+      { key: 'afternoon-emi', label: '오후 EMI', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.afternoonEmiAttendance?.quantity ?? '—' },
+      { key: 'afternoon-contractor', label: '오후 도급', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.afternoonContractorAttendance?.quantity ?? '—' }
     ] : []),
     {
       key: 'attendance-total',
       label: '오전·오후 전체 합계',
       rowClassName: 'g2-grand-total-row',
-      value: day => <strong>{day.attendanceTotal ?? '—'}</strong>
+      value: day => <strong>{day.isForecast ? '—' : day.attendanceTotal ?? '—'}</strong>
     }
   ];
 
@@ -141,7 +141,7 @@ export function G2HomePage({
   function openCount(date: string, kind: 'available' | 'defect' = 'available') {
     const day = data?.days.find(day => day.date === date);
     const count = kind === 'defect' ? day?.defectInventoryCount : day?.physicalCount;
-    setCountEditor({ date, kind, value: count ? String(count.quantity) : '' }); setFeedback(null);
+    setCountEditor({ date, kind, value: count?.quantity == null ? '' : String(count.quantity) }); setFeedback(null);
   }
 
   const currentCountDay = data?.days.find(day => day.date === countEditor?.date);
@@ -162,7 +162,7 @@ export function G2HomePage({
 
   async function deleteCount() {
     if (!data || !countEditor || busy) return;
-    if (!currentCount) return;
+    if (currentCount?.quantity == null) return;
     const remove = countEditor.kind === 'defect' ? deleteG2DefectInventoryCount : deleteG2InventoryCount;
     setBusy(true); setFeedback(`${countLabel}를 삭제하는 중입니다.`);
     try { await remove(developmentUserKey, countEditor.date, currentCount.version); await load(year, month, true); setFeedback(`${countLabel}를 삭제했습니다.`); setCountEditor(null); }
@@ -185,6 +185,7 @@ export function G2HomePage({
   }
 
   function previewInput(day: G2Day, field: G2PreviewField, label: string) {
+    if (day.isForecast) return '—';
     const rawValue = previewInputs[day.date]?.[field];
     const quantity = day[field]?.quantity;
     return <input
@@ -193,7 +194,7 @@ export function G2HomePage({
       min="0"
       step="1"
       inputMode="numeric"
-      aria-label={`${formatG2Date(day.date)} ${label} 임시 예상값`}
+      aria-label={`${formatG2Date(day.date)} ${label} 임시 계산값`}
       value={rawValue ?? (quantity === null || quantity === undefined ? '' : String(quantity))}
       placeholder="—"
       onChange={event => setPreviewValue(day.date, field, event.target.value)}
@@ -215,12 +216,13 @@ export function G2HomePage({
   if (state.kind === 'loading') return <section className="page-surface g2-page"><p role="status">G2 월간 현황을 불러오는 중입니다.</p></section>;
   if (state.kind === 'forbidden' || state.kind === 'error') return <section className="page-surface g2-page"><div className="g2-state" role="alert"><strong>{state.message}</strong><button type="button" onClick={() => void load()}>다시 시도</button></div></section>;
   if (!data) return null;
-  const hasNegativeInventory = visibleDays.some(day => day.inventory !== null && day.inventory < 0);
-  const productionAverage = averageQuantity(visibleDays.map(day => day.productionTotal));
-  const deliveryAverage = averageQuantity(visibleDays.map(day => day.delivery?.quantity));
-  const inventoryAverage = averageQuantity(visibleDays.map(day => day.inventory));
-  const morningAverage = averageQuantity(visibleDays.map(day => day.morningProduction?.quantity));
-  const afternoonAverage = averageQuantity(visibleDays.map(day => day.afternoonProduction?.quantity));
+  const actualDays = visibleDays.filter(day => !day.isForecast);
+  const hasNegativeInventory = actualDays.some(day => day.inventory !== null && day.inventory < 0);
+  const productionAverage = averageQuantity(actualDays.map(day => day.productionTotal));
+  const deliveryAverage = averageQuantity(actualDays.map(day => day.delivery?.quantity));
+  const inventoryAverage = averageQuantity(actualDays.map(day => day.inventory));
+  const morningAverage = averageQuantity(actualDays.map(day => day.morningProduction?.quantity));
+  const afternoonAverage = averageQuantity(actualDays.map(day => day.afternoonProduction?.quantity));
   const todayInventoryDay = previewDays.find(day => day.date === data.today);
   const inventoryShortage = todayInventoryDay?.inventory !== null && todayInventoryDay?.inventory !== undefined && todayInventoryDay.inventoryTarget !== null
     ? Math.max(todayInventoryDay.inventoryTarget.quantity - todayInventoryDay.inventory, 0)
@@ -253,13 +255,13 @@ export function G2HomePage({
         ]} />
       </div>
       {canManageInventory ? <div className="g2-marker-actions" aria-label="재고 실사 날짜별 수정">
-        {visibleDays.filter(day => day.physicalCount).map(day => <button key={`available-${day.date}`} type="button" disabled={!mutationEnabled || busy} onClick={() => openCount(day.date)}><b>{Number(day.date.slice(-2))}일 실사</b><span>{day.physicalCount?.quantity}대 · 수정</span></button>)}
-        {visibleDays.filter(day => day.defectInventoryCount).map(day => <button key={`defect-${day.date}`} type="button" aria-label={`${Number(day.date.slice(-2))}일 불량 실사 ${day.defectInventoryCount?.quantity}대 · 수정`} disabled={!mutationEnabled || busy} onClick={() => openCount(day.date, 'defect')}><b>{Number(day.date.slice(-2))}일 불량 실사</b><span>{day.defectInventoryCount?.quantity}대 · 수정</span></button>)}
+        {visibleDays.filter(day => !day.isForecast && day.physicalCount?.quantity != null).map(day => <button key={`available-${day.date}`} type="button" disabled={!mutationEnabled || busy} onClick={() => openCount(day.date)}><b>{Number(day.date.slice(-2))}일 실사</b><span>{day.physicalCount?.quantity}대 · 수정</span></button>)}
+        {visibleDays.filter(day => !day.isForecast && day.defectInventoryCount?.quantity != null).map(day => <button key={`defect-${day.date}`} type="button" aria-label={`${Number(day.date.slice(-2))}일 불량 실사 ${day.defectInventoryCount?.quantity}대 · 수정`} disabled={!mutationEnabled || busy} onClick={() => openCount(day.date, 'defect')}><b>{Number(day.date.slice(-2))}일 불량 실사</b><span>{day.defectInventoryCount?.quantity}대 · 수정</span></button>)}
         <button type="button" disabled={!mutationEnabled || busy || !countDateMaximum} onClick={() => countDateMaximum && openCount(countDateMaximum)}>실사 입력</button>
       </div> : null}
     </article>
 
-    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">상세의 생산·수리·납품·불량 입력은 조회용 임시 예상값입니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p>
+    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">지난 날짜의 생산·수리·납품·불량 수량은 조회 중 임시로 바꿔 계산할 수 있습니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p>
       <G2ProductionSummaryTable days={visibleDays} holidays={holidays} input={previewInput} /></article>
 
     {canManageTargets ? <article className="g2-card g2-target-card"><header><div><p className="eyebrow">목표 관리</p><h3>적용 시작일별 목표</h3></div></header><div className="g2-inline-form"><label>목표 종류<select value={targetType} disabled={!mutationEnabled || busy} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}><option value="DailyProduction">일 생산목표</option><option value="Delivery">납품 목표</option><option value="Inventory">재고목표</option></select></label><label className="g2-target-date-field">적용 시작일<input type="date" min={targetDateMinimum} max={targetDateMaximum} value={targetDate} disabled={!mutationEnabled || busy} required onChange={event => { setTargetDate(event.target.value); setTargetValue(''); }} /></label><label>목표 수량<input type="number" min="0" step="1" value={targetValue} disabled={!mutationEnabled || busy} required onChange={event => setTargetValue(event.target.value)} /></label><button className="primary-button" type="button" disabled={!mutationEnabled || busy || !targetDate || targetValue.trim() === ''} onClick={() => void saveTarget()}>목표 저장</button></div><small>같은 적용일을 다시 저장하면 기존 목표를 수정합니다. 이전·다음 달로 이동해 과거와 미래 목표를 관리할 수 있습니다.</small></article> : null}
@@ -281,10 +283,10 @@ export function G2HomePage({
         {countEditor.kind === 'defect' ? <p className="g2-table-help">당일 신규 불량과 수리를 반영한 마감 수량을 입력하세요. 다음 날부터 신규 불량을 더하고 수리량을 뺍니다. 납품가능재고는 직접 변경하지 않습니다.</p> : null}
         <label>실사 날짜<input type="date" min={countDateMinimum} max={countDateMaximum} value={countEditor.date} disabled={busy} required onChange={event => openCount(event.target.value, countEditor.kind)} /></label>
         <label>실사 수량<input ref={dialogInputRef} type="number" min="0" step="1" inputMode="numeric" value={countEditor.value} disabled={busy} required onChange={event => setCountEditor(current => current ? { ...current, value: event.target.value } : null)} /></label>
-        {currentCount ? <small>마지막 수정: {formatG2Modified(currentCount)}</small> : null}
-        {currentCount && countEditor.kind === 'defect' ? <small>실사를 삭제하면 이전 실사부터 다시 계산합니다. 이전 실사가 없으면 0부터 누적하며, 이후 불량재고가 음수가 되면 삭제할 수 없습니다.</small> : null}
+        {currentCount?.quantity != null ? <small>마지막 수정: {formatG2Modified(currentCount)}</small> : null}
+        {currentCount?.quantity != null && countEditor.kind === 'defect' ? <small>실사를 삭제하면 이전 실사부터 다시 계산합니다. 이전 실사가 없으면 0부터 누적하며, 이후 불량재고가 음수가 되면 삭제할 수 없습니다.</small> : null}
         {feedback ? <p className="g2-feedback" role="status" aria-live="polite">{feedback}</p> : null}
-        <div className="button-row"><button className="primary-button" type="button" disabled={busy || !countEditor.date || countEditor.value.trim() === ''} onClick={() => void saveCount()}>저장</button>{currentCount ? <button className="danger-button" type="button" disabled={busy} onClick={() => void deleteCount()}>실사 삭제</button> : null}</div>
+        <div className="button-row"><button className="primary-button" type="button" disabled={busy || !countEditor.date || countEditor.value.trim() === ''} onClick={() => void saveCount()}>저장</button>{currentCount?.quantity != null ? <button className="danger-button" type="button" disabled={busy} onClick={() => void deleteCount()}>실사 삭제</button> : null}</div>
       </section>
     </div> : null}
   </section>;

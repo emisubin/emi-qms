@@ -1,0 +1,146 @@
+.g2-operations{padding:24px;min-width:0;color:#282828;font-size:13px;background:#fff}
+.g2-operations-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.app-shell .g2-operations h1{font-size:16px;font-weight:600;margin:0;line-height:24px}
+.g2-operations-description{font-size:12px;color:#777;margin:9px 0 24px;line-height:18px}
+.app-shell .g2-operations button,.app-shell .pms-entry-dialog button{font:inherit;cursor:pointer;border:1px solid #d8d8d8;border-radius:4px;background:white;color:#333;padding:5px 10px;min-height:30px;box-shadow:none}
+.app-shell .g2-operations button:disabled,.app-shell .pms-entry-dialog button:disabled{cursor:not-allowed;opacity:.5}
+.app-shell .g2-operations .g2-primary{background:#da2127;color:#fff;border-color:#da2127;white-space:nowrap}
+.g2-data-entry{position:relative;display:inline-block;min-width:110px}
+.g2-data-entry>button{width:100%}
+.g2-entry-options{position:absolute;top:calc(100% + 4px);left:0;width:100%;background:#fff;border:1px solid #ddd;border-radius:5px;box-shadow:0 4px 12px #0002;z-index:4;padding:4px 0}
+.app-shell .g2-entry-options>button{width:100%;border:0;border-radius:0;text-align:center;min-height:36px}
+.g2-aligned-viewport{overflow:auto;padding-bottom:4px}
+.g2-aligned-content{min-width:978px}
+.g2-operations table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12px}
+.g2-operations th,.g2-operations td{border:1px solid #e1e1e1;text-align:center;padding:5px 9px;height:35px;font-variant-numeric:tabular-nums;vertical-align:middle}
+.g2-operations th{background:#f4f4f4;font-weight:600}
+.g2-operations .g2-group{border-left:2px solid #d0d0d0}
+.g2-query-table{margin-bottom:22px;background:#fafafa}
+.g2-query-table td{padding:14px 12px;height:auto}
+.g2-query-title{font-weight:600;white-space:nowrap;line-height:20px;text-align:center;margin-bottom:10px}
+.g2-query-title small{color:#777;font-size:11px;font-weight:400;margin-left:5px}
+.g2-summary-values{display:flex;justify-content:space-around;gap:8px;text-align:center;font-size:11px;color:#777}
+.g2-summary-values strong{display:block;font-size:15px;color:#282828;margin-top:6px;min-height:20px}
+.g2-month-title{position:relative;text-align:center;line-height:30px}
+.g2-month-title>strong{font-size:15px}
+.app-shell .g2-month-title>button{position:absolute;right:0;top:0;padding:4px;min-height:30px;display:flex;align-items:center;justify-content:center;border:0;background:transparent}
+.g2-table-caption{display:flex;justify-content:space-between;margin-bottom:10px;font-size:12px}
+.g2-table-caption span{color:#777}
+.g2-date-row{cursor:pointer}
+.g2-date-row:hover{background:#fafafa}
+.g2-today{background:#fff9f4!important}
+.app-shell .g2-date-row td>button{border:0;background:transparent;padding:0;min-height:24px;color:inherit}
+.g2-date-red{color:#cf2c35!important}.g2-date-blue{color:#2268bb!important}
+.g2-date-row td.g2-row-note{text-align:left;padding:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.app-shell .g2-row-note>button{width:100%;height:100%;min-height:34px!important;text-align:left;padding:5px 9px!important;white-space:pre-wrap;overflow-wrap:anywhere}
+.g2-daily-table tfoot th,.g2-daily-table tfoot td{background:#f7f7f7;font-weight:600}
+.g2-operations .g2-expanded-row>td{padding:16px 18px;background:#fafafa}
+.g2-detail-tables{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:18px}
+.g2-day-detail table{border-collapse:collapse;table-layout:fixed;width:100%;background:white;font-size:12px}
+.g2-day-detail caption{text-align:left;font-weight:600;font-size:12px;padding:0 0 8px;color:#333}
+.g2-day-detail th,.g2-day-detail td{border:1px solid #e1e1e1;padding:6px 8px;height:32px;text-align:center;font-variant-numeric:tabular-nums}
+.g2-day-detail th{background:#f0f2f4;font-weight:500}
+.g2-day-detail tbody th{background:#fff}
+.g2-day-detail .g2-detail-notes{margin-top:18px}
+.g2-detail-notes th{width:105px;background:#f0f2f4!important}
+.g2-day-detail .g2-detail-notes td{text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
+.g2-detail-actions{display:flex;justify-content:flex-end;margin-top:12px}
+.g2-operations-footnote{font-size:12px;color:#777;line-height:1.6;margin:14px 0}
+.g2-form-row{display:grid;grid-template-columns:104px minmax(0,1fr);align-items:center;gap:16px;margin-bottom:18px;font-size:13px}
+.g2-form-row input:not([type=checkbox]),.g2-form-row select,.g2-form-row textarea{width:100%;border:1px solid #d8d8d8;border-radius:4px;padding:8px;background:white;color:#282828;min-width:0;font:inherit;min-height:36px;box-sizing:border-box}
+.g2-form-row input[type=number]{text-align:right;font-variant-numeric:tabular-nums}
+.g2-form-row textarea{resize:vertical;min-height:70px}
+.g2-date-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g2-date-pair label{display:grid;gap:7px;font-size:12px;color:#666;min-width:0}
+.g2-entry-tabs{display:flex;border-bottom:1px solid #ddd;margin-bottom:18px}
+.app-shell .g2-entry-tabs>button{flex:1;border:0;border-radius:0;min-height:40px;color:#777;background:#fff}
+.app-shell .g2-entry-tabs>button[aria-selected=true]{color:#a61920;background:#fff5f5;border-bottom:2px solid #da2127;font-weight:600}
+.g2-plan-checks{display:grid;gap:10px;font-size:12px}
+.g2-plan-checks label{display:flex;gap:6px;align-items:center}
+.g2-plan-checks input{accent-color:#da2127}
+.g2-plan-preview{background:#f6f6f6;padding:12px;line-height:1.6;font-size:12px;margin:15px 0}
+.g2-form-hint{font-size:12px;color:#777;line-height:1.6;margin:10px 0}
+.g2-form-error{font-size:13px;color:#a61920;line-height:1.6;margin:8px 0}
+.g2-form-error button{margin-left:8px}
+.g2-operations button:focus-visible{outline:2px solid #a61920;outline-offset:2px}
+@media(max-width:860px){
+ .g2-operations{padding:16px 12px;font-size:12px}
+ .g2-operations-description{margin-bottom:14px}
+ .g2-mobile-month{padding:10px 16px;border:1px solid #ddd;background:#fafafa}
+ .g2-mobile-month .g2-query-title{margin-bottom:3px}
+ .g2-summary-values{font-size:10px;gap:2px}.g2-summary-values strong{font-size:13px}
+ .g2-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid #ddd;border-left:1px solid #ddd}
+ .g2-calendar>strong{text-align:center;padding:8px 0;border-right:1px solid #ddd;border-bottom:1px solid #ddd;background:#fafafa;font-weight:500}
+ .app-shell .g2-calendar>button,.g2-calendar-empty{border:0;border-right:1px solid #ddd;border-bottom:1px solid #ddd;border-radius:0;min-height:77px;text-align:left;padding:5px 3px;min-width:0;display:block}
+ .g2-calendar b{display:block;font-size:12px;font-weight:500;margin-bottom:7px}
+ .g2-calendar span{display:block;font-size:9px;line-height:16px;white-space:nowrap;color:#777}
+ .g2-calendar em{font-style:normal;color:#282828;float:right;font-size:9px}
+ .g2-operations-footnote{font-size:10px}
+ .g2-day-detail--mobile table{font-size:11px;margin-bottom:8px}
+ .g2-day-detail--mobile caption{padding:2px 2px 5px;font-size:12px}
+ .g2-day-detail--mobile th,.g2-day-detail--mobile td{height:27px;padding:4px 5px}
+ .g2-day-detail--mobile .g2-detail-tables{display:block}
+ .g2-day-detail--mobile .g2-detail-notes{margin-top:0;margin-bottom:0}
+ .g2-day-detail--mobile .g2-detail-notes th{width:70px}
+ .g2-day-detail--mobile .g2-detail-notes td>div,.app-shell .g2-day-detail--mobile .g2-note-button{max-height:28px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;min-height:18px;font-size:11px;line-height:14px}
+ .app-shell .g2-note-button{padding:0;border:0;background:transparent;width:100%;text-align:left;border-radius:0}
+ .g2-form-row{display:block;margin-bottom:12px;font-size:13px}
+ .g2-form-row>span{display:block;margin-bottom:5px;font-weight:500}
+ .g2-form-row input:not([type=checkbox]),.g2-form-row select{min-height:40px;padding:8px}
+ .g2-form-row textarea{height:62px;min-height:62px;resize:none}
+ .g2-entry-tabs{margin:4px 0 12px}
+ .g2-form-hint{font-size:11px;line-height:1.45;margin:8px 0}
+ .g2-plan-checks{gap:7px;font-size:11px}
+ .g2-plan-preview{padding:8px;font-size:11px;margin:9px 0;line-height:1.4}
+ .g2-date-pair{gap:8px}.g2-date-pair label{gap:4px}
+}
+/* Preserve the approved G2 colors and table hierarchy through the shared wireframe reset. */
+.app-shell .g2-operations .g2-primary{background-color:#da2127!important;color:white!important;border-color:#da2127!important}
+.app-shell .g2-operations .g2-date-red,.app-shell .g2-operations .g2-date-red button{color:#cf2c35!important}
+.app-shell .g2-operations .g2-date-blue,.app-shell .g2-operations .g2-date-blue button{color:#2268bb!important}
+.app-shell .g2-operations table th,.app-shell .g2-operations table td{border-color:#e1e1e1!important}
+.app-shell .g2-operations table th{background-color:#f4f4f4!important}
+.app-shell .g2-operations .g2-query-table td{background-color:#fafafa!important}
+.app-shell .g2-operations .g2-group{border-left:2px solid #d0d0d0!important}
+.app-shell .g2-operations .g2-today>td{background-color:#fff9f4!important}
+.app-shell .g2-operations .g2-expanded-row>td{background-color:#fafafa!important}
+.app-shell .g2-operations .g2-day-detail tbody th{background-color:white!important}
+.app-shell .g2-operations .g2-day-detail .g2-detail-notes th{background-color:#f0f2f4!important}
+.app-shell .g2-operations .g2-daily-table tfoot :is(th,td){background-color:#f7f7f7!important}
+.app-shell .pms-entry-dialog .g2-entry-tabs>button[aria-selected=true]{color:#a61920!important;background:#fff5f5!important;border-bottom:2px solid #da2127!important}
+@media(max-width:860px){
+ .app-shell .g2-operations .g2-calendar>button{padding:5px 3px!important;border:0!important;border-right:1px solid #ddd!important;border-bottom:1px solid #ddd!important;border-radius:0!important;min-height:77px!important}
+ .app-shell .g2-operations .g2-calendar>button>span{display:flex;justify-content:space-between;gap:1px;line-height:16px}
+ .app-shell .g2-calendar em{float:none;font-size:9px;letter-spacing:-.3px}
+ .app-shell .g2-operations .g2-calendar .g2-today{background:#fff9f4!important}
+ .app-shell .g2-month-title>button{background:transparent!important;border:0!important;min-height:30px!important}
+ .app-shell .pms-entry-head{padding:8px 16px!important;min-height:52px;box-sizing:border-box}
+ .app-shell .pms-entry-head>button{min-height:36px!important}
+ .app-shell .pms-entry-dialog .g2-form-row{margin-bottom:8px}
+ .app-shell .pms-entry-dialog .g2-form-row input:not([type=checkbox]),.app-shell .pms-entry-dialog .g2-form-row select{min-height:36px!important;height:36px;padding:6px 8px!important}
+ .app-shell .pms-entry-dialog .g2-entry-tabs>button{min-height:36px!important;border-radius:0!important}
+ .app-shell .pms-entry-dialog .g2-entry-tabs{margin:4px 0 10px}
+ .app-shell .pms-entry-dialog .g2-note-button{border:0!important;border-radius:0!important;background:transparent!important;padding:0!important;min-height:18px!important}
+ .app-shell .pms-entry-dialog--menu .pms-entry-body>button{border-radius:0!important}
+}
+@media(max-width:860px){
+ .app-shell:has(.g2-operations) .app-content{height:100dvh;min-height:0;padding-bottom:56px!important;box-sizing:border-box}
+ .app-shell:has(.g2-operations) .company-information-footer{display:none}
+ .app-shell .g2-operations{display:flex;flex-direction:column;flex:1;min-height:0;padding:8px 12px}
+ .g2-operations-heading{flex:none;margin-bottom:8px}
+ .g2-operations-description,.g2-operations-footnote{display:none}
+ .g2-mobile-month{flex:none;padding:5px 12px}
+ .g2-calendar-legend{flex:none;padding:8px 0;color:#777;font-size:11px}
+ .app-shell .g2-operations .g2-calendar{flex:1;min-height:0}
+ .app-shell .g2-operations .g2-calendar>button,.g2-calendar-empty{min-height:0!important;height:auto;padding:3px 2px!important}
+ .g2-calendar>strong{padding:3px 0;font-size:11px}
+ .g2-calendar b{margin-bottom:3px;line-height:15px}
+ .app-shell .g2-operations .g2-calendar>button>span{line-height:14px;justify-content:center;gap:2px}
+}
+@media(max-width:860px) and (max-height:500px){.app-shell:has(.g2-operations) .app-content{height:auto;min-height:100dvh}.app-shell .g2-operations .g2-calendar>button{min-height:55px!important}}
+.app-shell .pms-entry-dialog .g2-plan-checks label{display:flex!important;align-items:center;justify-content:flex-start;gap:7px;min-height:24px;white-space:nowrap}
+.app-shell .pms-entry-dialog .g2-plan-checks input[type=checkbox]{width:16px!important;height:16px!important;min-height:0!important;min-width:0!important;margin:0!important;padding:0!important;flex:none;accent-color:#da2127!important}
+@media(max-width:860px){
+ .g2-day-detail--mobile table{margin-bottom:6px}
+ .app-shell .pms-entry-dialog--detail .pms-entry-body{padding:6px 8px}
+}

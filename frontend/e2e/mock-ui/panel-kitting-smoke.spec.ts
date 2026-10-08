@@ -48,9 +48,9 @@ test('TASK-010A mock visual: adaptive panel kitting page and mobile drawer', asy
   await capture(page, '03-panel-kitting-selected-mobile-390.jpg');
 
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  const menu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const menu = page.getByRole('navigation', { name: '빠른 이동' });
   await expect(menu).toBeVisible();
-  await assertSuppliedInternalLogo(menu.locator('.mobile-menu-brand-logo.app-brand-logo'));
+  await assertSuppliedInternalLogo(page.locator('.mobile-app-brand .app-brand-logo'));
   await expect(menu.getByRole('button', { name: '자재' })).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByRole('button', { name: '자재' })).toHaveAttribute('aria-expanded', 'false');
   await expect(menu.getByRole('button', { name: '키팅' })).toHaveCount(0);
@@ -72,8 +72,8 @@ async function assertSuppliedInternalLogo(locator: Locator) {
       backgroundColor: style.backgroundColor
     };
   })).toEqual({
-    naturalWidth: 1406,
-    naturalHeight: 379,
+    naturalWidth: 3796,
+    naturalHeight: 1378,
     filter: 'none',
     backgroundColor: 'rgba(0, 0, 0, 0)'
   });

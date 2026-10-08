@@ -11,7 +11,7 @@ import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
 import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
 import { Fragment, FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { SharedMobileNavigation } from './SharedMobileNavigation';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
 import { AdaptiveLayoutProvider, useAdaptiveLayout } from './adaptive-layout';
@@ -2661,9 +2661,6 @@ function QmsAppShellContent({
       ]
     : cheongjuNavigationItems;
 
-  const activeNavigationLabel = view.kind === 'privacy-notice'
-    ? '개인정보·이용 안내'
-    : navigationItems.find((item) => item.active)?.label ?? '업무';
   const systemStatusDisclosure = (
 <details className="system-status-disclosure">
           <summary>
@@ -2692,11 +2689,16 @@ function QmsAppShellContent({
       data-touch-optimized={layout.touchOptimized}
       data-osan-project-theme={(isOsan && (view.kind === 'list' || view.kind === 'detail')) || view.kind === 'interior-busbar' ? 'true' : undefined}
       data-osan-notifications={isOsan && ['notifications','teams-notification-detail','notification-preferences'].includes(view.kind) ? 'true' : undefined}
+      data-shared-shell="true"
       data-osan-shell={isOsan ? 'true' : undefined}
       data-osan-progress={isOsan && (view.kind === 'osan-progress' || view.kind === 'home' || view.kind === 'list' || view.kind === 'detail') ? 'true' : undefined}
     >
       <AppNavigation isOsan={isOsan} items={navigationItems} onNavigate={setView} footer={<>{shellSwitchControls}{isOsan && isSystemAdministrator && systemStatusDisclosure}</>} />
       {isOsan && (layout.isMobile || layout.touchOptimized) && <OsanMobileTools admin={isSystemAdministrator} key={`${selectedBusinessUnit}:${developmentUserKey}:${pathForView(view)}`} current={view.kind} onNavigate={kind => setView({ kind })} onScan={(projectId, targetId) => setView({ kind: 'osan-qr', projectId, targetId })} />}
+
+      {!isOsan && (layout.isMobile || layout.touchOptimized) && <CampusMobileNavigation
+        key={developmentUserKey} items={navigationItems} onNavigate={setView} footer={shellSwitchControls}
+      />}
 
       <div className="app-content">
         {isOsan && currentUser.kind === "ready" && !currentUser.data.approvalPending && <OsanNoticePopups key={`${currentUser.data.userId}:${developmentUserKey}`} scope={currentUser.data.userId} userKey={developmentUserKey} onOpen={noticeId=>setView({kind:"notice-board",noticeId})}/>}
@@ -2706,7 +2708,6 @@ function QmsAppShellContent({
           <WebPushFirstRunPrompt key={`${currentUser.data.userId}:${selectedBusinessUnit}`} accountScope={currentUser.data.userId} developmentUserKey={developmentUserKey} />
         ) : null}
         <header className="mobile-app-bar">
-          {!isOsan && <AppMobileNavigation items={navigationItems} onNavigate={setView} footer={shellSwitchControls} />}
           <div className="mobile-app-brand">
             <button
               type="button"
@@ -2714,12 +2715,8 @@ function QmsAppShellContent({
               aria-label="EMI PMS 모바일 로고로 홈 이동"
               onClick={() => setView({ kind: 'home' })}
             >
-              <img className="app-brand-logo" src={isOsan ? emiInternalLogo : emiPmsProductLogo} alt="" aria-hidden="true" />
+              <img className="app-brand-logo" src={emiInternalLogo} alt="" aria-hidden="true" />
             </button>
-            <span>
-              <small>EMI PROJECT</small>
-              <strong>{activeNavigationLabel}</strong>
-            </span>
           </div>
           {canSwitchBusinessUnit(businessUnitAccess) ? (
             <BusinessUnitSelector
@@ -3600,22 +3597,6 @@ function navigationLabelForDepartment(department?: string | null) {
   }
 }
 
-const mobileNavigationHints: Record<string, string> = {
-  '홈': '오늘의 우선 업무',
-  '내 업무': '내 처리 항목',
-  '프로젝트': '진행 현황과 병목',
-  'Pending': '차단·조치 이슈',
-  '생산관리': '생산계획과 일정',
-  '구매': '발주와 입고예정',
-  '자재': '입고와 IQC 요청',
-  '제조': '패널 시작·체크·완료',
-  '품질': '검사·재검사 현황',
-  '물류': '포장·출발·납품',
-  'G2': '생산·납품·출근 현황',
-  '알림': '업무 소식',
-  '관리자': '시스템 운영'
-};
-
 function AppNavigation({
   isOsan = false,
   items,
@@ -3640,7 +3621,7 @@ function AppNavigation({
           aria-label="EMI PMS 로고로 홈 이동"
           onClick={() => onNavigate({ kind: 'home' })}
         >
-          <img className={`app-brand-logo${isOsan ? " osan-sidebar-logo" : ""}`} src={isOsan ? emiInternalLogo : emiPmsProductLogo} alt={isOsan ? "EMI" : "EMI PMS - Project Management System"} />
+          <img className="app-brand-logo shared-sidebar-logo" src={emiInternalLogo} alt="EMI" />
         </button>
       </div>
       <div className="app-sidebar-heading">
@@ -3667,7 +3648,7 @@ function AppNavigation({
               >
                 <span className="app-nav-label"><NavigationIcon label={item.label} /><span>{item.label}</span></span>
                 {item.children
-                  ? <span className="app-nav-disclosure" aria-hidden="true">{isOsan ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg> : '⌄'}</span>
+                  ? <span className="app-nav-disclosure" aria-hidden="true">{<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg>}</span>
                   : item.badge && item.badge > 0
                     ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
                     : null}
@@ -3682,7 +3663,7 @@ function AppNavigation({
                       aria-current={child.active ? 'page' : undefined}
                       onClick={() => onNavigate(child.view)}
                     >
-                      {isOsan ? <span className="app-nav-label"><NavigationIcon label={child.label}/><span>{child.label}</span></span> : child.label}
+                      <span className="app-nav-label"><NavigationIcon label={child.label}/><span>{child.label}</span></span>
                     </button>
                   ))}
                 </div>
@@ -3696,213 +3677,20 @@ function AppNavigation({
   );
 }
 
-function AppMobileNavigation({
-  items,
-  onNavigate,
-  footer
-}: {
+function CampusMobileNavigation({ items, onNavigate, footer }: {
   items: NavigationItem[];
   onNavigate: (view: View) => void;
   footer?: ReactNode;
 }) {
-  const { isMobile } = useAdaptiveLayout();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
-  const menuTriggerRef = useRef<HTMLButtonElement>(null);
-  const drawerRef = useRef<HTMLElement>(null);
-  const firstMenuItemRef = useRef<HTMLButtonElement>(null);
-
-  const closeMenu = useCallback((restoreFocus = true) => {
-    setMenuOpen(false);
-    if (restoreFocus) {
-      window.setTimeout(() => menuTriggerRef.current?.focus({ preventScroll: true }), 0);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isMobile) {
-      queueMicrotask(() => setMenuOpen(false));
-    }
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (!menuOpen) {
-      return undefined;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const focusTimer = window.setTimeout(() => firstMenuItemRef.current?.focus({ preventScroll: true }), 0);
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeMenu();
-        return;
-      }
-
-      if (event.key !== 'Tab' || !drawerRef.current) {
-        return;
-      }
-
-      const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-      ));
-      if (focusable.length === 0) {
-        event.preventDefault();
-        return;
-      }
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.clearTimeout(focusTimer);
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [closeMenu, menuOpen]);
-
-  function navigate(item: NavigationItem) {
-    onNavigate(item.view);
-    closeMenu();
-  }
-
-  return (
-    <>
-      <button
-        ref={menuTriggerRef}
-        type="button"
-        className="mobile-menu-trigger"
-        aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'}
-        aria-expanded={menuOpen}
-        aria-controls="app-mobile-menu-drawer"
-        onClick={() => {
-          if (!menuOpen) {
-            setExpandedLabel(null);
-          }
-          setMenuOpen((open) => !open);
-        }}
-      >
-        <span className="mobile-menu-trigger-lines" aria-hidden="true"><i /><i /><i /></span>
-      </button>
-
-      {menuOpen ? createPortal(
-        <div
-          className="mobile-menu-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeMenu();
-            }
-          }}
-        >
-          <aside
-            ref={drawerRef}
-            id="app-mobile-menu-drawer"
-            className="mobile-menu-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="app-mobile-menu-title"
-          >
-            <header className="mobile-menu-header">
-              <button
-                type="button"
-                className="app-brand-home-button"
-                aria-label="EMI PMS 메뉴 로고로 홈 이동"
-                onClick={() => {
-                  onNavigate({ kind: 'home' });
-                  closeMenu();
-                }}
-              >
-                <img className="mobile-menu-brand-logo app-brand-logo" src={emiPmsProductLogo} alt="" aria-hidden="true" />
-              </button>
-              <div>
-                <p className="eyebrow">EMI WORKSPACE</p>
-                <h2 id="app-mobile-menu-title">전체 업무 메뉴</h2>
-              </div>
-              <button type="button" className="mobile-menu-close" aria-label="메뉴 닫기" onClick={() => closeMenu()}>
-                ×
-              </button>
-            </header>
-            <nav className="mobile-menu-list" aria-label="모바일 공통 메뉴">
-              {items.map((item, index) => {
-                const childListId = `mobile-menu-children-${index}`;
-                const expanded = item.children ? expandedLabel === item.label : false;
-
-                return (
-                  <Fragment key={item.label}>
-                    <button
-                      ref={index === 0 ? firstMenuItemRef : undefined}
-                      type="button"
-                      className={item.active ? 'mobile-menu-item active' : 'mobile-menu-item'}
-                      aria-label={item.badge && item.badge > 0 ? `${item.label} ${item.badge}건` : item.label}
-                      aria-current={item.active ? 'page' : undefined}
-                      aria-expanded={item.children ? expanded : undefined}
-                      aria-controls={item.children ? childListId : undefined}
-                      onClick={item.children
-                        ? () => setExpandedLabel(expanded ? null : item.label)
-                        : () => navigate(item)}
-                    >
-                      <span
-                        className="mobile-menu-item-shape"
-                        data-shape-role={item.active ? 'active' : 'control'}
-                        aria-hidden="true"
-                      ><NavigationIcon label={item.label} /></span>
-                      <span className="mobile-menu-item-copy">
-                        <strong>{item.label}</strong>
-                        <small>{mobileNavigationHints[item.label] ?? '업무 화면'}</small>
-                      </span>
-                      {item.children ? (
-                        <span className="mobile-menu-arrow mobile-menu-arrow--disclosure" aria-hidden="true">⌄</span>
-                      ) : item.badge && item.badge > 0 ? (
-                        <>
-                          <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
-                          <span className="sr-only">{item.badge}건</span>
-                        </>
-                      ) : <span className="mobile-menu-arrow" aria-hidden="true">→</span>}
-                    </button>
-                    {item.children && expanded ? (
-                      <div id={childListId} className="mobile-menu-children">
-                        {item.children.map((child) => (
-                          <button
-                            key={child.key}
-                            type="button"
-                            className={child.active ? 'mobile-menu-child-item active' : 'mobile-menu-child-item'}
-                            aria-current={child.active ? 'page' : undefined}
-                            onClick={() => {
-                              onNavigate(child.view);
-                              closeMenu();
-                            }}
-                          >
-                            {child.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </nav>
-            <footer className="mobile-menu-footer">
-              {footer ?? <p>필요한 화면을 선택하면 메뉴가 자동으로 닫힙니다.</p>}
-            </footer>
-          </aside>
-        </div>,
-        document.body
-      ) : null}
-    </>
-  );
+  return <SharedMobileNavigation
+    items={items.map(item => ({
+      key: item.label, label: item.label, active: item.active, badge: item.badge, group: item.group,
+      onSelect: () => onNavigate(item.view),
+      children: item.children?.map(child => ({ key: child.key, label: child.label, active: child.active, onSelect: () => onNavigate(child.view) }))
+    }))}
+    footer={footer}
+  />;
 }
-
 
 function ShellSwitchControls({
   isDevMode,

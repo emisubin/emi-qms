@@ -56,10 +56,10 @@ test('TASK-MOBILE-001: adaptive field routes keep a permission-aware mobile navi
 
   const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
   await menuTrigger.click();
-  const menuDialog = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const menuDialog = page.getByRole('navigation', { name: '빠른 이동' });
   await expect(menuDialog).toBeVisible();
-  await expect(menuDialog.locator('.mobile-menu-item').first()).toBeFocused();
-  await capture(page, '07-left-menu-drawer-mobile-390.png');
+  await expect(menuDialog.getByRole('button').first()).toBeFocused();
+  await capture(page, '07-floating-menu-mobile-390.png');
   await page.keyboard.press('Escape');
   await expect(menuDialog).toBeHidden();
   await expect(menuTrigger).toBeFocused();
@@ -79,8 +79,8 @@ async function assertMobileNavigation(page: Page, activeLabel: string) {
   await assertTouchTarget(trigger);
 
   await trigger.click();
-  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  const navigation = drawer.getByRole('navigation', { name: '모바일 공통 메뉴' });
+  const drawer = page.getByRole('navigation', { name: '빠른 이동' });
+  const navigation = drawer;
   await expect(drawer).toBeVisible();
   await expect(navigation.locator('[aria-current="page"]')).toContainText(activeLabel);
   await expect(navigation.getByRole('button', { name: 'Pending' })).toBeVisible();
@@ -103,12 +103,12 @@ async function assertMobileNavigation(page: Page, activeLabel: string) {
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const drawer = page.getByRole('navigation', { name: '빠른 이동' });
   const selector = drawer.getByLabel('개발 사용자');
   await expect(drawer).toBeVisible();
   await expect(selector).toBeVisible();
   if (await selector.inputValue() === userKey) {
-    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+    await page.getByRole('button', { name: '메뉴 닫기', exact: true }).click();
   } else {
     await selector.selectOption(userKey);
   }

@@ -49,3 +49,10 @@
 .osan-mobile-admin-group { border-top: 1px solid #eee; margin-top: 4px; padding-top: 4px; }
 .osan-mobile-admin-group > span { display: block; padding: 4px 11px; font-size: 10px; color: #777; }
 .osan-mobile-admin-group button { width: 100%; }
+
+/* Department children and optional existing development controls use the same menu surface. */
+.osan-mobile-tools nav .shared-mobile-child { width:100%; padding-left:24px; }
+.shared-mobile-disclosure { margin-left:auto; }
+.shared-mobile-footer { min-width:0; border-top:1px solid #eee; margin-top:4px; }
+.shared-mobile-footer .shell-switch-controls { min-width:0; width:100%; }
+.shared-mobile-footer select { max-width:100%; }

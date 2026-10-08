@@ -637,7 +637,7 @@ test('TASK-004A A/D/G: procurement direct input, material receipt, permissions, 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/projects');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const mobileMenu = page.getByRole('navigation', { name: '빠른 이동' });
   await mobileMenu.getByLabel('개발 사용자').selectOption('dev-procurement');
   await expect(mobileMenu).toBeHidden();
   const mobileProjectCard = page.locator('.project-list-card').filter({ hasText: projectTitle });
@@ -1427,12 +1427,12 @@ async function openProject(page: Page, projectTitle: string) {
 async function selectMobileDevelopmentUser(page: Page, userKey: string) {
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const drawer = page.getByRole('navigation', { name: '빠른 이동' });
   const selector = drawer.getByLabel('개발 사용자');
   await expect(drawer).toBeVisible();
   await expect(selector).toBeVisible();
   if (await selector.inputValue() === userKey) {
-    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+    await page.getByRole('button', { name: '메뉴 닫기', exact: true }).click();
   } else {
     await selector.selectOption(userKey);
   }

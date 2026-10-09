@@ -22,6 +22,8 @@ public static partial class AuditMutationRegistry
     // This closed set is populated from the runtime endpoint catalog and locked by a contract test.
     // Any new mutation endpoint must be deliberately classified before application startup succeeds.
     internal static readonly IReadOnlySet<string> KnownMutationRouteKeys = ParseRouteKeys("""
+        PUT /api/g2/materials/{date}
+        POST /api/g2/materials/import
         POST /api/interior-busbar/products/{id:guid}/inspection
         POST /api/interior-busbar/labels/printed
         POST /api/interior-busbar/labels/attached
@@ -286,7 +288,10 @@ public static partial class AuditMutationRegistry
         PUT /api/sales/targets
         """);
 
+    // G2 material snapshots intentionally have no mutation history; import only prepares a draft.
     private static readonly IReadOnlySet<string> ExcludedMutationRouteKeys = ParseRouteKeys("""
+        PUT /api/g2/materials/{date}
+        POST /api/g2/materials/import
         POST /api/interior-busbar/projects/import/preview
         POST /api/interior-busbar/purchases/import/preview
         POST /api/admin/calendar/holidays/preview

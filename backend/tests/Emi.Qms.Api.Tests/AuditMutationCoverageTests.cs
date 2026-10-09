@@ -65,6 +65,22 @@ public sealed class AuditMutationCoverageTests
         Assert.False(definition.Included);
     }
 
+    [Theory]
+    [InlineData("PUT", "/api/g2/materials/{date}")]
+    [InlineData("POST", "/api/g2/materials/import")]
+    public void G2MaterialMutations_StartAndAreDeliberatelyExcluded(string method, string route)
+    {
+        using var factory = new QmsWebApplicationFactory();
+        var endpoints = factory.Services.GetRequiredService<EndpointDataSource>();
+        AuditMutationRegistry.ValidateCoverage([endpoints]);
+        var endpoint = endpoints.Endpoints.OfType<RouteEndpoint>().Single(x => x.RoutePattern.RawText == route);
+        var context = new DefaultHttpContext();
+        context.Request.Method = method;
+        context.SetEndpoint(endpoint);
+        Assert.True(AuditMutationRegistry.TryResolve(context, out var definition));
+        Assert.False(definition.Included);
+    }
+
     [Fact]
     public void OsanProjectCreate_IsKnownAndIncludedInProjectAudit()
     {

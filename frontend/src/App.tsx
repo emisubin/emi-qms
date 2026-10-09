@@ -44,6 +44,7 @@ import { QualityInspectionsPage } from './QualityInspectionsPage';
 import { SalesSettlementPage } from './SalesSettlementPage';
 import { SalesKpiPage } from './SalesKpiPage';
 import { SalesBillingRequestPage } from './SalesBillingRequestPage';
+import { G2MaterialsPage } from './G2MaterialsPage';
 import { G2HomePage } from './G2HomePage';
 import { G2AttendancePage, G2OperationsPage } from './G2ManagementPages';
 import { FormTemplateManagementPage } from './FormTemplateManagementPage';
@@ -381,6 +382,7 @@ type View =
   | { kind: 'g2-home' }
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
+  | { kind: 'g2-materials' }
   | { kind: 'form-templates' }
   | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
@@ -446,6 +448,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
     case 'sales-billing': return 'Sales';
     case 'g2-home':
     case 'g2-operations':
+    case 'g2-materials':
     case 'g2-attendance': return 'G2';
     case 'form-templates': return 'FormTemplates';
     case 'production-planning-edit':
@@ -795,6 +798,7 @@ function initialViewFromLocation(): View {
     return { kind: 'sales-billing' };
   }
 
+  if (window.location.pathname === '/g2/materials') return { kind: 'g2-materials' };
   if (window.location.pathname === '/g2') return { kind: 'g2-home' };
   if (window.location.pathname === '/g2/operations') return { kind: 'g2-operations' };
   if (window.location.pathname === '/g2/attendance') return { kind: 'g2-attendance' };
@@ -1417,6 +1421,8 @@ function pathForView(view: View) {
       return '/g2';
     case 'g2-operations':
       return '/g2/operations';
+    case 'g2-materials':
+      return '/g2/materials';
     case 'g2-attendance':
       return '/g2/attendance';
     case 'form-templates':
@@ -2603,7 +2609,8 @@ function QmsAppShellContent({
   const g2Children: NavigationChild[] = [
     { key: 'g2-home', label: '홈', view: { kind: 'g2-home' }, active: view.kind === 'g2-home' },
     { key: 'g2-operations', label: '생산/출하 관리', view: { kind: 'g2-operations' }, active: view.kind === 'g2-operations' },
-    { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' }
+    { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' },
+    { key: 'g2-materials', label: '자재', view: { kind: 'g2-materials' }, active: view.kind === 'g2-materials' }
   ];
   const departmentNavigationItems: NavigationItem[] = [
     { label: '인테리어 부스바', view: { kind: 'interior-busbar', section: 'overview' }, active: view.kind === 'interior-busbar', children: busbarSections.filter(item => item.key !== 'masters' || canSeeBusbarMasters).map((item) => ({ key: `busbar-${item.key}`, label: item.label, view: { kind: 'interior-busbar', section: item.key }, active: view.kind === 'interior-busbar' && (view.section ?? 'overview') === item.key })) },
@@ -2983,6 +2990,8 @@ function QmsAppShellContent({
           onOpenProject={(projectId) => setView({ kind: 'sales-settlement', projectId })}
         />
       ) : null}
+
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-materials' ? (<G2MaterialsPage developmentUserKey={developmentUserKey} mutationEnabled={mutationEnabled} />) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-home' ? (
         <G2HomePage developmentUserKey={developmentUserKey} canManageInventory={canManageG2Inventory} canManageTargets={canManageG2Targets} mutationEnabled={mutationEnabled} />

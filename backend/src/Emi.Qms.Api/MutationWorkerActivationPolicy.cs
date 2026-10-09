@@ -8,23 +8,26 @@ public static class MutationWorkerActivationPolicy
     {
         if (reviewSafeEnabled)
         {
-            return new MutationWorkerActivation(false, false, false);
+            return new MutationWorkerActivation(false, false, false, false);
         }
 
         return new MutationWorkerActivation(
             configuration.GetValue<bool>("Notifications:Dispatch:Enabled"),
             configuration.GetValue<bool>("Notifications:Escalation:Enabled"),
-            AdminDeletionPurgePolicy.ResolveEnabled(configuration));
+            AdminDeletionPurgePolicy.ResolveEnabled(configuration),
+            configuration.GetValue<bool?>("G2Materials:Retention:Enabled") ?? true);
     }
 }
 
 public sealed record MutationWorkerActivation(
     bool NotificationDeliveryWorkerEnabled,
     bool NotificationEscalationWorkerEnabled,
-    bool AdminDeletionPurgeWorkerEnabled)
+    bool AdminDeletionPurgeWorkerEnabled,
+    bool G2MaterialRetentionWorkerEnabled)
 {
     public bool MutationWorkersEnabled =>
         NotificationDeliveryWorkerEnabled
         || NotificationEscalationWorkerEnabled
-        || AdminDeletionPurgeWorkerEnabled;
+        || AdminDeletionPurgeWorkerEnabled
+        || G2MaterialRetentionWorkerEnabled;
 }

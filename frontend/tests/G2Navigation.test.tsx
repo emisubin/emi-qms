@@ -21,7 +21,7 @@ describe('G2 navigation', () => {
   });
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it('opens the G2 home deep link and exposes only the three approved children', async () => {
+  it('opens the G2 home deep link and exposes the approved children including materials', async () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'G2 홈' })).toBeInTheDocument();
@@ -32,6 +32,7 @@ describe('G2 navigation', () => {
     expect(within(navigation).getAllByRole('button', { name: '홈' })).toHaveLength(2);
     expect(within(navigation).getByRole('button', { name: '생산/출하 관리' })).toBeInTheDocument();
     expect(within(navigation).getByRole('button', { name: '제조 인원 출근 관리' })).toBeInTheDocument();
+    expect(within(navigation).getAllByRole('button', { name: '자재' })).toHaveLength(2);
     expect(within(navigation).queryByText('손익관리')).toBeNull();
     fireEvent.click(within(navigation).getByRole('button', { name: '생산/출하 관리' }));
     await waitFor(() => expect(window.location.pathname).toBe('/g2/operations'));

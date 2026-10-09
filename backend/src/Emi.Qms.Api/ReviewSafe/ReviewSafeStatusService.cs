@@ -58,7 +58,8 @@ public sealed class ReviewSafeStatusService(
                 mutationWorkerActivation.NotificationDeliveryWorkerEnabled,
                 mutationWorkerActivation.NotificationEscalationWorkerEnabled,
                 mutationWorkerActivation.AdminDeletionPurgeWorkerEnabled,
-                mutationWorkerActivation.MutationWorkersEnabled);
+                mutationWorkerActivation.MutationWorkersEnabled,
+                mutationWorkerActivation.G2MaterialRetentionWorkerEnabled);
         }
 
         if (!catalogState.Valid)
@@ -337,4 +338,5 @@ public sealed record ReviewSafeRuntimeStatus(
     bool NotificationDeliveryWorkerEnabled,
     bool NotificationEscalationWorkerEnabled,
     bool AdminDeletionPurgeWorkerEnabled,
-    bool MutationWorkersEnabled);
+    bool MutationWorkersEnabled,
+    bool G2MaterialRetentionWorkerEnabled = false);

@@ -1,3 +1,4 @@
+import { canLeaveMaterialDraft } from './materialNavigationGuard';
 import { getOsanPersonalHome } from './osanPersonalHome';
 import { OsanNotificationsPage } from './OsanNotificationsPage';
 import { OsanSortHeader, sortOsanRows, type OsanSort } from './OsanSortHeader';
@@ -1640,6 +1641,7 @@ function EntraAuthenticatedApp({
   }, [instance, clearTestUserSwitch]);
 
   const logout = async () => {
+    if (!canLeaveMaterialDraft()) return;
     markExplicitLogout();
     const account = instance.getActiveAccount();
     clearTestUserSwitch();
@@ -2077,6 +2079,7 @@ function QmsAppShellContent({
   const notificationOrigin = useRef(window.history.state?.osanNotificationOrigin === true);
   const listNavigation = useRef(createOsanListNavigation(initialViewFromLocation()));
   const setView = useCallback((nextView: View) => {
+    if (!canLeaveMaterialDraft()) return;
     if (nextView.kind !== "detail" && !(nextView.kind === "osan-progress" && nextView.projectId)) notificationOrigin.current = false;
     listNavigation.current(nextView);
     setViewState(nextView);
@@ -2094,6 +2097,7 @@ function QmsAppShellContent({
   // the legacy department-root URL. Declared beside setView, before any
   // conditional return, to keep the hook order stable.
   const replaceView = useCallback((nextView: View) => {
+    if (!canLeaveMaterialDraft()) return;
     listNavigation.current(nextView);
     setViewState(nextView);
     if (typeof window === 'undefined') {
@@ -2236,6 +2240,10 @@ function QmsAppShellContent({
 
   useEffect(() => {
     const handlePopState = () => {
+      if (!canLeaveMaterialDraft()) {
+        window.history.pushState(null, '', pathForView({kind:'g2-materials'}));
+        return;
+      }
       notificationOrigin.current = window.history.state?.osanNotificationOrigin === true;
       const nextView = initialViewFromLocation();
       listNavigation.current(nextView);
@@ -2364,6 +2372,7 @@ function QmsAppShellContent({
   }, [view, currentUser, isAccessBlocked, isOsan, businessUnitAccess.allowedBusinessUnits, businessUnitRequestState.inFlightMutationCount, replaceView]);
 
   const switchBusinessUnitContext = useCallback((businessUnit: BusinessUnitCode) => {
+    if (!canLeaveMaterialDraft()) return;
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', '/');
     }
@@ -2461,12 +2470,14 @@ function QmsAppShellContent({
   const mutationEnabled = runtimeMode.kind === 'ready' && runtimeMode.data.mutationAllowed && !maintenance.state?.writeBlocked;
   const membershipMutationDisabledReason = businessUnitMembershipMutationDisabledReason(runtimeMode);
   const switchDevelopmentUser = (nextUserKey: string) => {
+    if (!canLeaveMaterialDraft()) return;
     window.localStorage.setItem(developmentUserStorageKey, nextUserKey);
     setDevelopmentUserKey(nextUserKey);
     setView(view.kind === 'home' ? { kind: 'home' } : { kind: 'list' });
     resetBusinessUnitRequestContext(true);
   };
   const switchAdminTestUser = (nextUserKey: string) => {
+    if (!canLeaveMaterialDraft()) return;
     if (nextUserKey) {
       window.localStorage.setItem(adminTestUserStorageKey, nextUserKey);
     } else {
@@ -2477,6 +2488,7 @@ function QmsAppShellContent({
     resetBusinessUnitRequestContext(true);
   };
   const resetAdminTestUser = () => {
+    if (!canLeaveMaterialDraft()) return;
     window.localStorage.removeItem(adminTestUserStorageKey);
     setAdminTestUserKeyState('');
     setView({ kind: 'home' });

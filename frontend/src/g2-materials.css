@@ -4,3 +4,13 @@
 @media(max-width:1000px){#g2-materials-scope .g2m-toolbar{flex-wrap:wrap !important}#g2-materials-scope .g2m-actions{flex-wrap:wrap !important}#g2-materials-scope .g2m-table-wrap{overflow-x:auto !important}#g2-materials-scope .g2m-table{min-width:1000px !important}#g2-materials-scope{padding:20px 12px !important}}@media(max-width:600px){#g2-materials-scope .g2m-item-layout{grid-template-columns:1fr !important}#g2-materials-scope .g2m-actions{width:100% !important;justify-content:flex-end !important}}
 
 #g2-materials-scope .g2m-toolbar button.primary{background:#d9232d!important;border-color:#d9232d!important;color:#fff!important}
+
+/* Import uses the same item columns and continuous, same-color Part boundaries. */
+#g2-materials-scope .g2m-dialog.g2m-dialog-wide{width:1440px!important;max-width:calc(100vw - 40px)!important}
+#g2-materials-scope .g2m-dialog-wide .g2m-preview{max-height:min(60vh,calc(100dvh - 300px))!important}
+#g2-materials-scope .g2m-dialog .g2m-import-table{table-layout:fixed!important}
+#g2-materials-scope .g2m-import-table th,#g2-materials-scope .g2m-import-table td{padding:6px 4px!important;white-space:normal!important;overflow-wrap:anywhere!important;vertical-align:middle!important}
+#g2-materials-scope .g2m-import-table .g2m-part-start{border-left:2px solid #d5dae1!important}
+#g2-materials-scope .g2m-import-table .g2m-import-spec{text-align:left!important}
+
+#g2-materials-scope .g2m-import-table col{width:var(--import-col-width)!important}

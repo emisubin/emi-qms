@@ -73,3 +73,13 @@
 - 합성 시각 증빙은 저장소 밖 conversation visualizations의 `g2-material-implemented-pc.png`에 보관(사용자 결과 확인 목적, 실제 재고/개인정보 없음). 임시8780 검증 서버 종료 및 이번 검증용 local-material-review 파일 정리. 기존 local-g2/local-shell WIP와8774시안은 보존.
 - 다음 검수: 승인된 검수 환경에 migration/catalog/images 적용 후 자재 계정으로 신규날짜 직접입력 저장→Excel덮어쓰기 저장→직접수정 재저장, 비자재조회만, 날짜변경/재조회,180 미만 조건색 확인. 합성자동검증과 실제사용자검수는 별개.
 - 이번 작업 범위의 local commit만 수행. push/PR/merge/배포 없음.
+
+## 2026-10-09 두 메뉴 통합 로컬 검수 서버 시작
+
+- 사용자 요청: “지금 로컬에 구현된 2개의 메뉴 같이 들어있는거지? 서버 열어서 보여줘”. 현재 e462ce1 source로 실제 backend/DB 연결 검수 서버 시작 승인.
+- 실행: 기존 `scripts/e2e-business-unit-access-full-stack.sh --review-server`, E2E_RUN_ID=g2review20261009. frontend http://127.0.0.1:5178, backend127.0.0.1:5086. 실행 session35733. 작업 소유 container `emi-qms-e2e-g2review20261009-e2e-postgres-1`, tmpfs. 기존 container/서버 변경 없음.
+- 검수 DB 생성: `emi_qms_e2e_g2review20261009_directory`(계정/사업부), `emi_qms_e2e_g2review20261009_cheongju`(두 G2 메뉴), `emi_qms_e2e_g2review20261009_osan`(사업부 격리용). 서버 이용 중이므로 유지. 이 서버의 정상 종료 cleanup이 소유 DB/container를 정리하므로 실제 업무 데이터 입력용이 아니다.
+- 정상 schema bootstrap/migration 완료. 청주 검수 DB에 private catalog.sql 최초 적용(92품목, 실사수량0행), G2Materials:ImageRoot private images 경로. 합성 dev-admin 계정을 활성 자재부서로 연결하고 표시명 G2 로컬 검수로 설정. 운영/실사용자 권한 변경 없음.
+- 외부 provider와 삭제 worker 비활성. G2Materials__Retention__Enabled=false. 공개 PMS·운영 DB 미변경, 새 영구DB/불필요 기존DB 없음.
+- 확인: /health/ready200, 생산 days31, 자재items92/canEdittrue. in-app browser에서 dev-admin선택 후 생산/출하 화면 확인→G2 공통 메뉴 펼침→자재 이동, 자재입력460칸/엑셀가져오기 활성 확인. 실제저장 API 연결이며 이전 mockpreview가 아니다. 이번 시작확인에서 실사 수량은 입력하지 않음.
+- 사용자에게 production/materials 직접 링크 제공. 검수 서버는 열어둔다. 이 기록은 서버 시작 상태이며 사용자 검수 수락/운영 배포 완료를 뜻하지 않는다.

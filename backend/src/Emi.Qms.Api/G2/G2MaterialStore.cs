@@ -39,6 +39,21 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
         if (result.Count != 92 || result.Any(x=>x.SetQuantity<=0)) throw new ArgumentException("고정 92개 품목 설정이 필요합니다.");
         return result;
     }
+    public async Task<G2MaterialResponse?> ReadLatestAsync(Guid actor, CancellationToken ct)
+    {
+        var today = G2MaterialRules.Today(time);
+        DateOnly? date;
+        await using (var source = Source())
+        await using (var connection = await source.OpenConnectionAsync(ct))
+        await using (var command = new NpgsqlCommand("select max(count_date) from g2_material_counts where count_date between @cutoff and @today", connection))
+        {
+            command.Parameters.AddWithValue("cutoff", G2MaterialRules.Cutoff(today));
+            command.Parameters.AddWithValue("today", today);
+            var value = await command.ExecuteScalarAsync(ct);
+            date = value is DateOnly savedDate ? savedDate : null;
+        }
+        return date is { } latest ? await ReadAsync(latest, actor, ct) : null;
+    }
     public async Task<G2MaterialResponse> ReadAsync(DateOnly date, Guid actor, CancellationToken ct)
     {
         G2MaterialRules.ValidateDate(date,G2MaterialRules.Today(time)); var catalog=await CatalogAsync(ct); var editable=await CanEditAsync(actor,ct);

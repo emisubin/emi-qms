@@ -15,6 +15,7 @@ describe('G2 navigation', () => {
       if (path === '/access/api/runtime-mode') return json({ mode: 'Development', reviewSafe: false, mutationAllowed: true, backgroundWorkersEnabled: true, externalProvidersEnabled: true, databaseReadOnly: false, migrationExecutionEnabled: true, environment: 'Development', ready: true, reason: 'not_applicable', expectedMigration: null, actualMigration: null, migrationLedgerStatus: 'Exact', expectedMigrationCount: 0, actualMigrationCount: 0, missingMigrations: [], unexpectedMigrations: [], approvedLegacyMigrations: [], migrationSchemaCompatible: true, migrationLedgerReady: true });
       if (path === '/access/api/me') return json({ ...principal, permissions: ['projects.read', 'G2.Read', 'G2.Production.Update', 'G2.Delivery.Update', 'G2.Attendance.Update', 'G2.Inventory.Manage', 'G2.Target.Manage'], projectAccess: [], isTestUserSwitch: false, testUserKey: null, canUseAdminTestUserSwitch: false, actualUser: principal, effectiveUser: principal });
       if (path === '/cheongju/api/system/holidays') return json([]);
+      if (path === '/cheongju/api/g2/materials/latest') return json(null);
       if (path === '/cheongju/api/g2/materials') return json({date:'2026-08-17',canEdit:false,items:[]});
       if (path === '/cheongju/api/g2/home') return json({ today: '2026-08-18', year: 2026, month: 8, hasInventoryBaseline: false, days: [] });
       if (path === '/cheongju/api/g2/days') return json({ today: '2026-08-18', from: '2026-08-01', to: '2026-08-31', days: [] });

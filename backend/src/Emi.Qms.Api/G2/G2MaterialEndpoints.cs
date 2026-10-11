@@ -7,6 +7,11 @@ public static class G2MaterialEndpoints
     {
         var group=app.MapGroup("/api/g2/materials").RequireAuthorization(QmsPolicies.G2Read);
         group.MapGet("",async(DateOnly date,G2MaterialStore store,ClaimsPrincipal user,CancellationToken ct)=>await Safe(async()=>Results.Ok(await store.ReadAsync(date,Actor(user),ct))));
+        group.MapGet("/latest",async(G2MaterialStore store,ClaimsPrincipal user,CancellationToken ct)=>await Safe(async()=>
+        {
+            var latest=await store.ReadLatestAsync(Actor(user),ct);
+            return latest is null?Results.Text("null","application/json"):Results.Ok(latest);
+        }));
         group.MapPut("/{date}",async(DateOnly date,SaveG2MaterialsRequest request,G2MaterialStore store,ClaimsPrincipal user,CancellationToken ct)=>await Safe(async()=>{await store.SaveAsync(date,request,Actor(user),ct);return Results.Ok(new{saved=true});}));
         group.MapPost("/import",async(HttpRequest request,G2MaterialStore store,ClaimsPrincipal user,TimeProvider time,CancellationToken ct)=>await Safe(async()=>
         {

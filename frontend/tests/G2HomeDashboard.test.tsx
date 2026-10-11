@@ -15,10 +15,20 @@ function mocks(days:G2Day[]=[actual]) {
  vi.spyOn(api,'getG2Home').mockResolvedValue({today:'2026-10-11',year:2026,month:10,hasInventoryBaseline:true,days});
  vi.spyOn(api,'getG2Days').mockResolvedValue({today:'2026-10-11',from:'2026-09-10',to:'2026-11-10',days});
  vi.spyOn(api,'listSystemHolidays').mockResolvedValue([]);
- vi.spyOn(materialsApi,'getMaterialDay').mockResolvedValue({date:'2026-10-10',canEdit:true,items:[item(1)]});
+ vi.spyOn(materialsApi,'getLatestMaterialDay').mockResolvedValue({date:'2026-10-10',canEdit:true,items:[item(1)]});
 }
 afterEach(()=>vi.restoreAllMocks());
 describe('approved G2 home',()=>{
+ it('uses the latest material count independently of the production workday',async()=>{
+  mocks();vi.mocked(materialsApi.getLatestMaterialDay).mockResolvedValue({date:'2026-10-07',canEdit:false,items:[item(7)]});
+  render(<G2HomePage {...props}/>);const table=await screen.findByRole('table',{name:'안전재고 미달 자재'});
+  expect(within(table).getByText('자재 7')).toBeInTheDocument();expect(screen.getByText(/실사일 10.07/)).toBeInTheDocument();expect(screen.getByText('2026.10.10')).toBeInTheDocument();
+ });
+ it('shows no saved count instead of inventing safe stock',async()=>{
+  mocks();vi.mocked(materialsApi.getLatestMaterialDay).mockResolvedValue(null);render(<G2HomePage {...props}/>);
+  await screen.findByText('저장된 자재 실사 데이터가 없습니다.');expect(screen.queryByText('안전재고 미달 자재가 없습니다.')).toBeNull();
+ });
+
  it('keeps a missing Saturday as the recent workday instead of silently using older data',()=>{
   expect(recentWorkday('2026-10-12',[day('2026-10-09',{productionTotal:80})],new Set())).toBe('2026-10-10');
   expect(recentWorkday('2026-10-10',[],new Set(['2026-10-09']))).toBe('2026-10-08');
@@ -50,13 +60,13 @@ describe('approved G2 home',()=>{
   expect(screen.queryByText('목표 관리')).not.toBeInTheDocument();expect(container.querySelectorAll('input')).toHaveLength(0);
  });
  it('renders missing values without claiming zero or safe material stock on failure',async()=>{
-  mocks([day('2026-10-10')]);vi.mocked(materialsApi.getMaterialDay).mockRejectedValue(new Error('offline'));
+  mocks([day('2026-10-10')]);vi.mocked(materialsApi.getLatestMaterialDay).mockRejectedValue(new Error('offline'));
   render(<G2HomePage {...props}/>);await screen.findByRole('heading',{name:'EMI 생산'});
   expect(screen.getByRole('alert')).toHaveTextContent('자재 실사 데이터를 불러오지 못했습니다.');
   expect(screen.getAllByText('미입력').length).toBeGreaterThan(0);expect(screen.queryByText('안전재고 미달 자재가 없습니다.')).not.toBeInTheDocument();
  });
  it('does not present an empty catalog as safe inventory',async()=>{
-  mocks();vi.mocked(materialsApi.getMaterialDay).mockResolvedValue({date:'2026-10-10',canEdit:false,items:[]});
+  mocks();vi.mocked(materialsApi.getLatestMaterialDay).mockResolvedValue({date:'2026-10-10',canEdit:false,items:[]});
   render(<G2HomePage {...props}/>);await screen.findByText('등록된 자재 품목이 없습니다. 관리자에게 문의해 주세요.');
   expect(screen.queryByText('안전재고 미달 자재가 없습니다.')).not.toBeInTheDocument();
  });

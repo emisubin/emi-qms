@@ -356,3 +356,15 @@
 - 독립 material_admin_review: 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. b5de757 기준 WIP 코드·계약 검토GO, P0–P2없음. 테스트 결과는 부모가 최종 확인.
 - DB: 신규 영구DB 없음, migration 없음. 전용 emi-qms-e2e-g2admin20261012 컨테이너의 emi_qms_e2e_g2admin20261012 및 emi_qms_e2e_50ed61765d/emi_qms_e2e_d1ecebed37 접두사의 directory·cheongju·osan fixture6DB 사용. fixture자동삭제 확인 후 소유container/tmpfs 삭제로 전부정리. 기존 검수DB/runtime 유지, 미사용 전환DB 없음.
 - 상태: 규칙 추가/로컬 구현/검증/독립 검토 완료. 이번 권한 보정의 원격push·병합·공개배포는 미실행.
+
+
+## 2026-10-12 최신 실사일 조회와 날짜 즉시 전환
+
+- 사용자 요청: 홈 미달 자재는 최신 실사일, 자재 첫 진입도 최신 실사일로 조회, 날짜 선택 즉시 조회. 기준70c0aef. 최신은 유효 보관기간 내 count_date의 최댓값이며 과거 실사 수정시각과 무관. 저장 이력이 없으면 홈은 데이터없음, 자재는 오늘 빈표. 전체 빈칸으로 저장한 실사도 최신 저장일로 유지.
+- 서버 G2Read/청주DB 범위의 latest 조회를 두 화면에서 재사용. 자재 PC조회버튼 제거, 기존 날짜선택 UI 재사용. 미저장 PC 확인/모바일 자동저장잠금 및 늦은응답차단 유지. 생산·납품의 최근 작업일 산정은 유지, 자재만 독립된 실사일 표시. 새 디자인/migration/운영데이터 변경 없음.
+
+- 구현·검증 완료: backend G2Material50/50(실패·skip0), frontend G2MaterialsPage/G2HomeDashboard/G2Navigation37/37, TypeScript/변경파일ESLint/diff-check 통과. 최초 최신일과 저장대상 일치, 미저장 취소, 최초 응답보다 늦게 도착한 요청 무시, 생산일과 다른 자재실사일을 검증.
+- 시각 검증: 실제 컴포넌트를 임시 합성 프런트5193에서 PC1440×960/모바일390×844로 렌더링. 실사일10/7 최초선택, PC10/8선택 즉시조회/조회버튼0, 홈 생산10/10과 자재10/7 분리 확인. /tmp/g2-latest-{pc,mobile,home}.png 직접열람. 운영로그인/실데이터 쓰기는 하지 않았으며 전체 공통셸이 아닌 해당 컴포넌트 합성 검증임. 기존 디자인 변경 없음. 임시검증 진입파일 제거/서버 종료.
+- 독립 material_admin_review: 기존 reviewer 맥락을 재사용하되70c0aef부터 실제9개 변경경로와 계약을 새로검토, GO/P0–P2없음. 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. 최종 테스트결과는 부모확인.
+- DB: 신규 영구DB/migration/미사용전환DB 없음. 새검증용 emi-qms-e2e-g2latest20261012 컨테이너/emi_qms_e2e_g2latest20261012 기본DB와 emi_qms_e2e_{0b31a143c2,ce5b1b482c,d7624a89cf}_{directory,cheongju,osan}9개fixture 사용. fixture자동삭제 및 소유container/tmpfs제거로 모두정리. 기존검수DB/runtime보존.
+- 로컬 구현/검증/검토 완료. 관리자 보정과 이번 최신일 변경은 아직 공개배포하지 않았음.

@@ -43,13 +43,23 @@ public sealed class G2MaterialTests
     {
         using var stream=Workbook(s=>s.Cell(3,22).Value="IQC");Assert.Throws<ArgumentException>(()=>G2MaterialExcel.Parse(stream,null,new(2026,10,7),Catalog()));
     }
-    [Theory][InlineData("Q")][InlineData("R")][InlineData("S")][InlineData("W")][InlineData("X")][InlineData("Y")][InlineData("Z")][InlineData("AA")]
-    public void LiteralCalculatedCellIsPreservedAndWarned(string column)
+    [Theory][InlineData("Q",3)][InlineData("R",1)][InlineData("S",1.5)][InlineData("W",4)][InlineData("X",4)][InlineData("Y",11)][InlineData("Z",5)][InlineData("AA",5)]
+    public void MatchingLiteralIsAcceptedSilentlyAndMismatchBlocks(string column, decimal expected)
     {
-        using var stream=Workbook(s=>{s.Cell(column+"11").Clear(XLClearOptions.Contents);s.Cell(column+"11").Value=123.5m;});
+        using var stream=Workbook(s=>{s.Cell("N11").Value=3;s.Cell(column+"11").Clear(XLClearOptions.Contents);s.Cell(column+"11").Value=expected;});
         var result=G2MaterialExcel.Parse(stream,null,new(2026,10,7),Catalog());
-        Assert.Equal(123.5m,result.Items.Single(x=>x.Id==8).CalculationOverrides![column]);
-        Assert.Single(result.Warnings!);Assert.Contains(column+"11",result.Warnings![0]);
+        Assert.Null(result.Items.Single(x=>x.Id==8).CalculationOverrides);Assert.Null(result.Warnings);
+        using var mismatch=Workbook(s=>{s.Cell("N11").Value=3;s.Cell(column+"11").Clear(XLClearOptions.Contents);s.Cell(column+"11").Value=expected+1;});
+        var error=Assert.Throws<ArgumentException>(()=>G2MaterialExcel.Parse(mismatch,null,new(2026,10,7),Catalog()));
+        Assert.Contains(column+"11",error.Message);Assert.Contains("합계가 맞지 않습니다",error.Message);Assert.Contains("정상 계산값",error.Message);
+    }
+    [Theory][InlineData("0.333333333333333",true)][InlineData("0.333333333333334",false)]
+    public void FractionalLiteralUsesExcelPrecision(string literal,bool accepted)
+    {
+        var catalog=Catalog().Select(x=>x with {SetQuantity=3}).ToArray();
+        using var stream=Workbook(s=>{for(var r=4;r<=95;r++)s.Cell(r,8).Value=3;s.Cell("N11").Value=1;s.Cell("S11").Clear(XLClearOptions.Contents);s.Cell("S11").Value=decimal.Parse(literal,System.Globalization.CultureInfo.InvariantCulture);});
+        if(accepted)Assert.Null(G2MaterialExcel.Parse(stream,null,new(2026,10,7),catalog).Warnings);
+        else Assert.Contains("합계가 맞지 않습니다",Assert.Throws<ArgumentException>(()=>G2MaterialExcel.Parse(stream,null,new(2026,10,7),catalog)).Message);
     }
     [Fact]public void MissingCalculationIsStillRejected()
     {

@@ -29,20 +29,16 @@ describe('material inventory workflows',()=>{
   expect(payload[0]).toMatchObject({id:1,working:3,erp:7});
   expect(payload[1].working).toBe(0);expect(payload[2].working).toBeNull();
  });
- it('preserves literal calculations through import and save, then restores dependent formulas on edit',async()=>{
-  const items=fixture().items.map(r=>({id:r.id,...empty,calculationOverrides:r.id===1?{Q:132}:null}));
-  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null}],selectedSheet:'Sheet1',selectedDate:null,items,warnings:['Q4: 직접 입력된 숫자를 가져옵니다.']});
-  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
-  expect(await screen.findByText('Q4: 직접 입력된 숫자를 가져옵니다.')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));fireEvent.click(screen.getByRole('button',{name:'저장'}));
-  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledTimes(1));expect(vi.mocked(saveMaterialDay).mock.calls[0][2][0].calculationOverrides).toEqual({Q:132});
-  await waitFor(()=>expect(screen.getByLabelText('1번 제작중')).toBeEnabled());fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});fireEvent.click(screen.getByRole('button',{name:'저장'}));
-  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledTimes(2));expect(vi.mocked(saveMaterialDay).mock.calls[1][2][0].calculationOverrides).toBeNull();
+ it('always derives totals from source quantities',()=>{
+  const values={...empty,working:2,rack:3,materials:4};
+  expect(calculateMaterial(values,2)).toMatchObject({Q:5,Y:9,R:2,Z:4,AA:4});
+  expect(calculateMaterial(editMaterialQuantity(values,'rack',1),2)).toMatchObject({Q:3,Y:7,AA:3});
  });
- it('uses literal totals without reassigning them to a source quantity',()=>{
-  const values={...empty,materials:4,calculationOverrides:{Q:132}};expect(calculateMaterial(values,2)).toMatchObject({Q:132,Y:136,R:66,Z:68,AA:68});expect(values.working).toBeNull();
-  expect(editMaterialQuantity(values,'materials',8).calculationOverrides).toEqual({Q:132});expect(editMaterialQuantity(values,'rack',3).calculationOverrides).toBeNull();
-  expect(calculateMaterial({...empty,calculationOverrides:{S:1.9,X:2.2}},2)).toMatchObject({R:1,W:2,AA:4,Z:4});
-  expect(calculateMaterial({...empty,calculationOverrides:{Q:0,Y:8,AA:3.2,Z:5}},2)).toMatchObject({Q:0,Y:8,AA:3.2,Z:5});
+ it('blocks mismatched totals without changing or saving the draft',async()=>{
+  vi.mocked(importMaterialFile).mockRejectedValue(new Error('Q11: 합계가 맞지 않습니다. 입력값 9, 정상 계산값 8. 저장할 수 없습니다.'));
+  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('합계가 맞지 않습니다');
+  expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();expect(saveMaterialDay).not.toHaveBeenCalled();
  });
  it('requires sheet selection, accepts no date and never saves during preview',async()=>{
   vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:null,selectedDate:null,items:[]});

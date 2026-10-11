@@ -11,8 +11,6 @@ public sealed class G2MaterialDatabaseTests
     [InlineData("q", "1")]
     [InlineData("P", "1")]
     [InlineData("Q", "-0.0001")]
-    [InlineData("Q", "1000000000000")]
-    [InlineData("S", "1.00001")]
     public void CalculationOverrideValidationRejectsInvalidKeysAndValues(string key,string raw)
     {
         var value=decimal.Parse(raw,System.Globalization.CultureInfo.InvariantCulture);
@@ -54,19 +52,14 @@ public sealed class G2MaterialDatabaseTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveAsync(date,Snapshot(9),admin,ct));
         await store.SaveAsync(date,Snapshot(3),actor,ct);await store.SaveAsync(date,Snapshot(5),actor,ct);
         var saved=await store.ReadAsync(date,actor,ct);Assert.All(saved.Items,x=>Assert.Equal(5,x.Values.Materials));Assert.All(saved.Items,x=>Assert.Null(x.Values.Working));Assert.All(saved.Items,x=>Assert.Equal(0,x.Values.Kitting));
-        var exactOverrides = new Dictionary<string, decimal> { ["Q"] = 0, ["R"] = 123.4567m, ["S"] = 3.125m, ["W"] = 4, ["X"] = 8.75m, ["Y"] = 6, ["Z"] = 7, ["AA"] = 999999999999.9999m };
         SaveG2MaterialsRequest WithOverrides(Dictionary<string,decimal>? overrides) => new(Snapshot(5).Items.Select(x=>x with {CalculationOverrides=overrides}).ToArray());
-        await store.SaveAsync(date,WithOverrides(exactOverrides),actor,ct);
-        saved=await store.ReadAsync(date,actor,ct);
-        Assert.All(saved.Items,x=>Assert.Equivalent(exactOverrides,x.Values.CalculationOverrides));
+        await store.SaveAsync(date,WithOverrides(new(){["Q"]=0,["Y"]=5}),actor,ct);
+        Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>Assert.Null(x.Values.CalculationOverrides));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveAsync(date,WithOverrides(new(){["Q"]=99}),admin,ct));
         await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveAsync(date,WithOverrides(new(){["UNKNOWN"]=1}),actor,ct));
-        Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>Assert.Equivalent(exactOverrides,x.Values.CalculationOverrides));
-        await store.SaveAsync(date,WithOverrides(new(){["R"]=17.0001m}),actor,ct);
-        Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>Assert.Equivalent(new Dictionary<string,decimal>{["R"]=17.0001m},x.Values.CalculationOverrides));
-        await Task.WhenAll(store.SaveAsync(date,WithOverrides(new(){["S"]=1.25m}),actor,ct),store.SaveAsync(date,WithOverrides(new(){["X"]=2.5m}),actor,ct));
-        saved=await store.ReadAsync(date,actor,ct);
-        Assert.Single(saved.Items.Select(x=>JsonSerializer.Serialize(x.Values.CalculationOverrides)).Distinct());
+        var mismatch=await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveAsync(date,WithOverrides(new(){["Q"]=99}),actor,ct));
+        Assert.Contains("합계가 맞지 않습니다",mismatch.Message);
+        Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>{Assert.Equal(5,x.Values.Materials);Assert.Null(x.Values.CalculationOverrides);});
         await store.SaveAsync(date,Snapshot(null),actor,ct);Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>{Assert.Null(x.Values.Materials);Assert.Null(x.Values.CalculationOverrides);});
         await Task.WhenAll(store.SaveAsync(date,Snapshot(7),actor,ct),store.SaveAsync(date,Snapshot(8),actor,ct));saved=await store.ReadAsync(date,actor,ct);Assert.Single(saved.Items.Select(x=>x.Values.Materials).Distinct());
         Assert.Equal(93L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_counts",ct));

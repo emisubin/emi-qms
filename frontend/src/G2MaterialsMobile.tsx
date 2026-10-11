@@ -27,7 +27,7 @@ const fields: { title: string; fields: [QuantityKey, string][] }[] = [
 ];
 function totals(values: MaterialValues, item: MaterialItem) {
   const calculated = calculateMaterial(values, item.setQuantity);
-  return quantityKeys.every(key => values[key] == null) && !Object.keys(values.calculationOverrides??{}).length ? { ...calculated, Q: null, Y: null, Z: null } : calculated;
+  return quantityKeys.every(key => values[key] == null) ? { ...calculated, Q: null, Y: null, Z: null } : calculated;
 }
 function Picture({ item, user }: { item: MaterialItem; user: string | undefined }) {
   const [image, setImage] = useState<{ id: number; user: string | undefined; url: string } | null>(null);
@@ -75,7 +75,7 @@ function Detail({ item, onClose, ...props }: G2MaterialsMobileProps & { item: Ma
     <dialog id="form" className="mi-dialog mi-form-dialog" ref={formDialog} aria-labelledby="form-title">
       <form id="editform" onSubmit={event => event.preventDefault()}>
         <header className="mi-header"><h2 id="form-title">실사 입력</h2><button type="button" aria-label="입력 닫기" onClick={() => setEditing(false)}>×</button></header>
-        <section className="mi-body"><div id="formname">{item.name}{Object.keys(values.calculationOverrides??{}).length>0&&<small>직접 입력된 합계 포함 · 관련 수량 수정 시 자동 계산</small>}</div><div id="fields">{fields.map(part => <fieldset className="part" key={part.title}><legend>{part.title}</legend>{part.fields.map(([key, label]) => <label className="mi-field" key={key}><span>{label}</span><input aria-label={label} name={key} type="number" inputMode="decimal" min="0" max="999999999999.9999" step="0.0001" value={values[key] ?? ''} disabled={!props.canEdit || props.loading} onChange={event => {
+        <section className="mi-body"><div id="formname">{item.name}</div><div id="fields">{fields.map(part => <fieldset className="part" key={part.title}><legend>{part.title}</legend>{part.fields.map(([key, label]) => <label className="mi-field" key={key}><span>{label}</span><input aria-label={label} name={key} type="number" inputMode="decimal" min="0" max="999999999999.9999" step="0.0001" value={values[key] ?? ''} disabled={!props.canEdit || props.loading} onChange={event => {
           const input = event.currentTarget;
           if (!input.validity.valid) { setValidation('0 이상의 수량을 소수점 넷째 자리까지 입력해 주세요'); return; }
           const value = input.value === '' ? null : input.valueAsNumber;

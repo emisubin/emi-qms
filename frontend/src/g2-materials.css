@@ -15,9 +15,6 @@
 
 #g2-materials-scope .g2m-import-table col{width:var(--import-col-width)!important}
 
-#g2-materials-scope .g2m-import-warnings{padding:8px!important;background:#fff8e1!important;border:1px solid #e4d7b0!important;max-height:130px!important;overflow:auto!important;font-size:12px!important}
-#g2-materials-scope .g2m-literal-note{display:block!important;font-size:11px!important;color:#725614!important;margin-top:4px!important}
-#g2-materials-scope .g2m-literal-notice{margin:6px 0!important;font-size:12px!important;color:#725614!important}
 
 #g2-materials-scope .g2m-dialog-wide[open]{display:flex!important;flex-direction:column!important}
 #g2-materials-scope .g2m-dialog-wide>header,#g2-materials-scope .g2m-dialog-wide>footer{flex-shrink:0!important}

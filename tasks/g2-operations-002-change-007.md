@@ -132,3 +132,15 @@
 - 새 검수 서버: frontend5180/backend5088, session9979, source는 이 worktree. 전용 g2import20261010 container/tmpfs 사용. 외부 provider 및 retention 비활성. 새 임시 DB emi_qms_e2e_g2import20261010_directory(계정/사업부), emi_qms_e2e_g2import20261010_cheongju(G2 검수), emi_qms_e2e_g2import20261010_osan(사업부 격리) 생성 후 검수용 유지. 기존5178/5086과 g2review20261009 DB3개는 변경/삭제하지 않았다.
 - 자동 DB 검증의 emi_qms_e2e_5db0fe17a5_directory/cheongju/osan은 fixture 종료로 정리, 소유 container/network/tmpfs도 정리 확인. 새 영구 DB 및 더 이상 사용하지 않는 DB 없음. 원본/실재고/비공개 catalog는 commit하지 않는다.
 - 범위 파일만 local commit. 원격 push/PR/merge/배포 및 운영 DB migration 적용 없음. 남은 작업: 사용자 검수, 모바일 새 안내 시각 확인, 명시 승인 후 대상 환경 반영.
+
+
+## 2026-10-11 계산값 일치 검증으로 정책 수정
+
+- 사용자 승인: 수식 대신 입력된 숫자는 정상 수식 결과와 같으면 안내 없이 허용, 다르면 합계 불일치 안내 후 저장 차단. 기존 직접 계산값 유지 정책을 대체한다.
+- import는 원천 실사 수량으로 8개 계산열의 정상값을 구해 직접 입력된 숫자를 비교한다. 엑셀 숫자 정밀도를 고려한 G15 비교를 사용하며 실사 원천 수량4자리 제한과 계산값 정밀도를 분리했다. 불일치는 시트/셀/품목/입력값/정상값을 안내하고 파일 전체 표 반영을 막는다. 서버 저장에서도 기존 호환 필드의 불일치를 write 전 거부한다. 일치한 계산값은 별도 보존하지 않고 원천 수량만 저장한다.
+- PC/모바일 직접 계산값 안내 및 관련 스타일 제거, 화면 계산은 원천 수량만 사용. calculation_overrides 컬럼과 nullable API 필드는 이전 버전 호환을 위해 보존하되 새 저장은 null이다. 기존 migration0134/데이터를 삭제하지 않았다. 별도 새 migration 없음.
+- backend parser/DB 테스트43개 통과(실제 임시DB, skip0), frontend17개 통과, typecheck/lint/build 성공. 반복 소수1/3 정상 허용과 근접 불일치 거부, 8열 정상/불일치, 저장 거부 후 기존 데이터 보존 포함. 원본 무수정92행/적합시트1개/안내 및 예외값 없음 확인; 원본Q11/Q12 모두 수식 결과와 일치. 독립 review GO, 미해결P1/P2 없음.
+- 기본 backend 실행은 기존 ImageSharp3.1.11 NU1902/NU1903 감사 경고의 오류 승격으로 중단됨. 검증 재실행에만 WarningsNotAsErrors=NU1902;NU1903을 전달해 경고를 표시한 채43개 통과. 저장소 보안/CI 설정 및 패키지 버전 미변경. 기존 Vite bundle 크기 경고 유지.
+- 실제5180 PC 기본 조회 및 가져오기 팝업 모양 직접 확인. 해당 runtime backend는 재기동하지 않아 이번 불일치 API의 브라우저 종단 확인 및 모바일 시각 확인은 미실행. 기존 검수 DB 보존을 위해 소유 서버 종료 cleanup을 실행하지 않음. 기존5178/5180 검수 서버의 backend 갱신은 남아 있음.
+- 새 영구DB/미사용DB 없음. 자동검증 전용 emi_qms_e2e_20261011012030_17995_18230 및 fixture별 사업부 임시DB는 테스트 cleanup으로 정리, 소유 container/network/tmpfs 제거 확인. 앞선 명령 인자 오류 실행의20261011012013_17336_6031 임시 환경도 cleanup 완료. 기존 검수DB는 유지. calculation_overrides는 신규 업무 저장 용도가 없어졌으나 호환용으로 남으며 임의drop하지 않음.
+- 범위 local commit만 수행. 원격 push/PR/merge/운영 배포 없음.

@@ -40,9 +40,10 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
     public async Task SaveAsync(DateOnly date, SaveG2MaterialsRequest request, Guid actor, CancellationToken ct)
     {
         G2MaterialRules.ValidateDate(date,G2MaterialRules.Today(time)); G2MaterialRules.Validate(request.Items);
-        await CatalogAsync(ct);
+        var catalog=await CatalogAsync(ct);
         await using var source=Source(); await using var connection=await source.OpenConnectionAsync(ct); await using var tx=await connection.BeginTransactionAsync(ct);
         if(!await CanEdit(connection,tx,actor,ct)) throw new UnauthorizedAccessException();
+        foreach(var item in request.Items) G2MaterialRules.ValidateCalculations(item,catalog.Single(x=>x.Id==item.Id));
         // Entire snapshots serialize so concurrent saves cannot interleave different rows.
         await using(var gate=new NpgsqlCommand("select pg_advisory_xact_lock(4733,@day)",connection,tx)) {gate.Parameters.AddWithValue("day",date.DayNumber); await gate.ExecuteNonQueryAsync(ct);}
         foreach(var item in request.Items.OrderBy(x=>x.Id))
@@ -50,7 +51,7 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
             await using var command=new NpgsqlCommand("insert into g2_material_counts(count_date,item_id,working,kitting,rack,materials,erp,transit,calculation_overrides,updated_by_user_id) values(@date,@id,@working,@kitting,@rack,@materials,@erp,@transit,@overrides,@actor) on conflict(count_date,item_id) do update set working=excluded.working,kitting=excluded.kitting,rack=excluded.rack,materials=excluded.materials,erp=excluded.erp,transit=excluded.transit,calculation_overrides=excluded.calculation_overrides,updated_by_user_id=excluded.updated_by_user_id,updated_at_utc=now()",connection,tx);
             command.Parameters.AddWithValue("date",date); command.Parameters.AddWithValue("id",item.Id);command.Parameters.AddWithValue("actor",actor);
             foreach(var (key,value) in new (string,decimal?)[]{("working",item.Working),("kitting",item.Kitting),("rack",item.Rack),("materials",item.Materials),("erp",item.Erp),("transit",item.Transit)}) command.Parameters.AddWithValue(key,NpgsqlDbType.Numeric,(object?)value??DBNull.Value);
-            command.Parameters.AddWithValue("overrides",NpgsqlDbType.Jsonb,item.CalculationOverrides is null?DBNull.Value:JsonSerializer.Serialize(item.CalculationOverrides,Json));
+            command.Parameters.AddWithValue("overrides",NpgsqlDbType.Jsonb,DBNull.Value);
             await command.ExecuteNonQueryAsync(ct);
         }
         await tx.CommitAsync(ct);

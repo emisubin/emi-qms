@@ -27,16 +27,16 @@ public static partial class G2MaterialExcel
             var ws=candidates.FirstOrDefault(x=>x.Name==selectedName) ?? throw new ArgumentException("선택한 시트를 찾을 수 없습니다. 파일을 다시 확인해 주세요.");
             var structureError=sheets.Single(x=>x.Name==selectedName).Error;
             if(structureError is not null)throw new ArgumentException(structureError);
-            var result=new List<G2MaterialValues>();var warnings=new List<string>();
+            var result=new List<G2MaterialValues>();
             foreach(var item in catalog)
             {
-                decimal? Number(int col)
+                decimal? Number(int col,bool calculated=false)
                 {
                     var cell=ws.Cell(item.SourceRow,col);
                     if(cell.HasFormula)throw Problem(ws,cell.Address.ToString()!,"실사 입력칸에는 수식을 사용할 수 없습니다.");
                     if(cell.IsEmpty() || string.IsNullOrWhiteSpace(cell.GetString()))return null;
                     if(cell.DataType!=XLDataType.Number || !cell.TryGetValue<decimal>(out var value))throw Problem(ws,cell.Address.ToString()!,"유효한 숫자 또는 빈칸이어야 합니다.");
-                    if(value<0 || value>999999999999.9999m || decimal.Round(value,4)!=value)throw Problem(ws,cell.Address.ToString()!,"0 이상, 소수점 4자리 이내의 수량이어야 합니다.");
+                    if(value<0 || (!calculated && (value>999999999999.9999m || decimal.Round(value,4)!=value)))throw Problem(ws,cell.Address.ToString()!,"0 이상, 소수점 4자리 이내의 수량이어야 합니다.");
                     return value;
                 }
                 var overrides=new Dictionary<string,decimal>();
@@ -45,14 +45,15 @@ public static partial class G2MaterialExcel
                     var cell=ws.Cell($"{column}{item.SourceRow}");
                     if(!cell.HasFormula)
                     {
-                        overrides[column]=Number(cell.Address.ColumnNumber)!.Value;
-                        warnings.Add($"시트 [{ws.Name}] {cell.Address}: 계산식 대신 직접 입력된 숫자를 가져옵니다. 관련 실사 수량을 수정하면 해당 합계·생산가능대수는 자동 계산으로 전환됩니다.");
+                        overrides[column]=Number(cell.Address.ColumnNumber,true)!.Value;
                     }
                 }
-                result.Add(new(item.Id,Number(14),Number(15),Number(16),Number(20),Number(21),Number(22),overrides.Count==0?null:overrides));
+                var values=new G2MaterialValues(item.Id,Number(14),Number(15),Number(16),Number(20),Number(21),Number(22),overrides);
+                G2MaterialRules.ValidateCalculations(values,item,ws.Name);
+                result.Add(values with {CalculationOverrides=null});
             }
             G2MaterialRules.Validate(result);
-            return new(sheets,ws.Name,SheetDate(ws.Name),result,warnings);
+            return new(sheets,ws.Name,SheetDate(ws.Name),result);
         }
         catch(ArgumentException){throw;}
         catch(Exception e) when(e is not OutOfMemoryException and not OperationCanceledException){throw new ArgumentException("엑셀 파일을 읽을 수 없습니다. 원본 양식의 .xlsx 파일인지 확인해 주세요.");}
@@ -82,7 +83,7 @@ public static partial class G2MaterialExcel
         void Formula(string address,string expected,bool allowNumber=false)
         {
             var cell=ws.Cell(address);
-            if(allowNumber && !cell.HasFormula && cell.DataType==XLDataType.Number && cell.TryGetValue<decimal>(out var literal) && literal>=0 && literal<=999999999999.9999m && decimal.Round(literal,4)==literal)return;
+            if(allowNumber && !cell.HasFormula && cell.DataType==XLDataType.Number && cell.TryGetValue<decimal>(out var literal) && literal>=0)return;
             if(!cell.HasFormula || !string.Equals(cell.FormulaA1,expected,StringComparison.OrdinalIgnoreCase))throw Problem(ws,address,"계산식이 변경되었거나 누락되었습니다.");
         }
         Formula("A1","TODAY()");

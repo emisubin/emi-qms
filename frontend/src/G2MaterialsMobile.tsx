@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { G2PageFrame } from './G2PageFrame';
+import { useG2InputViewport } from './useG2InputViewport';
 import { useNativeDialog } from './useNativeDialog';
 import { todaySeoul } from './g2';
 import { calculateMaterial, getMaterialImage, quantityKeys, type MaterialItem, type MaterialValues, type QuantityKey } from './g2Materials';
@@ -57,6 +58,7 @@ function Detail({ item, onClose, ...props }: G2MaterialsMobileProps & { item: Ma
   const closeDetail = useCallback((open: boolean) => { if (!open) onClose(); }, [onClose]);
   const dialog = useNativeDialog(true, closeDetail);
   const formDialog = useNativeDialog(editing, setEditing);
+  useG2InputViewport(formDialog, editing);
   const values = props.draft[item.id] ?? item.values;
   const result = totals(values, item);
   const autosave = validation || props.error || (props.saving ? '자동 저장 중…' : props.status || '변경한 값은 자동 저장됩니다');
@@ -72,7 +74,7 @@ function Detail({ item, onClose, ...props }: G2MaterialsMobileProps & { item: Ma
       </>}</tbody></table></section>
       <div className="modalfoot"><span id="total">총재고 합계<b>{fmt(result.Y)} <small>{item.unit}</small></b></span>{props.canEdit && <button id="edit" type="button" className="primary" onClick={() => setEditing(true)}>실사 입력</button>}</div>
     </dialog>
-    <dialog id="form" className="mi-dialog mi-form-dialog" ref={formDialog} aria-labelledby="form-title">
+    <dialog id="form" className="mi-dialog mi-form-dialog g2-mobile-input" ref={formDialog} aria-labelledby="form-title">
       <form id="editform" onSubmit={event => event.preventDefault()}>
         <header className="mi-header"><h2 id="form-title">실사 입력</h2><button type="button" aria-label="입력 닫기" onClick={() => setEditing(false)}>×</button></header>
         <section className="mi-body"><div id="formname">{item.name}</div><div id="fields">{fields.map(part => <fieldset className="part" key={part.title}><legend>{part.title}</legend>{part.fields.map(([key, label]) => <label className="mi-field" key={key}><span>{label}</span><input aria-label={label} name={key} type="number" inputMode="decimal" min="0" max="999999999999.9999" step="0.0001" value={values[key] ?? ''} disabled={!props.canEdit || props.loading} onChange={event => {

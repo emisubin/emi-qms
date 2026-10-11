@@ -259,3 +259,13 @@
 - 독립 attendance_review: 요청 gpt-6-astra/high, 실제 모델 NOT_REPORTED. data-row 누락에 따른 PC 정렬과 월초 테스트 미래날짜 P2 2건 보정. 수정분 재검토에서 기존2건 해소/새 P0–P2없음. 마지막 PC totals 8px 간격은 공통리셋에 유지되도록 !important 보정.
 - 상태: 로컬 구현/관련 검증 완료, 사용자 로컬 검수 대기. 기존5182/5090 source/runtime 유지. 원격push/PR/merge/배포 없음.
 - DB: 신규DB 없음, 새 검증용 임시DB 없음(기존 검수 DB 보존, 정리 미실행), 미사용으로 전환된DB 없음. schema/migration/실제데이터 변경 없음.
+
+## 2026-10-12 G2 모바일 입력 폼 내용 높이 적용
+
+- 사용자: 모바일 입력 팝업의 불필요한 빈 공간 원인 확인 후 전체 G2 입력 폼 내용 높이/버튼 바로 아래/작은 화면·키보드에서는 본문만 스크롤 방식 승인.
+- 공통 g2-mobile-input.css 및 useG2InputViewport를 생산·출하/출근 DataEntryDialog form과 자재 실사 입력에 연결. 860px 이하만 적용, PC/상세/월선택/입력메뉴는 보존. 기존 확정 색감/필드/탭/버튼과 저장·권한·DB 계약 변경 없음. 원본 승인 snapshot은 보존하고 새 승인 변경은 단일 공통 파일에서 소유.
+- 검증: G2Pages/G2OperationsPage/G2MaterialsPage 3파일 43tests 통과, 변경 TS 파일 ESLint 및 typecheck 통과, build 통과(기존 대형 chunk 경고), git diff --check 통과.
+- 시각 검증: 실제 로컬 5182에서 제조 인원 입력 390×844 내용 높이 약442px, 자재 실사 입력 390×844 내용 높이 팝업 확인. 생산 실적 390×400에서 본문 스크롤과 하단 버튼 노출 확인. 실제 모바일 OS 키보드는 미검증이며 visualViewport 이벤트 대응 구현과 짧은 viewport 검증을 구분함. 캡처: g2-home-mockups/attendance-mobile-compact-input.png. 실데이터 입력/저장 없음.
+- 독립 attendance_review: 변경4파일 검토 확정 P0–P2 없음. 저장·권한·자동저장 계약 보존 및 viewport listener 정리 확인.
+- 상태: 로컬 구현/관련 검증 완료, 사용자 검수 대기. 원격 push/PR/merge/배포 없음.
+- DB: 신규 DB 없음, 새 검증용 임시 DB 없음(기존 검수 DB 유지, 정리 미실행), 미사용 전환 DB 없음. schema/migration/실데이터 변경 없음.

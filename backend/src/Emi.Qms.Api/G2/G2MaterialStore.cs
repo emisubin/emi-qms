@@ -15,7 +15,19 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
     }
     private static async Task<bool> CanEdit(NpgsqlConnection connection, NpgsqlTransaction? tx, Guid actor, CancellationToken ct)
     {
-        await using var command = new NpgsqlCommand("select exists(select 1 from qms_users u join departments d on d.id=u.department_id where u.id=@actor and u.is_active and d.is_active and d.code='materials')",connection,tx);
+        await using var command = new NpgsqlCommand("""
+            select exists (
+                select 1 from qms_users u
+                where u.id = @actor and u.is_active
+                  and (
+                    exists (select 1 from user_roles assignment
+                            join roles role on role.id = assignment.role_id
+                            where assignment.user_id = u.id and role.code = 'system-administrator')
+                    or exists (select 1 from departments d
+                               where d.id = u.department_id and d.is_active and d.code = 'materials')
+                  )
+            )
+            """,connection,tx);
         command.Parameters.AddWithValue("actor",actor); return (bool)(await command.ExecuteScalarAsync(ct))!;
     }
     public async Task<IReadOnlyList<G2MaterialCatalog>> CatalogAsync(CancellationToken ct)

@@ -40,7 +40,10 @@ public sealed class G2MaterialDatabaseTests
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"""
             insert into qms_users(id,development_user_key,display_name,department_id,is_active) values
             ('60000000-0000-0000-0000-000000000001','material-test','Synthetic material',(select id from departments where code='materials'),true),
-            ('60000000-0000-0000-0000-000000000002','admin-test','Synthetic admin',(select id from departments where code='administration'),true);
+            ('60000000-0000-0000-0000-000000000002','admin-test','Synthetic administration staff',(select id from departments where code='administration'),true),
+            ('60000000-0000-0000-0000-000000000003','role-admin-test','Synthetic role administrator',(select id from departments where code='sales'),true);
+            insert into user_roles(user_id,role_id)
+            select '60000000-0000-0000-0000-000000000003',id from roles where code='system-administrator';
             insert into g2_material_items(id,source_row,metadata) select i,i+3,jsonb_build_object('category','사급','vendor','Vendor','name','Part','code',i::text,'spec','Spec','unit','EA','setQuantity',2) from generate_series(1,92) i;
             """,ct);
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"insert into g2_material_counts(count_date,item_id,materials,updated_by_user_id) values ('2026-10-06',1,12.3456,'60000000-0000-0000-0000-000000000001')",ct);
@@ -52,6 +55,32 @@ public sealed class G2MaterialDatabaseTests
         var blank=await store.ReadAsync(date,actor,ct);Assert.Equal(92,blank.Items.Count);Assert.All(blank.Items,x=>Assert.Null(x.Values.Materials));Assert.All(blank.Items,x=>Assert.Null(x.Values.CalculationOverrides));
         SaveG2MaterialsRequest Snapshot(decimal? v)=>new(Enumerable.Range(1,92).Select(i=>new G2MaterialValues(i,null,0,null,v,null,null)).ToArray());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveAsync(date,Snapshot(9),admin,ct));
+        var roleAdmin=Guid.Parse("60000000-0000-0000-0000-000000000003");
+        Assert.False((await store.ReadAsync(date,admin,ct)).CanEdit);
+        Assert.True(await store.CanEditAsync(roleAdmin,ct)); // Also used by the import endpoint.
+        Assert.True((await store.ReadAsync(date,roleAdmin,ct)).CanEdit);
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,
+            "update departments set is_active=false where code='sales'",ct);
+        Assert.True(await store.CanEditAsync(roleAdmin,ct));
+        await store.SaveAsync(date,Snapshot(11),roleAdmin,ct);
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,
+            "update departments set is_active=true where code='sales'",ct);
+        Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>Assert.Equal(11,x.Values.Materials));
+        Assert.Equal(92L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,
+            "select count(*) from g2_material_counts where updated_by_user_id='60000000-0000-0000-0000-000000000003'",ct));
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,
+            "update qms_users set is_active=false where id='60000000-0000-0000-0000-000000000003'",ct);
+        Assert.False(await store.CanEditAsync(roleAdmin,ct));
+        Assert.False((await store.ReadAsync(date,roleAdmin,ct)).CanEdit);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveAsync(date,Snapshot(12),roleAdmin,ct));
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"""
+            update qms_users set is_active=true where id='60000000-0000-0000-0000-000000000003';
+            delete from user_roles where user_id='60000000-0000-0000-0000-000000000003';
+            """,ct);
+        Assert.False(await store.CanEditAsync(roleAdmin,ct));
+        Assert.False((await store.ReadAsync(date,roleAdmin,ct)).CanEdit);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveAsync(date,Snapshot(13),roleAdmin,ct));
+        Assert.All((await store.ReadAsync(date,actor,ct)).Items,x=>Assert.Equal(11,x.Values.Materials));
         await store.SaveAsync(date,Snapshot(3),actor,ct);await store.SaveAsync(date,Snapshot(5),actor,ct);
         var saved=await store.ReadAsync(date,actor,ct);Assert.All(saved.Items,x=>Assert.Equal(5,x.Values.Materials));Assert.All(saved.Items,x=>Assert.Null(x.Values.Working));Assert.All(saved.Items,x=>Assert.Equal(0,x.Values.Kitting));
         SaveG2MaterialsRequest WithOverrides(Dictionary<string,decimal>? overrides) => new(Snapshot(5).Items.Select(x=>x with {CalculationOverrides=overrides}).ToArray());

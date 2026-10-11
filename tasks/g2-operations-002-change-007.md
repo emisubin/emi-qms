@@ -343,3 +343,16 @@
 - 일회용 복원DB/container, 평문 임시폴더, 이미지probe/감사container 정리. 최종 TLS relay exit0, 완료3회 실행의 임시 자격정보JSON 제거. 암호화 backup/manifest와 비민감 증거 보존. 기존 검수DB/runtime/사용자WIP 유지.
 - DB 보고: 신규 영구DB 없음. 기존 청주DB에 g2_daily_values/g2_daily_notes/g2_material_items/g2_material_counts 적용. 검증용 Directory·청주·오산 일회용 복원DB는 소유container와 함께 정리 완료. 미사용 전환DB 없음. 기존 다른 검수DB는 정리 대상에서 제외.
 - 승인된 기능 병합·공개배포 완료. 두 차례 실패는 기존서비스 복구 후 보정했고 최종 성공으로 종료. 운영 배포 잔여 작업 없음.
+
+
+## 2026-10-12 자재 관리자 입력 권한 누락 보정
+
+- 사용자 요청: 관리자는 모든 메뉴 업무 데이터를 입력할 수 있어야 한다는 규칙을 지속 적용하도록 명시하고, G2 자재의 누락을 수정. 현재 기준 b5de757, codex/unified-osan-shell. 이번 요청은 수정·관련 검증이며 새 운영 배포는 미실행.
+- 원인: 자재 CanEdit가 활성 자재팀 소속만 검사하고 local system-administrator 역할을 누락. 화면 canEdit, Excel import, Save의 동일 판정 지점 보정. 일반 타부서 조회 전용, 활성계정·사업부·점검·값 검증 유지. migration/DB신설 불필요.
+- Root AGENTS에 관리자 예외와 실제 역할 기반 성공/거부/회수 반례 검증을 의무화. 관리부서와 관리자 역할을 구분. 구현 및 독립 검토/검증 결과는 아래에 추가.
+
+- 구현: G2MaterialStore의 공통 CanEdit를 활성 사용자 + (선택 청주DB의 실제 system-administrator 역할 또는 활성 자재팀)로 보정. Read의 canEdit/Excel import/Save가 동일 판정. PC·모바일은 해당 서버응답을 사용하므로 화면 코드 변경 없음.
+- 검증: G2Material 집중 backend48/48(실패·skip0), G2MaterialsPage frontend22/22, diff-check 통과. 영업부 실제 관리자/비활성 부서의 활성 관리자 저장 성공, 저장자 기록, 비활성 사용자/역할 회수/무권한 관리부 거부 및 값 불변 확인. frontend는 PC저장/Excel 가져오기/모바일 자동저장·조회전용 기존 흐름 검증. 운영 로그인·실데이터 저장은 미실행.
+- 독립 material_admin_review: 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. b5de757 기준 WIP 코드·계약 검토GO, P0–P2없음. 테스트 결과는 부모가 최종 확인.
+- DB: 신규 영구DB 없음, migration 없음. 전용 emi-qms-e2e-g2admin20261012 컨테이너의 emi_qms_e2e_g2admin20261012 및 emi_qms_e2e_50ed61765d/emi_qms_e2e_d1ecebed37 접두사의 directory·cheongju·osan fixture6DB 사용. fixture자동삭제 확인 후 소유container/tmpfs 삭제로 전부정리. 기존 검수DB/runtime 유지, 미사용 전환DB 없음.
+- 상태: 규칙 추가/로컬 구현/검증/독립 검토 완료. 이번 권한 보정의 원격push·병합·공개배포는 미실행.

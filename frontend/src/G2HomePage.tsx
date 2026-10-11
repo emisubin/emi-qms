@@ -1,293 +1,54 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, deleteG2InventoryCount, deleteG2DefectInventoryCount, getG2Home, saveG2InventoryCount, saveG2DefectInventoryCount, saveG2Target } from './api';
-import { G2ProductionDeliveryInventoryChart, G2ShiftProductionChart } from './G2Charts';
-import { G2DateRangeFilter, G2HorizontalTable, type G2HorizontalRow } from './G2DataViews';
-import { formatG2Date, formatG2Modified, todaySeoul, type G2Day, type G2HomeResponse, type G2Target } from './g2';
-import { applyG2HomePreview, type G2PreviewField, type G2PreviewInputs } from './G2HomePreview';
-import { G2ProductionSummaryTable } from './G2ProductionSummaryTable';
-import { useG2DateRange } from './useG2DateRange';
-import { useG2Holidays, type G2HolidayMap } from './useG2Holidays';
+import { useEffect, useState } from 'react';
+import { ApiError, getG2Days, getG2Home, listSystemHolidays } from './api';
+import type { G2Day } from './g2';
+import { getMaterialDay, type MaterialDay } from './g2Materials';
+import { OsanMenuHeading } from './OsanMenuHeading';
+import { achievement, achievementColor, deliveryForecast, displayQuantity as fmt, materialShortages, recentWorkday, SAFETY_STOCK, shiftDate } from './g2Dashboard';
+import './g2-home-approved.css';
 
-type State = { kind: 'loading' } | { kind: 'ready'; data: G2HomeResponse } | { kind: 'forbidden'; message: string } | { kind: 'error'; message: string };
-
-type G2KpiItem = {
-  label: string;
-  value: string;
-  tone: 'blue' | 'orange' | 'red' | 'violet' | 'morning' | 'afternoon';
-  help?: string;
-};
-
-function averageQuantity(values: Array<number | null | undefined>) {
-  const quantities = values.filter((value): value is number => value !== null && value !== undefined);
-  if (quantities.length === 0) return null;
-  return quantities.reduce((sum, quantity) => sum + quantity, 0) / quantities.length;
+type Props={developmentUserKey:string|undefined;canManageInventory:boolean;canManageTargets:boolean;mutationEnabled:boolean};
+type Snapshot={date:string|null;day:G2Day|undefined;days:G2Day[];materials:MaterialDay|null;materialError:string|null;through:string};
+type State={kind:'loading';user:string|undefined}|{kind:'error';user:string|undefined;message:string}|{kind:'ready';user:string|undefined;data:Snapshot};
+const shortDate=(date:string)=>`${Number(date.slice(5,7))}.${date.slice(8)}`;
+const percent=(rate:number|null)=>rate==null?'—':rate.toLocaleString('ko-KR',{maximumFractionDigits:1});
+function Metric({production,day}:{production:boolean;day:G2Day|undefined}) {
+  const actual=production?day?.productionTotal:day?.delivery?.quantity;
+  const plan=production?day?.productionPlan?.quantity:day?.deliveryPlan?.quantity;
+  const rate=achievement(actual,plan),color=achievementColor(rate);
+  return <section className="metric"><div className="section-head"><h2>{production?'EMI 생산':'LSE 납품'}</h2><span>계획 대비 달성률</span></div><div className="metric-body"><div className="gauge"><svg viewBox="0 0 240 140" role="img" aria-label={`실적 ${fmt(actual)}${actual==null?'':'대'} / 계획 ${fmt(plan)}${plan==null?'':'대'}, 달성률 ${percent(rate)}%`}><path d="M 25 116 A 95 95 0 0 1 215 116" pathLength="100" fill="none" stroke="#edf0f3" strokeWidth="17"/>{rate!=null&&<path d="M 25 116 A 95 95 0 0 1 215 116" pathLength="100" fill="none" stroke={color} strokeWidth="17" strokeDasharray={`${Math.min(rate,100)} 100`}/>}<text className={actual==null?'gauge-empty':'gauge-actual'} x="120" y="108" textAnchor="middle" style={{fill:color}}>{fmt(actual)}{actual!=null&&<tspan className="actual-unit" dx="5" style={{fill:'#282828'}}>대</tspan>}</text></svg></div><p className="achievement-below"><b>{percent(rate)}{rate!=null&&<small>%</small>}</b><span className="plan-inline">(계획 {fmt(plan)}{plan==null?'':'대'})</span></p></div>{production?<p className="attendance">출근 <b>오전 {fmt(day?.morningAttendanceTotal)}{day?.morningAttendanceTotal==null?'':'명'}</b><span>EMI {fmt(day?.morningEmiAttendance?.quantity)} · 도급 {fmt(day?.morningContractorAttendance?.quantity)}</span><i/><b>오후 {fmt(day?.afternoonAttendanceTotal)}{day?.afternoonAttendanceTotal==null?'':'명'}</b><span>EMI {fmt(day?.afternoonEmiAttendance?.quantity)} · 도급 {fmt(day?.afternoonContractorAttendance?.quantity)}</span></p>:<p className="metric-note">{rate==null?'계획과 실적 입력 후 달성률을 확인할 수 있습니다.':rate>=100?`납품 계획 ${fmt(plan)}대 완료`:`계획까지 ${fmt(Math.max(0,plan!-actual!))}대 남음`}</p>}</section>;
 }
-
-function formatQuantity(value: number | null) {
-  return value === null ? '—' : `${new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 1 }).format(value)}대`;
+function Stock({data}:{data:Snapshot}) {
+  const points=deliveryForecast(data.day,data.days),shortage=points.find(p=>p.quantity<SAFETY_STOCK);
+  const min=Math.min(180,...points.map(p=>p.quantity)),max=Math.max(240,...points.map(p=>p.quantity));
+  const y=(n:number)=>44+(max-n)/(max-min)*144;
+  const x=(i:number)=>points.length===1?70:70+i*519/(points.length-1);
+  const line=points.map((p,i)=>`${i?'L':'M'}${x(i)} ${y(p.quantity)}`).join('');
+  const ticks=[max,Math.round((max+SAFETY_STOCK)/2),SAFETY_STOCK,min].filter((v,i,a)=>a.indexOf(v)===i);
+  return <section className="stock"><div className="section-head"><h2>제품 재고 · 납품 전망</h2><span>안전재고 180대</span></div><div className="stock-summary"><div><span>기준일 재고</span><strong>{fmt(data.day?.inventory)}{data.day?.inventory!=null&&<small>대</small>}</strong></div><div className="forecast-callout"><span>안전재고 미달 예상</span><b>{shortage?`${Number(shortage.date.slice(5,7))}월 ${Number(shortage.date.slice(8))}일 ${shortage===points[0]?'기준일':'납품 후'}`:points.length>1?'조회 기간 내 없음':'확인 대기'}</b><p>{shortage?`예상 ${fmt(shortage.quantity)}대 · 안전재고보다 ${fmt(SAFETY_STOCK-shortage.quantity)}대 부족`:points.length>1?`${shortDate(data.through)}까지 등록된 납품 계획 기준`:'재고와 납품 계획을 확인해 주세요.'}</p></div></div>{points.length>0?<svg className="stock-chart" viewBox="0 0 700 236" role="img" aria-label={`납품 전망: ${points.map(p=>`${p.date} ${p.quantity}대`).join(', ')}`}><g className="gridline">{ticks.map(t=><path key={t} d={`M70 ${y(t)}H650`}/>)}</g><g className="axis">{ticks.map(t=><text key={t} x="40" y={y(t)+4}>{fmt(t)}</text>)}</g><text className="safety-label" x="648" y={y(SAFETY_STOCK)-8} textAnchor="end">안전재고 180대</text><path d={`${line}L${x(points.length-1)} 208H70Z`} fill="#EDF3FB"/><path className="safety" d={`M70 ${y(SAFETY_STOCK)}H650`}/><path d={line} fill="none" stroke="#477DC0" strokeWidth="2.5" strokeDasharray="6 4"/>{points.map((p,i)=><g key={p.date}><circle cx={x(i)} cy={y(p.quantity)} r={p.quantity<180?6:5} fill={p.quantity<180?'#c63b42':'#fff'} stroke={p.quantity<180?'#c63b42':'#477DC0'} strokeWidth="2"><title>{p.date} · {fmt(p.quantity)}대</title></circle>{(points.length<=7||i===0||i===points.length-1||p===shortage)&&<><text className="point-label" x={x(i)} y={y(p.quantity)-16} style={{fill:p.quantity<180?'#b3232e':'#333'}}>{fmt(p.quantity)}대</text><text className="axis dates" x={x(i)} y="230">{shortDate(p.date)} {i?'납품 후':'기준'}</text></>}</g>)}</svg>:<p className="empty-chart">기준일 재고가 입력되지 않았습니다.</p>}<p className="note">{shortDate(data.through)}까지 등록된 납품 계획 반영 · 추가 생산 미반영</p></section>;
 }
-
-function G2ChartKpiPanel({ label, items }: { label: string; items: G2KpiItem[] }) {
-  return <aside className={`g2-chart-kpis g2-chart-kpis-${items.length}`} aria-label={label}>{items.map((item, index) => {
-    const tooltipId = `g2-kpi-help-${label === '생산·납품·재고 핵심 지표' ? 'flow' : 'shift'}-${index}`;
-    return <div className="g2-chart-kpi" data-tone={item.tone} key={item.label}>
-      <span className="g2-chart-kpi-label">{item.label}{item.help ? <span className="g2-kpi-info" tabIndex={0} aria-label={`${item.label} 계산 안내`} aria-describedby={tooltipId}>i<span className="g2-kpi-tooltip" id={tooltipId} role="tooltip">{item.help}</span></span> : null}</span>
-      <strong>{item.value}</strong>
-    </div>;
-  })}</aside>;
-}
-
-function G2AttendanceSummaryTable({ days, holidays }: { days: G2Day[]; holidays: G2HolidayMap }) {
-  const [expanded, setExpanded] = useState({ morning: false, afternoon: false });
-  function toggle(shift: 'morning' | 'afternoon') {
-    setExpanded(current => ({ ...current, [shift]: !current[shift] }));
-  }
-  function totalButton(day: G2Day, shift: 'morning' | 'afternoon') {
-    const isMorning = shift === 'morning';
-    const label = isMorning ? '오전 합계' : '오후 합계';
-    const quantity = day.isForecast ? null : isMorning ? day.morningAttendanceTotal : day.afternoonAttendanceTotal;
-    const quantityLabel = quantity === null ? '미입력' : `${quantity}명`;
-    const action = expanded[shift] ? '접기' : '보기';
-    return <button className="g2-table-total-button" type="button" aria-expanded={expanded[shift]} aria-label={`${formatG2Date(day.date)} ${label} ${quantityLabel} 세부 인원 ${action}`} onClick={() => toggle(shift)}><strong>{quantity ?? '—'}</strong></button>;
-  }
-  const rows: G2HorizontalRow[] = [
-    {
-      key: 'morning-total',
-      label: <button className="g2-table-disclosure" type="button" aria-expanded={expanded.morning} aria-label={`오전 합계 세부 인원 ${expanded.morning ? '접기' : '보기'}`} onClick={() => toggle('morning')}>오전 합계<span aria-hidden="true">{expanded.morning ? '▾' : '▸'}</span></button>,
-      rowClassName: 'g2-summary-row',
-      value: day => totalButton(day, 'morning')
-    },
-    ...(expanded.morning ? [
-      { key: 'morning-emi', label: '오전 EMI', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.morningEmiAttendance?.quantity ?? '—' },
-      { key: 'morning-contractor', label: '오전 도급', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.morningContractorAttendance?.quantity ?? '—' }
-    ] : []),
-    {
-      key: 'afternoon-total',
-      label: <button className="g2-table-disclosure" type="button" aria-expanded={expanded.afternoon} aria-label={`오후 합계 세부 인원 ${expanded.afternoon ? '접기' : '보기'}`} onClick={() => toggle('afternoon')}>오후 합계<span aria-hidden="true">{expanded.afternoon ? '▾' : '▸'}</span></button>,
-      rowClassName: 'g2-summary-row',
-      value: day => totalButton(day, 'afternoon')
-    },
-    ...(expanded.afternoon ? [
-      { key: 'afternoon-emi', label: '오후 EMI', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.afternoonEmiAttendance?.quantity ?? '—' },
-      { key: 'afternoon-contractor', label: '오후 도급', rowClassName: 'g2-detail-row', value: (day: G2Day) => day.isForecast ? '—' : day.afternoonContractorAttendance?.quantity ?? '—' }
-    ] : []),
-    {
-      key: 'attendance-total',
-      label: '오전·오후 전체 합계',
-      rowClassName: 'g2-grand-total-row',
-      value: day => <strong>{day.isForecast ? '—' : day.attendanceTotal ?? '—'}</strong>
-    }
-  ];
-
-  return <><p className="g2-table-help">오전·오후 합계를 눌러 EMI 직원과 도급 직원 인원을 확인하세요. 전체 합계는 두 조를 단순 합산합니다.</p><G2HorizontalTable days={days} caption="제조 인원 출근 현황" rows={rows} holidays={holidays} /></>;
-}
-
-export function G2HomePage({
-  developmentUserKey,
-  canManageInventory,
-  canManageTargets,
-  mutationEnabled
-}: {
-  developmentUserKey: string | undefined;
-  canManageInventory: boolean;
-  canManageTargets: boolean;
-  mutationEnabled: boolean;
-}) {
-  const initialDate = todaySeoul();
-  const [year, setYear] = useState(() => Number(initialDate.slice(0, 4)));
-  const [month, setMonth] = useState(() => Number(initialDate.slice(5, 7)));
-  const [state, setState] = useState<State>({ kind: 'loading' });
-  const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [countEditor, setCountEditor] = useState<{ date: string; value: string; kind: 'available' | 'defect' } | null>(null);
-  const countLabel = countEditor?.kind === 'defect' ? '불량재고 실사' : '재고 실사';
-  const [targetType, setTargetType] = useState<'DailyProduction' | 'Delivery' | 'Inventory'>('DailyProduction');
-  const [targetDate, setTargetDate] = useState(initialDate);
-  const [targetValue, setTargetValue] = useState('');
-  const [previewInputs, setPreviewInputs] = useState<G2PreviewInputs>({});
-  const dialogInputRef = useRef<HTMLInputElement>(null);
-  const loadSequenceRef = useRef(0);
-  const data = state.kind === 'ready' ? state.data : null;
-
-  const load = useCallback(async (nextYear = year, nextMonth = month, preserve = false) => {
-    const loadSequence = ++loadSequenceRef.current;
-    if (!preserve) setState({ kind: 'loading' });
-    try {
-      const nextData = await getG2Home(developmentUserKey, nextYear, nextMonth);
-      if (loadSequence === loadSequenceRef.current) { setPreviewInputs({}); setState({ kind: 'ready', data: nextData }); }
-    } catch (error) {
-      if (loadSequence !== loadSequenceRef.current) return;
-      setState(error instanceof ApiError && error.status === 403 ? { kind: 'forbidden', message: 'G2 현황을 조회할 권한이 없습니다.' } : { kind: 'error', message: error instanceof ApiError ? error.message : 'G2 현황을 불러오지 못했습니다.' });
-    }
-  }, [developmentUserKey, month, year]);
-
-  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
-  useEffect(() => { if (countEditor) dialogInputRef.current?.focus(); }, [countEditor]);
-
-  function moveMonth(delta: number) {
-    const date = new Date(Date.UTC(year, month - 1 + delta, 1));
-    const nextYear = date.getUTCFullYear(); const nextMonth = date.getUTCMonth() + 1;
-    loadSequenceRef.current += 1;
-    setState({ kind: 'loading' }); setYear(nextYear); setMonth(nextMonth); setTargetDate(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01`); setTargetValue(''); setFeedback(null);
-  }
-
-  const dateRange = useG2DateRange(data?.days ?? [], data ? `${data.year}-${data.month}` : 'loading');
-  const holidays = useG2Holidays(developmentUserKey, data?.days ?? []);
-  const previewDays = useMemo(() => applyG2HomePreview(data?.days ?? [], previewInputs), [data?.days, previewInputs]);
-  const visibleDays = useMemo(
-    () => previewDays.filter(day => day.date >= dateRange.from && day.date <= dateRange.to),
-    [dateRange.from, dateRange.to, previewDays]
-  );
-  function openCount(date: string, kind: 'available' | 'defect' = 'available') {
-    const day = data?.days.find(day => day.date === date);
-    const count = kind === 'defect' ? day?.defectInventoryCount : day?.physicalCount;
-    setCountEditor({ date, kind, value: count?.quantity == null ? '' : String(count.quantity) }); setFeedback(null);
-  }
-
-  const currentCountDay = data?.days.find(day => day.date === countEditor?.date);
-  const currentCount = countEditor?.kind === 'defect' ? currentCountDay?.defectInventoryCount : currentCountDay?.physicalCount;
-
-  async function saveCount() {
-    if (!data || !countEditor || busy) return;
-    if (!countEditor.date) { setFeedback('실사 날짜를 선택해 주세요.'); return; }
-    if (countEditor.value.trim() === '') { setFeedback('실사 수량을 입력해 주세요.'); return; }
-    const quantity = Number(countEditor.value);
-    if (!Number.isInteger(quantity) || quantity < 0) { setFeedback('실사 수량은 0 이상의 정수로 입력해 주세요.'); return; }
-    const save = countEditor.kind === 'defect' ? saveG2DefectInventoryCount : saveG2InventoryCount;
-    setBusy(true); setFeedback(`${countLabel}를 저장하는 중입니다.`);
-    try { await save(developmentUserKey, countEditor.date, quantity, currentCount?.version ?? null); await load(year, month, true); setFeedback(`${countLabel}를 저장했습니다.`); setCountEditor(null); }
-    catch (error) { setFeedback(error instanceof ApiError ? error.message : `${countLabel}를 저장하지 못했습니다.`); }
-    finally { setBusy(false); }
-  }
-
-  async function deleteCount() {
-    if (!data || !countEditor || busy) return;
-    if (currentCount?.quantity == null) return;
-    const remove = countEditor.kind === 'defect' ? deleteG2DefectInventoryCount : deleteG2InventoryCount;
-    setBusy(true); setFeedback(`${countLabel}를 삭제하는 중입니다.`);
-    try { await remove(developmentUserKey, countEditor.date, currentCount.version); await load(year, month, true); setFeedback(`${countLabel}를 삭제했습니다.`); setCountEditor(null); }
-    catch (error) { setFeedback(error instanceof ApiError ? error.message : `${countLabel}를 삭제하지 못했습니다.`); }
-    finally { setBusy(false); }
-  }
-
-  function matchingTarget(): G2Target | null {
-    const day = data?.days.find(item => item.date === targetDate);
-    const target = targetType === 'DailyProduction'
-      ? day?.dailyProductionTarget
-      : targetType === 'Delivery'
-        ? day?.deliveryTarget
-        : day?.inventoryTarget;
-    return target?.effectiveDate === targetDate ? target : null;
-  }
-
-  function setPreviewValue(date: string, field: G2PreviewField, value: string) {
-    setPreviewInputs(current => ({ ...current, [date]: { ...current[date], [field]: value } }));
-  }
-
-  function previewInput(day: G2Day, field: G2PreviewField, label: string) {
-    if (day.isForecast) return '—';
-    const rawValue = previewInputs[day.date]?.[field];
-    const quantity = day[field]?.quantity;
-    return <input
-      className="g2-preview-input"
-      type="number"
-      min="0"
-      step="1"
-      inputMode="numeric"
-      aria-label={`${formatG2Date(day.date)} ${label} 임시 계산값`}
-      value={rawValue ?? (quantity === null || quantity === undefined ? '' : String(quantity))}
-      placeholder="—"
-      onChange={event => setPreviewValue(day.date, field, event.target.value)}
-    />;
-  }
-
-  async function saveTarget() {
-    if (!data || busy) return;
-    if (!targetDate) { setFeedback('적용 시작일을 선택해 주세요.'); return; }
-    if (targetValue.trim() === '') { setFeedback('목표 수량을 입력해 주세요.'); return; }
-    const quantity = Number(targetValue);
-    if (!Number.isInteger(quantity) || quantity < 0) { setFeedback('목표 수량은 0 이상의 정수로 입력해 주세요.'); return; }
-    setBusy(true); setFeedback('목표를 저장하는 중입니다.');
-    try { await saveG2Target(developmentUserKey, targetType, targetDate, quantity, matchingTarget()?.version ?? null); await load(year, month, true); setFeedback('적용 시작일 기준 목표를 저장했습니다.'); }
-    catch (error) { setFeedback(error instanceof ApiError ? error.message : '목표를 저장하지 못했습니다.'); }
-    finally { setBusy(false); }
-  }
-
-  if (state.kind === 'loading') return <section className="page-surface g2-page"><p role="status">G2 월간 현황을 불러오는 중입니다.</p></section>;
-  if (state.kind === 'forbidden' || state.kind === 'error') return <section className="page-surface g2-page"><div className="g2-state" role="alert"><strong>{state.message}</strong><button type="button" onClick={() => void load()}>다시 시도</button></div></section>;
-  if (!data) return null;
-  const actualDays = visibleDays.filter(day => !day.isForecast);
-  const hasNegativeInventory = actualDays.some(day => day.inventory !== null && day.inventory < 0);
-  const productionAverage = averageQuantity(actualDays.map(day => day.productionTotal));
-  const deliveryAverage = averageQuantity(actualDays.map(day => day.delivery?.quantity));
-  const inventoryAverage = averageQuantity(actualDays.map(day => day.inventory));
-  const morningAverage = averageQuantity(actualDays.map(day => day.morningProduction?.quantity));
-  const afternoonAverage = averageQuantity(actualDays.map(day => day.afternoonProduction?.quantity));
-  const todayInventoryDay = previewDays.find(day => day.date === data.today);
-  const inventoryShortage = todayInventoryDay?.inventory !== null && todayInventoryDay?.inventory !== undefined && todayInventoryDay.inventoryTarget !== null
-    ? Math.max(todayInventoryDay.inventoryTarget.quantity - todayInventoryDay.inventory, 0)
-    : null;
-  const shortageHelp = todayInventoryDay?.inventory !== null && todayInventoryDay?.inventory !== undefined && todayInventoryDay.inventoryTarget !== null
-    ? `오늘(${formatG2Date(data.today)}) 기준 재고목표 - 재고입니다. 부족하지 않으면 0대로 표시합니다.`
-    : `오늘(${formatG2Date(data.today)})의 재고와 재고목표가 모두 있어야 부족분을 계산합니다.`;
-  const countDates = data.days.map(day => day.date).filter(date => date <= data.today);
-  const countDateMinimum = countDates[0];
-  const countDateMaximum = countDates[countDates.length - 1];
-  const targetDateMinimum = data.days[0]?.date;
-  const targetDateMaximum = data.days[data.days.length - 1]?.date;
-
-  return <section className="page-surface g2-page" aria-labelledby="g2-home-title">
-    <header className="page-header"><div><p className="eyebrow">G2 운영관리</p><h2 id="g2-home-title">G2 홈</h2><p>이번 달 생산·납품·재고와 제조 출근 현황을 한눈에 확인합니다.</p></div><div className="button-row g2-month-controls"><button type="button" disabled={busy} onClick={() => moveMonth(-1)} aria-label="이전 달">이전</button><strong>{year}년 {month}월</strong><button type="button" disabled={busy} onClick={() => moveMonth(1)} aria-label="다음 달">다음</button></div></header>
-    {!mutationEnabled && (canManageInventory || canManageTargets) ? <p className="g2-review-safe" role="status">현재 검수 전용 읽기 모드이므로 실사와 목표를 수정할 수 없습니다.</p> : null}
-    {feedback && !countEditor ? <p className="g2-feedback" role={feedback.includes('못') || feedback.includes('확인') ? 'alert' : 'status'} aria-live="polite">{feedback}</p> : null}
-    <G2DateRangeFilter label="홈 표시 기간" from={dateRange.from} to={dateRange.to} minimum={dateRange.firstDate} maximum={dateRange.lastDate} filteredCount={visibleDays.length} totalCount={data.days.length} onFromChange={dateRange.setFrom} onToChange={dateRange.setTo} onReset={dateRange.reset} />
-
-    <article className="g2-card g2-chart-card"><header><div><p className="eyebrow">일별 흐름</p><h3>생산 · 납품 · 재고</h3></div></header>
-      {!data.hasInventoryBaseline ? <p className="g2-empty-note">재고 실사를 입력하면 해당 날짜부터 자동 재고 선이 시작됩니다.</p> : null}
-      {hasNegativeInventory ? <p className="g2-warning" role="alert">계산 재고가 음수인 날짜가 있습니다. 입력값과 실사를 확인해 주세요.</p> : null}
-      <div className="g2-chart-dashboard">
-        <G2ProductionDeliveryInventoryChart days={visibleDays} holidays={holidays} />
-        <G2ChartKpiPanel label="생산·납품·재고 핵심 지표" items={[
-          { label: '일일 생산 평균', value: formatQuantity(productionAverage), tone: 'blue' },
-          { label: '일일 납품 평균', value: formatQuantity(deliveryAverage), tone: 'orange' },
-          { label: '일일 재고 평균', value: formatQuantity(inventoryAverage), tone: 'red' },
-          { label: '재고 부족분', value: formatQuantity(inventoryShortage), tone: 'violet', help: shortageHelp }
-        ]} />
-      </div>
-      {canManageInventory ? <div className="g2-marker-actions" aria-label="재고 실사 날짜별 수정">
-        {visibleDays.filter(day => !day.isForecast && day.physicalCount?.quantity != null).map(day => <button key={`available-${day.date}`} type="button" disabled={!mutationEnabled || busy} onClick={() => openCount(day.date)}><b>{Number(day.date.slice(-2))}일 실사</b><span>{day.physicalCount?.quantity}대 · 수정</span></button>)}
-        {visibleDays.filter(day => !day.isForecast && day.defectInventoryCount?.quantity != null).map(day => <button key={`defect-${day.date}`} type="button" aria-label={`${Number(day.date.slice(-2))}일 불량 실사 ${day.defectInventoryCount?.quantity}대 · 수정`} disabled={!mutationEnabled || busy} onClick={() => openCount(day.date, 'defect')}><b>{Number(day.date.slice(-2))}일 불량 실사</b><span>{day.defectInventoryCount?.quantity}대 · 수정</span></button>)}
-        <button type="button" disabled={!mutationEnabled || busy || !countDateMaximum} onClick={() => countDateMaximum && openCount(countDateMaximum)}>실사 입력</button>
-      </div> : null}
-    </article>
-
-    <article className="g2-card g2-preview-card"><header><div><p className="eyebrow">선택 기간</p><h3>생산 현황</h3></div>{Object.keys(previewInputs).length > 0 ? <button type="button" onClick={() => setPreviewInputs({})}>임시값 초기화</button> : null}</header><p className="g2-preview-note">지난 날짜의 생산·수리·납품·불량 수량은 조회 중 임시로 바꿔 계산할 수 있습니다. 저장되지 않으며 새로 조회하면 초기화됩니다.</p>
-      <G2ProductionSummaryTable days={visibleDays} holidays={holidays} input={previewInput} /></article>
-
-    {canManageTargets ? <article className="g2-card g2-target-card"><header><div><p className="eyebrow">목표 관리</p><h3>적용 시작일별 목표</h3></div></header><div className="g2-inline-form"><label>목표 종류<select value={targetType} disabled={!mutationEnabled || busy} onChange={event => { setTargetType(event.target.value as typeof targetType); setTargetValue(''); }}><option value="DailyProduction">일 생산목표</option><option value="Delivery">납품 목표</option><option value="Inventory">재고목표</option></select></label><label className="g2-target-date-field">적용 시작일<input type="date" min={targetDateMinimum} max={targetDateMaximum} value={targetDate} disabled={!mutationEnabled || busy} required onChange={event => { setTargetDate(event.target.value); setTargetValue(''); }} /></label><label>목표 수량<input type="number" min="0" step="1" value={targetValue} disabled={!mutationEnabled || busy} required onChange={event => setTargetValue(event.target.value)} /></label><button className="primary-button" type="button" disabled={!mutationEnabled || busy || !targetDate || targetValue.trim() === ''} onClick={() => void saveTarget()}>목표 저장</button></div><small>같은 적용일을 다시 저장하면 기존 목표를 수정합니다. 이전·다음 달로 이동해 과거와 미래 목표를 관리할 수 있습니다.</small></article> : null}
-
-    <article className="g2-card g2-chart-card"><header><div><p className="eyebrow">조별 생산</p><h3>오전조 · 오후조 생산량</h3></div></header><div className="g2-chart-dashboard">
-      <G2ShiftProductionChart days={visibleDays} holidays={holidays} />
-      <G2ChartKpiPanel label="조별 생산 핵심 지표" items={[
-        { label: '오전조 일일 생산 평균', value: formatQuantity(morningAverage), tone: 'morning' },
-        { label: '오후조 일일 생산 평균', value: formatQuantity(afternoonAverage), tone: 'afternoon' }
-      ]} />
-    </div></article>
-
-    <article className="g2-card"><header><div><p className="eyebrow">선택 기간</p><h3>제조 인원 출근 현황</h3></div></header><G2AttendanceSummaryTable days={visibleDays} holidays={holidays} /></article>
-
-    {countEditor ? <div className="g2-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setCountEditor(null); }}>
-      <section className="g2-dialog" role="dialog" aria-modal="true" aria-labelledby="g2-count-title" onKeyDown={event => { if (event.key === 'Escape' && !busy) setCountEditor(null); }}>
-        <header><div><p className="eyebrow">{countEditor.kind === 'defect' ? '일 마감 불량재고 기준점' : '자동 재고 기준점'}</p><h3 id="g2-count-title">{countLabel} 입력</h3></div><button type="button" disabled={busy} onClick={() => setCountEditor(null)}>닫기</button></header>
-        <label>실사 구분<select value={countEditor.kind} disabled={busy} onChange={event => openCount(countEditor.date, event.target.value as 'available' | 'defect')}><option value="available">재고</option><option value="defect">불량재고</option></select></label>
-        {countEditor.kind === 'defect' ? <p className="g2-table-help">당일 신규 불량과 수리를 반영한 마감 수량을 입력하세요. 다음 날부터 신규 불량을 더하고 수리량을 뺍니다. 납품가능재고는 직접 변경하지 않습니다.</p> : null}
-        <label>실사 날짜<input type="date" min={countDateMinimum} max={countDateMaximum} value={countEditor.date} disabled={busy} required onChange={event => openCount(event.target.value, countEditor.kind)} /></label>
-        <label>실사 수량<input ref={dialogInputRef} type="number" min="0" step="1" inputMode="numeric" value={countEditor.value} disabled={busy} required onChange={event => setCountEditor(current => current ? { ...current, value: event.target.value } : null)} /></label>
-        {currentCount?.quantity != null ? <small>마지막 수정: {formatG2Modified(currentCount)}</small> : null}
-        {currentCount?.quantity != null && countEditor.kind === 'defect' ? <small>실사를 삭제하면 이전 실사부터 다시 계산합니다. 이전 실사가 없으면 0부터 누적하며, 이후 불량재고가 음수가 되면 삭제할 수 없습니다.</small> : null}
-        {feedback ? <p className="g2-feedback" role="status" aria-live="polite">{feedback}</p> : null}
-        <div className="button-row"><button className="primary-button" type="button" disabled={busy || !countEditor.date || countEditor.value.trim() === ''} onClick={() => void saveCount()}>저장</button>{currentCount?.quantity != null ? <button className="danger-button" type="button" disabled={busy} onClick={() => void deleteCount()}>실사 삭제</button> : null}</div>
-      </section>
-    </div> : null}
-  </section>;
+export function G2HomePage({developmentUserKey}:Props) {
+  const [state,setState]=useState<State>({kind:'loading',user:developmentUserKey});
+  const [retry,setRetry]=useState(0);
+  useEffect(()=>{
+    let active=true;
+    void (async()=>{
+      try {
+        const home=await getG2Home(developmentUserKey);
+        const from=shiftDate(home.today,-31),through=shiftDate(home.today,30);
+        const [range,holidays]=await Promise.all([getG2Days(developmentUserKey,from,through),listSystemHolidays(developmentUserKey,{dateFrom:from,dateTo:home.today})]);
+        const date=recentWorkday(home.today,range.days,new Set(holidays.map(h=>h.holidayDate)));
+        let materials:MaterialDay|null=null,materialError:string|null=null;
+        if(date){try{materials=await getMaterialDay(developmentUserKey,date);}catch(error){materialError=error instanceof ApiError&&error.status===403?'자재를 조회할 권한이 없습니다.':'자재 실사 데이터를 불러오지 못했습니다.';}}
+        if(active)setState({kind:'ready',user:developmentUserKey,data:{date,day:range.days.find(d=>d.date===date),days:range.days,materials,materialError,through}});
+      }catch(error){if(active)setState({kind:'error',user:developmentUserKey,message:error instanceof ApiError&&error.status===403?'G2 현황을 조회할 권한이 없습니다.':'G2 현황을 불러오지 못했습니다.'});}
+    })();
+    return()=>{active=false;};
+  },[developmentUserKey,retry]);
+  if(state.user!==developmentUserKey||state.kind==='loading')return <section id="g2-home-scope"><p role="status">G2 현황을 불러오는 중입니다.</p></section>;
+  if(state.kind==='error')return <section id="g2-home-scope"><p role="alert">{state.message}</p><button onClick={()=>{setState({kind:'loading',user:developmentUserKey});setRetry(n=>n+1);}}>다시 시도</button></section>;
+  const data=state.data,day=data.day;
+  const defectRate=achievement(day?.defect?.quantity,day?.productionTotal);
+  const materials=materialShortages(data.materials?.items??[]);
+  const weekday=data.date?new Date(`${data.date}T00:00:00Z`).getUTCDay():0;
+  return <section id="g2-home-scope" aria-labelledby="g2-home-title"><OsanMenuHeading id="g2-home-title" title="G2 홈" description="최근 작업일의 생산·납품 실적과 재고 현황을 확인합니다." actions={<div className="date"><span>최근 작업일</span><strong>{data.date?.replaceAll('-','.')??'확인 필요'} <small style={{color:weekday===6?'#376ca3':weekday===0?'#b3232e':undefined}}>{data.date?'일월화수목금토'[weekday]:''}</small></strong></div>}/><div className="overview"><div className="top-metrics"><Metric production day={day}/><Metric production={false} day={day}/><section className="quality"><div className="section-head"><h2>불량률</h2><span>기준일 생산 대비</span></div><div className="quality-body"><div className="big">{percent(defectRate)}{defectRate!=null&&<small>%</small>}</div><div className="quality-detail"><span>신규 불량 <b>{fmt(day?.defect?.quantity)}{day?.defect?.quantity==null?'':'대'}</b></span><span>생산 수량 <b>{fmt(day?.productionTotal)}{day?.productionTotal==null?'':'대'}</b></span></div></div><p className="metric-note">기준일 신규 불량 ÷ 생산 수량</p></section></div><div className="bottom-grid"><Stock data={data}/><section className="materials"><div className="section-head"><h2>안전재고 미달 자재 {data.materials&&<em>{materials.rows.length}</em>}</h2><span>180대 미만</span></div>{data.materialError?<p role="alert">{data.materialError}</p>:!data.date||!data.materials?<p className="note">자재 실사 기준일을 확인할 수 없습니다.</p>:data.materials.items.length===0?<p className="note">등록된 자재 품목이 없습니다. 관리자에게 문의해 주세요.</p>:<><table className="compact-materials" aria-label="안전재고 미달 자재"><thead><tr><th scope="col">품목명</th><th scope="col">재고 부족분</th><th scope="col">생산 가능 대수</th></tr></thead><tbody>{materials.rows.map(({item,capacity,shortage})=><tr key={item.id}><td><small>{item.category}</small><strong title={`${item.name} · ${item.spec}`}>{item.name}</strong></td><td>{fmt(shortage)}<span>{item.unit}</span></td><td className="capacity">{fmt(capacity)}<span>대</span></td></tr>)}</tbody></table>{materials.rows.length===0&&<p className="note">{materials.incomplete?'입력된 재고를 확인해 주세요.':'안전재고 미달 자재가 없습니다.'}</p>}{materials.incomplete>0&&<p className="note">실사 미입력·확인 필요 {materials.incomplete}개 품목은 계산에서 제외했습니다.</p>}<p className="note">부족분: 180대 생산에 필요한 자재 수량 기준<br/>실사일 {data.date?shortDate(data.date):'확인 필요'}</p></>}</section></div></div></section>;
 }

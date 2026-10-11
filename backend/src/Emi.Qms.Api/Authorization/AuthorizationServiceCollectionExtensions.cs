@@ -243,6 +243,10 @@ public static class AuthorizationServiceCollectionExtensions
             AddPermissionPolicy(options, QmsPolicies.G2AttendanceUpdate, QmsPermissions.G2AttendanceUpdate);
             AddPermissionPolicy(options, QmsPolicies.G2InventoryManage, QmsPermissions.G2InventoryManage);
             AddPermissionPolicy(options, QmsPolicies.G2TargetManage, QmsPermissions.G2TargetManage);
+            AddPermissionPolicy(options, QmsPolicies.G2ProductionPlanUpdate, QmsPermissions.G2ProductionPlanUpdate);
+            AddPermissionPolicy(options, QmsPolicies.G2DeliveryPlanUpdate, QmsPermissions.G2DeliveryPlanUpdate);
+            AddPermissionPolicy(options, QmsPolicies.G2PlanNoteUpdate, QmsPermissions.G2PlanNoteUpdate);
+            AddPermissionPolicy(options, QmsPolicies.G2NoteUpdate, QmsPermissions.G2NoteUpdate);
         });
 
         services.AddSingleton<InMemoryIdentityStore>();

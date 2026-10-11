@@ -12,7 +12,7 @@ import type {
   SalesSettlementMutationResponse
 } from './salesSettlement';
 import type { SalesKpiMonthDetail, SalesKpiResponse, SalesTargetsResponse, SaveSalesTargetsRequest } from './salesKpi';
-import type { G2HomeResponse, G2RangeResponse, SaveG2AttendanceRequest, SaveG2OperationsRequest } from './g2';
+import type { G2WorkspaceRequest, G2PlansRequest, G2HomeResponse, G2RangeResponse, SaveG2AttendanceRequest, SaveG2OperationsRequest } from './g2';
 import type {
   CreateSalesBillingRequest,
   SalesBillingBatch,
@@ -4142,4 +4142,11 @@ function statusMessage(status: number) {
     return '처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
   }
   return '요청을 처리할 수 없습니다.';
+}
+
+export function saveG2Workspace(user: string | undefined, date: string, request: G2WorkspaceRequest): Promise<{ saved: boolean }> {
+  return fetchJson(`/api/g2/workspace/${date}`, user, { method: 'PUT', body: JSON.stringify(request) });
+}
+export function saveG2Plans(user: string | undefined, request: G2PlansRequest): Promise<{ saved: boolean }> {
+  return fetchJson('/api/g2/plans', user, { method: 'PUT', body: JSON.stringify(request) });
 }

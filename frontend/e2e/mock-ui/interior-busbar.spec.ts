@@ -20,11 +20,11 @@ async function selectSection(page: Page, name: string) {
   const isMobile = (page.viewportSize()?.width ?? 1440) <= 860;
   await expect(page.locator(".app-shell")).toHaveAttribute("data-layout-mode", isMobile ? "mobile" : "desktop");
   if (isMobile) await mobile.click();
-  const container = page.locator(isMobile ? ".mobile-menu-drawer" : ".app-sidebar");
+  const container = page.locator(isMobile ? ".osan-mobile-tools nav" : ".app-sidebar");
   await expect(container).toBeVisible();
   const parent = container.getByRole("button", { name: "인테리어 부스바", exact: true });
   if (await parent.getAttribute("aria-expanded") !== "true") await parent.click();
-  await container.locator(".app-nav-children, .mobile-menu-children").getByRole("button", { name: labels[name] ?? name, exact: true }).click();
+  await container.locator(".app-nav-children, .shared-mobile-children").getByRole("button", { name: labels[name] ?? name, exact: true }).click();
 }
 
 function fixture(canWrite = true): BusbarWorkspace {

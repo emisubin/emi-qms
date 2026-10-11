@@ -65,7 +65,11 @@ public static class SeedIdentityData
         new(new Guid("30000000-0000-0000-0000-000000000083"), QmsPermissions.G2DeliveryUpdate, "Update G2 delivery quantities"),
         new(new Guid("30000000-0000-0000-0000-000000000084"), QmsPermissions.G2AttendanceUpdate, "Update G2 attendance quantities"),
         new(new Guid("30000000-0000-0000-0000-000000000085"), QmsPermissions.G2InventoryManage, "Manage G2 physical inventory counts"),
-        new(new Guid("30000000-0000-0000-0000-000000000086"), QmsPermissions.G2TargetManage, "Manage G2 production and inventory targets")
+        new(new Guid("30000000-0000-0000-0000-000000000086"), QmsPermissions.G2TargetManage, "Manage G2 production and inventory targets"),
+        new(new Guid("30000000-0000-0000-0000-000000000087"), QmsPermissions.G2ProductionPlanUpdate, "Update G2 daily production plans"),
+        new(new Guid("30000000-0000-0000-0000-000000000088"), QmsPermissions.G2DeliveryPlanUpdate, "Update G2 daily delivery plans"),
+        new(new Guid("30000000-0000-0000-0000-000000000089"), QmsPermissions.G2PlanNoteUpdate, "Update G2 daily plan notes"),
+        new(new Guid("30000000-0000-0000-0000-000000000090"), QmsPermissions.G2NoteUpdate, "Update G2 daily actual and row notes")
     ];
 
     public static readonly IReadOnlyList<QmsProject> Projects =
@@ -113,11 +117,14 @@ public static class SeedIdentityData
                 QmsPermissions.PendingManage,
                 QmsPermissions.SalesSettle,
                 QmsPermissions.G2Read,
-                QmsPermissions.G2ProductionUpdate,
                 QmsPermissions.G2DeliveryUpdate,
                 QmsPermissions.G2AttendanceUpdate,
                 QmsPermissions.G2InventoryManage,
-                QmsPermissions.G2TargetManage
+                QmsPermissions.G2TargetManage,
+                QmsPermissions.G2ProductionPlanUpdate,
+                QmsPermissions.G2DeliveryPlanUpdate,
+                QmsPermissions.G2PlanNoteUpdate,
+                QmsPermissions.G2NoteUpdate
             ],
             [QmsRoles.Design] =
             [
@@ -169,7 +176,10 @@ public static class SeedIdentityData
                 QmsPermissions.G2ProductionUpdate,
                 QmsPermissions.G2AttendanceUpdate,
                 QmsPermissions.G2InventoryManage,
-                QmsPermissions.G2TargetManage
+                QmsPermissions.G2TargetManage,
+                QmsPermissions.G2ProductionPlanUpdate,
+                QmsPermissions.G2PlanNoteUpdate,
+                QmsPermissions.G2NoteUpdate
             ],
             [QmsRoles.Quality] =
             [
@@ -179,7 +189,10 @@ public static class SeedIdentityData
                 QmsPermissions.QualityApprove,
                 QmsPermissions.PendingRead,
                 QmsPermissions.PendingManage,
-                QmsPermissions.G2Read
+                QmsPermissions.G2Read,
+                QmsPermissions.G2ProductionUpdate,
+                QmsPermissions.G2InventoryManage,
+                QmsPermissions.G2NoteUpdate
             ],
             [QmsRoles.Logistics] =
             [
@@ -188,8 +201,7 @@ public static class SeedIdentityData
                 QmsPermissions.LogisticsShip,
                 QmsPermissions.PendingRead,
                 QmsPermissions.PendingManage,
-                QmsPermissions.G2Read,
-                QmsPermissions.G2DeliveryUpdate
+                QmsPermissions.G2Read
             ],
             [QmsRoles.ReadOnly] =
             [

@@ -1,0 +1,36 @@
+/* Integration only. Visual declarations live in the verbatim approved source derivatives.
+   Reset inherited application component rules before applying the original design. */
+#g2-approved-scope :where(.g2-page-content *:not(col):not(colgroup):not(svg):not(svg *), .osan-menu-heading-actions *:not(svg):not(svg *)){all:revert!important;box-sizing:border-box!important}
+#g2-approved-scope{display:block;min-width:0}
+#g2-approved-scope .g2-approved{box-sizing:border-box!important}
+#g2-approved-scope [hidden]{display:none!important}
+#g2-approved-scope button:disabled{cursor:not-allowed!important;opacity:.5!important}
+#g2-approved-scope .g2-form-error{color:#a61920!important;font-size:12px!important;line-height:1.6!important;margin:8px 0!important}
+#g2-approved-scope .approved-native-layer{width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;border:0!important;margin:0!important;box-sizing:border-box!important;background:transparent!important}
+#g2-approved-scope .approved-native-layer::backdrop{background:rgba(0,0,0,.32)}
+#g2-approved-scope .approved-native-dialog::backdrop{background:rgba(0,0,0,.32)}
+#g2-approved-scope .approved-native-layer .dialogbody{min-height:0!important}
+#g2-approved-scope #input-sheet>button:not(#sheet-cancel){display:block!important;width:100%!important;border:0!important;border-radius:0!important;border-bottom:1px solid #eee!important;min-height:55px!important;font-size:16px!important;color:#b71f28!important}
+#g2-approved-scope #month-picker .form-row>span{font-weight:500!important}
+#g2-approved-scope .g2-approved .month-block>.query-title{font-size:12px!important;color:#666!important;margin:0!important}
+/* The application owns the real Osan shell; the prototype owns all G2 content spacing. */
+@media(min-width:861px){
+ #g2-approved-scope .g2-approved{font-family:Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif!important;color:#282828!important;font-size:13px!important;line-height:normal!important;margin:0!important}
+ #g2-approved-scope .modal-layer .dialog{box-sizing:border-box!important}
+}
+@media(max-width:860px){
+ #g2-approved-scope{flex:1;min-height:0;display:flex;flex-direction:column}
+ #g2-approved-scope .g2-approved{font:14px Arial,'Apple SD Gothic Neo',sans-serif!important;color:#282828!important;height:100%!important;width:100%!important;min-height:0!important;flex:1!important}
+ #g2-approved-scope #layer .dialoghead h2{font-size:17px!important}
+ #g2-approved-scope #layer .form-row>span{display:block!important;font-size:12px!important;margin-bottom:5px!important}
+ #g2-approved-scope #layer .form-row input:not([type=checkbox]){font-size:16px!important}
+ #g2-approved-scope #layer textarea{font-size:16px!important}
+ #g2-approved-scope #layer .form-row{display:block!important}
+ #g2-approved-scope #day-popup .popup-memos p,#g2-approved-scope #day-popup .popup-memos .row-note>span{max-height:34px!important;overflow:auto!important}
+ #g2-approved-scope #day-popup .dialogfoot .primary{width:100%!important}
+ #g2-approved-scope #daily{display:flex!important;flex-direction:column!important;flex:1!important;min-height:0!important;padding-bottom:max(8px,env(safe-area-inset-bottom))!important}
+ #g2-approved-scope .calendar{grid-template-rows:24px repeat(var(--weeks),minmax(0,1fr))!important}
+}
+@media(max-width:860px) and (max-height:450px){
+ #g2-approved-scope #layer .dialogbody,#g2-approved-scope #day-popup-body{overflow:auto!important}
+}

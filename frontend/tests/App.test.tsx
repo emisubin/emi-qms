@@ -63,7 +63,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
-    expect(screen.getByAltText('EMI PMS - Project Management System')).toBeInTheDocument();
+    expect(screen.getByAltText('EMI')).toBeInTheDocument();
     const companyInformation = screen.getByLabelText('회사 정보');
     expect(within(companyInformation).getByText('(주) 이엠아이')).toBeInTheDocument();
     expect(within(companyInformation).getByText('경기도 오산시 세남로길 14-11 (세교동 63-1)')).toBeInTheDocument();
@@ -914,7 +914,7 @@ describe('App', () => {
     expect(screen.getByText('표시할 알림이 없습니다.')).toBeInTheDocument();
   });
 
-  it('uses a top-left trigger with an accessible permission-derived mobile drawer', async () => {
+  it('uses the shared Osan floating menu with permission-derived destinations', async () => {
     mockMobileViewport(true);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
@@ -944,8 +944,8 @@ describe('App', () => {
 
     fireEvent.click(menuButton);
 
-    const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
-    const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
+    const menuDrawer = await screen.findByRole('navigation', { name: '빠른 이동' });
+    const mobileNavigation = menuDrawer;
     expect(menuButton).toHaveAttribute('aria-expanded', 'true');
     expect(within(menuDrawer).getByLabelText('개발 사용자')).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toBeInTheDocument();
@@ -959,31 +959,29 @@ describe('App', () => {
     expect(within(mobileNavigation).getByRole('button', { name: '품질' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '물류' })).toBeInTheDocument();
     expect(within(mobileNavigation).getByRole('button', { name: '알림 1건' })).toBeInTheDocument();
-    expect(Array.from(menuDrawer.querySelectorAll('.mobile-menu-item-shape')).map((shape) => shape.getAttribute('data-shape-role')))
-      .toEqual(expect.arrayContaining(['active', 'control']));
-    expect(menuDrawer.querySelector('[data-shape]')).not.toBeInTheDocument();
+    expect(document.querySelector('.mobile-menu-drawer')).not.toBeInTheDocument();
     await waitFor(() => expect(within(mobileNavigation).getByRole('button', { name: '홈' })).toHaveFocus());
 
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument());
+    fireEvent.keyDown(within(mobileNavigation).getByRole('button', { name: '홈' }), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '빠른 이동' })).not.toBeInTheDocument());
     await waitFor(() => expect(menuButton).toHaveFocus());
     expect(menuButton).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(menuButton);
-    const reopenedDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
+    const reopenedDrawer = await screen.findByRole('navigation', { name: '빠른 이동' });
     fireEvent.click(within(reopenedDrawer).getByRole('button', { name: '생산관리' }));
     expect(within(reopenedDrawer).getByRole('button', { name: '생산관리' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('dialog', { name: '전체 업무 메뉴' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '빠른 이동' })).toBeInTheDocument();
     fireEvent.click(within(reopenedDrawer).getByRole('button', { name: '생산계획' }));
     expect(await screen.findByLabelText('생산계획 요약')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: '빠른 이동' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/production-planning/plans');
 
     fireEvent.click(menuButton);
-    const logoDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
-    fireEvent.click(within(logoDrawer).getByRole('button', { name: 'EMI PMS 메뉴 로고로 홈 이동' }));
+    const logoDrawer = await screen.findByRole('navigation', { name: '빠른 이동' });
+    fireEvent.click(within(logoDrawer).getByRole('button', { name: '홈' }));
     expect(await screen.findByRole('heading', { name: '업무 홈' })).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: '빠른 이동' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/');
   });
 
@@ -1005,8 +1003,8 @@ describe('App', () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }));
-    const menuDrawer = await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
-    const mobileNavigation = within(menuDrawer).getByRole('navigation', { name: '모바일 공통 메뉴' });
+    const menuDrawer = await screen.findByRole('navigation', { name: '빠른 이동' });
+    const mobileNavigation = menuDrawer;
     // Anchored to the full accessible name (with an optional badge suffix) so
     // department parents cannot collide with always-visible workspace children
     // such as 제조 vs 제조 투입.

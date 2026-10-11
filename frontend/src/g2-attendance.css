@@ -1,0 +1,17 @@
+/* Approved attendance content; page chrome and modal/calendar base styles are shared. */
+#g2-approved-scope .g2-attendance .query-bar{margin-bottom:22px!important}
+#g2-approved-scope .g2-attendance .attendance-day-total{font-size:18px!important}
+#g2-approved-scope .g2-attendance .date-edit{border:0!important;background:transparent!important;min-height:20px!important;padding:0!important;color:inherit!important}
+#g2-approved-scope .g2-attendance .form-row input[type=number]{text-align:center!important}
+#g2-approved-scope .g2-attendance .attendance-totals{display:flex!important;justify-content:space-between!important}
+#g2-approved-scope .g2-attendance .attendance-totals b{margin-left:8px!important}
+#g2-approved-scope .g2-attendance tr.future{cursor:default!important}
+#g2-approved-scope .g2-attendance tr.today{background:#fffaf7!important}
+@media(min-width:861px){#g2-approved-scope .g2-attendance .attendance-entry-date{max-width:200px!important}}
+@media(max-width:860px){
+#g2-approved-scope .g2-attendance .month-block,#g2-approved-scope .g2-attendance .calendar{margin:0!important}
+#g2-approved-scope .g2-attendance .list-caption,#g2-approved-scope .g2-attendance .calendar-legend{padding-left:0!important;padding-right:0!important}
+#g2-approved-scope .g2-attendance .calendar .cal-metrics{display:flex!important;flex:1!important;flex-direction:column!important;justify-content:center!important;align-items:center!important;gap:3px!important;width:100%!important}
+#g2-approved-scope .g2-attendance #day-popup .attendance-total{display:flex!important;justify-content:flex-end!important;align-items:center!important;gap:6px!important}
+#g2-approved-scope .g2-attendance .attendance-totals b{display:block!important;margin:4px 0 0!important;text-align:center!important}
+}

@@ -27,6 +27,7 @@ public sealed class MaintenanceWorkerGateTests
 
         var disabled = Configuration(new Dictionary<string, string?>
         {
+            ["G2Materials:Retention:Enabled"] = "false",
             ["AdminDeletionPurge:Enabled"] = "false"
         });
         Assert.False(MutationWorkerActivationPolicy.Evaluate(disabled, reviewSafeEnabled: false).AdminDeletionPurgeWorkerEnabled);
@@ -162,6 +163,7 @@ public sealed class MaintenanceWorkerGateTests
             ["ReviewSafe:Enabled"] = "false",
             ["Notifications:Dispatch:Enabled"] = "false",
             ["Notifications:Escalation:Enabled"] = "false",
+            ["G2Materials:Retention:Enabled"] = "false",
             ["AdminDeletionPurge:Enabled"] = "false"
         };
     }

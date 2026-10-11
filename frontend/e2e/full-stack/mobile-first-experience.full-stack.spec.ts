@@ -107,7 +107,7 @@ test('TASK-MOBILE-002: mobile-first composition covers the seven core field rout
   await expect(page.getByLabel('지금 처리할 업무')).toBeVisible();
   await expect(page.getByLabel('내 부서 핵심 지표')).toBeVisible();
   await expect(page.getByRole('navigation', { name: '공통 메뉴' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: '모바일 공통 메뉴' })).toBeHidden();
+  await expect(page.getByRole('navigation', { name: '빠른 이동' })).toBeHidden();
   await capture(page, '12-home-desktop-reference-1440.png');
 
   await page.goto('/projects');
@@ -126,7 +126,7 @@ test.describe('TASK-MOBILE-002 coarse pointer desktop', () => {
     await expect(shell).toHaveAttribute('data-layout-mode', 'desktop');
     await expect(shell).toHaveAttribute('data-touch-optimized', 'true');
     await expect(page.getByRole('navigation', { name: '공통 메뉴' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: '모바일 공통 메뉴' })).toBeHidden();
+    await expect(page.getByRole('navigation', { name: '빠른 이동' })).toBeHidden();
     await assertTouchTarget(page.getByRole('button', { name: '신규 프로젝트' }));
     await assertTouchTargets(page.locator('button'));
     await capture(page, '14-coarse-pointer-desktop-1024.png');
@@ -137,12 +137,12 @@ async function selectDevelopmentUserFromMobileStatus(page: Page, userKey: string
   await page.waitForLoadState('networkidle');
   const trigger = page.getByRole('button', { name: '메뉴 열기' });
   await trigger.click();
-  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const drawer = page.getByRole('navigation', { name: '빠른 이동' });
   const selector = drawer.getByLabel('개발 사용자');
   await expect(drawer).toBeVisible();
   await expect(selector).toBeVisible();
   if (await selector.inputValue() === userKey) {
-    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+    await page.getByRole('button', { name: '메뉴 닫기', exact: true }).click();
   } else {
     await selector.selectOption(userKey);
   }
@@ -164,8 +164,8 @@ async function assertMobileShell(page: Page, activeLabel: string) {
   await assertTouchTarget(menuTrigger);
 
   await menuTrigger.click();
-  const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
-  const navigation = menuDrawer.getByRole('navigation', { name: '모바일 공통 메뉴' });
+  const menuDrawer = page.getByRole('navigation', { name: '빠른 이동' });
+  const navigation = menuDrawer;
   await expect(menuDrawer).toBeVisible();
   await expect(navigation.locator('[aria-current="page"]')).toContainText(activeLabel);
   await assertTouchTargets(navigation.getByRole('button'));

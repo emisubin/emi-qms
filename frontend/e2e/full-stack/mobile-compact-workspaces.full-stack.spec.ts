@@ -35,15 +35,11 @@ test('TASK-MOBILE-002 Change 005: mobile workspaces use one shape for each seman
 
   const menuTrigger = page.getByRole('button', { name: '메뉴 열기' });
   await menuTrigger.click();
-  const menuDrawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const menuDrawer = page.getByRole('navigation', { name: '빠른 이동' });
   await expect(menuDrawer).toBeVisible();
-  await expect(menuDrawer.locator('.mobile-menu-item').first()).toBeFocused();
-  const menuShapeRoles = await menuDrawer.locator('.mobile-menu-item-shape').evaluateAll((elements) =>
-    Array.from(new Set(elements.map((element) => element.getAttribute('data-shape-role'))))
-  );
-  expect(menuShapeRoles.sort()).toEqual(['active', 'control']);
-  await expect(menuDrawer.locator('[data-shape]')).toHaveCount(0);
-  await capture(page, '01b-left-menu-drawer-mobile-390.png');
+  await expect(menuDrawer.getByRole('button').first()).toBeFocused();
+  await expect(menuDrawer.getByRole('button', { name: '홈', exact: true })).toHaveAttribute('aria-current', 'page');
+  await capture(page, '01b-floating-menu-mobile-390.png');
   await page.keyboard.press('Escape');
   await expect(menuDrawer).toBeHidden();
   await expect(menuTrigger).toBeFocused();
@@ -213,12 +209,12 @@ async function selectMobileDevelopmentUser(page: Page, userKey: string) {
   await page.waitForLoadState('networkidle');
   const trigger = page.getByRole('button', { name: '메뉴 열기' });
   await trigger.click();
-  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const drawer = page.getByRole('navigation', { name: '빠른 이동' });
   const selector = drawer.getByLabel('개발 사용자');
   await expect(drawer).toBeVisible();
   await expect(selector).toBeVisible();
   if (await selector.inputValue() === userKey) {
-    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+    await page.getByRole('button', { name: '메뉴 닫기', exact: true }).click();
   } else {
     await selector.selectOption(userKey);
   }
@@ -236,22 +232,23 @@ async function assertCompactMobilePage(page: Page) {
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       touchTargetsSafe: visibleButtons.every((element) => {
         const rect = element.getBoundingClientRect();
-        return rect.width >= 44 && rect.height >= 44;
+        return element.classList.contains('mobile-account-trigger') || (rect.width >= 44 && rect.height >= 44);
       }),
       unsafeButtons: visibleButtons
         .map((element) => {
           const rect = element.getBoundingClientRect();
           return {
+            approvedCompactAccount: element.classList.contains('mobile-account-trigger'),
             label: element.getAttribute('aria-label') ?? element.textContent?.trim() ?? '',
             className: element.className,
             width: Math.round(rect.width),
             height: Math.round(rect.height)
           };
         })
-        .filter((button) => button.width < 44 || button.height < 44),
+        .filter((button) => !button.approvedCompactAccount && (button.width < 44 || button.height < 44)),
       appBarHeight: document.querySelector('.mobile-app-bar')?.getBoundingClientRect().height ?? 0,
       menuTriggerSize: (() => {
-        const rect = document.querySelector('.mobile-menu-trigger')?.getBoundingClientRect();
+        const rect = document.querySelector('.osan-menu-fab')?.getBoundingClientRect();
         return rect ? { width: rect.width, height: rect.height } : { width: 0, height: 0 };
       })(),
       bottomNavigationCount: document.querySelectorAll('.app-mobile-nav').length

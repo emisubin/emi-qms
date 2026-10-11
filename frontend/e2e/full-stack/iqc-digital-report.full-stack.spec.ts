@@ -63,7 +63,7 @@ test('TASK-009A: mobile-first IQC report captures checklist, photo, immutable re
   await page.goto('/projects');
   await ensureMobileUser(page, 'dev-quality');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  const mobileMenu = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const mobileMenu = page.getByRole('navigation', { name: '빠른 이동' });
   await mobileMenu.getByRole('button', { name: '품질' }).click();
   await page.getByRole('button', { name: /수입검사\(IQC\)/u }).click();
   await page.getByTestId('quality-iqc-dashboard')
@@ -152,12 +152,12 @@ async function reportId(request: APIRequestContext, attemptId: string) {
 async function ensureMobileUser(page: Page, userKey: string) {
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: '메뉴 열기' }).click();
-  const drawer = page.getByRole('dialog', { name: '전체 업무 메뉴' });
+  const drawer = page.getByRole('navigation', { name: '빠른 이동' });
   const selector = drawer.getByLabel('개발 사용자');
   await expect(drawer).toBeVisible();
   await expect(selector).toBeVisible();
   if (await selector.inputValue() === userKey) {
-    await drawer.getByRole('button', { name: '메뉴 닫기' }).click();
+    await page.getByRole('button', { name: '메뉴 닫기', exact: true }).click();
   } else {
     await selector.selectOption(userKey);
   }

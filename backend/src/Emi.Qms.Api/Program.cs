@@ -145,6 +145,8 @@ builder.Services.AddSingleton<DevelopmentIdentitySeeder>();
 builder.Services.AddScoped<UserProfilePhotoStore>();
 builder.Services.AddScoped<HomeMetricsStore>();
 builder.Services.AddScoped<G2OperationsStore>();
+builder.Services.AddScoped<G2MaterialStore>();
+if (mutationWorkerActivation.G2MaterialRetentionWorkerEnabled) builder.Services.AddHostedService<G2MaterialRetentionWorker>();
 builder.Services.AddScoped<NoticeStore>();
 builder.Services.AddScoped<DeploymentMaintenanceStore>();
 builder.Services.AddScoped<OsanPolicyStore>();
@@ -277,6 +279,7 @@ DevelopmentFeaturePolicy.ThrowIfInvalidActivation(
 var maintenanceCommand = args.SingleOrDefault(DeploymentMaintenanceCli.Commands.Contains);
 var migrateOnly = args.Contains("--migrate-only", StringComparer.Ordinal);
 var deploymentDrainOnly = args.Contains("--deployment-drain-check", StringComparer.Ordinal);
+var provisionG2MaterialCatalogOnly = args.Contains("--provision-g2-material-catalog", StringComparer.Ordinal);
 var bootstrapDatabaseRolesOnly = args.Contains("--bootstrap-database-roles", StringComparer.Ordinal);
 var backfillBusinessUnitMembershipsOnly = args.Contains("--backfill-business-unit-memberships", StringComparer.Ordinal);
 var inspectBusinessUnitMembershipBackfillOnly = args.Contains(
@@ -288,6 +291,7 @@ if (new[]
     {
         migrateOnly,
         deploymentDrainOnly,
+        provisionG2MaterialCatalogOnly,
         bootstrapDatabaseRolesOnly,
         backfillBusinessUnitMembershipsOnly,
         inspectBusinessUnitMembershipBackfillOnly,
@@ -299,7 +303,8 @@ if (new[]
     return;
 }
 
-if ((migrateOnly || deploymentDrainOnly) && (splitDatabaseRolesEnabled || businessUnitConfiguration.Enabled))
+if ((migrateOnly || deploymentDrainOnly || provisionG2MaterialCatalogOnly)
+    && (splitDatabaseRolesEnabled || businessUnitConfiguration.Enabled))
 {
     try
     {
@@ -389,6 +394,34 @@ if (bootstrapDatabaseRolesOnly)
     else
         await bootstrapper.BootstrapAsync(CancellationToken.None);
     app.Logger.LogInformation("Database role bootstrap completed.");
+    return;
+}
+
+if (provisionG2MaterialCatalogOnly)
+{
+    try
+    {
+        var provisioner = new G2MaterialCatalogProvisioner(
+            app.Configuration,
+            app.Services.GetRequiredService<DatabaseConnectionStringProvider>(),
+            app.Services.GetRequiredService<DatabaseMigrationCatalog>());
+        var count = await provisioner.ProvisionAsync(CancellationToken.None);
+        app.Logger.LogInformation(
+            "G2 material catalog provisioning completed. Code=g2_material_catalog_provisioned; ItemCount={ItemCount}.",
+            count);
+    }
+    catch (G2MaterialCatalogProvisioningException exception)
+    {
+        app.Logger.LogError("G2 material catalog provisioning failed. Code={FailureCode}.", exception.Code);
+        Environment.ExitCode = 1;
+    }
+    catch (Exception exception) when (exception is Npgsql.NpgsqlException
+        or InvalidOperationException or ArgumentException)
+    {
+        app.Logger.LogError(
+            "G2 material catalog provisioning failed. Code=g2_material_catalog_database_unavailable.");
+        Environment.ExitCode = 1;
+    }
     return;
 }
 
@@ -579,6 +612,7 @@ app.MapBusinessUnitAccessEndpoints();
 app.MapAuditEndpoints();
 app.MapHomeMetricsEndpoints();
 app.MapG2OperationsEndpoints();
+app.MapG2MaterialEndpoints();
 app.MapNoticeEndpoints();
 app.MapOsanNoticeEndpoints();
 app.MapDeploymentMaintenanceEndpoints();

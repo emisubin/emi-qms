@@ -8,8 +8,6 @@ using Emi.Qms.Api.PanelInformation;
 using Emi.Qms.Api.PanelQr;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 using ZXing;
 
@@ -1496,17 +1494,7 @@ public sealed class PanelInformationApiTests
     {
         const string scanUrl = "https://qms.example.test/q/0123456789abcdefghijklmnopqrstuvwxyz_ABCDEF?businessUnit=CHEONGJU";
         var renderer = new PanelQrRenderer();
-        using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
-        var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
-        {
-            Options =
-            {
-                PossibleFormats = [BarcodeFormat.QR_CODE],
-                TryHarder = true
-            }
-        };
-
-        var decoded = reader.Decode(image);
+        var decoded = TestImageCodec.DecodeQr(renderer.RenderPng(scanUrl));
 
         Assert.NotNull(decoded);
         Assert.Equal(BarcodeFormat.QR_CODE, decoded.BarcodeFormat);

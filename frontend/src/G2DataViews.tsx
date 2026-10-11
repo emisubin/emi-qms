@@ -49,10 +49,10 @@ export function G2HorizontalTable({ days, caption, rows, holidays = EMPTY_G2_HOL
       <caption className="sr-only">{caption}</caption>
       <thead><tr><th scope="col">항목</th>{days.map(day => {
         const redDay = isG2RedDay(day.date, holidays);
-        return <th key={day.date} scope="col" className={redDay ? 'g2-red-day' : undefined} title={redDay ? g2RedDayTitle(day.date, holidays) : undefined}><span>{formatG2Date(day.date)}</span>{day.isForecast ? <small>예상</small> : null}</th>;
+        return <th key={day.date} scope="col" className={redDay ? 'g2-red-day' : undefined} title={redDay ? g2RedDayTitle(day.date, holidays) : undefined}><span>{formatG2Date(day.date)}</span></th>;
       })}</tr></thead>
       <tbody>{rows.map((row, index) => <tr key={row.key ?? (typeof row.label === 'string' ? row.label : index)} className={row.rowClassName}><th scope="row">{row.label}</th>{days.map(day => {
-        const classes = [row.cellClassName?.(day), day.isForecast ? 'g2-forecast-column' : null, isG2RedDay(day.date, holidays) ? 'g2-red-day-column' : null].filter(Boolean).join(' ');
+        const classes = [row.cellClassName?.(day), isG2RedDay(day.date, holidays) ? 'g2-red-day-column' : null].filter(Boolean).join(' ');
         return <td key={day.date} className={classes || undefined}>{row.value(day)}</td>;
       })}</tr>)}</tbody>
     </table>

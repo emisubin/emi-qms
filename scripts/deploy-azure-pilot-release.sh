@@ -27,6 +27,7 @@ for variable_name in "${required_environment[@]}"; do
   fi
 done
 
+RUN_G2_CATALOG_PROVISION="${RUN_G2_CATALOG_PROVISION:-false}"
 BUSINESS_SCHEMA_SEPARATION_APPROVED="${BUSINESS_SCHEMA_SEPARATION_APPROVED:-false}"
 ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256="${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256:-}"
 if [[ -n "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" \
@@ -36,6 +37,7 @@ if [[ -n "${ACCEPTED_HISTORICAL_OSAN_MAIL_ATTEMPT_SHA256}" \
 fi
 
 for release_flag in \
+  "${RUN_G2_CATALOG_PROVISION}" \
   "${BUSINESS_SCHEMA_SEPARATION_APPROVED}" \
   "${DEPLOY_BACKEND}" \
   "${DEPLOY_FRONTEND}" \
@@ -48,6 +50,11 @@ for release_flag in \
     exit 65
   fi
 done
+
+if [[ "${RUN_G2_CATALOG_PROVISION}" == true && "${RUN_MIGRATION}" != true ]]; then
+  printf 'azurePilotRelease=INVALID_RELEASE_SCOPE\n' >&2
+  exit 65
+fi
 
 if [[ ( "${RUN_DATABASE_BOOTSTRAP}" == 'true' || "${RUN_MEMBERSHIP_BACKFILL}" == 'true' ) \
   && "${RUN_MIGRATION}" != 'true' ]]; then
@@ -311,7 +318,7 @@ load_job_execution_override() {
     fi
     seen_environment_names+="${normalized_environment_name}"$'\n'
     case "${normalized_environment_name}" in
-      database:migrationtarget|database:bootstraptarget|database:businessschemaseparationapproved|database:recoverypostgreshost|deploymentdrain:*|maintenance:*)
+      database:migrationtarget|database:bootstraptarget|database:businessschemaseparationapproved|database:recoverypostgreshost|deploymentdrain:*|maintenance:*|g2materials:provisionreleaseid)
         job_override_configuration_error='stale-execution-configuration'
         return 1 ;;
     esac
@@ -971,6 +978,30 @@ if [[ "${RUN_MIGRATION}" == 'true' ]]; then
   if ! run_database_job "${MIGRATION_JOB_NAME}" Database__MigrationTarget --migrate-only; then
     printf 'azurePilotRelease=MIGRATION_FAILED\n' >&2
     exit 74
+  fi
+fi
+
+# Explicit first installation only. The typed CLI reads the packaged blank
+# template, rejects a nonempty catalog, and never writes stock counts.
+if [[ "${RUN_G2_CATALOG_PROVISION}" == true ]]; then
+  if ! load_job_execution_override "${MIGRATION_JOB_NAME}" database; then
+    printf 'azurePilotRelease=G2_CATALOG_CONFIGURATION_INVALID\n' >&2
+    exit 81
+  fi
+  catalog_execution="$(azure_read containerapp job start \
+    --resource-group "${AZURE_RESOURCE_GROUP}" --name "${MIGRATION_JOB_NAME}" \
+    --container-name "${MIGRATION_JOB_NAME}" --image "${BACKEND_RELEASE_IMAGE}" \
+    --cpu "${job_override_cpu}" --memory "${job_override_memory}" \
+    --env-vars "${job_override_environment[@]}" \
+    "Database__MigrationTarget=CHEONGJU" \
+    "Database__BusinessSchemaSeparationApproved=false" \
+    "Database__RecoveryPostgresHost=${recovery_postgres_host}" \
+    "G2Materials__ProvisionReleaseId=${MAINTENANCE_RELEASE_ID}" \
+    --args=--provision-g2-material-catalog --query name)" || catalog_execution=''
+  if [[ -z "${catalog_execution}" || "${catalog_execution}" =~ [[:space:]] ]] \
+    || ! wait_for_job "${MIGRATION_JOB_NAME}" "${catalog_execution}"; then
+    printf 'azurePilotRelease=G2_CATALOG_PROVISION_FAILED\n' >&2
+    exit 81
   fi
 fi
 

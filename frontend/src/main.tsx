@@ -17,6 +17,7 @@ import './design-system/tokens.css';
 import './design-system/wireframe.css';
 import './osan-progress.css';
 import './osan-mobile-shell.css';
+import './shared-shell.css';
 import './auth-figma.css';
 import './osan-ui-tokens.css';
 import './osan-page-controls.css';

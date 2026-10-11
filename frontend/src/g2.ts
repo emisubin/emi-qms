@@ -6,7 +6,7 @@ export type G2MetricValue = {
 };
 
 export type G2InventoryCount = {
-  quantity: number;
+  quantity: number | null;
   version: number;
   updatedAtUtc: string;
   updatedByDisplayName: string;
@@ -22,6 +22,11 @@ export type G2Target = {
 };
 
 export type G2Day = {
+  productionPlan?: G2MetricValue | null;
+  deliveryPlan?: G2MetricValue | null;
+  planNote?: G2Note | null;
+  actualNote?: G2Note | null;
+  rowNote?: G2Note | null;
   date: string;
   isForecast: boolean;
   morningProduction: G2MetricValue | null;
@@ -36,7 +41,7 @@ export type G2Day = {
   afternoonContractorAttendance: G2MetricValue | null;
   productionTotal: number | null;
   repairTotal: number | null;
-  defectInventory: number;
+  defectInventory: number | null;
   morningAttendanceTotal: number | null;
   afternoonAttendanceTotal: number | null;
   attendanceTotal: number | null;
@@ -86,3 +91,14 @@ export function formatG2Modified(value: G2MetricValue | G2InventoryCount | G2Tar
   if (!value) return '아직 입력하지 않음';
   return `${value.updatedByDisplayName} · ${new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value.updatedAtUtc))}`;
 }
+
+export type G2Note = { text: string | null; version: number; updatedAtUtc: string; updatedByDisplayName: string };
+export type G2WorkspaceRequest = SaveG2OperationsRequest & {
+  productionPlan?: G2MetricChange; deliveryPlan?: G2MetricChange;
+  physicalCount?: G2MetricChange; defectInventoryCount?: G2MetricChange;
+  planNote?: { text: string | null; expectedVersion: number | null };
+  actualNote?: { text: string | null; expectedVersion: number | null };
+  rowNote?: { text: string | null; expectedVersion: number | null };
+};
+export type G2PlansRequest = { from: string; to: string; excludeSundays: boolean; overwrite: boolean; productionPlan?: number | null; deliveryPlan?: number | null; planNote?: string | null };
+export type G2WriteAccess = { production: boolean; delivery: boolean; productionPlan: boolean; deliveryPlan: boolean; planNote: boolean; note: boolean; inventory: boolean };

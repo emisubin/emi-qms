@@ -1,0 +1,14 @@
+/* Shared content-height input shell. Approved 2026-10-12; original snapshots stay intact. */
+@media(max-width:860px){
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input{
+  position:fixed!important;inset:auto!important;top:calc(var(--g2-input-top,0px) + var(--g2-input-height,100dvh)/2)!important;left:50%!important;transform:translate(-50%,-50%)!important;
+  margin:0!important;padding:0!important;width:calc(100% - 32px)!important;max-width:406px!important;height:auto!important;min-height:0!important;max-height:calc(var(--g2-input-height,100dvh) - 32px)!important;
+  border:0!important;border-radius:12px!important;background:#fff!important;overflow:hidden!important;box-shadow:0 14px 48px #0004!important;
+ }
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input[open]{display:flex!important;flex-direction:column!important}
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input :is(.dialog,#entry-form,#editform){
+  display:flex!important;flex-direction:column!important;flex:0 1 auto!important;width:100%!important;min-height:0!important;height:auto!important;max-height:inherit!important;
+ }
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input :is(.dialogbody,.mi-body){flex:0 1 auto!important;min-height:0!important;overflow-y:auto!important;overscroll-behavior:contain!important}
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input :is(.dialoghead,.dialogfoot,.mi-header,.mi-footer){flex-shrink:0!important}
+}

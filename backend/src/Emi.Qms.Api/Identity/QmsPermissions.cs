@@ -39,4 +39,8 @@ public static class QmsPermissions
     public const string G2AttendanceUpdate = "G2.Attendance.Update";
     public const string G2InventoryManage = "G2.Inventory.Manage";
     public const string G2TargetManage = "G2.Target.Manage";
+    public const string G2ProductionPlanUpdate = "G2.ProductionPlan.Update";
+    public const string G2DeliveryPlanUpdate = "G2.DeliveryPlan.Update";
+    public const string G2PlanNoteUpdate = "G2.PlanNote.Update";
+    public const string G2NoteUpdate = "G2.Note.Update";
 }

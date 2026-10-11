@@ -197,7 +197,7 @@ describe('FABLE department navigation: whole-parent disclosure accordion', () =>
   });
 });
 
-describe('FABLE mobile drawer: whole-parent disclosure (390px layout mode)', () => {
+describe('Shared mobile floating navigation: whole-parent disclosure (390px layout mode)', () => {
   beforeEach(() => {
     window.localStorage.clear();
     window.history.pushState(null, '', '/materials/kitting');
@@ -221,7 +221,7 @@ describe('FABLE mobile drawer: whole-parent disclosure (390px layout mode)', () 
 
   async function openDrawer() {
     fireEvent.click(await screen.findByRole('button', { name: '메뉴 열기' }));
-    return await screen.findByRole('dialog', { name: '전체 업무 메뉴' });
+    return await screen.findByRole('navigation', { name: '빠른 이동' });
   }
 
   it('opens collapsed with the active department current but not expanded', async () => {
@@ -241,7 +241,7 @@ describe('FABLE mobile drawer: whole-parent disclosure (390px layout mode)', () 
     const materials = within(menu).getByRole('button', { name: '자재' });
     fireEvent.click(materials);
     expect(materials).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('dialog', { name: '전체 업무 메뉴' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '빠른 이동' })).toBeInTheDocument();
     expect(within(menu).getByRole('button', { name: '패널 키팅' })).toHaveAttribute('aria-current', 'page');
 
     fireEvent.click(within(menu).getByRole('button', { name: '품질' }));
@@ -250,7 +250,7 @@ describe('FABLE mobile drawer: whole-parent disclosure (390px layout mode)', () 
 
     fireEvent.click(within(menu).getByRole('button', { name: '자재' }));
     fireEvent.click(within(menu).getByRole('button', { name: '입고 관리' }));
-    expect(screen.queryByRole('dialog', { name: '전체 업무 메뉴' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: '빠른 이동' })).toBeNull();
 
     menu = await openDrawer();
     expect(within(menu).getByRole('button', { name: '자재' })).toHaveAttribute('aria-expanded', 'false');

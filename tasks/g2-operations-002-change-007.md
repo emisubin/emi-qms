@@ -296,3 +296,6 @@
 
 - 배포 보정 최종 검증: backend build 성공, 내장양식92품목 테스트 및 private기준 전체metadata digest 비교 통과, 신규 catalog disposable DB 2/2 및 retention DB 5/5 통과. 이미지47개 전체hash 검증 통과. runner 합성147/147, shellcheck/actionlint/diff-check 통과. macOS 기본 LibreSSL의 CMS 복호화 검증 실패는 요구된 OpenSSL3으로 실행해 해결했으며 제품 암호화 로직을 낮추지 않음. 테스트용 DB/container/network 모두 정리.
 - 독립 g2_release_review(요청 gpt-6-astra/high, 실제 NOT_REPORTED): 기존 retention P2 해소, 이미지/최초등록CLI/배포runner 추가 확정 P0–P2없음. 실제 DB 및 runner 검증 통과 조건 충족. 사용자 검수 완료 누적 변경과 이 배포 선행 보정을 한 PR로 올리고 필수CI를 최종 회귀로 실행.
+
+- PR #169 / 첫 최종 CI `38154176539`: Frontend 및 Workflow Validation 통과. Backend/Full-stack는 기존 테스트용 ZXing ImageSharp binding의 전이 의존성 `SixLabors.ImageSharp 3.1.11`에 새로 보고된 NU1902/NU1903이 warning-as-error로 차단. 검사 억제 대신 기존 Magick.NET과 ZXing.Net 직접 참조로 테스트의 이미지 fixture/QR 픽셀 해독을 유지하고 취약 의존성을 제거하는 보정 진행. 운영 앱 코드·업무 계약 변경 없음. 공지/팝업은 Announced 유지, 저장 차단/실제 배포 미실행.
+- CI 보정 완료: 테스트만 ImageSharp binding을 제거하고 Magick.NET/RGB24 + ZXing.Net 0.16.11로 전환. PNG RGBA8·메타데이터 없는 fixture와 업로드/다운로드 원본bytes 비교 및 QR실제픽셀/정확URL 검증 유지. restore `-warnaserror` 통과/의존성그래프 ImageSharp없음, QR2/2·사진형식/손상2/2·세DB 통합1/1 통과. Busbar2건은 로컬 전용DB설정 부재로 skip(성공아님), 기존CI 전용harness 확인 대상. 관련일회용DB/container/network 정리 완료. 독립review 추가P0–P2없음. 제품코드/권한/운영데이터 변경없음.

@@ -28,8 +28,6 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 using ZXing;
 
@@ -469,17 +467,7 @@ public sealed partial class OsanProjectRegistrationApiTests
         var urlBuilder = new QrScanUrlBuilder(configuration, new TestWebHostEnvironment("/tmp"));
         var scanUrl = urlBuilder.BuildForPath($"/osan/qr/{projectId:D}/{targetId:D}");
         var renderer = new PanelQrRenderer();
-        using var image = Image.Load<Rgba32>(renderer.RenderPng(scanUrl));
-        var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
-        {
-            Options =
-            {
-                PossibleFormats = [BarcodeFormat.QR_CODE],
-                TryHarder = true
-            }
-        };
-
-        var decoded = reader.Decode(image);
+        var decoded = TestImageCodec.DecodeQr(renderer.RenderPng(scanUrl));
 
         Assert.NotNull(decoded);
         Assert.Equal(BarcodeFormat.QR_CODE, decoded.BarcodeFormat);
@@ -2222,6 +2210,8 @@ public sealed partial class OsanProjectRegistrationApiTests
     public async Task ProgressPhotoValidator_RejectsMismatchCorruptionAndLimits()
     {
         var valid = CreateStructurallyValidPng();
+        Assert.Equal(8, valid[24]);
+        Assert.Equal(6, valid[25]);
         Assert.NotNull((await ValidatePhotoAsync("photo.png", "image/png", valid)).Photo);
         Assert.NotNull((await ValidatePhotoAsync("photo.png", "application/octet-stream", valid)).Photo);
         Assert.NotNull((await ValidatePhotoAsync(
@@ -2265,11 +2255,8 @@ public sealed partial class OsanProjectRegistrationApiTests
         Assert.Null((await ValidatePhotoAsync(
             "dimension.png", "image/png", oversizedDimension)).Photo);
 
-        using var wideImage = new Image<Rgba32>(9000, 1);
-        using var wideStream = new MemoryStream();
-        wideImage.SaveAsPng(wideStream);
         Assert.NotNull((await ValidatePhotoAsync(
-            "wide.png", "image/png", wideStream.ToArray())).Photo);
+            "wide.png", "image/png", TestImageCodec.CreateTransparentImage(9000, 1, MagickFormat.Png))).Photo);
 
         using var interlacedImage = new MagickImage(MagickColors.Red, 1, 1);
         interlacedImage.Settings.Interlace = Interlace.Png;
@@ -2399,12 +2386,7 @@ public sealed partial class OsanProjectRegistrationApiTests
     }
 
     private static byte[] CreateStructurallyValidPng()
-    {
-        using var image = new Image<Rgba32>(1, 1);
-        using var stream = new MemoryStream();
-        image.SaveAsPng(stream);
-        return stream.ToArray();
-    }
+        => TestImageCodec.CreateTransparentImage(1, 1, MagickFormat.Png);
 
     private static Task<(OsanProgressPhotoInput? Photo, string? Error)> ValidatePhotoAsync(
         string fileName,
@@ -2498,12 +2480,7 @@ public sealed partial class OsanProjectRegistrationApiTests
     private delegate void PngChunkRewrite(Span<byte> data);
 
     private static byte[] CreateStructurallyValidJpeg()
-    {
-        using var image = new Image<Rgba32>(1, 1);
-        using var stream = new MemoryStream();
-        image.SaveAsJpeg(stream);
-        return stream.ToArray();
-    }
+        => TestImageCodec.CreateTransparentImage(1, 1, MagickFormat.Jpeg);
 
     private static byte[] CreateColorJpeg()
     {
@@ -2513,14 +2490,7 @@ public sealed partial class OsanProjectRegistrationApiTests
     }
 
     private static byte[] CreateColorPng()
-    {
-        using var image = new Image<Rgba32>(2, 1);
-        image[0, 0] = new Rgba32(255, 0, 0);
-        image[1, 0] = new Rgba32(0, 128, 255);
-        using var stream = new MemoryStream();
-        image.SaveAsPng(stream);
-        return stream.ToArray();
-    }
+        => TestImageCodec.CreateRedBlueImage(MagickFormat.Png);
 
     private static byte[] CreateExifWithOrientationAndSensitiveMetadata(ushort orientation)
     {

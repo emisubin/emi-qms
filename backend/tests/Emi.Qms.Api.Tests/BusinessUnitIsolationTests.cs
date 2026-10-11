@@ -24,8 +24,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using ClosedXML.Excel;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using ImageMagick;
 using Xunit;
 
 namespace Emi.Qms.Api.Tests;
@@ -3358,18 +3357,8 @@ public sealed partial class BusinessUnitIsolationTests
                 Assert.True(response.Headers.CacheControl?.Private);
                 Assert.True(response.Headers.CacheControl?.NoStore);
                 Assert.Contains("nosniff", response.Headers.GetValues("X-Content-Type-Options"));
-                using var image = Image.Load<Rgba32>(await response.Content.ReadAsByteArrayAsync(
-                    TestContext.Current.CancellationToken));
-                var decoded = new ZXing.ImageSharp.BarcodeReader<Rgba32>
-                {
-                    Options =
-                    {
-                        PossibleFormats = [ZXing.BarcodeFormat.QR_CODE],
-                        // HTTP returns a clean generated symbol, not a camera scene.
-                        PureBarcode = true,
-                        TryHarder = true
-                    }
-                }.Decode(image);
+                var decoded = TestImageCodec.DecodeQr(await response.Content.ReadAsByteArrayAsync(
+                    TestContext.Current.CancellationToken), pureBarcode: true);
                 Assert.NotNull(decoded);
                 Assert.Equal(
                     $"https://qms.example.test/osan/qr/{osanProjectId:D}/{targetId:D}",
@@ -5323,21 +5312,11 @@ public sealed partial class BusinessUnitIsolationTests
     }
 
     private static byte[] CreateValidPng()
-    {
-        using var image = new Image<Rgba32>(1, 1);
-        using var stream = new MemoryStream();
-        image.SaveAsPng(stream);
-        return stream.ToArray();
-    }
+        => TestImageCodec.CreateTransparentImage(1, 1, MagickFormat.Png);
 
     private static byte[] CreateJpegWithSensitiveExif()
     {
-        using var image = new Image<Rgba32>(2, 1);
-        image[0, 0] = new Rgba32(255, 0, 0);
-        image[1, 0] = new Rgba32(0, 128, 255);
-        using var stream = new MemoryStream();
-        image.SaveAsJpeg(stream);
-        var jpeg = stream.ToArray();
+        var jpeg = TestImageCodec.CreateRedBlueImage(MagickFormat.Jpeg);
 
         var make = "SyntheticCamera\0"u8.ToArray();
         var tiff = new byte[50 + make.Length];

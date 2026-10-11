@@ -1,10 +1,7 @@
 using Emi.Qms.Api.InteriorBusbar;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
-using ZXing;
 using Fixture = Emi.Qms.Api.Tests.InteriorBusbarStoreTests.Fixture;
 
 namespace Emi.Qms.Api.Tests;
@@ -32,15 +29,10 @@ public sealed class InteriorBusbarQrTests
         Assert.Equal(1m, await fixture.Balance("Finished", family));
         Assert.Equal(-2m, await fixture.Balance("Material", material));
         var bytes = await StoredPng(fixture, product);
-        using var image = Image.Load<Rgba32>(bytes);
-        var reader = new ZXing.ImageSharp.BarcodeReader<Rgba32>
-        {
-            // This is the exact stored, unrotated PNG, not a camera frame. Detecting finder
-            // patterns heuristically can miss valid randomly generated masks; decode the
-            // full symbol directly while still checking its payload and error correction.
-            Options = { PossibleFormats = [BarcodeFormat.QR_CODE], TryHarder = true, PureBarcode = true }
-        };
-        Assert.Equal(Options.GetPublicUrl((string)completed["publicToken"]!), reader.Decode(image)?.Text);
+        // This is the exact stored, unrotated PNG, not a camera frame. Decode the full
+        // symbol directly while still checking its payload and error correction.
+        Assert.Equal(Options.GetPublicUrl((string)completed["publicToken"]!),
+            TestImageCodec.DecodeQr(bytes, pureBarcode: true)?.Text);
         Assert.Equal("publication_not_ready", (await Assert.ThrowsAsync<BusbarException>(() => fixture.Store.GetPrintableQr(product))).Code);
         await Sql(fixture, "update busbar_products set publication_state='Published',published_revision=revision");
         Assert.Equal(bytes, await fixture.Store.GetPrintableQr(product));

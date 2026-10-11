@@ -178,3 +178,12 @@
 - 시트명 trim 후 정확히 양식이고 날짜가 없으면 날짜 확인을 생략하고 현재 실사일 draft에 반영. 날짜가 있는 시트와 그 외 날짜 미확인 시트는 기존 확인 유지. 미저장 입력값 교체 확인 및 페이지 저장의 DB 반영 분리는 유지.
 - frontend22 tests/ESLint/typecheck/build 성공(기존 chunk 크기 경고만 유지). 실제5182 브라우저 다운로드 파일과 원본 asset 바이트 동일 확인. 내려받은 파일 재선택 시 실제 parser 통과/날짜 팝업0개/가져오기 완료 상태 확인, DB 저장 실행 없음. 다운로드 원본 SHA256 07fa96a1e5e24e49e519c9c36944e8f902fbcd30f094d21aa9d23ba21869cbce.
 - 새DB/임시DB/미사용DB 없음. 기존 검수DB 보존, 로컬 커밋만 진행. 원격/운영 배포 없음.
+
+## 2026-10-11 G2 홈 3종 디자인 비교 시안
+
+- 사용자 요청: 최근 작업일 기준 G2 홈 시안 3개, 서로 다른 구성. 생산/납품 달성률, 180대 미만 자재, 제품 안전재고180대 및 납품 후 전망, 기준일 불량률 표시. 출근은 별도 항목 없이 생산 영역의 작은 요약으로 표시.
+- 앞서 제시한 공식 화면을 바탕으로 1안 네이버웍스 요약 영역+Power BI 게이지, 2안 Zoho의 주영역/우측 목록+Salesforce 바늘형 게이지, 3안 이카운트 연속 표+Odoo 재고 보고서 구성. 공통 OsanShell/청주 색감 재사용, 시안 사본에서 G2 홈 선택 상태만 조정.
+- 산출물: /Users/parksubin/.codex/visualizations/2026/10/08/01a118d1-afc8-7351-9370-0126a196e572/g2-home-mockups/index.html, home.css, home.js, home-01/02/03.png. 시안 전용 localhost8778, session66423. 앱5182 및 backend/DB 미변경. 예시값만 사용.
+- 예시 가정: 생산160/계획180, 납품150/150, 신규불량4/총생산160=2.5%, 현재고420에서 예정납품120씩3회 차감, 10/14 잔여60으로180미만. 생산 실적 분모 정의 및 미래 생산 포함 여부는 미확정이며 시안에서 명시, 업무 계산정책 확정으로 해석하지 않는다.
+- 공식 출처: https://help.worksmobile.com/ko/admin-guides/manage-service/attendance/attendance-home/ ; https://www.zoho.com/inventory/help/reports/dashboard.html ; https://www.ecount.com/kr/ecount/product/inventory_location-management ; https://www.odoo.com/documentation/18.0/applications/inventory_and_mrp/inventory/warehouses_storage/reporting/forecast.html ; https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-radial-gauge-charts ; https://trailhead.salesforce.com/content/learn/projects/build-an-app-to-track-your-trailblazer-journey/create-a-report-a-report-chart-and-a-dashboard . 가이드 https://help.tableau.com/current/pro/desktop/en-us/what_chart_example.htm . 원본과의 차이는 G2 항목/공통색/출근 요약/180기준 및 생산 미반영 전망이다.
+- 브라우저에서 3안 전체 화면, 시안 링크 전환, 390px 가로 넘침 없음 확인. 모바일 세부 시안 확정은 별도. 디자인 선택 대기, 실제 G2 홈 기능 구현/DB 연동/배포 없음. 신규DB/임시DB/미사용DB 없음, 기존 검수DB 보존.

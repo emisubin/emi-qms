@@ -269,3 +269,12 @@
 - 독립 attendance_review: 변경4파일 검토 확정 P0–P2 없음. 저장·권한·자동저장 계약 보존 및 viewport listener 정리 확인.
 - 상태: 로컬 구현/관련 검증 완료, 사용자 검수 대기. 원격 push/PR/merge/배포 없음.
 - DB: 신규 DB 없음, 새 검증용 임시 DB 없음(기존 검수 DB 유지, 정리 미실행), 미사용 전환 DB 없음. schema/migration/실데이터 변경 없음.
+
+## 2026-10-12 청주 왼쪽 공통 메뉴 글자 중심 구성
+
+- 사용자: 레퍼런스 1번 이카운트 글자 중심 메뉴 선택. 청주 desktop 공통 메뉴의 장식 아이콘 제거, 기존 계층·들여쓰기·선택 배경 보존, 일반 글자와 선택 글자 굵기 구분. 메뉴 이동/권한/오산/모바일 메뉴는 변경하지 않음.
+- 실제 사례: https://www.ecount.com/kr/ecount/product/erp_customizing 의 My Page 공개 화면. 아이콘 없는 텍스트 목록과 선택 강조를 따르되 이카운트 파란색/그라데이션 대신 확정된 EMI 색을 유지. 보조 제작 가이드: https://www.carbondesignsystem.com/building-blocks/foundations/icons/guidelines (아이콘과 글자의 일관성). 레퍼런스는 직전 대화에서 실제 이미지 확인/제시 후 선택받음.
+- 사용 종료된 CheongjuNavigationIcon 구현 삭제. 펼침 화살표/알림 배지는 기능 표시로 유지.
+- 검증: App.navigation/G2Navigation 9tests 통과, typecheck/ESLint/diff-check 통과. 실제5182 청주 메뉴 펼침 및 생산/출하 페이지 이동·선택배경 확인. 메뉴 장식 SVG 0개, 일반500/선택750 글자굵기 확인. 메뉴 권한/이동 계약 변경 없는 작은 가역 UI 수정으로 직접 검증. 캡처 cheongju-text-navigation.png.
+- 상태: 로컬 구현·검증 완료, 사용자 검수 대기. 원격push/PR/merge/배포 없음.
+- DB: 신규/새 임시/미사용 전환 DB 모두 없음. 기존 DB 유지, 정리 작업 없음.

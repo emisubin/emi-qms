@@ -31,3 +31,11 @@
   background-color:#fcebed!important;
   color:#a61920!important;
 }
+
+/* Approved ECOUNT-style text navigation; preserve campus routes and EMI selection colors. */
+.app-shell[data-shared-shell='true'] .app-sidebar[data-navigation-style='text'] :is(.app-nav-button,.app-nav-child-button) {
+  font-weight:500;
+}
+.app-shell[data-shared-shell='true'] .app-sidebar[data-navigation-style='text'] :is(.app-nav-button,.app-nav-child-button).active {
+  font-weight:750;
+}

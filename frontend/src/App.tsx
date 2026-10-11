@@ -6,7 +6,6 @@ import { OsanButton } from './OsanButton';
 import { OsanMenuHeading } from './OsanMenuHeading';
 import { SelectionActionBar } from './SelectionActionBar';
 import { NavigationIcon } from './NavigationIcon';
-import { CheongjuNavigationIcon } from './CheongjuNavigationIcon';
 import { BusbarLabelEntryPrompt } from "./BusbarLabelTracking";
 import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
@@ -3633,13 +3632,12 @@ function AppNavigation({
   onNavigate: (view: View) => void;
   footer?: ReactNode;
 }) {
-  const SidebarIcon = isOsan ? NavigationIcon : CheongjuNavigationIcon;
   // Departments start collapsed; the whole parent row is the disclosure and
   // at most one department is open. Child navigation keeps its parent open.
   const [expandedLabel, setExpandedLabel] = useState<string | null>(() => items.find((item) => item.active && (item.label === '인테리어 부스바' || (isOsan && item.label === '관리자')))?.label ?? null);
 
   return (
-    <aside className="app-sidebar" role="navigation" aria-label="공통 메뉴">
+    <aside className="app-sidebar" data-navigation-style={isOsan ? undefined : 'text'} role="navigation" aria-label="공통 메뉴">
       <div className="app-brand-lockup">
         <button
           type="button"
@@ -3672,7 +3670,7 @@ function AppNavigation({
                   ? () => setExpandedLabel(expanded ? null : item.label)
                   : () => onNavigate(item.view)}
               >
-                <span className="app-nav-label"><SidebarIcon label={item.label} /><span>{item.label}</span></span>
+                <span className="app-nav-label">{isOsan && <NavigationIcon label={item.label} />}<span>{item.label}</span></span>
                 {item.children
                   ? <span className="app-nav-disclosure" aria-hidden="true">{<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg>}</span>
                   : item.badge && item.badge > 0
@@ -3689,7 +3687,7 @@ function AppNavigation({
                       aria-current={child.active ? 'page' : undefined}
                       onClick={() => onNavigate(child.view)}
                     >
-                      <span className="app-nav-label"><SidebarIcon label={child.label}/><span>{child.label}</span></span>
+                      <span className="app-nav-label">{isOsan && <NavigationIcon label={child.label} />}<span>{child.label}</span></span>
                     </button>
                   ))}
                 </div>

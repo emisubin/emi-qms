@@ -43,6 +43,16 @@ describe('material inventory workflows',()=>{
   chooseFile();await screen.findByText('엑셀 값을 가져왔습니다. 확인 후 저장해 주세요.');
   expect(screen.queryByRole('dialog')).toBeNull();expect(saveMaterialDay).not.toHaveBeenCalled();
  });
+ it('downloads the approved template before import and save, and imports 양식 without date confirmation',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedSheet:'양식',selectedDate:null});await open();
+  const names=screen.getAllByRole('button').map(b=>b.textContent);const start=names.indexOf('양식 다운로드');expect(names.slice(start,start+3)).toEqual(['양식 다운로드','엑셀 가져오기','저장']);
+  const download=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});fireEvent.click(screen.getByRole('button',{name:'양식 다운로드'}));expect(download).toHaveBeenCalledOnce();download.mockRestore();
+  chooseFile();await screen.findByText('엑셀 값을 가져왔습니다. 확인 후 저장해 주세요.');expect(screen.queryByRole('dialog')).toBeNull();expect(saveMaterialDay).not.toHaveBeenCalled();
+ });
+ it('still confirms replacement of unsaved values for 양식, without a date warning',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedSheet:'양식',selectedDate:null});await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});chooseFile();
+  await screen.findByRole('dialog',{name:'입력 내용 교체 확인'});expect(screen.queryByText('엑셀에서 실사 날짜를 확인할 수 없습니다.')).toBeNull();fireEvent.click(screen.getByRole('button',{name:'취소'}));expect(screen.getByLabelText('1번 제작중')).toHaveValue(3);
+ });
  it('blocks mismatched totals and preserves an edited draft',async()=>{
   vi.mocked(importMaterialFile).mockRejectedValue(new Error('시트 [26-10-09] Q11 · 8번 품목: 합계가 맞지 않습니다. 입력값 9, 정상 계산값 8. 엑셀 값을 수정한 뒤 다시 가져와 주세요. 저장할 수 없습니다.'));
   await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});chooseFile();

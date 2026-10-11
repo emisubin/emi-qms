@@ -1,3 +1,4 @@
+import { G2PageFrame } from './G2PageFrame';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, getG2Days, saveG2Attendance } from './api';
 import { G2FilteredHorizontalTable, type G2HorizontalRow } from './G2DataViews';
@@ -17,8 +18,8 @@ function parseQuantity(value: string, label: string) {
 function metricInput(value: { quantity: number | null } | null) { return value?.quantity === null || !value ? '' : String(value.quantity); }
 
 function G2PageState({ state, onRetry, children }: { state: State; onRetry: () => void; children: (data: G2RangeResponse) => ReactNode }) {
-  if (state.kind === 'loading') return <section className="page-surface g2-page"><p role="status">G2 일별 자료를 불러오는 중입니다.</p></section>;
-  if (state.kind === 'forbidden' || state.kind === 'error') return <section className="page-surface g2-page"><div className="g2-state" role="alert"><strong>{state.message}</strong><button type="button" onClick={onRetry}>다시 시도</button></div></section>;
+  if (state.kind === 'loading') return <div className="g2-page"><p role="status">G2 일별 자료를 불러오는 중입니다.</p></div>;
+  if (state.kind === 'forbidden' || state.kind === 'error') return <div className="g2-page"><div className="g2-state" role="alert"><strong>{state.message}</strong><button type="button" onClick={onRetry}>다시 시도</button></div></div>;
   return <>{children(state.data)}</>;
 }
 
@@ -123,9 +124,9 @@ export function G2AttendancePage({ developmentUserKey, canEdit, mutationEnabled 
     finally { setBusy(false); }
   }
 
-  return <G2PageState state={month.state} onRetry={month.reload}>{data => <section className="page-surface g2-page" aria-labelledby="g2-attendance-title"><header className="page-header"><div><p className="eyebrow">G2 운영관리</p><h2 id="g2-attendance-title">제조 인원 출근 관리</h2><p>오전·오후의 EMI 직원과 도급 직원을 숫자로 관리합니다.</p></div><label className="g2-date-picker">입력 날짜<input type="date" max={todaySeoul()} value={month.date} disabled={busy} required onChange={event => month.setDate(event.target.value)} /></label></header>
+  return <G2PageFrame id="g2-attendance-scope" title="제조 인원 출근 관리" description="오전·오후의 EMI 직원과 도급 직원을 숫자로 관리합니다." actions={<label className="g2-date-picker">입력 날짜<input type="date" max={todaySeoul()} value={month.date} disabled={busy} required onChange={event => month.setDate(event.target.value)} /></label>}><G2PageState state={month.state} onRetry={month.reload}>{data => <div className="g2-page">
     {!mutationEnabled ? <p className="g2-review-safe" role="status">현재 검수 전용 읽기 모드이므로 값을 수정할 수 없습니다.</p> : null}
     <article className="g2-card g2-entry-card"><div className="g2-entry-grid g2-entry-grid-four"><Field label="오전 EMI" value={inputs.morningEmi} onChange={value => setInputs(current => ({ ...current, morningEmi: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.morningEmiAttendance ?? null} /><Field label="오전 도급" value={inputs.morningContractor} onChange={value => setInputs(current => ({ ...current, morningContractor: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.morningContractorAttendance ?? null} /><Field label="오후 EMI" value={inputs.afternoonEmi} onChange={value => setInputs(current => ({ ...current, afternoonEmi: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.afternoonEmiAttendance ?? null} /><Field label="오후 도급" value={inputs.afternoonContractor} onChange={value => setInputs(current => ({ ...current, afternoonContractor: value }))} disabled={!mutationEnabled || !canEdit || busy} metric={month.selected?.afternoonContractorAttendance ?? null} /></div><div className="g2-live-totals" aria-live="polite"><span>오전 합계 <b>{totals.morning}</b></span><span>오후 합계 <b>{totals.afternoon}</b></span><span>하루 총원 <b>{totals.morning + totals.afternoon}</b></span></div>{feedback ? <p className="g2-feedback" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}>{feedback.message}</p> : null}<button type="button" className="primary-button" disabled={!mutationEnabled || !canEdit || busy} onClick={() => void save()}>변경한 값 저장</button></article>
     <G2FilteredHorizontalTable title="월간 출근 현황" filterLabel="출근 현황 표시 기간" caption="제조 인원 월간 출근 현황" days={data.days} rows={attendanceRows} holidays={holidays} />
-  </section>}</G2PageState>;
+  </div>}</G2PageState></G2PageFrame>;
 }

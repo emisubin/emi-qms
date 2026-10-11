@@ -1,3 +1,4 @@
+import { G2PageFrame } from './G2PageFrame';
 import { Fragment, useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { ApiError, getG2Days } from './api';
 import { DataEntryDialog } from './DataEntryDialog';
@@ -84,8 +85,7 @@ function Workspace({user,enabled,access}:{user:string|undefined;enabled:boolean;
   const monthCell=<><div className="query-title">조회 월</div><div className="month-title-row"><strong>{title}</strong><button aria-label="조회 연월 선택" title="조회 연월 선택" onClick={()=>{setMenu(null);setModal({kind:'month'});}}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></button></div></>;
   const totalRow=(label:string,rows:G2Day[],showActual:boolean)=><tr><th colSpan={2}>{label}</th>{(['delivery','production'] as const).map(kind=>{const p=sum(rows,d=>d[kind==='delivery'?'deliveryPlan':'productionPlan']?.quantity),a=showActual?sum(rows,d=>kind==='delivery'?d.delivery?.quantity:d.productionTotal):null;return <Fragment key={kind}><td className="group">{fmt(p)}</td><td>{fmt(a)}</td><td>{rate(a,p)}</td></Fragment>;})}<td className="group"/><td/></tr>;
   const selected=modal&&'date'in modal?days.find(d=>d.date===modal.date):null;
-  return <div id="g2-approved-scope"><section className={`g2-operations g2-approved ${mobile?'phone':'page grid'}`}>
-    <div className="heading"><h1>생산/출하 관리</h1>{canInput&&entryButton(defaultDate,true)}</div>{!mobile&&<p className="description">일자별 납품·생산 계획과 실적, 재고를 확인합니다.</p>}
+  return <G2PageFrame id="g2-approved-scope" title="생산/출하 관리" description="일자별 납품·생산 계획과 실적, 재고를 확인합니다." actions={canInput&&entryButton(defaultDate,true)} fitMobile><section className={`g2-operations g2-approved ${mobile?'phone':'page grid'}`}>
     {!enabled&&canInput&&<p role="status">현재 조회만 가능합니다.</p>}{feedback&&<p role="status">{feedback}</p>}
     {error?<div className="g2-form-error" role="alert">{error}<button onClick={()=>{setError('');setRevision(n=>n+1);}}>다시 시도</button></div>:!data?<p role="status">G2 일별 자료를 불러오는 중입니다.</p>:<>
     {!mobile?<div className="aligned-viewport"><div className="aligned-content"><table className="query-bar" aria-label="월 조회 및 요약">{columns}<tbody><tr><td colSpan={2}>{monthCell}</td><td colSpan={3} className="query-summary group">{summary('delivery')}</td><td colSpan={3} className="query-summary group">{summary('production')}</td><td colSpan={2} className="query-action group"><div className="query-title">재고 현황 <span>{latestStock?`${short(latestStock.date)} 기준`:''}</span></div><div className="summary-values stock-values"><span>납품 가능<b>{fmt(latestStock?.inventory)}</b></span><span>불량<b>{fmt(latestStock?.defectInventory)}</b></span></div></td></tr></tbody></table>
@@ -96,5 +96,5 @@ function Workspace({user,enabled,access}:{user:string|undefined;enabled:boolean;
     {modal?.kind==='detail'&&selected&&<DataEntryDialog title={`${short(selected.date)} (${'일월화수목금토'[weekday(selected.date)]}) 상세`} variant="detail" onClose={closeModal} footer={canInput?<button className="primary" disabled={!enabled} onClick={()=>setModal({kind:'menu',date:selected.date})}>데이터 입력</button>:undefined}><Detail day={selected} future={selected.date>today} mobile editNote={access.note&&enabled?()=>openEditor('note',selected.date):undefined}/></DataEntryDialog>}
     {modal?.kind==='menu'&&<DataEntryDialog title={`${short(modal.date)} 데이터 입력`} variant="menu" onClose={closeModal} footer={<button id="sheet-cancel" onClick={closeModal}>취소</button>}>{entryChoices(modal.date)}</DataEntryDialog>}
     {modal&&['plan','actual','count','note'].includes(modal.kind)&&'date'in modal&&<G2OperationEditor key={`${modal.kind}-${modal.date}`} kind={modal.kind as G2EditorKind} initialDate={modal.date} today={today} user={user} access={access} enabled={enabled} onClose={closeModal} onSaved={async()=>{setFeedback('저장했습니다.');setRevision(n=>n+1);}}/>}
-  </section></div>;
+  </section></G2PageFrame>;
 }

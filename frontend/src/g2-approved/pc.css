@@ -1,7 +1,7 @@
 /* Copied from g2-pc-approved.html. Only selector scope and cascade priority are adapted. */
 @media(min-width:861px){
 #g2-approved-scope *{box-sizing:border-box !important}
-#g2-approved-scope .g2-approved{margin:0 !important;font-family:Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif !important;color:#282828 !important;background:#fff !important;font-size:13px !important}
+#g2-approved-scope .g2-approved{margin:0 !important;font-family:Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif !important;color:#282828 !important;font-size:13px !important}
 #g2-approved-scope button,#g2-approved-scope input,#g2-approved-scope select,#g2-approved-scope textarea{font:inherit !important}
 #g2-approved-scope button{cursor:pointer !important;background:#fff !important;border:1px solid #d8d8d8 !important;border-radius:4px !important;color:#333 !important;padding:5px 10px !important;min-height:30px !important}
 #g2-approved-scope button:hover{background:#f6f6f6 !important}
@@ -31,11 +31,7 @@
 #g2-approved-scope .topbar .account{display:flex !important;gap:20px !important;align-items:center !important}
 #g2-approved-scope .topbar small{display:block !important;color:#666 !important;font-size:11px !important;margin-bottom:5px !important}
 #g2-approved-scope .topbar select{width:140px !important}
-#g2-approved-scope .page{padding:24px !important}
-#g2-approved-scope .heading{display:flex !important;justify-content:space-between !important;align-items:center !important;gap:16px !important}
-#g2-approved-scope .heading h1{font-size:16px !important;font-weight:600 !important;margin:0 !important;line-height:24px !important}
 #g2-approved-scope .actions{display:flex !important;gap:6px !important;flex-wrap:wrap !important}
-#g2-approved-scope .description{font-size:12px !important;color:#898989 !important;margin:9px 0 24px !important;line-height:18px !important}
 #g2-approved-scope .filters{display:flex !important;align-items:center !important;gap:8px !important;margin-bottom:18px !important;flex-wrap:wrap !important}
 #g2-approved-scope .filters label{margin-right:8px !important}
 #g2-approved-scope .filters select{padding:6px 10px !important}
@@ -113,8 +109,6 @@
 #g2-approved-scope .shell{grid-template-columns:1fr !important}
 #g2-approved-scope .sidebar{display:none !important}
 #g2-approved-scope .topbar{padding:0 18px !important}
-#g2-approved-scope .page{padding:20px 16px !important}
-#g2-approved-scope .heading{align-items:flex-start !important;flex-wrap:wrap !important}
 #g2-approved-scope .comparison{padding:14px 16px !important;gap:12px !important}
 #g2-approved-scope .subline{padding:10px 16px !important;flex-wrap:wrap !important}
 #g2-approved-scope .modal-layer{padding:25px 12px !important}
@@ -236,7 +230,6 @@
 #g2-approved-scope summary::-webkit-details-marker{display:none !important}
 #g2-approved-scope .stock-values{grid-template-columns:1fr 1fr !important}
 #g2-approved-scope .query-bar .query-action{text-align:center !important}
-#g2-approved-scope .heading .entry-menu{z-index:4 !important}
 #g2-approved-scope .month-title-row{display:flex !important;align-items:center !important;justify-content:center !important;gap:10px !important;min-height:32px !important}
 #g2-approved-scope .month-title-row strong{font-size:17px !important;font-weight:600 !important;white-space:nowrap !important}
 #g2-approved-scope .month-title-row button{border:0 !important;background:transparent !important;width:32px !important;height:32px !important;display:flex !important;align-items:center !important;justify-content:center !important;padding:6px !important}

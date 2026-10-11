@@ -1,0 +1,14 @@
+.app-shell .app-content:has(>.g2-page-frame){padding:0!important;gap:0!important;background:#fff!important;min-width:0}
+.app-shell .app-content:has(>.g2-page-frame)>.topbar{box-sizing:border-box!important;width:100%!important;margin:0!important}
+.app-shell .g2-page-frame{box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding:24px!important;background:#fff!important;border:0!important;border-radius:0!important;box-shadow:none!important;color:#282828;font-size:13px}
+.app-shell .g2-page-frame>.g2-page-content{display:block!important;box-sizing:border-box!important;min-width:0!important;width:100%!important}
+@media(max-width:760px){.app-shell .g2-page-frame{padding:16px 20px!important}}
+@media(max-width:860px){
+ .app-shell .app-content:has(>.g2-page-frame-fit){height:100dvh!important;min-height:0!important}
+ .app-content:has(>.g2-page-frame-fit) .company-information-footer{display:none!important}
+ .app-shell .g2-page-frame-fit{display:flex!important;flex-direction:column!important;flex:1!important;min-height:0!important;padding-bottom:0!important}
+ .app-shell .g2-page-frame-fit>.g2-page-content{display:flex!important;flex-direction:column!important;flex:1!important;min-height:0!important}
+ .app-shell .g2-page-frame-fit>.osan-menu-heading{flex-shrink:0}
+}
+.app-shell .g2-page-frame>.osan-menu-heading.osan-menu-heading{grid-template-rows:minmax(44px,auto) auto!important}
+.app-shell .g2-page-frame .osan-menu-heading-actions>label{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;font-size:12px}

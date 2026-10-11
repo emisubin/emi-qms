@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { OsanMenuHeading } from './OsanMenuHeading';
+import { G2PageFrame } from './G2PageFrame';
 import { useNativeDialog } from './useNativeDialog';
 import { todaySeoul } from './g2';
 import { calculateMaterial, getMaterialImage, quantityKeys, type MaterialItem, type MaterialValues, type QuantityKey } from './g2Materials';
@@ -95,8 +95,7 @@ export function G2MaterialsMobile(props: G2MaterialsMobileProps) {
   const closeDetail = useCallback(() => setSelected(null), []);
   const list = props.items.filter(item => (category === '전체' || item.category.trim() === category) && [item.name, item.spec, item.code].some(value => value.toLowerCase().includes(query.toLowerCase())));
   const item = props.items.find(value => value.id === selected);
-  return <section id="g2-material-mobile-scope">
-    <div className="title-wrap"><OsanMenuHeading title="자재 재고 현황" description="일일 자재 실사 재고를 조회하고 입력합니다." /></div>
+  return <G2PageFrame id="g2-material-mobile-scope" title="자재 재고 현황" description="일일 자재 실사 재고를 조회하고 입력합니다.">
     <section className="controls"><div className="datebar"><label htmlFor="g2m-mobile-date">실사일</label><input id="g2m-mobile-date" type="date" max={todaySeoul()} value={props.date} disabled={props.saving || props.dateLocked || props.loading} onChange={event => { if (event.target.value) { closeDetail(); props.onDateChange(event.target.value); } }} /></div><label className="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5" /><path d="m15 15 5 5" /></svg><input placeholder="품명·규격·품목코드 검색" aria-label="자재 검색" value={query} onChange={event => setQuery(event.target.value)} /></label><nav aria-label="자재 구분">{['전체', '사급', '도급', '부자재'].map(value => <button key={value} type="button" className={category === value ? 'active' : ''} aria-pressed={category === value} onClick={() => setCategory(value)}>{value}</button>)}</nav></section>
     <div className="listhead"><span>{category} {list.length}개</span><div className="number-head"><span>총재고<br />합계</span><span>G2 생산<br />가능 대수</span></div></div>
     <section id="list">{props.loading ? <p className="empty" role="status">실사 데이터를 불러오는 중입니다.</p> : list.map(value => {
@@ -105,5 +104,5 @@ export function G2MaterialsMobile(props: G2MaterialsMobileProps) {
     })}{!props.loading && !list.length && !props.error && <p className="empty">{props.items.length ? '검색 결과가 없습니다.' : '등록된 자재 품목이 없습니다. 관리자에게 문의해 주세요.'}</p>}</section>
     {props.error ? <div className="save-status" role="alert">{props.error} <button type="button" disabled={props.saving} onClick={props.onRetry}>다시 시도</button></div> : <div className="save-status" role="status">{props.saving ? '자동 저장 중…' : props.status}</div>}
     {item && <Detail key={`${props.date}:${item.id}`} {...props} item={item} onClose={closeDetail} />}
-  </section>;
+  </G2PageFrame>;
 }

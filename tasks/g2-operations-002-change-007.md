@@ -236,3 +236,13 @@
 - 독립review home_review 요청모델gpt-6-astra/high, 실제모델NOT_REPORTED. ERP부분빈칸 제외·빈카탈로그 정상표시 P2 두건 수정 및 반례테스트 추가; 재검토 새P1/P2없음.
 - typecheck/대상ESLint/build 성공(기존 큰chunk 경고). 새홈·기존출근·메뉴이동·생산·자재 5파일45tests 통과. 실제5182/g2 조회(최근작업일10/10 미입력,자재92품목전부미입력) 확인, 예시데이터는 별도임시페이지로PC1232콘텐츠폭/390px 확인 후 임시2파일삭제. 브라우저콘솔error없음. 캡처 local-home-populated.png / local-home-live.png. 전역스타일 간섭은 기존승인메뉴의scope reset방식으로 격리.
 - 기존5182/5090 runtime·DB 보존. 신규DB없음,새임시DB없음(기존검수DB보존·정리미실행),미사용DB없음. 실제DB데이터수정/삭제없음. 사용자검수대기,원격push/merge/배포없음.
+
+## 2026-10-11 G2 네 메뉴 공통 페이지 프레임
+
+- 사용자 승인: 홈·생산/출하·출근·자재의 공통 부분을 하나로 묶고 중복 코드 삭제, 업무 콘텐츠만 개별 유지. 홈 미달 자재 열은 품목명/규격/재고 부족분/생산 가능 대수.
+- G2PageFrame에서 기존 OsanMenuHeading을 재사용하고 배경·바깥 여백·제목/설명·제목 옆 action·topbar 폭 보정 공통 소유. 각 메뉴 제목 markup과 page padding/background/topbar 중복 삭제. 모바일 생산은 공통 frame fitMobile 옵션으로 화면 높이 유지. 자재 모바일 중복 내부 좌우 여백 제거. 홈 고아 CSS 접두사와 미사용 시안 외곽 규칙 제거.
+- API/권한/DB/계산/저장 동작 변경 없음. 새 기능·재디자인 없이 확정 콘텐츠 재사용.
+- typecheck, 대상 ESLint, build 통과(기존 큰 chunk 경고만). 기존5파일45tests 통과. 실제5182에서1440x1000/390x844 네 메뉴 확인: desktop 제목 x232/y147, mobile x20/y79; 공통 흰색 배경, page 가로 넘침 없음. 출근 가로 월별 표는 기존 내부 scroll 유지. 모바일 생산 document height844로 viewport 내 달력 유지, 데이터 입력 메뉴 열림 확인. 콘솔 error없음. /tmp/g2-common-frame-home.png 캡처.
+- 독립 g2_frame_review: 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. 확정 P0-P2없음. 모바일 자재 중복 padding 우려 보정 후 추가 CSS 검토에도 새 Finding없음.
+- 로컬 구현/검증 완료, 사용자 검수 대기. 원격 push/merge/배포 없음. 기존5182/5090 runtime 보존.
+- 신규 DB 없음, 새 검증용 임시 DB 없음(기존 검수 DB 보존·정리 미실행), 미사용 DB 없음. DB 데이터 변경 없음.

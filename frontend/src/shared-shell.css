@@ -39,3 +39,13 @@
 .app-shell[data-shared-shell='true'] .app-sidebar[data-navigation-style='text'] :is(.app-nav-button,.app-nav-child-button).active {
   font-weight:750;
 }
+
+/* Small markers distinguish top-level menus without restoring decorative icons. */
+.app-shell[data-shared-shell='true'] .app-sidebar[data-navigation-style='text'] .app-nav-button > .app-nav-label::before {
+  content:'';
+  width:5px;
+  height:5px;
+  flex:0 0 5px;
+  border-radius:50%;
+  background:currentColor;
+}

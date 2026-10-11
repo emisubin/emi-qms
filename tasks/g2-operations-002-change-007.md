@@ -152,3 +152,14 @@
 - 소유 container emi-qms-e2e-g2equal20261011-e2e-postgres-1와 tmpfs. 새 임시DB emi_qms_e2e_g2equal20261011_directory(계정/사업부), emi_qms_e2e_g2equal20261011_cheongju(G2 두 메뉴 검수), emi_qms_e2e_g2equal20261011_osan(사업부 격리) 생성 후 유지. 새 영구DB 및 미사용DB 없음.
 - 기존 private catalog92개와 이미지 경로 적용, 합성dev-admin을자재부서로 설정. 실사값 미입력. 외부provider/retention삭제worker 비활성. 운영/기존검수 데이터 미변경.
 - in-app browser에서5182/g2/materials 열고 최신 자재92개 목록/빈실사값/이미지 표시 직접 확인. 사용자 확인용 탭 유지. 생산출하관리는 동일App의/g2/operations 경로(현재 App route 확인), 별도 최신 화면 재검수는 하지 않음. 원격/배포 없음.
+
+## 2026-10-11 엑셀 직접 가져오기와 공통 예외 팝업
+
+- 사용자 확정: 기존 파일 선택/미리보기 가져오기 팝업을 삭제. 페이지의 엑셀 가져오기 버튼에서 파일 선택기를 직접 열고, 검증 후 표에 반영하며 페이지 저장에서만 DB 저장. 승인 시안 import-exceptions.html의 기존 G2 공통 회색 제목/흰 본문/우측 버튼/EMI 빨강을 재사용.
+- 유효 시트 여러 개는 선택 팝업, 날짜 불일치/날짜 미확인/미저장 입력값은 확인 팝업. 여러 확인 사유는 한 창에 함께 표시. 오류는 공통 오류 팝업으로 보여주고 기존 draft 유지. 인식 가능한 서버 오류의 시트·셀·품목·입력값·정상값을 구분해 표시하며 원문 fallback 보존. 파일/시트 선택 중에는 중복 작업 차단, 같은 파일 재선택 가능.
+- 이전 compact import dialog, preview table 및 전용 스타일 삭제. 서버 parser/API/권한/DB 구조 및 모바일 자동저장 계약은 미변경. 이전 로컬 compact 팝업 미커밋 변경을 이번 승인 흐름으로 대체.
+- 관련 frontend20 tests 통과: 직접 선택/정상 자동 반영, 시트 선택, 날짜 미확인, 날짜+미저장 확인 취소, blank 교체 및 후속 저장, 전체 시트 오류/재시도, 파일 형식/통신 오류, 기존 모바일 저장 및 읽기 권한 계약 포함. ESLint 통과. 최종 build 결과는 아래 추가.
+- 5182 로컬에서 실제 원본 선택과 공통 날짜+미저장 확인 팝업/취소, 손상 합성 파일 오류를 직접 확인. 1440×900 및900×700 PC 확인, 브라우저에서 DB 저장은 실행하지 않음. 일부 예외 분기는 자동 테스트와 승인 시안 확인이며 모든 예외에 대한 실제 서버 브라우저 재현을 의미하지 않음.
+- 시각 증거: visualizations/2026/10/08/01a118d1-afc8-7351-9370-0126a196e572/g2-material-mockups/import-direct-local.png (팝업만 캡처). 별도 시안은 기존 공통 UI 재사용이며 추가 레퍼런스 선정 없음.
+- 새 영구DB/새 검증용DB/미사용DB 없음. 기존5182 검수용DB 유지, DB 정리 실행 없음. local commit 범위이며 push/PR/merge/운영 배포 없음. 사용자 로컬 검수 대기.
+- 최종 typecheck/Vite build 성공(기존 chunk 크기 경고만 유지). frontend20 tests/ESLint 성공. 이전 compact popup과 미리보기 전용 선택자 미사용 잔재 제거 확인.

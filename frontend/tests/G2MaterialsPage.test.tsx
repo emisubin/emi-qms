@@ -16,6 +16,8 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals();});
 async function open(){render(<G2MaterialsPage developmentUserKey="materials" mutationEnabled/>);await screen.findByLabelText('1번 제작중');}
+function importResult():MaterialImport{return {sheets:[{name:'26-10-09',date:'2026-10-09'}],selectedSheet:'26-10-09',selectedDate:'2026-10-09',items:fixture().items.map(r=>({id:r.id,...empty}))};}
+function chooseFile(name='inventory.xlsx'){fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],name)]}});}
 describe('material inventory workflows',()=>{
  it('saves all 92 rows including hidden ERP and distinguishes blank from zero',async()=>{
   await open();
@@ -34,53 +36,55 @@ describe('material inventory workflows',()=>{
   expect(calculateMaterial(values,2)).toMatchObject({Q:5,Y:9,R:2,Z:4,AA:4});
   expect(calculateMaterial(editMaterialQuantity(values,'rack',1),2)).toMatchObject({Q:3,Y:7,AA:3});
  });
- it('blocks mismatched totals without changing or saving the draft',async()=>{
-  vi.mocked(importMaterialFile).mockRejectedValue(new Error('Q11: 합계가 맞지 않습니다. 입력값 9, 정상 계산값 8. 저장할 수 없습니다.'));
-  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
-  expect(await screen.findByRole('alert')).toHaveTextContent('합계가 맞지 않습니다');
-  expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();expect(saveMaterialDay).not.toHaveBeenCalled();
+ it('opens the file chooser directly and auto-imports a matching date without saving',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue(importResult());await open();
+  const click=vi.spyOn(screen.getByLabelText('엑셀 파일'),'click');
+  fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));expect(click).toHaveBeenCalled();expect(screen.queryByRole('dialog')).toBeNull();
+  chooseFile();await screen.findByText('엑셀 값을 가져왔습니다. 확인 후 저장해 주세요.');
+  expect(screen.queryByRole('dialog')).toBeNull();expect(saveMaterialDay).not.toHaveBeenCalled();
  });
- it('requires sheet selection, accepts no date and never saves during preview',async()=>{
-  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:null,selectedDate:null,items:[]});
-  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));
-  fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});
-  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));await screen.findByLabelText('대상 시트');
-  expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();expect(screen.getByRole('button',{name:'파일 확인'})).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('대상 시트'),{target:{value:'Sheet2'}});
-  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:'Sheet2',selectedDate:null,items:fixture().items.map(r=>({id:r.id,...empty}))});
-  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));await waitFor(()=>expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeEnabled());
-  expect(vi.mocked(importMaterialFile).mock.calls[1][3]).toBe('Sheet2');fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));expect(saveMaterialDay).not.toHaveBeenCalled();
+ it('blocks mismatched totals and preserves an edited draft',async()=>{
+  vi.mocked(importMaterialFile).mockRejectedValue(new Error('시트 [26-10-09] Q11 · 8번 품목: 합계가 맞지 않습니다. 입력값 9, 정상 계산값 8. 엑셀 값을 수정한 뒤 다시 가져와 주세요. 저장할 수 없습니다.'));
+  await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});chooseFile();
+  expect(await screen.findByRole('alert')).toHaveTextContent('엑셀의 합계가 계산 결과와 맞지 않습니다');
+  expect(screen.getByLabelText('1번 제작중')).toHaveValue(3);expect(saveMaterialDay).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'확인'}));expect(screen.queryByRole('dialog')).toBeNull();
  });
- it('shows structure errors and requires explicit acceptance of a different date',async()=>{
-  vi.mocked(importMaterialFile).mockRejectedValue(new Error('시트 [Sheet1] Q4: 계산식이 변경되었습니다.'));
-  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Q4');expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();
-  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'26-10-07',date:'2026-10-07'}],selectedSheet:'26-10-07',selectedDate:'2026-10-07',items:fixture().items.map(r=>({id:r.id,...empty}))});
-  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));await waitFor(()=>expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeEnabled());
-  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));expect(screen.getByRole('dialog')).toBeInTheDocument();expect(confirm).toHaveBeenCalledWith(expect.stringContaining('2026-10-07'));
-  confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));expect(screen.queryByRole('dialog')).not.toBeInTheDocument();expect(saveMaterialDay).not.toHaveBeenCalled();confirm.mockRestore();
+ it('requires sheet selection and then confirms an unknown date without stacking dialogs',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:null,items:[]});
+  await open();chooseFile();await screen.findByLabelText('대상 시트');expect(screen.getByRole('button',{name:'다음'})).toBeDisabled();
+  vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedSheet:'Sheet2',selectedDate:null});
+  fireEvent.change(screen.getByLabelText('대상 시트'),{target:{value:'Sheet2'}});fireEvent.click(screen.getByRole('button',{name:'다음'}));
+  await screen.findByText('엑셀에서 실사 날짜를 확인할 수 없습니다.');expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(vi.mocked(importMaterialFile).mock.calls[1][3]).toBe('Sheet2');
+  fireEvent.click(screen.getByRole('button',{name:'선택한 실사일로 가져오기'}));expect(screen.queryByRole('dialog')).toBeNull();expect(saveMaterialDay).not.toHaveBeenCalled();
  });
- it('imports to draft only, clears existing values on blank import, then saves latest edits',async()=>{
-  const preview:MaterialImport={sheets:[{name:'26-10-09오전',date:'2026-10-09'},{name:'26-10-09오후',date:'2026-10-09'}],selectedSheet:'26-10-09오전',selectedDate:'2026-10-09',items:fixture().items.map(r=>({id:r.id,...empty}))};
-  vi.mocked(importMaterialFile).mockResolvedValue(preview);
-  await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});
-  fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));
-  fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});
-  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
-  await screen.findByLabelText('대상 시트');
-  fireEvent.change(screen.getByLabelText('대상 시트'),{target:{value:'26-10-09오후'}});
-  expect(screen.getByLabelText('대상 시트')).toBeInTheDocument();
-  expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();
-  vi.mocked(importMaterialFile).mockResolvedValue({...preview,selectedSheet:'26-10-09오후'});
-  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
-  await waitFor(()=>expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeEnabled());
-  fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));
-  expect(saveMaterialDay).not.toHaveBeenCalled();
-  expect(screen.getByLabelText('1번 제작중')).toHaveValue(null);
-  fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'5'}});
-  fireEvent.click(screen.getByRole('button',{name:'저장'}));
-  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledTimes(1));
-  expect(vi.mocked(saveMaterialDay).mock.calls[0][2][0]).toMatchObject({working:5,erp:null});
+ it('cancels a combined date and unsaved-value confirmation without changing the draft',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedDate:'2026-10-07'});
+  await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});chooseFile();
+  await screen.findByRole('dialog',{name:'가져오기 전 확인'});expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(screen.getByText('2026. 10. 07.')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'취소'}));
+  expect(screen.getByLabelText('1번 제작중')).toHaveValue(3);expect(saveMaterialDay).not.toHaveBeenCalled();
+ });
+ it('imports blanks after replacement confirmation and saves only the latest main-page edits',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue(importResult());await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});chooseFile();
+  await screen.findByRole('dialog',{name:'입력 내용 교체 확인'});
+  expect(screen.getByLabelText('1번 제작중')).toHaveValue(3);fireEvent.click(screen.getByRole('button',{name:'엑셀 값으로 바꾸기'}));
+  expect(saveMaterialDay).not.toHaveBeenCalled();expect(screen.getByLabelText('1번 제작중')).toHaveValue(null);
+  fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'5'}});fireEvent.click(screen.getByRole('button',{name:'저장'}));
+  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledTimes(1));expect(vi.mocked(saveMaterialDay).mock.calls[0][2][0]).toMatchObject({working:5,erp:null});
+ });
+ it('shows details when every sheet is invalid and can retry after closing the error',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedSheet:null,items:[],sheets:[{name:'Sheet1',date:null,error:'Q4 계산식이 변경되었습니다.'}]});await open();chooseFile();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sheet1');expect(screen.getByRole('alert')).toHaveTextContent('Q4');
+  fireEvent.click(screen.getByRole('button',{name:'확인'}));vi.mocked(importMaterialFile).mockResolvedValue(importResult());chooseFile();
+  await screen.findByText('엑셀 값을 가져왔습니다. 확인 후 저장해 주세요.');expect(saveMaterialDay).not.toHaveBeenCalled();
+ });
+ it('rejects unsupported files before upload and displays a network error without changing values',async()=>{
+  vi.mocked(importMaterialFile).mockReset().mockRejectedValue(new TypeError('Failed to fetch'));await open();chooseFile('invalid.csv');
+  expect(await screen.findByRole('alert')).toHaveTextContent('.xlsx');expect(importMaterialFile).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'확인'}));chooseFile();
+  expect(await screen.findByRole('alert')).toHaveTextContent('서버와 연결하지 못했습니다');expect(saveMaterialDay).not.toHaveBeenCalled();
  });
  it('keeps the edited draft on save failure and supports retry',async()=>{
   vi.mocked(saveMaterialDay).mockRejectedValueOnce(new Error('저장 실패'));

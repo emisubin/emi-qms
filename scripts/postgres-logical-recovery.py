@@ -237,7 +237,7 @@ def _parse_config(config: Mapping[str, Any]) -> ValidatedConfig:
                 if "deadlineUtc" in config else None)
     _require(drained is None or deadline is None or drained < deadline, "DEADLINE_INVALID")
     verification_timeout = config.get("verificationTimeoutSeconds", 1800)
-    _require(type(verification_timeout) is int and 1 <= verification_timeout <= 1800,
+    _require(type(verification_timeout) is int and 1 <= verification_timeout <= 7200,
              "VERIFICATION_TIMEOUT_INVALID")
 
     openssl_path = config.get("opensslPath", "openssl")

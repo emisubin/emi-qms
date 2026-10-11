@@ -37,6 +37,7 @@ class CheckpointTests(unittest.TestCase):
                    SOURCE_SHA="a" * 40, MAINTENANCE_RELEASE_ID="11111111-1111-1111-1111-111111111111",
                    MAINTENANCE_EXPECTED_ENDS_AT_UTC="2026-01-02T01:00:00Z",
                    RECOVERY_CHECKPOINT_TIMEOUT_SECONDS="1", RECOVERY_CHECKPOINT_POLL_SECONDS="1")
+        self.env = env
         self.checkpoint = module.Checkpoint(env)
         self.server = {"id": self.checkpoint.server_id, "fullyQualifiedDomainName": self.checkpoint.host,
                        "state": "Ready", "backup": {"backupRetentionDays": 14,
@@ -60,6 +61,60 @@ class CheckpointTests(unittest.TestCase):
         return {"id": self.checkpoint.server_id + "/backups/" + name, "name": name,
                 "type": "Microsoft.DBforPostgreSQL/flexibleServers/backups", "backupType": "Full",
                 "source": "Automatic", "completedTime": completed}
+
+    def logical_checkpoint(self, timeout=None):
+        certificate = Path(self.directory.name) / "logical-certificate.pem"
+        certificate.write_text(
+            "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n")
+        config_path = Path(self.directory.name) / "logical-config.json"
+        server_id = ("/subscriptions/subscription/resourceGroups/synthetic/providers/"
+                     "Microsoft.DBforPostgreSQL/flexibleServers/synthetic-pg")
+        config_path.write_text(json.dumps({
+            "binding": {
+                "sourceSha": "a" * 40,
+                "releaseId": "11111111-1111-1111-1111-111111111111",
+                "serverId": server_id,
+                "expectedHost": "synthetic-pg.postgres.database.azure.com",
+            },
+            "certificatePath": str(certificate),
+        }))
+        config_path.chmod(0o600)
+        env = dict(
+            self.env,
+            RECOVERY_EVIDENCE_KIND="VerifiedLogicalDatabaseBackup",
+            RECOVERY_LOGICAL_BACKUP_CONFIG=str(config_path),
+            RECOVERY_EVIDENCE_CERTIFICATE_PEM=certificate.read_text(),
+        )
+        if timeout is None:
+            env.pop("RECOVERY_CHECKPOINT_TIMEOUT_SECONDS", None)
+        else:
+            env["RECOVERY_CHECKPOINT_TIMEOUT_SECONDS"] = timeout
+        return module.Checkpoint(env)
+
+    def test_timeout_bounds_differ_by_evidence_kind_and_defaults_stay_fixed(self):
+        azure_default = dict(self.env)
+        azure_default.pop("RECOVERY_CHECKPOINT_TIMEOUT_SECONDS")
+        self.assertEqual(900, module.Checkpoint(azure_default).timeout)
+        self.assertEqual(1800, module.Checkpoint(dict(
+            self.env, RECOVERY_CHECKPOINT_TIMEOUT_SECONDS="1800")).timeout)
+        self.assertEqual(900, self.logical_checkpoint().timeout)
+        self.assertEqual(7200, self.logical_checkpoint("7200").timeout)
+
+        for value in ("0", "1801", "7200", "invalid", " 1800"):
+            with self.subTest(kind="AzureAvailableFullBackup", value=value):
+                with self.assertRaisesRegex(RuntimeError, "^INVALID_WAIT_BOUND$"):
+                    module.Checkpoint(dict(
+                        self.env, RECOVERY_CHECKPOINT_TIMEOUT_SECONDS=value))
+        for value in ("0", "7201", "invalid", " 7200"):
+            with self.subTest(kind="VerifiedLogicalDatabaseBackup", value=value):
+                with self.assertRaisesRegex(RuntimeError, "^INVALID_WAIT_BOUND$"):
+                    self.logical_checkpoint(value)
+
+    def test_logical_timeout_is_still_capped_by_notice_end(self):
+        checkpoint = self.logical_checkpoint("7200")
+        checkpoint.deadline = time.monotonic() + 7200
+        configuration = checkpoint.logical_configuration(self.drained)
+        self.assertEqual("2026-01-02T01:00:00Z", configuration["deadlineUtc"])
 
     def read(self, *args):
         self.calls.append(args)
@@ -334,6 +389,7 @@ class CheckpointTests(unittest.TestCase):
             archiveDir=str(root / "archive"), certificatePath=str(certificate),
             privateKeyPath=str(key), sslRootCertPath=str(ca),
             postgresImage="sha256:" + "c" * 64, relayPort=15432,
+            verificationTimeoutSeconds=7200,
             targets=[dict(code=code, dbname=code.lower() + "_db", host=self.checkpoint.host,
                           user="synthetic_reader", password="synthetic_password",
                           runtimeRole=code.lower() + "_runtime")
@@ -350,14 +406,24 @@ class CheckpointTests(unittest.TestCase):
         self.checkpoint.logical_module.verify_backup = lambda _, config: verified.append(driver._parse_config(config))
         self.checkpoint.wait(self.path, self.drained.replace("Z", "+00:00"), self.initial_drains)
         self.assertEqual(1, len(parsed))
+        self.assertEqual(7200, parsed[0].verification_timeout_seconds)
         self.assertTrue(parsed[0].deadline_utc.endswith("Z"))
         self.assertEqual(driver._instant(self.drained, "INVALID"),
                          driver._instant(parsed[0].drained_at_utc, "INVALID"))
         self.verify()
         self.assertEqual(2, len(verified))
+        self.assertEqual(7200, verified[-1].verification_timeout_seconds)
         remaining = driver._instant(verified[-1].deadline_utc, "INVALID") - self.now
         self.assertGreater(remaining, timedelta(seconds=299))
         self.assertLessEqual(remaining, timedelta(seconds=300))
+
+    def test_expired_logical_candidate_is_rejected_before_final_verification(self):
+        self.logical_mode()
+        self.checkpoint.wait(self.path, self.drained, self.initial_drains)
+        self.now = self.checkpoint.ends_at
+        with self.assertRaisesRegex(RuntimeError, "^CHECKPOINT_NOT_READY$"):
+            self.verify()
+        self.assertEqual("candidate", json.loads(self.path.read_text())["phase"])
 
     def test_logical_backup_wrong_binding_or_old_time_rejected(self):
         evidence = self.logical_mode()

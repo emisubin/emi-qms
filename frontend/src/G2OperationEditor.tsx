@@ -1,3 +1,4 @@
+import { G2InputTabs } from './G2SharedControls';
 import { useEffect, useId, useState } from 'react';
 import { ApiError, getG2Days, saveG2Plans, saveG2Workspace } from './api';
 import { DataEntryDialog } from './DataEntryDialog';
@@ -78,7 +79,7 @@ export function G2OperationEditor({ kind, initialDate, today, user, access, enab
     <form id={formId} className="g2-editor" onSubmit={e=>{e.preventDefault();void save();}}>
       {kind==='plan'?<div className="form-row"><span className="fieldlabel">계획 기간</span><div className="pair"><label>시작일<input aria-label="계획 시작일" type="date" required value={date} disabled={busy} onChange={e=>changeDate(e.target.value)}/></label><label>종료일<input aria-label="계획 종료일" type="date" required min={date} value={end} disabled={busy} onChange={e=>{setEnd(e.target.value);setPreview(null);}}/></label></div></div>:<label className="form-row"><span className="fieldlabel">기준일</span><input type="date" required value={date} max={kind==='count'||(kind==='actual'&&!access.note)?today:undefined} disabled={busy} onChange={e=>changeDate(e.target.value)}/></label>}
       {!source&&!error&&<p role="status">기존 값을 불러오는 중입니다.</p>}
-      {kind==='actual'&&<div role="tablist" aria-label="실적 입력 구분" className="tabs">{(['morning','afternoon','delivery'] as const).map((t,i)=><button key={t} id={`${formId}-${t}`} type="button" role="tab" aria-selected={tab===t} aria-controls={`${formId}-panel`} tabIndex={tab===t?0:-1} onKeyDown={e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const next=(i+(e.key==='ArrowRight'?1:2))%3;const value=(['morning','afternoon','delivery'] as const)[next];setTab(value);document.getElementById(`${formId}-${value}`)?.focus();}}} onClick={()=>setTab(t)}>{['오전','오후','납품'][i]}</button>)}</div>}
+      {kind==='actual'&&<G2InputTabs id={formId} label="실적 입력 구분" tabs={[{value:'morning',label:'오전'},{value:'afternoon',label:'오후'},{value:'delivery',label:'납품'}]} value={tab} onChange={value=>setTab(value as 'morning'|'afternoon'|'delivery')}/>}
       <div className="tab-panel" role={kind==='actual'?'tabpanel':undefined} id={`${formId}-panel`} aria-labelledby={kind==='actual'?`${formId}-${tab}`:undefined}>
         {kind==='plan'&&<>{access.productionPlan&&numeric('productionPlan')}{access.deliveryPlan&&numeric('deliveryPlan')}</>}
         {kind==='count'&&access.inventory&&<>{numeric('physicalCount')}{numeric('defectInventoryCount')}</>}

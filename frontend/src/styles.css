@@ -477,13 +477,6 @@
   margin: 0;
 }
 
-.g2-live-totals {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
 .g2-physical-marker { vector-effect: non-scaling-stroke; }
 .g2-physical-marker { fill: #dbeafe; stroke: #60a5fa; stroke-width: 3.5; filter: drop-shadow(0 2px 2px rgb(96 165 250 / 22%)); }
 
@@ -497,25 +490,8 @@
 .g2-feedback[data-tone='error'] { background: #fff1f2; color: #9f1239; }
 .g2-feedback { background: #ecfdf5; color: #065f46; }
 
-.g2-entry-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  align-items: end;
-  gap: 12px;
-}
-
-.g2-entry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.g2-entry-grid-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.g2-entry-grid-repairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.g2-entry-field,
 .g2-date-picker { display: grid; gap: 6px; color: var(--muted); font-size: 0.78rem; font-weight: 700; }
-.g2-entry-field input,
 .g2-date-picker input { width: 100%; min-height: 42px; }
-.g2-entry-field small { min-height: 32px; color: var(--muted); font-weight: 500; }
-.g2-entry-card { display: grid; gap: 14px; }
-.g2-entry-card > .primary-button { justify-self: end; }
-.g2-live-totals span { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
-.g2-live-totals b { margin-left: 8px; font-size: 1.1rem; }
 
 .g2-date-range {
   display: grid;
@@ -654,10 +630,6 @@
 
 @media (max-width: 700px) {
   .g2-card { padding: 14px; }
-  .g2-entry-grid,
-  .g2-entry-grid-four,
-  .g2-entry-grid-repairs { grid-template-columns: 1fr; }
-  .g2-entry-card > .primary-button { width: 100%; justify-self: stretch; }
   .g2-chart-kpis-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .g2-date-range { grid-template-columns: minmax(0, 116px) minmax(0, 116px); justify-content: start; }
   .g2-date-range > div { grid-column: 1 / -1; }

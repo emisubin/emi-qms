@@ -246,3 +246,16 @@
 - 독립 g2_frame_review: 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. 확정 P0-P2없음. 모바일 자재 중복 padding 우려 보정 후 추가 CSS 검토에도 새 Finding없음.
 - 로컬 구현/검증 완료, 사용자 검수 대기. 원격 push/merge/배포 없음. 기존5182/5090 runtime 보존.
 - 신규 DB 없음, 새 검증용 임시 DB 없음(기존 검수 DB 보존·정리 미실행), 미사용 DB 없음. DB 데이터 변경 없음.
+
+## 2026-10-12 확정 제조 인원관리 PC·모바일 로컬 이식
+
+- 사용자 PC/모바일 시안 확정 및 코드 그대로 로컬 구현 승인. PC 세로 날짜 표/최근 입력일 인원 요약, 모바일 달력과 세로 가운데 데이터/상세 팝업 총원 우측 정렬, 공통 입력 폼의 오전·오후 탭. 오전+오후 하루 총원 합산 확정.
+- 기존 청주 attendance API·권한·변경필드/expectedVersion·빈칸 null/0 저장 계약 유지. 이전 상단 입력/가로표 제거. 실제 G2PageFrame/DataEntryDialog 재사용, 생산/출하에서 조회월·달력·탭 공용 추출.
+- mockup의 예시값과 고정 오늘 날짜는 이식하지 않음. 로컬 검증과 독립 review 후 결과 기록 예정. 원격/배포 승인 범위 아님.
+
+- 구현: G2AttendancePage PC 날짜 세로 표와 최신 입력일 요약, mobile 달력/상세와 AM·PM 입력 폼. G2SharedControls의 월선택/월제목/달력/탭 및 useG2Mobile을 기존 생산출하와 공동 사용. 기존 G2ManagementPages 인라인 편집/가로표 코드 및 사용 종료된 입력 전용 CSS 삭제. 예시 전용 shell은 실제 G2PageFrame/Osan 공통 shell로 대체.
+- 검증: typecheck, 변경파일 ESLint 경고0, build 통과(기존 대형chunk 경고). G2Pages/G2OperationsPage/G2Navigation 3파일22tests 통과. 저장 변경필드 expectedVersion, null/0, 탭draft, conflict 보존, 중복제출 방지, 읽기권한/runtime, 미래blank, 늦은 날짜응답, 403/retry 검증. 초기 오류 테스트 생성인자 보정 후 통과. 첫 build는 sandbox 출력경로 권한으로 실패했고 승인된 escalation으로 동일 build 재실행 성공.
+- 시각 검증: 실제5182/g2/attendance PC1440×1000 표 가운데정렬/월선택/입력폼, 390×844 달력·상세 총원우측·폼 확인. PC title x232, 가로넘침 없음. 생산출하390px 공유달력/입력메뉴/오후탭 회귀 화면 정상, 두메뉴 console error없음. 실제 로컬 날짜의 미입력 상태 조회; 실DB 쓰기는 하지 않고 저장계약은 mock API 자동테스트로 확인. 캡처 attendance-local-pc.png (시안 폴더).
+- 독립 attendance_review: 요청 gpt-6-astra/high, 실제 모델 NOT_REPORTED. data-row 누락에 따른 PC 정렬과 월초 테스트 미래날짜 P2 2건 보정. 수정분 재검토에서 기존2건 해소/새 P0–P2없음. 마지막 PC totals 8px 간격은 공통리셋에 유지되도록 !important 보정.
+- 상태: 로컬 구현/관련 검증 완료, 사용자 로컬 검수 대기. 기존5182/5090 source/runtime 유지. 원격push/PR/merge/배포 없음.
+- DB: 신규DB 없음, 새 검증용 임시DB 없음(기존 검수 DB 보존, 정리 미실행), 미사용으로 전환된DB 없음. schema/migration/실제데이터 변경 없음.

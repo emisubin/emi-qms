@@ -187,3 +187,11 @@
 - 예시 가정: 생산160/계획180, 납품150/150, 신규불량4/총생산160=2.5%, 현재고420에서 예정납품120씩3회 차감, 10/14 잔여60으로180미만. 생산 실적 분모 정의 및 미래 생산 포함 여부는 미확정이며 시안에서 명시, 업무 계산정책 확정으로 해석하지 않는다.
 - 공식 출처: https://help.worksmobile.com/ko/admin-guides/manage-service/attendance/attendance-home/ ; https://www.zoho.com/inventory/help/reports/dashboard.html ; https://www.ecount.com/kr/ecount/product/inventory_location-management ; https://www.odoo.com/documentation/18.0/applications/inventory_and_mrp/inventory/warehouses_storage/reporting/forecast.html ; https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-radial-gauge-charts ; https://trailhead.salesforce.com/content/learn/projects/build-an-app-to-track-your-trailblazer-journey/create-a-report-a-report-chart-and-a-dashboard . 가이드 https://help.tableau.com/current/pro/desktop/en-us/what_chart_example.htm . 원본과의 차이는 G2 항목/공통색/출근 요약/180기준 및 생산 미반영 전망이다.
 - 브라우저에서 3안 전체 화면, 시안 링크 전환, 390px 가로 넘침 없음 확인. 모바일 세부 시안 확정은 별도. 디자인 선택 대기, 실제 G2 홈 기능 구현/DB 연동/배포 없음. 신규DB/임시DB/미사용DB 없음, 기존 검수DB 보존.
+
+## 2026-10-11 G2 홈 시안 재작성: 요소 자체를 구분
+
+- 사용자 피드백: 기존3안은 배치 차이만 있으므로 각 요소 디자인도 모두 다르게 재작성 요청. 기존 시안 승인이 아니며 선택 대기 상태 유지.
+- 기존공통 shell/색만 재사용하고 revised.js/revised.css에 3개 별도 마크업 작성. 1안 원형 진행/중앙불량률/무채움 점선 재고/품목 카드, 2안 바늘게이지/가로불량 요약/현재고-납품=예상재고 수식과 계단면적/조건부서식 표, 3안 큰 달성률 숫자/불량수량 대비 생산수량과 비율/납품일별 잔여재고 목록/번호와 수량을 정렬한 자재 목록. 출근은 모두 생산 아래 작은 글씨.
+- 앞서 확인한 공식 Power BI/네이버광고 카드, Salesforce 게이지, Zoho 품목별 요약과 목록, 이카운트 안전재고표, Odoo 재고요약/그래프를 표현근거로 사용. 원형은 공식 재고 대시보드의 도넛 표현을 달성/잔여 비율로 조정. 새 계산정책 없음. 샘플값/예측가정 유지.
+- localhost8778/?view=1&revision=2 에서1~3전환. 캡처 home-v2-01/02/03.png는 기존 시안과 별도 보존. PC3개/390px3개 직접 관찰, 레이블 줄바꿈 보정, 콘솔오류없음. PC 디자인 선택용이며 모바일 세부 확정 아님.
+- 실제 앱/DB/기존runtime 미변경. 신규DB/임시DB/미사용DB 없음. 작업기록 local commit만, 원격/배포 없음.

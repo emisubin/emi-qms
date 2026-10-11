@@ -332,3 +332,14 @@
 - 두 번째 실패 복구 완료: fresh read-only 감사 통과 후 기존 backend--0000070/frontend--0000061을 활성화, readiness/public200·401·401 및 기존image complete 양사업장Succeeded 확인. 사용자가 사용할 수 있는 기존서비스/저장기능 재개 완료. relay종료 및 감사container정리 확인.
 - 수정 이미지 검증: 같은main1bb8e7a의 backend `sha256:1bde52073c52e1b7c20395f082a3a717de7bb6f102fc5d4e4ec955958aaeccd0`, frontend `sha256:91ef6414c727421bf7b51546979d2b82afef7cfe2db1c58f062283622d2c48a6`. backend USERapp/networknone/read-only에서141 SQL모두열거/EOF읽기, frontend UID101/networknone 내부loopback HTTP34파일(assets22포함)전부성공. probecontainer정리완료. source코드/DB계약변경없음.
 - 세 번째 실행 release `58649ad1-8c10-4de1-9d66-376ad17e579f`: 새popup-only3시간안내 양사업장prepare/verify성공, freshTLSrelay/6600초잔여·공지120분잔여·기존mainCI증거확인후 새checkpoint정상runner 시작. 이미검증된 이전backup은 보관만하고 새중단구간의증거를다시만듦. 최종결과는후속기록. 공간확보를위해 본작업의 완료된중복빌드temp소스/압축본만정리했고 운영backup/기존검수DB는유지.
+
+
+## 2026-10-12 공개배포 완료
+
+- release `58649ad1-8c10-4de1-9d66-376ad17e579f` 정상 종료(exit0), 한국시간 06:46:52. 배포 source main `1bb8e7a681985bc99c69d9302250b6d1393a1692`, 앞서 기록한 permissions1 immutable 이미지와 일치. backend--0000071/frontend--0000062 latest=ready/Succeeded. 이후 기록 commit은 운영 이미지 source와 구분.
+- 새 암호화 백업 실제 복원/전체 검증/최종 drain 통과 후 Directory/Cheongju/Osan migration 성공. 청주 catalog job migration-fbk3tct 성공, 빈 양식 metadata92개 등록, 예시 실사 수량 입력 없음. 양사업장 점검 종료 maintenance-7n3dxmq/maintenance-y1esvn6 성공, 저장 제한 해제.
+- runner Migration/Backend/Frontend/PublicSecurity PASS. 별도 읽기 전용 감사: identity/전체원장 D4/C134/O133/runtime CONNECT·USAGE/Directory SELECT·비DML/catalog92/양사업장 해당release Completed 확인. 공개 https://pms.emiinc.co.kr/health/live 200, root·/api/me 비로그인401. /health는 공개health 경로가 아니며401; 최종 검증은 /health/live 사용.
+- 한계: 운영 로그인 후 실제 데이터 입력은 미실행. 승인된 로컬 PC·모바일 검수, PR169 backend1108/1108/fullstack64/64+경계2건, PR170 운영도구 CI, 운영 배포 후 검증을 구분함.
+- 일회용 복원DB/container, 평문 임시폴더, 이미지probe/감사container 정리. 최종 TLS relay exit0, 완료3회 실행의 임시 자격정보JSON 제거. 암호화 backup/manifest와 비민감 증거 보존. 기존 검수DB/runtime/사용자WIP 유지.
+- DB 보고: 신규 영구DB 없음. 기존 청주DB에 g2_daily_values/g2_daily_notes/g2_material_items/g2_material_counts 적용. 검증용 Directory·청주·오산 일회용 복원DB는 소유container와 함께 정리 완료. 미사용 전환DB 없음. 기존 다른 검수DB는 정리 대상에서 제외.
+- 승인된 기능 병합·공개배포 완료. 두 차례 실패는 기존서비스 복구 후 보정했고 최종 성공으로 종료. 운영 배포 잔여 작업 없음.

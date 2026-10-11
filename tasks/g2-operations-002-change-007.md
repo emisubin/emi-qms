@@ -319,3 +319,16 @@
 - 기존 서비스 정상화 완료: 기존 immutable 앱 이미지·Healthy/Ready·공개 health200/root401/api401 확인 후 청주 `maintenance-s3t32cj`, 오산 `maintenance-w402eir` complete 모두 Succeeded. 저장 제한 해제 완료. 실패 release 종료 후 새배포 준비 중이며 배포 완료로 표시하지 않음. 다음 실행 private 설정은 checkpoint/driver5400초, 3시간 새안내·시작전120분 잔여·fresh relay 잔여6600초 이상을 확인하도록 구성. 독립 adapter 검토 GO.
 
 - 제한시간 보정 검증: OpenSSL3 PATH에서 checkpoint33/33 통과, logical driver21실행 중19통과·기존Docker통합2건skip(성공으로 간주하지 않음), Python구문/diffcheck 통과. 독립 g2_release_review(요청 gpt-6-astra/high, 실제NOT_REPORTED) 계약·실제diff·기존보호/신규경계 검토GO, 확정P0–P2없음. 기본예산·AzureFull·개별명령·공지끝·증거요구 보존 확인. 새검증DB 생성없음. 필요운영보정만 후속PR로 진행.
+
+
+## 2026-10-12 복구 예산 보정 병합·두 번째 배포 결과
+
+- 후속PR #170(`da2948f`) 필수 Workflow Validation/CI Gate 통과(`38168354905`). 변경분이 운영 도구뿐이므로 제품 회귀는 분류 정책상 미실행이며 앞선 #169 증거를 유지. 정상 병합main `1bb8e7a681985bc99c69d9302250b6d1393a1692`, mainCI `38168661156` 성공.
+- 새release `007e9713-5679-44d9-a229-e3e3f3a591ac`를 새3시간 popup-only 안내로 준비하고 실행. checkpoint/driver5400초·fresh relay·시작전공지120분잔여를 확인. 백업수집·암호화사본실복원·identity/ledger/schema/data/권한/원본불변성·최종drain재검증까지 통과, checkpoint `VERIFIED_LOGICAL_DATABASE_BACKUP` 및 암호화backup/manifest 보관. 임시복원container/plaintext는 정리.
+- Directory migration `migration-0axq0b6` 성공 후 청주 `migration-4psca0o`가 SQL파일 열거 중 UnauthorizedAccessException으로 실패. 실제 root원인: 저장소 밖 로컬 image build adapter의 umask077+Python tar data filter가 공개Git archive의 디렉터리를0700으로 만들어, USER app이 business-migrations/cheongju에 접근할 수 없었음. 제품SQL문제아님. 청주는 ApplyTargetAsync/DB연결 전 실패, 오산/품목등록/앱교체 미실행. Directory는 동일migration목록의 권한reconcile을 수행했으므로 전체시도를 DB무변경이라고 기록하지 않음.
+- runner exit74/정리종료 확인 후 읽기전용 감사에서 기존 eb19a3f catalog와 D4/C131/O133 전체원장 exact·DBidentity·청주새테이블부재·runtime CONNECT/USAGE·Directory전체publictable SELECT/비DML 및 현재release Failed 확인. 권한reconcile코드는 old→main변경없음. 독립review 조건부복구GO, 감사container고정이름소유P2는 UUID/label확인정리로해소. 기존exactrevision/image활성화→ready/public→oldimagecomplete adapter실행 중.
+- 수정은 공개Git archive디렉터리0755정규화뿐이며 동일main source를 별도 `-permissions1`태그/digest로 재빌드. 기존badbackend actualappUID/networknone/read-only probe에서 business2폴더접근거부재현, frontend기존이미지내부HTTP static34/assets22정상확인. 수정이미지동일probe 및기존서비스정상화확인후 새release/checkpoint정상runner로 재배포예정. 실패runner/기존checkpoint 재사용안함.
+
+- 두 번째 실패 복구 완료: fresh read-only 감사 통과 후 기존 backend--0000070/frontend--0000061을 활성화, readiness/public200·401·401 및 기존image complete 양사업장Succeeded 확인. 사용자가 사용할 수 있는 기존서비스/저장기능 재개 완료. relay종료 및 감사container정리 확인.
+- 수정 이미지 검증: 같은main1bb8e7a의 backend `sha256:1bde52073c52e1b7c20395f082a3a717de7bb6f102fc5d4e4ec955958aaeccd0`, frontend `sha256:91ef6414c727421bf7b51546979d2b82afef7cfe2db1c58f062283622d2c48a6`. backend USERapp/networknone/read-only에서141 SQL모두열거/EOF읽기, frontend UID101/networknone 내부loopback HTTP34파일(assets22포함)전부성공. probecontainer정리완료. source코드/DB계약변경없음.
+- 세 번째 실행 release `58649ad1-8c10-4de1-9d66-376ad17e579f`: 새popup-only3시간안내 양사업장prepare/verify성공, freshTLSrelay/6600초잔여·공지120분잔여·기존mainCI증거확인후 새checkpoint정상runner 시작. 이미검증된 이전backup은 보관만하고 새중단구간의증거를다시만듦. 최종결과는후속기록. 공간확보를위해 본작업의 완료된중복빌드temp소스/압축본만정리했고 운영backup/기존검수DB는유지.

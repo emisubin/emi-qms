@@ -2,11 +2,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canLeaveMaterialDraft } from '../src/materialNavigationGuard';
 import { G2MaterialsPage } from '../src/G2MaterialsPage';
-import { calculateMaterial, getMaterialDay, importMaterialFile, saveMaterialDay, type MaterialDay, type MaterialImport } from '../src/g2Materials';
+import { editMaterialQuantity, calculateMaterial, getMaterialDay, importMaterialFile, saveMaterialDay, type MaterialDay, type MaterialImport } from '../src/g2Materials';
+vi.mock('../src/g2',async original=>({...await original<typeof import('../src/g2')>(),todaySeoul:()=> '2026-10-09'}));
 vi.mock('../src/g2Materials', async original => ({...await original<typeof import('../src/g2Materials')>(), getMaterialDay:vi.fn(), saveMaterialDay:vi.fn(), importMaterialFile:vi.fn()}));
 const empty = {working:null,kitting:null,rack:null,materials:null,erp:null,transit:null};
 const fixture = ():MaterialDay => ({date:'2026-10-09',canEdit:true,items:Array.from({length:92},(_,i)=>({id:i+1,sourceRow:i+4,category:i<40?'사급':i<80?'도급':'부자재',vendor:'공급사',name:`품목 ${i+1}`,code:`ITEM${i+1}`,spec:'규격',unit:'EA',setQuantity:2,packBox:'10',packPalletEa:null,packPalletBox:null,packNote:null,imageKeys:[],cellFills:{},values:{...empty,erp:i===0?7:null},updatedAtUtc:null}))});
 beforeEach(()=>{
+
  vi.mocked(getMaterialDay).mockResolvedValue(fixture());
  vi.mocked(saveMaterialDay).mockReset().mockResolvedValue({saved:true});
  HTMLDialogElement.prototype.showModal=function(){this.open=true;};
@@ -26,6 +28,41 @@ describe('material inventory workflows',()=>{
   expect(payload).toHaveLength(92);
   expect(payload[0]).toMatchObject({id:1,working:3,erp:7});
   expect(payload[1].working).toBe(0);expect(payload[2].working).toBeNull();
+ });
+ it('preserves literal calculations through import and save, then restores dependent formulas on edit',async()=>{
+  const items=fixture().items.map(r=>({id:r.id,...empty,calculationOverrides:r.id===1?{Q:132}:null}));
+  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null}],selectedSheet:'Sheet1',selectedDate:null,items,warnings:['Q4: 직접 입력된 숫자를 가져옵니다.']});
+  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
+  expect(await screen.findByText('Q4: 직접 입력된 숫자를 가져옵니다.')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));fireEvent.click(screen.getByRole('button',{name:'저장'}));
+  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledTimes(1));expect(vi.mocked(saveMaterialDay).mock.calls[0][2][0].calculationOverrides).toEqual({Q:132});
+  await waitFor(()=>expect(screen.getByLabelText('1번 제작중')).toBeEnabled());fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});fireEvent.click(screen.getByRole('button',{name:'저장'}));
+  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledTimes(2));expect(vi.mocked(saveMaterialDay).mock.calls[1][2][0].calculationOverrides).toBeNull();
+ });
+ it('uses literal totals without reassigning them to a source quantity',()=>{
+  const values={...empty,materials:4,calculationOverrides:{Q:132}};expect(calculateMaterial(values,2)).toMatchObject({Q:132,Y:136,R:66,Z:68,AA:68});expect(values.working).toBeNull();
+  expect(editMaterialQuantity(values,'materials',8).calculationOverrides).toEqual({Q:132});expect(editMaterialQuantity(values,'rack',3).calculationOverrides).toBeNull();
+  expect(calculateMaterial({...empty,calculationOverrides:{S:1.9,X:2.2}},2)).toMatchObject({R:1,W:2,AA:4,Z:4});
+  expect(calculateMaterial({...empty,calculationOverrides:{Q:0,Y:8,AA:3.2,Z:5}},2)).toMatchObject({Q:0,Y:8,AA:3.2,Z:5});
+ });
+ it('requires sheet selection, accepts no date and never saves during preview',async()=>{
+  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:null,selectedDate:null,items:[]});
+  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));
+  fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});
+  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));await screen.findByLabelText('대상 시트');
+  expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();expect(screen.getByRole('button',{name:'파일 확인'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('대상 시트'),{target:{value:'Sheet2'}});
+  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:'Sheet2',selectedDate:null,items:fixture().items.map(r=>({id:r.id,...empty}))});
+  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));await waitFor(()=>expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeEnabled());
+  expect(vi.mocked(importMaterialFile).mock.calls[1][3]).toBe('Sheet2');fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));expect(saveMaterialDay).not.toHaveBeenCalled();
+ });
+ it('shows structure errors and requires explicit acceptance of a different date',async()=>{
+  vi.mocked(importMaterialFile).mockRejectedValue(new Error('시트 [Sheet1] Q4: 계산식이 변경되었습니다.'));
+  await open();fireEvent.click(screen.getByRole('button',{name:'엑셀 가져오기'}));fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],'inventory.xlsx')]}});fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Q4');expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeDisabled();
+  vi.mocked(importMaterialFile).mockResolvedValue({sheets:[{name:'26-10-07',date:'2026-10-07'}],selectedSheet:'26-10-07',selectedDate:'2026-10-07',items:fixture().items.map(r=>({id:r.id,...empty}))});
+  fireEvent.click(screen.getByRole('button',{name:'파일 확인'}));await waitFor(()=>expect(screen.getByRole('button',{name:'표에 가져오기'})).toBeEnabled());
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));expect(screen.getByRole('dialog')).toBeInTheDocument();expect(confirm).toHaveBeenCalledWith(expect.stringContaining('2026-10-07'));
+  confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'표에 가져오기'}));expect(screen.queryByRole('dialog')).not.toBeInTheDocument();expect(saveMaterialDay).not.toHaveBeenCalled();confirm.mockRestore();
  });
  it('imports to draft only, clears existing values on blank import, then saves latest edits',async()=>{
   const preview:MaterialImport={sheets:[{name:'26-10-09오전',date:'2026-10-09'},{name:'26-10-09오후',date:'2026-10-09'}],selectedSheet:'26-10-09오전',selectedDate:'2026-10-09',items:fixture().items.map(r=>({id:r.id,...empty}))};

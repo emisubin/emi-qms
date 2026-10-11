@@ -111,3 +111,24 @@
 - 가져오기 팝업만 최대1440px/화면 좌우 여백40px. 긴 정보는 줄바꿈, 규격명 왼쪽 정렬. 기존 색 #d5dae1의 2px 경계선을 collapse 표에 적용하여 중복 없이 연결. 공통 reset의 col 너비 초기화를 대상 CSS에서 보정.
 - 관련 기존 테스트13개 통과, 수정 TSX lint 통과. 실제 로컬 Excel 미리보기에서 품목13열/긴규격/가로 넘침 없음/2px 연속 경계/취소 및 반영 버튼 노출을 시각 확인. 높이가 낮은 창에서는 미리보기 높이를 제한. 추가 헤더 이미지 파일 저장은 브라우저 캡처 시간 초과로 미보관(화면 관찰은 완료).
 - 새 영구/임시 DB, 미사용 DB 없음. DB 저장 미실행, 기존 검수 서버 유지. 범위 local commit, 원격 반영/배포 없음.
+
+## 2026-10-09 이름 독립 가져오기·엄격 구조 검증 (사용자 결정 대기)
+
+- 승인: 파일명/시트명 날짜 규칙 의존 제거. 양식 하나 자동선택, 복수 시트 사용자 선택, 시트명 날짜와 PMS 실사일 불일치 확인 후 표 반영. 추가 답변: 서식(색/테두리/너비/숨김)은 허용하며 열·품목·수식 등 구조 변경만 차단.
+- 현재 WIP: G2MaterialExcel/Contracts, G2MaterialsPage/g2Materials, backend/frontend 관련 테스트. 헤더 전체·품목/포장정보·병합·행별 계산식·추가 값 검사, 시트/셀 위치 오류. 원본의 표 밖 AD57 단독 점은 레이아웃 잔여값으로 허용. 날짜는 nullable 힌트, 후보 선택 전 items 없음. 수량/숨김ERP 기존6개 필드·92행 저장 계약 유지. 권한/DB/migration 변경 없음.
+- 서버 테스트27개, UI 테스트15개, frontend typecheck/lint 통과. 독립 reviewer: 추가 P0/P1/P2 없음이나 아래 원본 계약 충돌로 GO 보류. 요청 gpt-6-astra/high, 관측 NOT_REPORTED.
+- 실제 원본 read-only 호환성 검사에서 Q11/Q12 제조실 합계만 계산식 없는 직접 입력값임을 발견. 기존 import는 이 값을 읽지 않았음. strict 수식 검사에서 원본 차단. 사용자에게 (1) 원본을 N/O/P입력+Q합계수식으로 정규화 (2) 두 품목 직접합계 예외지원 중 선택 질문, 답변 전 관련 계약 변경 보류.
+- 독립 ZIP/XML 전체 확인에서도 계산열의 수식누락은 위2개뿐. 원본을 변경하지 않고 메모리에서 두 칸에 N+O+P를 넣은 탐색 검증은92행/후보29/적합1 통과. 이는 원본 그대로 통과 증거가 아님. private /tmp/g2-strict-compat runner·catalog 사용, 실제자료는git제외.
+- runtime5178/5086은 기존 backend 버전 유지. 새 backend 검수/재기동·최종commit은 위 답변 후 진행. UI는 worktree HMR 대상이므로 WIP 존재. DB 생성/변경/임시DB 신규/미사용DB 없음. 기존 검수DB3개와서버 유지. 원격/배포 없음.
+
+
+## 2026-10-11 직접 입력된 계산값 허용·가져오기 검증 완료
+
+- 사용자 결정: 구조 변경만 차단하되, 계산 셀에 수식 대신 직접 입력된 숫자는 모두 읽고 안내한다. 앞선 Q11/Q12 결정 대기를 해소했다. 파일명/시트명 및 색·너비·숨김 등 서식 변경은 허용한다. 헤더·92품목·포장정보·병합·수식 구조 변경은 시트/셀 위치와 함께 차단한다. 복수 적합 시트 선택 및 시트명 날짜와 PMS 실사일 불일치 확인을 지원한다.
+- Q/R/S/W/X/Y/Z/AA 계산열의 유효 숫자를 보존하고 가져오기 안내 및 해당 품목에 표시한다. 관련 원천 실사값을 수정하면 영향받는 계산값만 해제하고 원래 Excel 계산으로 전환한다. 다른 Part의 독립 값은 보존한다. 파일 자체는 보관하지 않는다.
+- 기존 청주 g2_material_counts에 nullable calculation_overrides JSONB를 추가하는 migration0134 작성. 기존 날짜/품목 데이터에서 함께 갱신하며 수정 이력이나 새 업무 DB는 만들지 않는다. 기존 권한·92행 snapshot·동시성 계약 유지.
+- 검증: backend G2MaterialTests36개, frontend 페이지17개, DB/migration10개 통과. 원본 무수정 읽기92행/후보29개/적합1개, Q11/Q12 숫자 원본 일치 및 안내2건 확인. frontend typecheck/lint/build 및 backend Release build 성공. Vite 기존 큰 bundle 경고 유지. 독립 reviewer GO, 미해결 P0/P1/P2 없음(요청 gpt-6-astra/high, 관측 NOT_REPORTED).
+- 실제5180 PC에서 원본 미리보기와 Q11/Q12 안내2건, Part 구분 및 팝업 하단 버튼 노출을 화면으로 확인했다. 추가 이미지 파일 저장과 모바일 새 안내 문구 시각 확인은 브라우저 CDP 연결 오류로 미완료. 모바일 viewport 원복 요청은 성공했다. 원본은 검수 브라우저의 미저장 표에만 반영했고 저장/입력 이벤트를 실행하지 않았다. 자동검증과 실제 휴대폰 검수는 별개다.
+- 새 검수 서버: frontend5180/backend5088, session9979, source는 이 worktree. 전용 g2import20261010 container/tmpfs 사용. 외부 provider 및 retention 비활성. 새 임시 DB emi_qms_e2e_g2import20261010_directory(계정/사업부), emi_qms_e2e_g2import20261010_cheongju(G2 검수), emi_qms_e2e_g2import20261010_osan(사업부 격리) 생성 후 검수용 유지. 기존5178/5086과 g2review20261009 DB3개는 변경/삭제하지 않았다.
+- 자동 DB 검증의 emi_qms_e2e_5db0fe17a5_directory/cheongju/osan은 fixture 종료로 정리, 소유 container/network/tmpfs도 정리 확인. 새 영구 DB 및 더 이상 사용하지 않는 DB 없음. 원본/실재고/비공개 catalog는 commit하지 않는다.
+- 범위 파일만 local commit. 원격 push/PR/merge/배포 및 운영 DB migration 적용 없음. 남은 작업: 사용자 검수, 모바일 새 안내 시각 확인, 명시 승인 후 대상 환경 반영.

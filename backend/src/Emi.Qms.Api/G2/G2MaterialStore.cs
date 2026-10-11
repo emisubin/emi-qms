@@ -32,9 +32,9 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
         G2MaterialRules.ValidateDate(date,G2MaterialRules.Today(time)); var catalog=await CatalogAsync(ct); var editable=await CanEditAsync(actor,ct);
         var values = new Dictionary<int,(G2MaterialValues Values,DateTime Updated)>();
         await using var source=Source(); await using var connection=await source.OpenConnectionAsync(ct);
-        await using var command=new NpgsqlCommand("select item_id,working,kitting,rack,materials,erp,transit,updated_at_utc from g2_material_counts where count_date=@date",connection); command.Parameters.AddWithValue("date",date);
+        await using var command=new NpgsqlCommand("select item_id,working,kitting,rack,materials,erp,transit,updated_at_utc,calculation_overrides::text from g2_material_counts where count_date=@date",connection); command.Parameters.AddWithValue("date",date);
         await using var reader=await command.ExecuteReaderAsync(ct);
-        while(await reader.ReadAsync(ct)) { var id=reader.GetInt32(0); decimal? V(int n)=>reader.IsDBNull(n)?null:reader.GetDecimal(n); values[id]=(new(id,V(1),V(2),V(3),V(4),V(5),V(6)),reader.GetDateTime(7)); }
+        while(await reader.ReadAsync(ct)) { var id=reader.GetInt32(0); decimal? V(int n)=>reader.IsDBNull(n)?null:reader.GetDecimal(n); values[id]=(new(id,V(1),V(2),V(3),V(4),V(5),V(6),reader.IsDBNull(8)?null:JsonSerializer.Deserialize<Dictionary<string,decimal>>(reader.GetString(8),Json)),reader.GetDateTime(7)); }
         return new(date,editable,catalog.Select(x=>new G2MaterialItem(x.Id,x.SourceRow,x.Category,x.Vendor,x.Name,x.Code,x.Spec,x.Unit,x.SetQuantity,x.PackBox,x.PackPalletEa,x.PackPalletBox,x.PackNote,x.ImageKeys,x.CellFills,values.TryGetValue(x.Id,out var v)?v.Values:new(x.Id,null,null,null,null,null,null),values.TryGetValue(x.Id,out v)?v.Updated:null)).ToArray());
     }
     public async Task SaveAsync(DateOnly date, SaveG2MaterialsRequest request, Guid actor, CancellationToken ct)
@@ -47,9 +47,10 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
         await using(var gate=new NpgsqlCommand("select pg_advisory_xact_lock(4733,@day)",connection,tx)) {gate.Parameters.AddWithValue("day",date.DayNumber); await gate.ExecuteNonQueryAsync(ct);}
         foreach(var item in request.Items.OrderBy(x=>x.Id))
         {
-            await using var command=new NpgsqlCommand("insert into g2_material_counts(count_date,item_id,working,kitting,rack,materials,erp,transit,updated_by_user_id) values(@date,@id,@working,@kitting,@rack,@materials,@erp,@transit,@actor) on conflict(count_date,item_id) do update set working=excluded.working,kitting=excluded.kitting,rack=excluded.rack,materials=excluded.materials,erp=excluded.erp,transit=excluded.transit,updated_by_user_id=excluded.updated_by_user_id,updated_at_utc=now()",connection,tx);
+            await using var command=new NpgsqlCommand("insert into g2_material_counts(count_date,item_id,working,kitting,rack,materials,erp,transit,calculation_overrides,updated_by_user_id) values(@date,@id,@working,@kitting,@rack,@materials,@erp,@transit,@overrides,@actor) on conflict(count_date,item_id) do update set working=excluded.working,kitting=excluded.kitting,rack=excluded.rack,materials=excluded.materials,erp=excluded.erp,transit=excluded.transit,calculation_overrides=excluded.calculation_overrides,updated_by_user_id=excluded.updated_by_user_id,updated_at_utc=now()",connection,tx);
             command.Parameters.AddWithValue("date",date); command.Parameters.AddWithValue("id",item.Id);command.Parameters.AddWithValue("actor",actor);
             foreach(var (key,value) in new (string,decimal?)[]{("working",item.Working),("kitting",item.Kitting),("rack",item.Rack),("materials",item.Materials),("erp",item.Erp),("transit",item.Transit)}) command.Parameters.AddWithValue(key,NpgsqlDbType.Numeric,(object?)value??DBNull.Value);
+            command.Parameters.AddWithValue("overrides",NpgsqlDbType.Jsonb,item.CalculationOverrides is null?DBNull.Value:JsonSerializer.Serialize(item.CalculationOverrides,Json));
             await command.ExecuteNonQueryAsync(ct);
         }
         await tx.CommitAsync(ct);

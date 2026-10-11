@@ -144,3 +144,11 @@
 - 실제5180 PC 기본 조회 및 가져오기 팝업 모양 직접 확인. 해당 runtime backend는 재기동하지 않아 이번 불일치 API의 브라우저 종단 확인 및 모바일 시각 확인은 미실행. 기존 검수 DB 보존을 위해 소유 서버 종료 cleanup을 실행하지 않음. 기존5178/5180 검수 서버의 backend 갱신은 남아 있음.
 - 새 영구DB/미사용DB 없음. 자동검증 전용 emi_qms_e2e_20261011012030_17995_18230 및 fixture별 사업부 임시DB는 테스트 cleanup으로 정리, 소유 container/network/tmpfs 제거 확인. 앞선 명령 인자 오류 실행의20261011012013_17336_6031 임시 환경도 cleanup 완료. 기존 검수DB는 유지. calculation_overrides는 신규 업무 저장 용도가 없어졌으나 호환용으로 남으며 임의drop하지 않음.
 - 범위 local commit만 수행. 원격 push/PR/merge/운영 배포 없음.
+
+
+## 2026-10-11 최신 로컬 검수 서버 열기
+
+- 사용자 요청에 따라71578f7 backend와 현재 frontend로5182/5090 검수 서버 실행(session49198). 기존5178/5180 서버는 종료 시 DB cleanup되는 구조라 보존했다.
+- 소유 container emi-qms-e2e-g2equal20261011-e2e-postgres-1와 tmpfs. 새 임시DB emi_qms_e2e_g2equal20261011_directory(계정/사업부), emi_qms_e2e_g2equal20261011_cheongju(G2 두 메뉴 검수), emi_qms_e2e_g2equal20261011_osan(사업부 격리) 생성 후 유지. 새 영구DB 및 미사용DB 없음.
+- 기존 private catalog92개와 이미지 경로 적용, 합성dev-admin을자재부서로 설정. 실사값 미입력. 외부provider/retention삭제worker 비활성. 운영/기존검수 데이터 미변경.
+- in-app browser에서5182/g2/materials 열고 최신 자재92개 목록/빈실사값/이미지 표시 직접 확인. 사용자 확인용 탭 유지. 생산출하관리는 동일App의/g2/operations 경로(현재 App route 확인), 별도 최신 화면 재검수는 하지 않음. 원격/배포 없음.

@@ -131,9 +131,20 @@ class Checkpoint:
                 and (environment.get("FIRST_ROLLOUT_ALLOW_TEST_OVERRIDES") == "true"
                      or environment.get("AZURE_RELEASE_ALLOW_TEST_OVERRIDES") == "true")),
                 "COMMAND_OVERRIDE_REJECTED")
-        self.timeout = int(environment.get("RECOVERY_CHECKPOINT_TIMEOUT_SECONDS", "900"))
-        self.interval = int(environment.get("RECOVERY_CHECKPOINT_POLL_SECONDS", "30"))
-        require(1 <= self.timeout <= 1800 and 1 <= self.interval <= 60, "INVALID_WAIT_BOUND")
+        self.evidence_kind = environment.get("RECOVERY_EVIDENCE_KIND", "AzureAvailableFullBackup")
+        require(self.evidence_kind in ("AzureAvailableFullBackup", "VerifiedLogicalDatabaseBackup"),
+                "INVALID_RECOVERY_EVIDENCE_KIND")
+        raw_timeout = environment.get("RECOVERY_CHECKPOINT_TIMEOUT_SECONDS", "900")
+        raw_interval = environment.get("RECOVERY_CHECKPOINT_POLL_SECONDS", "30")
+        require(isinstance(raw_timeout, str) and re.fullmatch(r"[0-9]+", raw_timeout)
+                and isinstance(raw_interval, str) and re.fullmatch(r"[0-9]+", raw_interval),
+                "INVALID_WAIT_BOUND")
+        self.timeout = int(raw_timeout)
+        self.interval = int(raw_interval)
+        maximum_timeout = (7200 if self.evidence_kind == "VerifiedLogicalDatabaseBackup"
+                           else 1800)
+        require(1 <= self.timeout <= maximum_timeout and 1 <= self.interval <= 60,
+                "INVALID_WAIT_BOUND")
         self.ends_at = instant(environment["MAINTENANCE_EXPECTED_ENDS_AT_UTC"])
         require(self.ends_at > utc_now(), "WINDOW_EXPIRED")
         self.server_id = (f'/subscriptions/{environment["AZURE_SUBSCRIPTION_ID"]}'
@@ -146,9 +157,6 @@ class Checkpoint:
                         "apps": [environment["BACKEND_APP_NAME"], environment["FRONTEND_APP_NAME"]],
                         "evidenceCertificateSha256": hashlib.sha256(self.certificate.encode()).hexdigest()
                             if self.certificate else None}
-        self.evidence_kind = environment.get("RECOVERY_EVIDENCE_KIND", "AzureAvailableFullBackup")
-        require(self.evidence_kind in ("AzureAvailableFullBackup", "VerifiedLogicalDatabaseBackup"),
-                "INVALID_RECOVERY_EVIDENCE_KIND")
         self.logical_config = None
         self.logical_module = None
         config_path = environment.get("RECOVERY_LOGICAL_BACKUP_CONFIG", "")

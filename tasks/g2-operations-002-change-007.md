@@ -306,3 +306,16 @@
 
 - 세 번째 CI `38157746410`: Frontend/Workflow Validation/Full-stack64개 및 추가 사업장분리2건 통과. Backend1108개 중1106통과/2실패: 승인된0133의 자재2테이블이 BusinessSchemaOwnershipTests 청주 기대목록에서 누락됨. 엄격한 전체목록 Assert.Equal을 유지하고 g2_material_counts/items 두 literal만 추가, 제품/migration/다른사업장 계약 변경없음. 실패2건 집중DB검증2/2(44초)/diff-check통과, 독립reviewGO. 임시DB `emi_qms_e2e_20261011174525_71495_3622` 및 각사업장fixture DB/container/network 정리확인. 후속commit에서 필수CI 재실행. 아직병합/운영migration/앱교체없음.
 - 검증대기에 따른 점검창갱신: 기존운영image/source 일치·readiness·공개200/401/401을 확인하고 지원CLI로 기존안내를 사업장별 종료한 뒤 동일본문의 popup-only 새release를 준비. 기존영구공지를 보존하며 새3시간안내를 검증후private 실행설정으로승격. 실행결과는 private window-refresh-pending/log에 보관; 일반배포runner는 새안내양쪽 일치확인 전 진행하지않음.
+
+
+## 2026-10-12 병합 완료와 첫 운영 배포 복구
+
+- 최종 PR CI `38161171433`: Backend1108/1108, Full-stack64/64 및 사업장 경계2건, Frontend/Workflow Validation/CI Gate 통과. 사용자 병합·공개배포 승인 범위에서 PR #169를 정상 merge했고 main `5e181b02a79a834fd30b4334165e442d1f7c8228`의 CI `38164710620` 성공 확인. 검증 완료 PR과 동일 tree 재사용 정책 적용.
+- 첫 운영 release `944c9f3a-3087-4e5e-884a-c14d80fc8078`: 저장 차단·요청 drain 후 논리 백업 및 일회용 복원검증 진행. 약30분 공통 예산 경계에서 checkpoint wait `AZURE_READ_TIMEOUT`, driver `RESTORED_INVENTORY_FAILED`로 실패, exit79. 원본 3DB dump와 로컬 복원 이후 inventory 단계였으며 오류는 timeout과 SQL 실패를 함께 표현하므로 데이터 불일치로 단정하지 않음. candidate/verified 증거 없이 migration 전 차단된 사실 확인.
+- 운영 migration/92품목 등록/신규 앱 이미지 교체는 실행되지 않음. runner의 기존 이미지 복원 및 양 사업장 maintenance fail 실행 모두 성공. 이후 정상 readiness/공개200·401·401/기존 이미지 exact ledger 검사를 거치는 complete-only 복구 adapter를 독립 reviewer가 GO 판정. 실제 정상화 결과는 후속 기록.
+- 실패 실행 소유 plaintext 백업 작업폴더 및 일회용 복원 container 정리 확인. 소유 relay 정상 종료. 기존 로컬 검수 DB/runtime은 유지. 신규 영구 DB와 미사용 전환 DB 없음.
+- 같은 배포 목표의 최소 운영 보정: 논리 백업에만 명시적 유한 예산 최대7200초를 허용하고 기본값1800초·Azure Full 상한1800초·공지 종료 제한·개별 명령 제한·모든 복구 증거 요구를 보존. 운영 상태 변경 없이 코드/관련 반례 검증 및 독립 검토 후 새 release/checkpoint로 진행. 실패 checkpoint나 runner 재실행 금지.
+
+- 기존 서비스 정상화 완료: 기존 immutable 앱 이미지·Healthy/Ready·공개 health200/root401/api401 확인 후 청주 `maintenance-s3t32cj`, 오산 `maintenance-w402eir` complete 모두 Succeeded. 저장 제한 해제 완료. 실패 release 종료 후 새배포 준비 중이며 배포 완료로 표시하지 않음. 다음 실행 private 설정은 checkpoint/driver5400초, 3시간 새안내·시작전120분 잔여·fresh relay 잔여6600초 이상을 확인하도록 구성. 독립 adapter 검토 GO.
+
+- 제한시간 보정 검증: OpenSSL3 PATH에서 checkpoint33/33 통과, logical driver21실행 중19통과·기존Docker통합2건skip(성공으로 간주하지 않음), Python구문/diffcheck 통과. 독립 g2_release_review(요청 gpt-6-astra/high, 실제NOT_REPORTED) 계약·실제diff·기존보호/신규경계 검토GO, 확정P0–P2없음. 기본예산·AzureFull·개별명령·공지끝·증거요구 보존 확인. 새검증DB 생성없음. 필요운영보정만 후속PR로 진행.

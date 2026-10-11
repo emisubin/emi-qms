@@ -107,8 +107,18 @@ class LogicalRecoveryTests(unittest.TestCase):
             validated = module.validate_config(self.config)
         self.assertIsNone(validated.drained_at_utc)
         self.assertIsNone(validated.deadline_utc)
-        self.assertEqual(1800, module._parse_config(dict(self.config,
-            verificationTimeoutSeconds=1800)).verification_timeout_seconds)
+        default_config = dict(self.config)
+        default_config.pop("verificationTimeoutSeconds")
+        self.assertEqual(1800, module._parse_config(
+            default_config).verification_timeout_seconds)
+        self.assertEqual(7200, module._parse_config(dict(
+            self.config, verificationTimeoutSeconds=7200)).verification_timeout_seconds)
+        for value in (0, 7201, "7200", True, None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                        module.RecoveryError, "^VERIFICATION_TIMEOUT_INVALID$"):
+                    module._parse_config(dict(
+                        self.config, verificationTimeoutSeconds=value))
 
     def test_create_requires_drain_and_deadline_but_verify_only_requires_drain(self):
         validated = module._parse_config(self.config)
@@ -120,13 +130,33 @@ class LogicalRecoveryTests(unittest.TestCase):
 
     def test_operation_deadline_is_the_smaller_of_window_and_timeout(self):
         config = self.with_window()
-        config["verificationTimeoutSeconds"] = 60
+        config["verificationTimeoutSeconds"] = 7200
         config["deadlineUtc"] = module._utc(self.now + timedelta(seconds=7))
         start = time.monotonic()
         recovery = module.PostgresLogicalRecovery(
             module._parse_config(config), now=lambda: self.now)
         self.assertGreaterEqual(recovery.operation_deadline - start, 6.9)
         self.assertLessEqual(recovery.operation_deadline - start, 7.1)
+
+    def test_extended_budget_does_not_expand_operation_or_cleanup_timeouts(self):
+        config = dict(self.config, verificationTimeoutSeconds=7200)
+        observed = []
+
+        def runner(arguments, **kwargs):
+            observed.append(kwargs["timeout"])
+            return self.completed()
+
+        recovery = module.PostgresLogicalRecovery(
+            module._parse_config(config), run=runner)
+        for timeout in (1800, 900, 300):
+            recovery._execute(["synthetic"], "SYNTHETIC_FAILURE", timeout=timeout)
+        self.assertEqual([1800, 900, 300], observed)
+
+        recovery.operation_deadline = time.monotonic() - 1
+        recovery._cleanup_run(["synthetic"], "SYNTHETIC_CLEANUP_FAILURE")
+        recovery._cleanup_run(
+            ["synthetic"], "SYNTHETIC_CLEANUP_FAILURE", timeout=60)
+        self.assertEqual([30, 60], observed[-2:])
 
     def test_private_key_and_immutable_image_are_fail_closed(self):
         self.private_key.chmod(0o644)

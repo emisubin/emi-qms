@@ -17,6 +17,7 @@
     <PackageReference Include="WebPush" Version="1.0.13" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../../frontend/src/assets/g2-material-template.xlsx" LogicalName="G2MaterialTemplate.xlsx" />
     <Content Include="Assets/Fonts/NotoSansKR-Variable.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets/Fonts/OFL.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets/Fonts/PROVENANCE.md" CopyToOutputDirectory="PreserveNewest" />

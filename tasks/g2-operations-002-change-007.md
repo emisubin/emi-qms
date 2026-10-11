@@ -283,3 +283,16 @@
 
 - 사용자 후속 승인: 청주 왼쪽 공통 메뉴의 큰 메뉴 앞에만 동그라미 추가. 상위 app-nav-button label에 5px 단색 원을 표시하고 하위 메뉴·분류 제목은 텍스트 유지. 선택 시 기존 EMI 글자색을 함께 따름. CSS만 변경, 메뉴 이동·권한·DB 변경 없음.
 - 검증: 실제5182 desktop G2 펼침 상태에서 상위 메뉴 원/하위 메뉴 미표시와 선택색 확인, diff-check 통과. CSS 장식만 변경하여 자동테스트 재실행 생략. 캡처 cheongju-menu-dots.png. 로컬 반영만, 배포 없음. 신규·임시·미사용 전환DB 없음, DB 정리 없음.
+
+## 2026-10-12 누적 변경 병합·공개배포 준비
+
+- 사용자: 전체 변경사항 확인 후 `좋아. 이거 병합하고 공개배포 하자.` 명시 승인. 공지 내용·점검 팝업에 대한 자동 승인 검토 거절 후 구체 안내했고 `점검시간은 상관없어. 그냥 배포해` 추가 승인. 기존 승인된 PC·모바일 G2 4메뉴 및 청주 공통셸 범위.
+- 운영 공지 제목 `2026.10.12 업데이트 공지`, G2 홈/생산·출하·인원/자재/청주 메뉴 안내, 저장 제한·서버 교체 일시 접속 중단 안내, `박수빈 올림`. 기존 maintenance job의 prepare-only로 청주·오산 공지/별도 팝업 등록 `ANNOUNCED` 성공. 이 시점에는 저장 제한 활성화·서버 중단·migration·배포 없음.
+- 최종 독립 검토의 P2: 자재 retention worker가 maintenance lease를 사용하지 않아 점검 중 삭제 가능. 청주 lease를 prune 전체 동안 보유하고 차단 시 당일 완료 표시 없이 재시도하도록 보정. 합성 DB에서 Failed 상태 삭제0, 해제 후 삭제/6개월 경계 보존, 진행 중 prune을 exclusive drain이 기다림 확인. G2MaterialTests 38/38, G2MaterialDatabaseTests 5/5 통과. 생성한 disposable DB/container/network/storage 정리 완료.
+- 배포 품목 이미지: 기존 승인 빈 양식 asset을 backend resource로 포함하며 ImageRoot 미설정 때만 인증된 기존 image endpoint에서 읽음. 명시 ImageRoot 우선/DB ImageKeys 경계 보존. 새 저장소/실사자료 포함 없음. compiled assembly 이미지47개 키·SHA256가 private 원본과 모두 일치; 단위검증1/1 통과. 독립 검토 확정 P0–P2 없음.
+- 운영 최초 92품목 등록 경로 준비: 동일 내장 빈 양식에서 metadata만 추출하는 청주전용 CLI 및 명시적 배포 옵션. 현재 배포의 저장 차단 상태·청주 DB identity/실제 이름·migration 원장·빈 catalog·배타 잠금을 확인한 transaction에서 등록. 실사수량 쓰기/기존품목 덮어쓰기 없음. 실패 시 배포 차단 유지, 후속 배포 기본값 false. 코드/합성 검증 진행 중, 실제 운영 등록 미실행.
+- 기존 Azure PostgreSQL 복구 read-only preflight 통과. 공지/배포별 민감한 실행 설정과 복구 증거는 저장소 밖 private 폴더에서 관리. 신규 영구DB/미사용 전환DB 없음. 임시 검증DB는 정리하며 기존 로컬 검수DB 유지.
+- 현재 상태: 로컬 보정·배포 도구 검증 및 독립 검토 진행 중. 아직 원격 push/PR/main 병합/공개 앱 교체 없음. 최종 검증/원격/배포 결과는 아래에 이어 기록.
+
+- 배포 보정 최종 검증: backend build 성공, 내장양식92품목 테스트 및 private기준 전체metadata digest 비교 통과, 신규 catalog disposable DB 2/2 및 retention DB 5/5 통과. 이미지47개 전체hash 검증 통과. runner 합성147/147, shellcheck/actionlint/diff-check 통과. macOS 기본 LibreSSL의 CMS 복호화 검증 실패는 요구된 OpenSSL3으로 실행해 해결했으며 제품 암호화 로직을 낮추지 않음. 테스트용 DB/container/network 모두 정리.
+- 독립 g2_release_review(요청 gpt-6-astra/high, 실제 NOT_REPORTED): 기존 retention P2 해소, 이미지/최초등록CLI/배포runner 추가 확정 P0–P2없음. 실제 DB 및 runner 검증 통과 조건 충족. 사용자 검수 완료 누적 변경과 이 배포 선행 보정을 한 PR로 올리고 필수CI를 최종 회귀로 실행.

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Emi.Qms.Api.BusinessUnits;
+using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.G2;
 using Emi.Qms.Api.ReviewSafe;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 namespace Emi.Qms.Api.Tests;
@@ -43,7 +45,7 @@ public sealed class G2MaterialDatabaseTests
             """,ct);
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"insert into g2_material_counts(count_date,item_id,materials,updated_by_user_id) values ('2026-10-06',1,12.3456,'60000000-0000-0000-0000-000000000001')",ct);
         await new DatabaseMigrationRunner(provider,DatabaseMigrationCatalog.FromPaths(Path.Combine(db.RepositoryRoot,"database","migrations"),Path.Combine(db.RepositoryRoot,"database","business-migrations")),new DatabaseRuntimePrivilegeManager(),db.Configuration,NullLogger<DatabaseMigrationRunner>.Instance).ApplyAndVerifyAsync(BusinessUnitCodes.Cheongju,ct);
-        var store=new G2MaterialStore(new CheongjuDatabase(provider),new Clock());var date=new DateOnly(2026,10,7);
+        var clock=new Clock();var store=new G2MaterialStore(new CheongjuDatabase(provider),clock);var date=new DateOnly(2026,10,7);
         var legacyDay=await store.ReadAsync(new DateOnly(2026,10,6),actor,ct);
         Assert.Equal(12.3456m,legacyDay.Items[0].Values.Materials);Assert.Null(legacyDay.Items[0].Values.CalculationOverrides);
         Assert.True(await store.CanEditAsync(actor,ct));var admin=Guid.Parse("60000000-0000-0000-0000-000000000002");Assert.False(await store.CanEditAsync(admin,ct));
@@ -64,8 +66,65 @@ public sealed class G2MaterialDatabaseTests
         await Task.WhenAll(store.SaveAsync(date,Snapshot(7),actor,ct),store.SaveAsync(date,Snapshot(8),actor,ct));saved=await store.ReadAsync(date,actor,ct);Assert.Single(saved.Items.Select(x=>x.Values.Materials).Distinct());
         Assert.Equal(93L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_counts",ct));
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,$"insert into g2_material_counts(count_date,item_id,updated_by_user_id) values ('2026-04-08',1,{actorSql}),('2026-04-09',1,{actorSql});",ct);
-        Assert.Equal(1,await store.PruneAsync(ct));Assert.Equal(94L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_counts",ct));Assert.Equal(92L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_items",ct));
+        await using var services=new ServiceCollection().AddSingleton(provider).AddSingleton<CheongjuDatabase>().AddSingleton<TimeProvider>(clock).AddScoped<G2MaterialStore>().BuildServiceProvider();
+        using var worker=new G2MaterialRetentionWorker(services.GetRequiredService<IServiceScopeFactory>(),provider,db.Configuration,clock,NullLogger<G2MaterialRetentionWorker>.Instance);
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"""
+            update deployment_maintenance set release_id='70000000-0000-0000-0000-000000000001',version=1,
+                popup_version=1,state='Failed',title='Synthetic maintenance',body='Synthetic maintenance',
+                starts_at_utc=now()-interval '1 hour',expected_ends_at_utc=now()+interval '1 hour' where id=1
+            """,ct);
+        Assert.False(await worker.RunOnceAsync(ct));
+        Assert.Equal(95L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_counts",ct));
+
+        const long barrierKey=9070301;
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Migration,$$"""
+            create function test_pause_g2_retention() returns trigger language plpgsql as $$
+            begin
+                if old.count_date=date '2026-04-08' then perform pg_advisory_xact_lock({{barrierKey}}); end if;
+                return old;
+            end $$;
+            create trigger test_pause_g2_retention before delete on g2_material_counts
+            for each row execute function test_pause_g2_retention();
+            """,ct);
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"update deployment_maintenance set state='Completed' where id=1",ct);
+        await using var barrier=await db.OpenAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Migration,ct);
+        await using var barrierCommand=barrier.CreateCommand();
+        barrierCommand.CommandText=$"select pg_advisory_lock({barrierKey})";
+        await barrierCommand.ExecuteNonQueryAsync(ct);
+        await using var drain=await db.OpenAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Migration,ct);
+        Task<bool>? pending=null;Task? exclusive=null;var barrierHeld=true;
+        try
+        {
+            pending=worker.RunOnceAsync(ct);
+            await WaitForAdvisoryLockAsync(db,barrierKey,granted:false,ct);
+            exclusive=DeploymentMaintenanceLease.AcquireExclusiveAsync(drain,ct);
+            await WaitForAdvisoryLockAsync(db,9070125,granted:false,ct);
+            Assert.False(exclusive.IsCompleted);
+            barrierCommand.CommandText=$"select pg_advisory_unlock({barrierKey})";
+            await barrierCommand.ExecuteNonQueryAsync(ct);barrierHeld=false;
+            Assert.True(await pending);
+            await exclusive;
+            Assert.Equal(94L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_counts",ct));
+        }
+        finally
+        {
+            if(barrierHeld){barrierCommand.CommandText=$"select pg_advisory_unlock({barrierKey})";await barrierCommand.ExecuteNonQueryAsync(ct);}
+            if(pending is not null)await pending;
+            if(exclusive is not null){await exclusive;await DeploymentMaintenanceLease.ReleaseExclusiveAsync(drain);}
+        }
+        Assert.Equal(92L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_items",ct));
         Assert.False(await db.ReadScalarAsync<bool>(BusinessUnitCodes.Osan,BusinessUnitConnectionPurpose.Administrator,"select to_regclass('public.g2_material_counts') is not null",ct));
+    }
+
+    private static async Task WaitForAdvisoryLockAsync(BusinessUnitIsolationTests.IsolationDatabaseSet db,long key,bool granted,CancellationToken ct)
+    {
+        for(var attempt=0;attempt<200;attempt++)
+        {
+            if(await db.ReadScalarAsync<bool>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Migration,
+                $"select exists(select 1 from pg_locks where locktype='advisory' and database=(select oid from pg_database where datname=current_database()) and classid=0 and objid={key} and granted={granted.ToString().ToLowerInvariant()})",ct))return;
+            await Task.Delay(25,ct);
+        }
+        throw new TimeoutException("Synthetic G2 retention request did not reach its lock barrier.");
     }
     private sealed class PriorBusinessCatalog : IDisposable
     {

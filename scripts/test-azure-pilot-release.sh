@@ -48,6 +48,7 @@ maintenance_action=''
 selected_target=''
 execution_name=''
 job_mode=''
+provision_release=''
 schema_approved=''
 drain_required=''
 drain_release=''
@@ -73,6 +74,8 @@ for ((index = 1; index <= $#; index++)); do
       ;;
     --args=--deployment-drain-check) job_mode=drain ;;
     --args=--migrate-only) job_mode=migration ;;
+    --args=--provision-g2-material-catalog) job_mode=catalog ;;
+    G2Materials__ProvisionReleaseId=*) provision_release="${argument#*=}" ;;
     --args=--bootstrap-database-roles) job_mode=bootstrap ;;
     --args=--backfill-business-unit-memberships) job_mode=backfill ;;
     Database__BusinessSchemaSeparationApproved=*) schema_approved="${argument#*=}" ;;
@@ -347,7 +350,7 @@ case "${command_group}" in
     esac
     ;;
   'containerapp job start')
-    if [[ "${job_mode}" == drain || "${job_mode}" == migration || "${job_mode}" == bootstrap || "${job_mode}" == backfill ]]; then
+    if [[ "${job_mode}" == drain || "${job_mode}" == migration || "${job_mode}" == bootstrap || "${job_mode}" == backfill || "${job_mode}" == catalog ]]; then
       [[ "${expected_postgres_host}" == synthetic-pg.postgres.database.azure.com ]] || exit 2
     else
       [[ -z "${expected_postgres_host}" ]] || exit 2
@@ -375,6 +378,11 @@ case "${command_group}" in
         done
         [[ "${preserved_count}" == 1 ]] || exit 2
       done
+    fi
+    if [[ "${job_mode}" == catalog ]]; then
+      [[ "${selected_target}" == CHEONGJU && "${provision_release}" == "${MAINTENANCE_RELEASE_ID}" ]] || exit 2
+    else
+      [[ -z "${provision_release}" ]] || exit 2
     fi
     printf '0\n' >"${AZURE_RELEASE_TEST_STATE}/job-forced-failure"
     if [[ "${name}" == "${MIGRATION_JOB_NAME}" || "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" ]]; then
@@ -504,6 +512,7 @@ PY_RECOVERY
           && "${name}" == "${MIGRATION_JOB_NAME}" && "${execution_name}" == *-CHEONGJU ) \
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'bootstrap-failed' \
           && "${name}" == "${DATABASE_BOOTSTRAP_JOB_NAME}" ) \
+      || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'catalog-failed' && "$(cat "${AZURE_RELEASE_TEST_STATE}/job-mode")" == catalog ) \
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'migration-failed' \
           && "${name}" == "${MIGRATION_JOB_NAME}" ) \
       || ( "${AZURE_RELEASE_TEST_SCENARIO}" == 'backfill-failed' \
@@ -660,6 +669,7 @@ run_case() {
     FRONTEND_RELEASE_IMAGE="pilotacr123.azurecr.io/pms-frontend@sha256:${frontend_digest}" \
     DEPLOY_BACKEND="${deploy_backend}" \
     DEPLOY_FRONTEND="${deploy_frontend}" \
+    RUN_G2_CATALOG_PROVISION="$([[ "$scenario" == catalog-* ]] && printf true || printf false)" \
     RUN_MIGRATION="${run_migration}" \
     RUN_DATABASE_BOOTSTRAP="${run_database_bootstrap}" \
     RUN_MEMBERSHIP_BACKFILL="${run_membership_backfill}" \
@@ -794,6 +804,9 @@ run_case() {
         [[ "${scenario}" != drain-DIRECTORY-* ]] || target_list='DIRECTORY'
         [[ "${scenario}" != drain-CHEONGJU-* ]] || target_list='DIRECTORY CHEONGJU'
         ;;
+      catalog-start)
+        target_list=CHEONGJU
+        ;;
       migration-start)
         target_list='DIRECTORY CHEONGJU OSAN'
         [[ "${scenario}" == migration-failed ]] && target_list='DIRECTORY'
@@ -885,6 +898,9 @@ run_case 'popup-only-prepare' 0 '' ''
 run_case 'popup-only-prepared' 0 '' 'migration-update,migration-start,backend-update,frontend-update'
 run_case 'popup-only-prepared' 0 '' 'frontend-update' false true false
 run_case 'popup-only-missing-image' 65 MAINTENANCE_PREPARATION_IMAGE_REQUIRED ''
+run_case catalog-success 0 '' 'migration-update,migration-start,catalog-start,backend-update,frontend-update'
+run_case catalog-failed 81 G2_CATALOG_PROVISION_FAILED 'migration-update,migration-start,catalog-start'
+run_case catalog-no-migration 65 INVALID_RELEASE_SCOPE '' true true false
 run_case 'success' 0 '' \
   'migration-update,migration-start,backend-update,frontend-update'
 run_case 'success-running-at-max-scale' 0 '' \
@@ -904,7 +920,7 @@ for target in DIRECTORY CHEONGJU OSAN; do
     run_case "drain-${target}-${failure}" 79 QUIESCENCE_OR_DRAIN_FAILED ''
   done
 done
-for stale in Database__RecoveryPostgresHost Database:RecoveryPostgresHost database__recoverypostgreshost database:recoverypostgreshost DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do
+for stale in G2Materials__ProvisionReleaseId g2materials__provisionreleaseid G2Materials:ProvisionReleaseId Database__RecoveryPostgresHost Database:RecoveryPostgresHost database__recoverypostgreshost database:recoverypostgreshost DeploymentDrain__AcceptedHistoricalOsanMailAttemptSha256 DeploymentDrain:AcceptedHistoricalOsanMailAttemptSha256 Database__MigrationTarget Database__BootstrapTarget Database__BusinessSchemaSeparationApproved DeploymentDrain__RequireMaintenance DeploymentDrain__ReleaseId; do
   run_case "stale-${stale}" 79 QUIESCENCE_OR_DRAIN_FAILED ''
 done
 # Environment providers fold casing and normalize __ to :. These spellings

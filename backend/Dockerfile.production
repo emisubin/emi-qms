@@ -5,6 +5,7 @@ COPY backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj backend/src/Emi.Qms.Api/
 RUN dotnet restore backend/src/Emi.Qms.Api/Emi.Qms.Api.csproj
 
 COPY backend/src/Emi.Qms.Api backend/src/Emi.Qms.Api
+COPY frontend/src/assets/g2-material-template.xlsx frontend/src/assets/g2-material-template.xlsx
 COPY database/migrations database/migrations
 COPY database/directory-migrations database/directory-migrations
 COPY database/business-migrations database/business-migrations

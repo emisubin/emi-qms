@@ -22,8 +22,10 @@ public static class G2MaterialEndpoints
         {
             var item=(await store.CatalogAsync(ct)).FirstOrDefault(x=>x.Id==id);var keys=item?.ImageKeys;
             var root=config["G2Materials:ImageRoot"];
-            if(keys is null || index<0 || index>=keys.Length || string.IsNullOrWhiteSpace(root))return Results.NotFound();
+            if(keys is null || index<0 || index>=keys.Length)return Results.NotFound();
             var key=keys[index];if(Path.GetFileName(key)!=key || key.Contains('\\'))return Results.NotFound();
+            if(string.IsNullOrWhiteSpace(root))
+                return G2MaterialImages.All.TryGetValue(key,out var bytes) ? Results.File(bytes,Path.GetExtension(key)==".png"?"image/png":"image/jpeg") : Results.NotFound();
             var path=Path.Combine(root,key);if(!File.Exists(path))return Results.NotFound();
             var type=Path.GetExtension(path).ToLowerInvariant() switch{".png"=>"image/png",".jpg" or ".jpeg"=>"image/jpeg",".webp"=>"image/webp",_=>null};
             return type is null?Results.NotFound():Results.File(path,type);

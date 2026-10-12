@@ -396,11 +396,13 @@ run_admin_psql "${directory_database}" "
 insert into directory_identities (user_id, auth_provider, external_subject, display_name, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'Dev', 'dev-admin', 'Synthetic Overall Admin', true),
+  ('50000000-0000-0000-0000-000000000012', 'Dev', 'dev-materials', 'Synthetic G2 Materials', true),
   ('50000000-0000-0000-0000-000000000002', 'EntraId', 'synthetic-cheongju-approval', 'Synthetic Cheongju Approval', true),
   ('50000000-0000-0000-0000-000000000005', 'EntraId', 'synthetic-osan-approval', 'Synthetic Osan Approval', true);
 insert into directory_business_unit_memberships (user_id, business_unit_code, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'CHEONGJU', true),
+  ('50000000-0000-0000-0000-000000000012', 'CHEONGJU', true),
   ('50000000-0000-0000-0000-000000000001', 'OSAN', true);
 insert into directory_overall_administrators (user_id, is_active)
 values ('50000000-0000-0000-0000-000000000001', true);"

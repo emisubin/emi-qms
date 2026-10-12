@@ -368,3 +368,19 @@
 - 독립 material_admin_review: 기존 reviewer 맥락을 재사용하되70c0aef부터 실제9개 변경경로와 계약을 새로검토, GO/P0–P2없음. 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. 최종 테스트결과는 부모확인.
 - DB: 신규 영구DB/migration/미사용전환DB 없음. 새검증용 emi-qms-e2e-g2latest20261012 컨테이너/emi_qms_e2e_g2latest20261012 기본DB와 emi_qms_e2e_{0b31a143c2,ce5b1b482c,d7624a89cf}_{directory,cheongju,osan}9개fixture 사용. fixture자동삭제 및 소유container/tmpfs제거로 모두정리. 기존검수DB/runtime보존.
 - 로컬 구현/검증/검토 완료. 관리자 보정과 이번 최신일 변경은 아직 공개배포하지 않았음.
+
+## 2026-10-12 후속 배포 범위 추가: 청주 G2 전용 일반 메뉴
+
+- 사용자가 관리자 보정·최신실사 변경의 병합/공개배포를 승인한 뒤, 청주 G2 외 메뉴는 준비중으로 진입차단하고 첫화면을 G2로 변경하도록 추가 요청. 이어서 관리자만 모든 메뉴 진입 허용으로 확정. 같은 PR171에 추가하여 함께 배포하며 오산은 유지.
+- 청주 선택 사업부의 effective system-administrator만 메뉴 제한을 우회. PC/모바일 disabled+준비중, 직접 URL/뒤로가기는 공통 mount 경계에서 차단. 서버 capability에서도 일반 사용자 비G2 업무 API 거부. G2·휴일조회·계정/사업부전환·점검공지·공지조회·개인기기푸시·감사 인프라 유지. 기존 endpoint 권한과 selected-local-profile 경계 유지.
+- 사용자 재고 수식 최종확정: 오늘 재고 = 어제 생산 + 어제 재고 + 어제 수리 - 어제 불량 - 오늘 납품. 실제 운영 source와 현재 코드가 이미 2026-09-10부터 이 방식이므로 10월12일 이후도 동일. 별도수식/migration/과거데이터 재작성 없이 기존 실사override·초기재고없음·빈실적0 계약 유지. G2InventoryCalculator 집중7/7 및 독립검토 일치 확인.
+- 서버 새gate29개 최초통과, 사업부격리의 기존 일반사용자 프로젝트200 기대가 새정책403과 충돌. 성공격리 검증의 actor만 실제관리자로 바꾸고 다른사업부거부/첨부조회/데이터불변 단언 유지. ActualRole-only 사용자전환·effective role회수 반례추가 후32/32(실패/skip0)통과. 실제HTTP 일반프로젝트GET/POST403, 관리자GET200, 일반G2/휴일200 및3DB경계 실행.
+- 검증DB: emi_qms_e2e_g2menu20261012 / emi_qms_e2e_g2menu20261012b와 각 실행의3DBfixture는 전용 tmpfs 컨테이너와 함께 모두정리. 신규 영구DB/migration/미사용전환DB 없음.
+- 기존 PR171의63edf91 CI는 새범위 반영 전 취소. 이전운영image/backend--0000071/frontend--0000062 유지, 아직새코드병합/배포전. 최종frontend검증/시각확인/review/필수CI 및 정상no-migration배포 결과는 아래추가기록.
+
+- 추가계약 정합화: 기존 단일DB 기능검증 환경은 server BusinessUnits.Enabled=false라 메뉴gate가 적용되지 않는데 UI가 legacy를CHEONGJU로fallback하여다르게막는것을발견. 실제선택·비legacy청주의 공통 BusinessUnitMenuPolicy를 server gate와 /me.businessUnitAccess.g2OnlyForNonAdministrators에공유. 관리자에게도캠퍼스정책true반환, effective역할예외는별도. 오산/null/legacy/미선택false; client필드를변조해도servergate유지. 기존부서별권한fullstack검증을우회하지않고원형보존하며실제3DB브라우저에신규정책검증추가.
+- 해당서버보정35/35(실패/skip0)통과. emi_qms_e2e_g2menu20261012c 및 내부3DBfixture/container/network정리확인. earlier179개합성관리자기반검증은중간결과이며최종API정책기반검증결과로갱신예정.
+- 최종프론트 관련고유159개통과(초기기존148 + 실제청주재조회fixture보완후 G2 11/공용mobile3 재실행,3중복), mock사업부6/6, 타입/변경파일lint/diffcheck통과. 기존App/App.navigation대량fixture수정은원복하여원형유지. 실제3DB브라우저2/2통과 및합성PC·390px에서준비중/deeplink/관리자활성/모바일문구한줄직접관찰. 전용5194합성서버/진입파일제거,5197mock/harness종료. 기존사용자WIP/runtime보존.
+- 독립 material_admin_review는63edf91부터 최신실제diff와서버35/35·실제3DB2/2증거를확인하여계약/코드품질GO,P0–P2없음. 요청gpt-6-astra/high,실제NOT_REPORTED. 이전review맥락재사용하되새기준선검토. 일반사용자실3DB persona는별도dev-materialsDirectory identity/청주membership만추가,기존승인/오산부서권한시나리오보존.
+- 일반3DB브라우저검증DB emi_qms_e2e_g2menubrowser20261012_{directory,cheongju,osan}/6bounded roles와소유tmpfs·process·compose정리완료. 최초5086점유시도는자원생성전차단,기존서버보존후확인된5097/5197사용.
+- 운영안내갱신완료: 현재운영exactimage/ready/public검증후기존Announced release를종료하고새범위공지/팝업 f9c069bf-64f3-4dd2-99c9-17b814bf8cf2 양사업장prepare/verify성공. 새코드활성화/앱교체는아직미실행,서비스와저장정상유지. 정상runner의no-migration배포준비이며 DB구조변경없음.

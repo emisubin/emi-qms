@@ -34,3 +34,15 @@ it('keeps keyboard focus in the open menu including footer controls and closes w
   expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
 });
+
+
+it('disables preparing items and focuses the first available action', () => {
+  const blocked = vi.fn();
+  render(<SharedMobileNavigation items={[{key:'projects',label:'프로젝트',disabled:true,onSelect:blocked},{key:'g2',label:'G2'}]} />);
+  fireEvent.click(screen.getByRole('button',{name:'메뉴 열기'}));
+  const item = screen.getByRole('button',{name:'프로젝트 준비중'});
+  expect(item).toBeDisabled();
+  expect(within(item).getByText('준비중')).toHaveStyle({whiteSpace:'nowrap',flexShrink:'0'});
+  expect(screen.getByRole('button',{name:'G2'})).toHaveFocus();
+  fireEvent.click(item); expect(blocked).not.toHaveBeenCalled();
+});

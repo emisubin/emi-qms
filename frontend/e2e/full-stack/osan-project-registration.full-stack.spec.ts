@@ -22,6 +22,10 @@ test('isolated three-database runtime creates, lists, and reads an Osan project 
     window.localStorage.setItem('emi-qms-development-user-key', 'dev-sales');
   });
 
+  const osanProfile=await request.get(`${backendUrl}/osan/api/me`,{headers:requestHeaders('OSAN')});
+  expect(osanProfile.status()).toBe(200);
+  expect((await osanProfile.json()).businessUnitAccess.g2OnlyForNonAdministrators).toBe(false);
+
   const cheongjuBefore = await request.get(`${backendUrl}/cheongju/api/projects`, {
     headers: requestHeaders('CHEONGJU')
   });

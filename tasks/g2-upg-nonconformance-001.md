@@ -68,3 +68,7 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 독립review /root/forecast_review 요청gpt-6-astra/high(관측모델NOT_REPORTED): 자재 doubled-ID reset 우선순위 P2 R1 보정, 재검토 남은P0/P1/P2없음. 이후 긴 품목명 wrapping 추가는 부모가 Chromium/WebKit 반례로 직접 확인. 월말 하루 그래프의 정상재고 대기문구도 보정.
 - localhost5188은 같은 소스 HMR 유지, API5087은 최신빌드로 소유backend만 교체. 새PID44805/session29351, /tmp/upg-preview-backend-refresh.sh. 기존프론트PID37600/부모37464 유지. DB reset/migration/seed 없음. 실제 health ready와 home 평균null/표본0 확인(검수DB는 비어있음). 종료 시 새backend를 별도로 종료해야 함.
 - 신규 업무DB 없음, 테스트DB emi_qms_e2e_g2_forecast_average_20261012와 내부3DB fixture/컨테이너는 정리 완료. 기존 검수DB emi_qms_e2e_upg_preview_20261012는 사용자 확인용 유지. 더 이상 쓰지 않는 DB 없음. 원격반영·병합·공개배포 미실행, 사용자 검수 대기.
+
+### 재고 전망 7일 변경 · 2026-10-13
+사용자 승인으로 월말 종료를 오늘 포함7일(오늘~오늘+6일)로 변경. 월 경계와 무관하게7개 일별 점을 표시하며 기존 평균생산/납품 차감/오늘재고 출발은 유지. 조회 종료일·공휴일 범위·안내기간이 같은 종료일을 사용. DB/API 변경 없음. 이전 월말 기록은 당시 이력이며 현재 계약은 이 절이 우선.
+- 검증: 홈13개 통과, TypeScript 통과, diffcheck 통과. 실제 공통틀 PC1440/모바일390 합성 화면에서7일 점·색상·가로넘침0 확인. 10/29~11/4 월경계 테스트 포함. 로컬5188 HMR 반영, 배포 미실행. 신규/미사용DB 없음, 이번 검증DB 생성 없음; 기존previewDB 유지.

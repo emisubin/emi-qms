@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError, getG2Days, getG2Home, listSystemHolidays } from './api';
-import { monthBounds, type G2Day } from './g2';
+import type { G2Day } from './g2';
 import { getLatestMaterialDay, type MaterialDay } from './g2Materials';
 import { G2PageFrame } from './G2PageFrame';
 import { achievement, achievementColor, deliveryForecast, displayQuantity as fmt, materialShortages, recentWorkday, SAFETY_STOCK, shiftDate } from './g2Dashboard';
@@ -34,7 +34,7 @@ export function G2HomePage({developmentUserKey}:Props) {
     void (async()=>{
       try {
         const home=await getG2Home(developmentUserKey);
-        const from=shiftDate(home.today,-31),through=monthBounds(home.today).to;
+        const from=shiftDate(home.today,-31),through=shiftDate(home.today,6);
         const [range,holidays]=await Promise.all([getG2Days(developmentUserKey,from,through),listSystemHolidays(developmentUserKey,{dateFrom:from,dateTo:through})]);
         const date=recentWorkday(home.today,range.days,new Set(holidays.map(h=>h.holidayDate)));
         let materials:MaterialDay|null=null,materialError:string|null=null;

@@ -63,10 +63,20 @@ describe('approved G2 home',()=>{
   render(<G2HomePage {...props}/>);
   const graph=await screen.findByRole('img',{name:/납품 전망:/});
   expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-11 88대, 2026-10-12 58대'));
-  expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-31'));
-  expect(graph.getAttribute('aria-label')).not.toContain('2026-11-01');
+  expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-17'));
+  expect(graph.getAttribute('aria-label')).not.toContain('2026-10-18');
   expect(screen.getByText(/과거 20일 실적 · 일평균 40대/)).toBeInTheDocument();
-  expect(api.getG2Days).toHaveBeenCalledWith('dev-sales','2026-09-10','2026-10-31');
+  expect(api.getG2Days).toHaveBeenCalledWith('dev-sales','2026-09-10','2026-10-17');
+ });
+ it('keeps seven calendar dates when the forecast crosses a month boundary',async()=>{
+  mocks([day('2026-10-29',{inventory:180})]);
+  vi.mocked(api.getG2Home).mockResolvedValue({today:'2026-10-29',year:2026,month:10,hasInventoryBaseline:true,days:[],averageDailyProduction:0,productionSampleDays:1});
+  render(<G2HomePage {...props}/>);
+  const graph=await screen.findByRole('img',{name:/납품 전망:/});
+  expect(graph.querySelectorAll('circle')).toHaveLength(7);
+  expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-11-04'));
+  expect(graph.getAttribute('aria-label')).not.toContain('2026-11-05');
+  expect(api.getG2Days).toHaveBeenCalledWith('dev-sales','2026-09-28','2026-11-04');
  });
  it('renders the approved dashboard with live fields and no old home input features',async()=>{
   mocks();const {container}=render(<G2HomePage {...props}/>);

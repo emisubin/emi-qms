@@ -54,3 +54,17 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 
 ### 품질관리 하위 메뉴 · 2026-10-12
 사용자 요청: 품질관리 클릭 시 펼침/접힘, 메뉴명 UPG·수냉기구물로 축약. 기존 공통 하위메뉴 스타일을 재사용하여 PC nested disclosure와 모바일 depth별 펼침 상태 적용. 페이지 제목은 유지, 수냉기구물 준비중 유지. navigation11개·typecheck·변경파일eslint 통과, 실제 localhost5188 PC/390px 모바일 펼침/접힘/비활성 동작과 화면 확인. DB 생성/미사용DB 변화 없음; 검수 임시DB는 앞 절대로 실행 유지.
+
+### G2 홈·모바일 공통 보정 · 2026-10-12 진행
+사용자 “모두 수정해” 승인. 공개 화면 조사에서 홈 SVG에 공통 grayscale 필터 적용, 홈 제품재고가 최근작업일 재고로 표시, 30일 전망에 생산 미반영, 모바일 계획 기간 입력 intrinsic width 초과 확인.
+- 목표: 승인 색상 복원, 오늘 재고와 오늘~월말 일별 전망, 전체 과거 생산실적의 일평균을 예상 추가생산으로 반영, 모바일 입력공통 너비 보정. 실제 재고/실적 저장 및 DB schema 변경 없음.
+- 평균: 서버 오늘 이전에 생산실적이 입력된 날짜 전체, 오전+오후 합계의 일평균. 미입력 제외·명시0 포함·오늘/미래 제외. 예정 생산일은 명시 계획 우선, 미입력은 토요일 포함·일요일/공휴일 제외. 기존 재고 계산처럼 전날 예상생산을 다음날 재고에 반영. 오늘 재고에는 납품을 다시 차감하지 않음.
+- 검증 예정: 평균 집계 서버 반례, 전망 날짜/0/미입력/휴일/월말, 공통스타일이 적용된 실제 화면 색상, 320/375/390 입력창과 데스크톱 보존. 로컬 구현만, 원격·배포 제외.
+
+#### 보정 완료 및 검증
+- 공개 공통 grayscale의 홈 SVG/차트 예외 적용, 빨강·청록·파랑 시각 확인. 오늘 재고/월말까지 일별 점/추가생산 표시 구현. backend home 응답에 averageDailyProduction/productionSampleDays 추가(기존 업무 DB 조회만).
+- frontend 관련56개 통과, 최종 홈12개 재확인, typecheck·변경파일 eslint·production build 통과(기존 bundle size 경고 유지). backend 평균 및 G2Operations22개 통과.
+- Chromium320/375/390의 계획·실적·실사·출근·품질 입력 모두 내부 가로넘침0. 자재320 긴 품목명 상세/입력 Chromium+WebKit 넘침0 및 input min-width0/max-width100% 확인. PC1440/mobile390 홈 색상 필터none3개, page overflow0. 합성 screenshot /tmp/g2-home-fixed-{desktop,mobile}.png, /tmp/g2-fixed-320-계획 입력.png, /tmp/g2-fixed-320-품질.png, /tmp/g2-material-audit-webkit.png 직접 열어 확인. 화면/데이터 실제 저장 없음.
+- 독립review /root/forecast_review 요청gpt-6-astra/high(관측모델NOT_REPORTED): 자재 doubled-ID reset 우선순위 P2 R1 보정, 재검토 남은P0/P1/P2없음. 이후 긴 품목명 wrapping 추가는 부모가 Chromium/WebKit 반례로 직접 확인. 월말 하루 그래프의 정상재고 대기문구도 보정.
+- localhost5188은 같은 소스 HMR 유지, API5087은 최신빌드로 소유backend만 교체. 새PID44805/session29351, /tmp/upg-preview-backend-refresh.sh. 기존프론트PID37600/부모37464 유지. DB reset/migration/seed 없음. 실제 health ready와 home 평균null/표본0 확인(검수DB는 비어있음). 종료 시 새backend를 별도로 종료해야 함.
+- 신규 업무DB 없음, 테스트DB emi_qms_e2e_g2_forecast_average_20261012와 내부3DB fixture/컨테이너는 정리 완료. 기존 검수DB emi_qms_e2e_upg_preview_20261012는 사용자 확인용 유지. 더 이상 쓰지 않는 DB 없음. 원격반영·병합·공개배포 미실행, 사용자 검수 대기.

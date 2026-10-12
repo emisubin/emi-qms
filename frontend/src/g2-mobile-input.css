@@ -12,3 +12,12 @@
  :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input :is(.dialogbody,.mi-body){flex:0 1 auto!important;min-height:0!important;overflow-y:auto!important;overscroll-behavior:contain!important}
  :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope) .g2-mobile-input.g2-mobile-input :is(.dialoghead,.dialogfoot,.mi-header,.mi-footer){flex-shrink:0!important}
 }
+
+/* Shrink fields, not the viewport: production, attendance, materials and quality. */
+@media(max-width:860px){
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope,#g2-upg-page#g2-upg-page) dialog :is(form,.dialog,.dialogbody,.mi-body,.form-row,.field,.pair,.twocol,fieldset,label){min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope,#g2-upg-page#g2-upg-page) dialog :is(input,select,textarea){min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope,#g2-upg-page#g2-upg-page) dialog input:is([type="date"],[type="file"]){width:100%!important}
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope,#g2-upg-page#g2-upg-page) dialog :is(.pair,.twocol){grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ :is(#g2-approved-scope#g2-approved-scope,#g2-material-mobile-scope#g2-material-mobile-scope,#g2-upg-page#g2-upg-page) dialog :is(p,strong,b,h2,h3,.identity,.record-meta,.record-meta>div,.info,.notice,.upg-photo-files span){min-width:0!important;overflow-wrap:anywhere!important}
+}

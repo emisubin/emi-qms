@@ -5,6 +5,7 @@ import {useNativeDialog} from './useNativeDialog';
 import {todaySeoul} from './g2';
 import {deleteUpg,emptyUpgFilter,filterUpg,getUpg,getUpgPhoto,readUpgFiles,saveUpg,saveUpgAction,type UpgFilter,type UpgItem,type UpgList,type UpgPhoto,type UpgPhotoInput} from './g2Nonconformances';
 import './g2-nonconformance.css';
+import './g2-mobile-input.css';
 const typeName=(x:UpgItem)=>x.occurrenceType==='production'?'생산팀 불량':'협력사 불량';
 const dateText=(v:string)=>v.replaceAll('-','.');
 const errorText=(e:unknown)=>e instanceof Error?e.message:'처리하지 못했습니다. 다시 시도해 주세요.';

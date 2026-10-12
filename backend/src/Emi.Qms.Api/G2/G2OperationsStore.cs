@@ -20,7 +20,33 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         ValidateYearMonth(year, month);
         var from = new DateOnly(year, month, 1);
         var range = await ReadRangeAsync(from, from.AddMonths(1).AddDays(-1), token);
-        return new(today, year, month, range.Days.Any(day => day.Inventory.HasValue), range.Days);
+        var production = await ReadProductionAverageAsync(today, token);
+        return new(today, year, month, range.Days.Any(day => day.Inventory.HasValue), range.Days, production.Average, production.Days);
+    }
+
+    private async Task<(decimal? Average, int Days)> ReadProductionAverageAsync(DateOnly today, CancellationToken token)
+    {
+        await using var source = CreateDataSource();
+        await using var connection = await source.OpenConnectionAsync(token);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select avg(daily_quantity), count(*)::integer
+            from (
+                select sum(quantity) as daily_quantity
+                from g2_daily_metrics
+                where work_date < @today
+                  and metric_code in (@morning, @afternoon)
+                  and quantity is not null
+                  and not is_forecast
+                group by work_date
+            ) production_days;
+            """;
+        command.Parameters.AddWithValue("today", today);
+        command.Parameters.AddWithValue("morning", G2MetricCodes.MorningProduction);
+        command.Parameters.AddWithValue("afternoon", G2MetricCodes.AfternoonProduction);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        await reader.ReadAsync(token);
+        return (reader.IsDBNull(0) ? null : reader.GetDecimal(0), reader.GetInt32(1));
     }
 
     public async Task<G2RangeResponse> GetRangeAsync(DateOnly from, DateOnly to, CancellationToken token)

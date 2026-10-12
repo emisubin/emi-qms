@@ -384,3 +384,15 @@
 - 독립 material_admin_review는63edf91부터 최신실제diff와서버35/35·실제3DB2/2증거를확인하여계약/코드품질GO,P0–P2없음. 요청gpt-6-astra/high,실제NOT_REPORTED. 이전review맥락재사용하되새기준선검토. 일반사용자실3DB persona는별도dev-materialsDirectory identity/청주membership만추가,기존승인/오산부서권한시나리오보존.
 - 일반3DB브라우저검증DB emi_qms_e2e_g2menubrowser20261012_{directory,cheongju,osan}/6bounded roles와소유tmpfs·process·compose정리완료. 최초5086점유시도는자원생성전차단,기존서버보존후확인된5097/5197사용.
 - 운영안내갱신완료: 현재운영exactimage/ready/public검증후기존Announced release를종료하고새범위공지/팝업 f9c069bf-64f3-4dd2-99c9-17b814bf8cf2 양사업장prepare/verify성공. 새코드활성화/앱교체는아직미실행,서비스와저장정상유지. 정상runner의no-migration배포준비이며 DB구조변경없음.
+
+
+## 2026-10-12 관리자 예외·최신 실사·청주 메뉴 제한 배포 완료
+
+- 최종 계약: 실제 선택한 청주 사업부에서 일반 사용자는 G2만 이용하고 나머지 업무 메뉴는 준비중으로 차단한다. 활성 local system-administrator만 전체 메뉴에 진입한다. 청주 기본 화면은 관리자 포함 G2 홈이며, 오산과 기존 업무별 권한은 유지한다. 관리자 자재 입력 보정과 최신 실사일 조회·날짜 즉시 전환도 함께 배포했다.
+- 최종 PR171 source `ecad6391cbb3def2575980572e241560161990c1`: CI `38187401602` attempt2 전체 성공. Backend 1,144/1,144, frontend unit 665/665, mock UI 73/73, full-stack 64/64, 실제 사업부 브라우저 2/2, 오산 프로젝트 1/1 통과. 첫 attempt는 일반64·사업부2 통과 후 오산 preview 시작 시 port42458 점유로 중단되어 오산 단언은 미실행이었다. Backend 완료 후 같은 SHA의 실패 job만 1회 재실행했고 성공했다. 점유 주체는 확인되지 않았으며 제품 결함이나 특정 원인으로 단정하지 않았다. 독립 reviewer도 이 제한된 재실행을 허용 가능한 검증으로 확인했다.
+- 추가 로컬 증거: 전체 사업부 경계65/65 및 오산 실제3DB 브라우저1/1 통과. `emi_qms_e2e_g2menuallboundary20261012`와 내부 fixture, `emi_qms_e2e_g2osanverify20261012_{directory,cheongju,osan}` 및 소유 tmpfs/container/process/roles 정리 확인. CI의 일회용3DB 정리도 성공했다.
+- 사용자 기존 승인으로 PR171 정상 병합. main `1443316991a97c57890e560e64b6c5aa005da988`, main CI `38192616117` 성공. 운영 배포 파일은 이 정확한 main Git archive에서 생성했고, 공개 소스 디렉터리0755 정규화를 유지했다. 실제 실행 사용자로 backend SQL141파일 읽기, frontend HTTP34파일/assets22 통과 후 소유 probe컨테이너를 정리했다.
+- release `f9c069bf-64f3-4dd2-99c9-17b814bf8cf2` 정상 종료(exit0), 한국시간 2026-10-12 10:46:06. 기존 준비 공지를 검증하고 양사업장 activate, backend/frontend 교체, 정상 응답 확인 후 양사업장 complete 성공. Migration/bootstrap/backfill/catalog provision은 미실행이며 운영 DB 구조·재고 수량을 재작성하지 않았다.
+- 최종 backend--0000072/frontend--0000063 모두 latest=ready/Succeeded. backend digest `sha256:d386ac54b37e2ec1547f88059d5e948d94142323fd5d28e00a9630cb893092a0`, frontend digest `sha256:fd0c9c329235cc23006a178fea7e84c48f16a2c0c1db6339cf7c285ec3b32318`. 별도 읽기 전용 최종 확인에서 정확한 이미지 일치, 공개 /health/live200·/401·/api/me401, 점검 종료 maintenance-p6q0hiy/maintenance-9gbivy3 성공을 확인했다. 저장 제한 해제 완료.
+- 한계: 운영 로그인으로 실제 재고를 입력하는 검증은 하지 않았다. 합성 데이터 권한/PC/모바일/사업부 검증과 배포 후 준비·접속 검증을 구분한다. 추가 기록 commit은 위 운영 이미지 source와 별개다.
+- DB 보고: 신규 영구 DB 없음, 더 이상 사용하지 않게 된 DB 없음. 이번 검증용 임시 DB와 소유 컨테이너는 모두 정리했고 기존 검수 DB·사용자 WIP·공유 runtime은 보존했다. 요청 범위의 구현·검증·병합·공개배포 완료.

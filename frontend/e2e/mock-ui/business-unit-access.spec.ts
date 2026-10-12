@@ -336,7 +336,7 @@ function currentUser(
   };
   return {
     ...principal,
-    permissions: ['users.manage'],
+    permissions: ['users.manage', 'G2.Read'],
     projectAccess: [],
     isTestUserSwitch: false,
     testUserKey: null,
@@ -346,6 +346,7 @@ function currentUser(
     businessUnitAccess: {
       status: 'selected',
       selectedBusinessUnit,
+      g2OnlyForNonAdministrators: selectedBusinessUnit === 'CHEONGJU',
       allowedBusinessUnits,
       isOverallAdministrator: true,
       errorCode: null
@@ -477,5 +478,48 @@ function fulfillJson(route: Route, body: unknown, status = 200) {
       'Access-Control-Allow-Headers': 'Content-Type, X-Dev-User, X-Qms-Business-Unit'
     },
     body: JSON.stringify(body)
+  });
+}
+
+
+for (const administrator of [false, true]) {
+  test(`explicit Cheongju release policy uses G2 home and enforces menu availability (administrator=${administrator})`, async ({page}) => {
+    const businessRequests: string[] = [];
+    await page.route('http://localhost:5080/**', async route => {
+      const path=mockApiPath(route.request());
+      if(path==='/health/ready') return fulfillJson(route,{status:'ready',database:{reason:'reachable'}});
+      if(path==='/api/runtime-mode') return fulfillJson(route,{mode:'Development',reviewSafe:false,mutationAllowed:true});
+      if(path==='/api/me') {
+        const user=currentUser('CHEONGJU',['CHEONGJU']);
+        const roles=administrator?['system-administrator']:['sales'];
+        return fulfillJson(route,{...user,roles,permissions:['projects.read','G2.Read'],
+          actualUser:{...user.actualUser,roles},effectiveUser:{...user.effectiveUser,roles},
+          businessUnitAccess:{...user.businessUnitAccess,isOverallAdministrator:false}});
+      }
+      businessRequests.push(path);
+      if(path==='/api/g2/home') return fulfillJson(route,{today:'2026-10-12',year:2026,month:10,hasInventoryBaseline:false,days:[]});
+      if(path==='/api/g2/materials/latest') return fulfillJson(route,null);
+      if(path==='/api/system/holidays') return fulfillJson(route,[]);
+      if(path==='/api/projects') return fulfillJson(route,{items:[],page:1,pageSize:20,totalCount:0});
+      return fulfillJson(route,{title:'not configured in this synthetic fixture'},404);
+    });
+    await page.goto('/');
+    await expect(page.getByRole('heading',{name:'G2 홈'})).toBeVisible();
+    await expect(page).toHaveURL('/g2');
+    const nav=page.getByRole('navigation',{name:'공통 메뉴'});
+    if(administrator) {
+      await expect(nav.getByRole('button',{name:'프로젝트',exact:true})).toBeEnabled();
+      await nav.getByRole('button',{name:'프로젝트',exact:true}).click();
+      await expect.poll(()=>businessRequests.includes('/api/projects')).toBe(true);
+      await expect(page.getByRole('heading',{name:'준비중'})).toHaveCount(0);
+    } else {
+      await expect(nav.getByRole('button',{name:'프로젝트 준비중'})).toBeDisabled();
+      await page.goto('/projects');
+      await expect(page.getByRole('heading',{name:'준비중'})).toBeVisible();
+      expect(businessRequests.includes('/api/projects')).toBe(false);
+      await page.setViewportSize({width:390,height:844});
+      await page.getByRole('button',{name:'메뉴 열기'}).click();
+      await expect(page.getByRole('navigation',{name:'빠른 이동'}).getByRole('button',{name:'프로젝트 준비중'})).toBeDisabled();
+    }
   });
 }

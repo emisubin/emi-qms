@@ -2,14 +2,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canLeaveMaterialDraft } from '../src/materialNavigationGuard';
 import { G2MaterialsPage } from '../src/G2MaterialsPage';
-import { editMaterialQuantity, calculateMaterial, getMaterialDay, importMaterialFile, saveMaterialDay, type MaterialDay, type MaterialImport } from '../src/g2Materials';
+import { editMaterialQuantity, calculateMaterial, getMaterialDay, getLatestMaterialDay, importMaterialFile, saveMaterialDay, type MaterialDay, type MaterialImport } from '../src/g2Materials';
 vi.mock('../src/g2',async original=>({...await original<typeof import('../src/g2')>(),todaySeoul:()=> '2026-10-09'}));
-vi.mock('../src/g2Materials', async original => ({...await original<typeof import('../src/g2Materials')>(), getMaterialDay:vi.fn(), saveMaterialDay:vi.fn(), importMaterialFile:vi.fn()}));
+vi.mock('../src/g2Materials', async original => ({...await original<typeof import('../src/g2Materials')>(), getMaterialDay:vi.fn(), getLatestMaterialDay:vi.fn(), saveMaterialDay:vi.fn(), importMaterialFile:vi.fn()}));
 const empty = {working:null,kitting:null,rack:null,materials:null,erp:null,transit:null};
 const fixture = ():MaterialDay => ({date:'2026-10-09',canEdit:true,items:Array.from({length:92},(_,i)=>({id:i+1,sourceRow:i+4,category:i<40?'사급':i<80?'도급':'부자재',vendor:'공급사',name:`품목 ${i+1}`,code:`ITEM${i+1}`,spec:'규격',unit:'EA',setQuantity:2,packBox:'10',packPalletEa:null,packPalletBox:null,packNote:null,imageKeys:[],cellFills:{},values:{...empty,erp:i===0?7:null},updatedAtUtc:null}))});
 beforeEach(()=>{
 
- vi.mocked(getMaterialDay).mockResolvedValue(fixture());
+ vi.mocked(getLatestMaterialDay).mockReset().mockResolvedValue(null);
+ vi.mocked(getMaterialDay).mockReset().mockResolvedValue(fixture());
  vi.mocked(saveMaterialDay).mockReset().mockResolvedValue({saved:true});
  HTMLDialogElement.prototype.showModal=function(){this.open=true;};
  HTMLDialogElement.prototype.close=function(){this.open=false;};
@@ -19,6 +20,34 @@ async function open(){render(<G2MaterialsPage developmentUserKey="materials" mut
 function importResult():MaterialImport{return {sheets:[{name:'26-10-09',date:'2026-10-09'}],selectedSheet:'26-10-09',selectedDate:'2026-10-09',items:fixture().items.map(r=>({id:r.id,...empty}))};}
 function chooseFile(name='inventory.xlsx'){fireEvent.change(screen.getByLabelText('엑셀 파일'),{target:{files:[new File(['synthetic'],name)]}});}
 describe('material inventory workflows',()=>{
+ it('opens the latest saved count and saves edits to that date',async()=>{
+  vi.mocked(getLatestMaterialDay).mockResolvedValue({...fixture(),date:'2026-10-07'});await open();
+  expect(screen.getByLabelText('실사일')).toHaveValue('2026-10-07');expect(getMaterialDay).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button',{name:'조회'})).toBeNull();
+  fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'4'}});fireEvent.click(screen.getByRole('button',{name:'저장'}));
+  await waitFor(()=>expect(saveMaterialDay).toHaveBeenCalledWith('materials','2026-10-07',expect.any(Array)));
+ });
+ it('opens today when no saved count exists and changes date immediately',async()=>{
+  await open();expect(getMaterialDay).toHaveBeenCalledWith('materials','2026-10-09');
+  vi.mocked(getMaterialDay).mockResolvedValue({...fixture(),date:'2026-10-08'});
+  fireEvent.change(screen.getByLabelText('실사일'),{target:{value:'2026-10-08'}});
+  await waitFor(()=>expect(getMaterialDay).toHaveBeenLastCalledWith('materials','2026-10-08'));
+  await screen.findByLabelText('1번 제작중');expect(screen.getByLabelText('실사일')).toHaveValue('2026-10-08');
+ });
+ it('keeps unsaved entries when immediate date change is cancelled',async()=>{
+  await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'4'}});
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  fireEvent.change(screen.getByLabelText('실사일'),{target:{value:'2026-10-08'}});
+  expect(screen.getByLabelText('실사일')).toHaveValue('2026-10-09');expect(screen.getByLabelText('1번 제작중')).toHaveValue(4);expect(getMaterialDay).toHaveBeenCalledTimes(1);confirm.mockRestore();
+ });
+ it('ignores a late initial latest-count response after selecting another date',async()=>{
+  let finish!:(d:MaterialDay)=>void;vi.mocked(getLatestMaterialDay).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  render(<G2MaterialsPage developmentUserKey="materials" mutationEnabled/>);
+  vi.mocked(getMaterialDay).mockResolvedValue({...fixture(),date:'2026-10-08'});
+  fireEvent.change(screen.getByLabelText('실사일'),{target:{value:'2026-10-08'}});await screen.findByLabelText('1번 제작중');
+  await act(async()=>finish({...fixture(),date:'2026-10-07'}));expect(screen.getByLabelText('실사일')).toHaveValue('2026-10-08');
+ });
+
  it('saves all 92 rows including hidden ERP and distinguishes blank from zero',async()=>{
   await open();
   fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});

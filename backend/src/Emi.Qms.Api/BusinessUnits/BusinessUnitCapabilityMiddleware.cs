@@ -53,6 +53,14 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
             return;
         }
 
+        if (BusinessUnitMenuPolicy.IsG2OnlyForNonAdministrators(selection)
+            && !context.User.IsInRole("system-administrator")
+            && !IsCheongjuAvailableRequest(context.Request))
+        {
+            await DenyAsync(context, "business_unit_capability_disabled");
+            return;
+        }
+
         if (string.Equals(selection.Target!.Code, BusinessUnitCodes.Osan, StringComparison.Ordinal)
             && !IsOsanAllowedRequest(context.Request))
         {
@@ -61,6 +69,34 @@ public sealed class BusinessUnitCapabilityMiddleware(RequestDelegate next)
         }
 
         await next(context);
+    }
+
+    // G2 is the currently released Cheongju business area. Shared account and
+    // maintenance infrastructure remains available; endpoint authorization still applies.
+    private static bool IsCheongjuAvailableRequest(HttpRequest request)
+    {
+        var path = request.Path;
+        if (path.StartsWithSegments("/api/g2")
+            || path.Equals("/api/me", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/me/profile-photo")
+            || path.Equals("/api/runtime-mode", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/business-units")
+            || path.StartsWithSegments("/api/maintenance")) return true;
+
+        if (HttpMethods.IsGet(request.Method)
+            && (path.StartsWithSegments("/api/notices")
+                || path.Equals("/api/system/holidays", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/my/web-push", StringComparison.OrdinalIgnoreCase))) return true;
+        if (HttpMethods.IsPut(request.Method)
+            && path.Equals("/api/my/web-push/subscriptions", StringComparison.OrdinalIgnoreCase)) return true;
+        return HttpMethods.IsPost(request.Method)
+            && (path.Equals("/api/my/web-push/current-status", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/my/web-push/subscriptions/deactivate-current", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/my/web-push/subscriptions/deactivate-all", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/audit/sessions/interactive-login", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/audit/sessions/logout", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/audit/site-access/signals", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/audit/site-access/end", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsOsanAllowedRequest(HttpRequest request)

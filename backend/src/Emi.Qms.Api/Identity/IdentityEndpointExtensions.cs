@@ -404,7 +404,8 @@ public sealed record BusinessUnitAccessResponse(
     string? SelectedBusinessUnit,
     IReadOnlyList<string> AllowedBusinessUnits,
     bool IsOverallAdministrator,
-    string? ErrorCode)
+    string? ErrorCode,
+    bool G2OnlyForNonAdministrators)
 {
     public static BusinessUnitAccessResponse From(
         BusinessUnitRequestContext? context,
@@ -421,7 +422,8 @@ public sealed record BusinessUnitAccessResponse(
             context?.AllowedBusinessUnits
                 ?? [BusinessUnitCodes.Cheongju],
             context?.IsOverallAdministrator == true,
-            errorCode);
+            errorCode,
+            BusinessUnitMenuPolicy.IsG2OnlyForNonAdministrators(context));
     }
 }
 

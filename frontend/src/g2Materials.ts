@@ -29,6 +29,7 @@ export function calculateMaterial(v:MaterialValues,perSet:number){
   const S=rawUnits(manufacture),X=rawUnits(material),AA=units(total);
   return {Q:Number(manufacture)/10000,R:units(manufacture),S,W:units(material),X,Y:Number(total)/10000,Z:AA,AA};
 }
+export const getLatestMaterialDay=(user:string|undefined)=>fetchJson<MaterialDay|null>('/api/g2/materials/latest',user);
 export const getMaterialDay=(user:string|undefined,date:string)=>fetchJson<MaterialDay>(`/api/g2/materials?date=${encodeURIComponent(date)}`,user);
 export const saveMaterialDay=(user:string|undefined,date:string,items:MaterialInput[])=>fetchJson<{saved:boolean}>(`/api/g2/materials/${date}`,user,{method:'PUT',body:JSON.stringify({items})});
 export function importMaterialFile(user:string|undefined,date:string,file:File,sheet?:string){const form=new FormData();form.append('file',file);form.append('date',date);if(sheet)form.append('sheet',sheet);return fetchJson<MaterialImport>('/api/g2/materials/import',user,{method:'POST',body:form});}

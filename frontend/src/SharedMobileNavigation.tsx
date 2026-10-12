@@ -6,6 +6,7 @@ export interface MobileNavigationItem {
   key: string;
   label: string;
   active?: boolean;
+  disabled?: boolean;
   badge?: number;
   group?: string;
   icon?: ReactNode;
@@ -31,12 +32,13 @@ export function SharedMobileNavigation({ items, footer, triggerRef }: {
   const menu = useRef<HTMLElement>(null);
   const menuId = useId();
   const close = () => { setOpen(false); trigger.current?.focus(); };
-  useEffect(() => { if (open) menu.current?.querySelector('button')?.focus(); }, [open]);
+  useEffect(() => { if (open) menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); }, [open]);
   function itemButton(item: MobileNavigationItem, child = false) {
     const expanded = expandedKey === item.key;
     return <Fragment key={item.key}>
       <button type="button" className={child ? 'shared-mobile-child' : undefined}
-        aria-label={item.badge ? `${item.label} ${item.badge}건` : item.label}
+        disabled={item.disabled}
+        aria-label={item.disabled ? `${item.label} 준비중` : item.badge ? `${item.label} ${item.badge}건` : item.label}
         aria-current={item.active ? 'page' : undefined}
         aria-expanded={item.children ? expanded : undefined}
         aria-controls={item.children ? `${menuId}-${encodeURIComponent(item.key)}` : undefined}
@@ -45,7 +47,7 @@ export function SharedMobileNavigation({ items, footer, triggerRef }: {
           else { close(); item.onSelect?.(); }
         }}>
         {item.icon ?? <NavigationIcon label={item.label} />}<span>{item.label}</span>
-        {item.children ? <span className="shared-mobile-disclosure" aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
+        {item.disabled ? <small style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>준비중</small> : item.children ? <span className="shared-mobile-disclosure" aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
           : !!item.badge && <span className="nav-badge" aria-hidden="true">{item.badge > 99 ? '99+' : item.badge}</span>}
       </button>
       {item.children && expanded && <div id={`${menuId}-${encodeURIComponent(item.key)}`} className="shared-mobile-children">{item.children.map(childItem => itemButton(childItem, true))}</div>}

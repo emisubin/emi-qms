@@ -23,6 +23,8 @@ test('three databases designate multiple overall administrators, keep tab contex
   await cheongjuPage.goto('/');
   await expect(cheongjuPage.locator('select[aria-label="사업부 선택"]:visible')).toHaveValue('CHEONGJU');
   await expect(cheongjuPage.getByRole('button', { name: /사업부로 이동/ })).toHaveCount(0);
+  await expect(cheongjuPage.getByRole('heading', { name: 'G2 홈' })).toBeVisible();
+  await expect(cheongjuPage).toHaveURL('/g2');
 
   await cheongjuPage.goto('/admin/business-unit-access');
   await expect(cheongjuPage.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
@@ -87,4 +89,39 @@ test('three databases designate multiple overall administrators, keep tab contex
   await expect(cheongjuPage.getByRole('button', { name: /사업부로 이동/ })).toHaveCount(0);
 
   await Promise.all([cheongjuContext.close(), osanContext.close()]);
+});
+
+
+test('real Cheongju policy restricts an ordinary local user to G2 while preserving administrator access', async ({browser,request}) => {
+  const backend=`http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
+  const ordinaryHeaders={'X-Dev-User':'dev-materials','X-Qms-Business-Unit':'CHEONGJU'};
+  const adminHeaders={'X-Dev-User':'dev-admin','X-Qms-Business-Unit':'CHEONGJU'};
+  const me=await request.get(`${backend}/cheongju/api/me`,{headers:ordinaryHeaders});
+  expect(me.status()).toBe(200);
+  const profile=await me.json();
+  expect(profile.businessUnitAccess.g2OnlyForNonAdministrators).toBe(true);
+  expect(profile.roles).not.toContain('system-administrator');
+  expect((await request.get(`${backend}/cheongju/api/g2/home`,{headers:ordinaryHeaders})).status()).toBe(200);
+  const denied=await request.get(`${backend}/cheongju/api/projects`,{headers:ordinaryHeaders});
+  expect(denied.status()).toBe(403);
+  expect((await denied.json()).errorCode).toBe('business_unit_capability_disabled');
+  expect((await request.get(`${backend}/cheongju/api/projects`,{headers:adminHeaders})).status()).toBe(200);
+  const context=await browser.newContext({viewport:{width:1440,height:900}});
+  await context.addInitScript(()=>window.localStorage.setItem('emi-qms-development-user-key','dev-materials'));
+  const page=await context.newPage();
+  try {
+    await page.goto('/');
+    await expect(page.getByRole('heading',{name:'G2 홈'})).toBeVisible();
+    await expect(page).toHaveURL('/g2');
+    await expect(page.getByRole('navigation',{name:'공통 메뉴'}).getByRole('button',{name:'프로젝트 준비중'})).toBeDisabled();
+    await page.goto('/projects');
+    await expect(page.getByRole('heading',{name:'준비중'})).toBeVisible();
+    await page.getByRole('button',{name:'G2 홈으로 이동'}).click();
+    await expect(page.getByRole('heading',{name:'G2 홈'})).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole('heading',{name:'준비중'})).toBeVisible();
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole('button',{name:'메뉴 열기'}).click();
+    await expect(page.getByRole('navigation',{name:'빠른 이동'}).getByRole('button',{name:'프로젝트 준비중'})).toBeDisabled();
+  } finally { await context.close(); }
 });

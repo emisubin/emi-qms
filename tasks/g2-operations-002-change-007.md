@@ -319,3 +319,68 @@
 - 기존 서비스 정상화 완료: 기존 immutable 앱 이미지·Healthy/Ready·공개 health200/root401/api401 확인 후 청주 `maintenance-s3t32cj`, 오산 `maintenance-w402eir` complete 모두 Succeeded. 저장 제한 해제 완료. 실패 release 종료 후 새배포 준비 중이며 배포 완료로 표시하지 않음. 다음 실행 private 설정은 checkpoint/driver5400초, 3시간 새안내·시작전120분 잔여·fresh relay 잔여6600초 이상을 확인하도록 구성. 독립 adapter 검토 GO.
 
 - 제한시간 보정 검증: OpenSSL3 PATH에서 checkpoint33/33 통과, logical driver21실행 중19통과·기존Docker통합2건skip(성공으로 간주하지 않음), Python구문/diffcheck 통과. 독립 g2_release_review(요청 gpt-6-astra/high, 실제NOT_REPORTED) 계약·실제diff·기존보호/신규경계 검토GO, 확정P0–P2없음. 기본예산·AzureFull·개별명령·공지끝·증거요구 보존 확인. 새검증DB 생성없음. 필요운영보정만 후속PR로 진행.
+
+
+## 2026-10-12 복구 예산 보정 병합·두 번째 배포 결과
+
+- 후속PR #170(`da2948f`) 필수 Workflow Validation/CI Gate 통과(`38168354905`). 변경분이 운영 도구뿐이므로 제품 회귀는 분류 정책상 미실행이며 앞선 #169 증거를 유지. 정상 병합main `1bb8e7a681985bc99c69d9302250b6d1393a1692`, mainCI `38168661156` 성공.
+- 새release `007e9713-5679-44d9-a229-e3e3f3a591ac`를 새3시간 popup-only 안내로 준비하고 실행. checkpoint/driver5400초·fresh relay·시작전공지120분잔여를 확인. 백업수집·암호화사본실복원·identity/ledger/schema/data/권한/원본불변성·최종drain재검증까지 통과, checkpoint `VERIFIED_LOGICAL_DATABASE_BACKUP` 및 암호화backup/manifest 보관. 임시복원container/plaintext는 정리.
+- Directory migration `migration-0axq0b6` 성공 후 청주 `migration-4psca0o`가 SQL파일 열거 중 UnauthorizedAccessException으로 실패. 실제 root원인: 저장소 밖 로컬 image build adapter의 umask077+Python tar data filter가 공개Git archive의 디렉터리를0700으로 만들어, USER app이 business-migrations/cheongju에 접근할 수 없었음. 제품SQL문제아님. 청주는 ApplyTargetAsync/DB연결 전 실패, 오산/품목등록/앱교체 미실행. Directory는 동일migration목록의 권한reconcile을 수행했으므로 전체시도를 DB무변경이라고 기록하지 않음.
+- runner exit74/정리종료 확인 후 읽기전용 감사에서 기존 eb19a3f catalog와 D4/C131/O133 전체원장 exact·DBidentity·청주새테이블부재·runtime CONNECT/USAGE·Directory전체publictable SELECT/비DML 및 현재release Failed 확인. 권한reconcile코드는 old→main변경없음. 독립review 조건부복구GO, 감사container고정이름소유P2는 UUID/label확인정리로해소. 기존exactrevision/image활성화→ready/public→oldimagecomplete adapter실행 중.
+- 수정은 공개Git archive디렉터리0755정규화뿐이며 동일main source를 별도 `-permissions1`태그/digest로 재빌드. 기존badbackend actualappUID/networknone/read-only probe에서 business2폴더접근거부재현, frontend기존이미지내부HTTP static34/assets22정상확인. 수정이미지동일probe 및기존서비스정상화확인후 새release/checkpoint정상runner로 재배포예정. 실패runner/기존checkpoint 재사용안함.
+
+- 두 번째 실패 복구 완료: fresh read-only 감사 통과 후 기존 backend--0000070/frontend--0000061을 활성화, readiness/public200·401·401 및 기존image complete 양사업장Succeeded 확인. 사용자가 사용할 수 있는 기존서비스/저장기능 재개 완료. relay종료 및 감사container정리 확인.
+- 수정 이미지 검증: 같은main1bb8e7a의 backend `sha256:1bde52073c52e1b7c20395f082a3a717de7bb6f102fc5d4e4ec955958aaeccd0`, frontend `sha256:91ef6414c727421bf7b51546979d2b82afef7cfe2db1c58f062283622d2c48a6`. backend USERapp/networknone/read-only에서141 SQL모두열거/EOF읽기, frontend UID101/networknone 내부loopback HTTP34파일(assets22포함)전부성공. probecontainer정리완료. source코드/DB계약변경없음.
+- 세 번째 실행 release `58649ad1-8c10-4de1-9d66-376ad17e579f`: 새popup-only3시간안내 양사업장prepare/verify성공, freshTLSrelay/6600초잔여·공지120분잔여·기존mainCI증거확인후 새checkpoint정상runner 시작. 이미검증된 이전backup은 보관만하고 새중단구간의증거를다시만듦. 최종결과는후속기록. 공간확보를위해 본작업의 완료된중복빌드temp소스/압축본만정리했고 운영backup/기존검수DB는유지.
+
+
+## 2026-10-12 공개배포 완료
+
+- release `58649ad1-8c10-4de1-9d66-376ad17e579f` 정상 종료(exit0), 한국시간 06:46:52. 배포 source main `1bb8e7a681985bc99c69d9302250b6d1393a1692`, 앞서 기록한 permissions1 immutable 이미지와 일치. backend--0000071/frontend--0000062 latest=ready/Succeeded. 이후 기록 commit은 운영 이미지 source와 구분.
+- 새 암호화 백업 실제 복원/전체 검증/최종 drain 통과 후 Directory/Cheongju/Osan migration 성공. 청주 catalog job migration-fbk3tct 성공, 빈 양식 metadata92개 등록, 예시 실사 수량 입력 없음. 양사업장 점검 종료 maintenance-7n3dxmq/maintenance-y1esvn6 성공, 저장 제한 해제.
+- runner Migration/Backend/Frontend/PublicSecurity PASS. 별도 읽기 전용 감사: identity/전체원장 D4/C134/O133/runtime CONNECT·USAGE/Directory SELECT·비DML/catalog92/양사업장 해당release Completed 확인. 공개 https://pms.emiinc.co.kr/health/live 200, root·/api/me 비로그인401. /health는 공개health 경로가 아니며401; 최종 검증은 /health/live 사용.
+- 한계: 운영 로그인 후 실제 데이터 입력은 미실행. 승인된 로컬 PC·모바일 검수, PR169 backend1108/1108/fullstack64/64+경계2건, PR170 운영도구 CI, 운영 배포 후 검증을 구분함.
+- 일회용 복원DB/container, 평문 임시폴더, 이미지probe/감사container 정리. 최종 TLS relay exit0, 완료3회 실행의 임시 자격정보JSON 제거. 암호화 backup/manifest와 비민감 증거 보존. 기존 검수DB/runtime/사용자WIP 유지.
+- DB 보고: 신규 영구DB 없음. 기존 청주DB에 g2_daily_values/g2_daily_notes/g2_material_items/g2_material_counts 적용. 검증용 Directory·청주·오산 일회용 복원DB는 소유container와 함께 정리 완료. 미사용 전환DB 없음. 기존 다른 검수DB는 정리 대상에서 제외.
+- 승인된 기능 병합·공개배포 완료. 두 차례 실패는 기존서비스 복구 후 보정했고 최종 성공으로 종료. 운영 배포 잔여 작업 없음.
+
+
+## 2026-10-12 자재 관리자 입력 권한 누락 보정
+
+- 사용자 요청: 관리자는 모든 메뉴 업무 데이터를 입력할 수 있어야 한다는 규칙을 지속 적용하도록 명시하고, G2 자재의 누락을 수정. 현재 기준 b5de757, codex/unified-osan-shell. 이번 요청은 수정·관련 검증이며 새 운영 배포는 미실행.
+- 원인: 자재 CanEdit가 활성 자재팀 소속만 검사하고 local system-administrator 역할을 누락. 화면 canEdit, Excel import, Save의 동일 판정 지점 보정. 일반 타부서 조회 전용, 활성계정·사업부·점검·값 검증 유지. migration/DB신설 불필요.
+- Root AGENTS에 관리자 예외와 실제 역할 기반 성공/거부/회수 반례 검증을 의무화. 관리부서와 관리자 역할을 구분. 구현 및 독립 검토/검증 결과는 아래에 추가.
+
+- 구현: G2MaterialStore의 공통 CanEdit를 활성 사용자 + (선택 청주DB의 실제 system-administrator 역할 또는 활성 자재팀)로 보정. Read의 canEdit/Excel import/Save가 동일 판정. PC·모바일은 해당 서버응답을 사용하므로 화면 코드 변경 없음.
+- 검증: G2Material 집중 backend48/48(실패·skip0), G2MaterialsPage frontend22/22, diff-check 통과. 영업부 실제 관리자/비활성 부서의 활성 관리자 저장 성공, 저장자 기록, 비활성 사용자/역할 회수/무권한 관리부 거부 및 값 불변 확인. frontend는 PC저장/Excel 가져오기/모바일 자동저장·조회전용 기존 흐름 검증. 운영 로그인·실데이터 저장은 미실행.
+- 독립 material_admin_review: 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. b5de757 기준 WIP 코드·계약 검토GO, P0–P2없음. 테스트 결과는 부모가 최종 확인.
+- DB: 신규 영구DB 없음, migration 없음. 전용 emi-qms-e2e-g2admin20261012 컨테이너의 emi_qms_e2e_g2admin20261012 및 emi_qms_e2e_50ed61765d/emi_qms_e2e_d1ecebed37 접두사의 directory·cheongju·osan fixture6DB 사용. fixture자동삭제 확인 후 소유container/tmpfs 삭제로 전부정리. 기존 검수DB/runtime 유지, 미사용 전환DB 없음.
+- 상태: 규칙 추가/로컬 구현/검증/독립 검토 완료. 이번 권한 보정의 원격push·병합·공개배포는 미실행.
+
+
+## 2026-10-12 최신 실사일 조회와 날짜 즉시 전환
+
+- 사용자 요청: 홈 미달 자재는 최신 실사일, 자재 첫 진입도 최신 실사일로 조회, 날짜 선택 즉시 조회. 기준70c0aef. 최신은 유효 보관기간 내 count_date의 최댓값이며 과거 실사 수정시각과 무관. 저장 이력이 없으면 홈은 데이터없음, 자재는 오늘 빈표. 전체 빈칸으로 저장한 실사도 최신 저장일로 유지.
+- 서버 G2Read/청주DB 범위의 latest 조회를 두 화면에서 재사용. 자재 PC조회버튼 제거, 기존 날짜선택 UI 재사용. 미저장 PC 확인/모바일 자동저장잠금 및 늦은응답차단 유지. 생산·납품의 최근 작업일 산정은 유지, 자재만 독립된 실사일 표시. 새 디자인/migration/운영데이터 변경 없음.
+
+- 구현·검증 완료: backend G2Material50/50(실패·skip0), frontend G2MaterialsPage/G2HomeDashboard/G2Navigation37/37, TypeScript/변경파일ESLint/diff-check 통과. 최초 최신일과 저장대상 일치, 미저장 취소, 최초 응답보다 늦게 도착한 요청 무시, 생산일과 다른 자재실사일을 검증.
+- 시각 검증: 실제 컴포넌트를 임시 합성 프런트5193에서 PC1440×960/모바일390×844로 렌더링. 실사일10/7 최초선택, PC10/8선택 즉시조회/조회버튼0, 홈 생산10/10과 자재10/7 분리 확인. /tmp/g2-latest-{pc,mobile,home}.png 직접열람. 운영로그인/실데이터 쓰기는 하지 않았으며 전체 공통셸이 아닌 해당 컴포넌트 합성 검증임. 기존 디자인 변경 없음. 임시검증 진입파일 제거/서버 종료.
+- 독립 material_admin_review: 기존 reviewer 맥락을 재사용하되70c0aef부터 실제9개 변경경로와 계약을 새로검토, GO/P0–P2없음. 요청 gpt-6-astra/high, 실제모델 NOT_REPORTED. 최종 테스트결과는 부모확인.
+- DB: 신규 영구DB/migration/미사용전환DB 없음. 새검증용 emi-qms-e2e-g2latest20261012 컨테이너/emi_qms_e2e_g2latest20261012 기본DB와 emi_qms_e2e_{0b31a143c2,ce5b1b482c,d7624a89cf}_{directory,cheongju,osan}9개fixture 사용. fixture자동삭제 및 소유container/tmpfs제거로 모두정리. 기존검수DB/runtime보존.
+- 로컬 구현/검증/검토 완료. 관리자 보정과 이번 최신일 변경은 아직 공개배포하지 않았음.
+
+## 2026-10-12 후속 배포 범위 추가: 청주 G2 전용 일반 메뉴
+
+- 사용자가 관리자 보정·최신실사 변경의 병합/공개배포를 승인한 뒤, 청주 G2 외 메뉴는 준비중으로 진입차단하고 첫화면을 G2로 변경하도록 추가 요청. 이어서 관리자만 모든 메뉴 진입 허용으로 확정. 같은 PR171에 추가하여 함께 배포하며 오산은 유지.
+- 청주 선택 사업부의 effective system-administrator만 메뉴 제한을 우회. PC/모바일 disabled+준비중, 직접 URL/뒤로가기는 공통 mount 경계에서 차단. 서버 capability에서도 일반 사용자 비G2 업무 API 거부. G2·휴일조회·계정/사업부전환·점검공지·공지조회·개인기기푸시·감사 인프라 유지. 기존 endpoint 권한과 selected-local-profile 경계 유지.
+- 사용자 재고 수식 최종확정: 오늘 재고 = 어제 생산 + 어제 재고 + 어제 수리 - 어제 불량 - 오늘 납품. 실제 운영 source와 현재 코드가 이미 2026-09-10부터 이 방식이므로 10월12일 이후도 동일. 별도수식/migration/과거데이터 재작성 없이 기존 실사override·초기재고없음·빈실적0 계약 유지. G2InventoryCalculator 집중7/7 및 독립검토 일치 확인.
+- 서버 새gate29개 최초통과, 사업부격리의 기존 일반사용자 프로젝트200 기대가 새정책403과 충돌. 성공격리 검증의 actor만 실제관리자로 바꾸고 다른사업부거부/첨부조회/데이터불변 단언 유지. ActualRole-only 사용자전환·effective role회수 반례추가 후32/32(실패/skip0)통과. 실제HTTP 일반프로젝트GET/POST403, 관리자GET200, 일반G2/휴일200 및3DB경계 실행.
+- 검증DB: emi_qms_e2e_g2menu20261012 / emi_qms_e2e_g2menu20261012b와 각 실행의3DBfixture는 전용 tmpfs 컨테이너와 함께 모두정리. 신규 영구DB/migration/미사용전환DB 없음.
+- 기존 PR171의63edf91 CI는 새범위 반영 전 취소. 이전운영image/backend--0000071/frontend--0000062 유지, 아직새코드병합/배포전. 최종frontend검증/시각확인/review/필수CI 및 정상no-migration배포 결과는 아래추가기록.
+
+- 추가계약 정합화: 기존 단일DB 기능검증 환경은 server BusinessUnits.Enabled=false라 메뉴gate가 적용되지 않는데 UI가 legacy를CHEONGJU로fallback하여다르게막는것을발견. 실제선택·비legacy청주의 공통 BusinessUnitMenuPolicy를 server gate와 /me.businessUnitAccess.g2OnlyForNonAdministrators에공유. 관리자에게도캠퍼스정책true반환, effective역할예외는별도. 오산/null/legacy/미선택false; client필드를변조해도servergate유지. 기존부서별권한fullstack검증을우회하지않고원형보존하며실제3DB브라우저에신규정책검증추가.
+- 해당서버보정35/35(실패/skip0)통과. emi_qms_e2e_g2menu20261012c 및 내부3DBfixture/container/network정리확인. earlier179개합성관리자기반검증은중간결과이며최종API정책기반검증결과로갱신예정.
+- 최종프론트 관련고유159개통과(초기기존148 + 실제청주재조회fixture보완후 G2 11/공용mobile3 재실행,3중복), mock사업부6/6, 타입/변경파일lint/diffcheck통과. 기존App/App.navigation대량fixture수정은원복하여원형유지. 실제3DB브라우저2/2통과 및합성PC·390px에서준비중/deeplink/관리자활성/모바일문구한줄직접관찰. 전용5194합성서버/진입파일제거,5197mock/harness종료. 기존사용자WIP/runtime보존.
+- 독립 material_admin_review는63edf91부터 최신실제diff와서버35/35·실제3DB2/2증거를확인하여계약/코드품질GO,P0–P2없음. 요청gpt-6-astra/high,실제NOT_REPORTED. 이전review맥락재사용하되새기준선검토. 일반사용자실3DB persona는별도dev-materialsDirectory identity/청주membership만추가,기존승인/오산부서권한시나리오보존.
+- 일반3DB브라우저검증DB emi_qms_e2e_g2menubrowser20261012_{directory,cheongju,osan}/6bounded roles와소유tmpfs·process·compose정리완료. 최초5086점유시도는자원생성전차단,기존서버보존후확인된5097/5197사용.
+- 운영안내갱신완료: 현재운영exactimage/ready/public검증후기존Announced release를종료하고새범위공지/팝업 f9c069bf-64f3-4dd2-99c9-17b814bf8cf2 양사업장prepare/verify성공. 새코드활성화/앱교체는아직미실행,서비스와저장정상유지. 정상runner의no-migration배포준비이며 DB구조변경없음.

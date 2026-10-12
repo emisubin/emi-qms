@@ -3061,6 +3061,21 @@ public sealed partial class BusinessUnitIsolationTests
                    "dev-sales",
                    BusinessUnitCodes.Cheongju))
         {
+            // The released Cheongju menu contract is enforced in the real authenticated pipeline.
+            foreach (var (method, path, actor, expected) in new[]
+            {
+                (HttpMethod.Get, "/api/projects", "dev-sales", HttpStatusCode.Forbidden),
+                (HttpMethod.Post, "/api/projects", "dev-sales", HttpStatusCode.Forbidden),
+                (HttpMethod.Get, "/api/projects", "dev-admin", HttpStatusCode.OK),
+                (HttpMethod.Get, "/api/g2/materials/latest", "dev-sales", HttpStatusCode.OK),
+                (HttpMethod.Get, "/api/system/holidays", "dev-sales", HttpStatusCode.OK)
+            })
+            {
+                using var menuRequest = Request(method, path, actor, BusinessUnitCodes.Cheongju);
+                using var menuResponse = await cheongjuClient.SendAsync(menuRequest, TestContext.Current.CancellationToken);
+                Assert.Equal(expected, menuResponse.StatusCode);
+            }
+
             cheongjuCreatesOsanProject.Content = JsonContent.Create(new
             {
                 title = "Rejected Cheongju project",
@@ -4202,7 +4217,7 @@ public sealed partial class BusinessUnitIsolationTests
         using (var readCheongju = Request(
                    HttpMethod.Get,
                    $"/api/projects/{BoundaryProjectId:D}",
-                   "dev-sales",
+                   "dev-admin",
                    BusinessUnitCodes.Cheongju))
         {
             var response = await client.SendAsync(
@@ -4236,7 +4251,7 @@ public sealed partial class BusinessUnitIsolationTests
         using (var holdCheongju = Request(
                    HttpMethod.Post,
                    $"/api/projects/{BoundaryProjectId:D}/hold",
-                   "dev-sales",
+                   "dev-admin",
                    BusinessUnitCodes.Cheongju))
         {
             holdCheongju.Content = JsonContent.Create(new { reason = "Synthetic isolation proof" });

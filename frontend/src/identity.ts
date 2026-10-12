@@ -30,6 +30,7 @@ export type BusinessUnitAccessStatus =
   | 'local_profile_pending';
 
 export interface BusinessUnitAccess {
+  g2OnlyForNonAdministrators?: boolean;
   status: BusinessUnitAccessStatus;
   selectedBusinessUnit: BusinessUnitCode | null;
   allowedBusinessUnits: BusinessUnitCode[];

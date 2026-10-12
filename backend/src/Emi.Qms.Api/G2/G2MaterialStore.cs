@@ -15,7 +15,19 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
     }
     private static async Task<bool> CanEdit(NpgsqlConnection connection, NpgsqlTransaction? tx, Guid actor, CancellationToken ct)
     {
-        await using var command = new NpgsqlCommand("select exists(select 1 from qms_users u join departments d on d.id=u.department_id where u.id=@actor and u.is_active and d.is_active and d.code='materials')",connection,tx);
+        await using var command = new NpgsqlCommand("""
+            select exists (
+                select 1 from qms_users u
+                where u.id = @actor and u.is_active
+                  and (
+                    exists (select 1 from user_roles assignment
+                            join roles role on role.id = assignment.role_id
+                            where assignment.user_id = u.id and role.code = 'system-administrator')
+                    or exists (select 1 from departments d
+                               where d.id = u.department_id and d.is_active and d.code = 'materials')
+                  )
+            )
+            """,connection,tx);
         command.Parameters.AddWithValue("actor",actor); return (bool)(await command.ExecuteScalarAsync(ct))!;
     }
     public async Task<IReadOnlyList<G2MaterialCatalog>> CatalogAsync(CancellationToken ct)
@@ -26,6 +38,21 @@ public sealed class G2MaterialStore(CheongjuDatabase database, TimeProvider time
         while (await reader.ReadAsync(ct)) { var item = JsonSerializer.Deserialize<G2MaterialCatalog>(reader.GetString(2),Json) ?? throw new ArgumentException("품목 설정을 확인해 주세요."); result.Add(item with {Id=reader.GetInt32(0),SourceRow=reader.GetInt32(1)}); }
         if (result.Count != 92 || result.Any(x=>x.SetQuantity<=0)) throw new ArgumentException("고정 92개 품목 설정이 필요합니다.");
         return result;
+    }
+    public async Task<G2MaterialResponse?> ReadLatestAsync(Guid actor, CancellationToken ct)
+    {
+        var today = G2MaterialRules.Today(time);
+        DateOnly? date;
+        await using (var source = Source())
+        await using (var connection = await source.OpenConnectionAsync(ct))
+        await using (var command = new NpgsqlCommand("select max(count_date) from g2_material_counts where count_date between @cutoff and @today", connection))
+        {
+            command.Parameters.AddWithValue("cutoff", G2MaterialRules.Cutoff(today));
+            command.Parameters.AddWithValue("today", today);
+            var value = await command.ExecuteScalarAsync(ct);
+            date = value is DateOnly savedDate ? savedDate : null;
+        }
+        return date is { } latest ? await ReadAsync(latest, actor, ct) : null;
     }
     public async Task<G2MaterialResponse> ReadAsync(DateOnly date, Guid actor, CancellationToken ct)
     {

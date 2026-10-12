@@ -11,7 +11,7 @@ import { busbarApi } from "./interiorBusbar";
 import { InteriorBusbarPage } from './InteriorBusbarPage';
 import { InteriorBusbarProjectDetailPage } from './InteriorBusbarProjectDetail';
 import { busbarSections, type BusbarSection } from './interiorBusbarNavigation';
-import { Fragment, FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { SharedMobileNavigation } from './SharedMobileNavigation';
 import { useMsal } from '@azure/msal-react';
 import { app as teamsApp } from '@microsoft/teams-js';
@@ -421,6 +421,11 @@ type View =
   | { kind: 'admin-work-item-escalations'; status?: string | null; level?: string | null }
   | { kind: 'osan-progress'; projectId?: string; targetId?: string; stage?: string }
   | { kind: 'panel'; projectId: string; panelId: string; section?: PanelDetailSection };
+
+function isCheongjuWorkspaceAvailable(view: View, restricted: boolean) {
+  return !restricted || view.kind.startsWith('g2-') || view.kind === 'privacy-notice'
+    || (view.kind === 'notice-board' && !!view.noticeId);
+}
 
 type OperationalHubArea = 'production' | 'materials' | 'quality' | 'logistics';
 
@@ -1953,7 +1958,7 @@ function QmsAppShellContent({
       ? stored
       : defaultDevelopmentUserKey ?? 'dev-sales';
   });
-  const [view, setViewState] = useState<View>(() => initialViewFromLocation());
+  const [requestedView, setViewState] = useState<View>(() => initialViewFromLocation());
   const [teamsContextResolution, setTeamsContextResolution] = useState<TeamsContextResolution>(() =>
     initialViewFromLocation().kind === 'teams-activity' && isLikelyTeamsContext()
       ? { kind: 'pending' }
@@ -1980,6 +1985,20 @@ function QmsAppShellContent({
   const businessUnitAccess = resolveBusinessUnitAccess(user);
   const selectedBusinessUnit = businessUnitAccess.selectedBusinessUnit;
   const isOsan = selectedBusinessUnit === 'OSAN';
+  const cheongjuG2Only = selectedBusinessUnit === 'CHEONGJU'
+    && businessUnitAccess.g2OnlyForNonAdministrators === true;
+  const cheongjuRestricted = cheongjuG2Only
+    && !(user?.isActive && user.effectiveUser?.isActive && user.roles.includes('system-administrator'));
+  const view = useMemo<View>(() => cheongjuG2Only && requestedView.kind === 'home'
+    ? { kind: 'g2-home' } : requestedView, [cheongjuG2Only, requestedView]);
+  const workspaceUnavailable = currentUser.kind === 'ready' && !currentUser.data.approvalPending
+    && !isCheongjuWorkspaceAvailable(view, cheongjuRestricted);
+  useEffect(() => {
+    if (cheongjuG2Only && requestedView.kind === 'home'
+      && initialViewFromLocation().kind === 'home') {
+      window.history.replaceState(null, '', '/g2');
+    }
+  }, [cheongjuG2Only, requestedView]);
   const maintenanceScope = `${selectedBusinessUnit}:${currentUser.kind === 'ready' ? currentUser.data.userId : ''}`;
   const hasSelectedBusinessUnit = businessUnitAccess.status === 'selected';
   const maintenance = useMaintenanceStatus(developmentUserKey, maintenanceScope, currentUser.kind === 'ready' && hasSelectedBusinessUnit);
@@ -1999,7 +2018,7 @@ function QmsAppShellContent({
   const formTemplateScopeBlocked = currentUser.kind !== 'ready'
     || currentUser.data.approvalPending
     || !hasSelectedBusinessUnit
-    || isOsan;
+    || isOsan || cheongjuRestricted;
   const siteAccessActorKey = currentUser.kind === 'ready' ? currentUser.data.effectiveUser?.userId ?? '' : '';
   const [busbarMasterScope, setBusbarMasterScope] = useState<{key:string;allowed:boolean} | null>(null);
   const busbarScopeKey = `${developmentUserKey}:${siteAccessActorKey}:${selectedBusinessUnit}`;
@@ -2184,8 +2203,8 @@ function QmsAppShellContent({
 
   const refreshShellBadges = useCallback(() => {
     Promise.all([
-      isOsan ? Promise.resolve({ requestedCount: 0 }) : getMyWorkSummary(developmentUserKey),
-      getNotificationSummary(developmentUserKey)
+      isOsan || cheongjuRestricted ? Promise.resolve({ requestedCount: 0 }) : getMyWorkSummary(developmentUserKey),
+      cheongjuRestricted ? Promise.resolve({ unreadCount: 0 }) : getNotificationSummary(developmentUserKey)
     ])
       .then(([workSummary, notificationSummary]) => {
         setShellBadges({
@@ -2196,7 +2215,7 @@ function QmsAppShellContent({
       .catch(() => {
         setShellBadges({ requestedWorkCount: 0, unreadNotificationCount: 0 });
       });
-  }, [developmentUserKey, isOsan]);
+  }, [developmentUserKey, isOsan, cheongjuRestricted]);
 
   useEffect(() => {
     loadShell();
@@ -2636,7 +2655,7 @@ function QmsAppShellContent({
     ] : [])
   ];
   const cheongjuNavigationItems: NavigationItem[] = [
-    { label: '홈', view: { kind: 'home' }, active: view.kind === 'home', group: '내 업무' },
+    { label: '홈', view: { kind: cheongjuG2Only ? 'g2-home' : 'home' }, active: view.kind === (cheongjuG2Only ? 'g2-home' : 'home'), group: '내 업무' },
     { label: '내 업무', view: { kind: 'my-work' }, active: view.kind === 'my-work', badge: displayedShellBadges.requestedWorkCount, group: '내 업무' },
     { label: 'Pending', view: { kind: 'pending' }, active: view.kind === 'pending' || view.kind === 'pending-detail', group: '내 업무' },
     {
@@ -2678,7 +2697,10 @@ function QmsAppShellContent({
             {key:'osan-user-permissions',label:'개인별 권한 설정',view:{kind:'osan-user-permissions'} as View,active:view.kind==='osan-user-permissions'}]}
         ] : [])
       ]
-    : cheongjuNavigationItems;
+    : cheongjuNavigationItems.map(item => ({
+        ...item, disabled: !isCheongjuWorkspaceAvailable(item.view, cheongjuRestricted),
+        children: item.children?.map(child => ({ ...child, disabled: !isCheongjuWorkspaceAvailable(child.view, cheongjuRestricted) }))
+      }));
 
   const systemStatusDisclosure = (
 <details className="system-status-disclosure">
@@ -2721,7 +2743,7 @@ function QmsAppShellContent({
 
       <div className="app-content">
         {isOsan && currentUser.kind === "ready" && !currentUser.data.approvalPending && <OsanNoticePopups key={`${currentUser.data.userId}:${developmentUserKey}`} scope={currentUser.data.userId} userKey={developmentUserKey} onOpen={noticeId=>setView({kind:"notice-board",noticeId})}/>}
-        {currentUser.kind === "ready" && !currentUser.data.approvalPending && !isOsan && <BusbarLabelEntryPrompt key={busbarScopeKey} user={developmentUserKey} scope={busbarScopeKey} mobile={layout.isMobile || layout.touchOptimized} />}
+        {currentUser.kind === "ready" && !currentUser.data.approvalPending && !isOsan && !cheongjuRestricted && <BusbarLabelEntryPrompt key={busbarScopeKey} user={developmentUserKey} scope={busbarScopeKey} mobile={layout.isMobile || layout.touchOptimized} />}
         <ReviewSafeControlGuard mutationAllowed={mutationEnabled} reason={maintenance.state?.writeBlocked ? maintenanceDisabledReason : undefined} />
         {currentUser.kind === 'ready' && !currentUser.data.approvalPending ? (
           <WebPushFirstRunPrompt key={`${currentUser.data.userId}:${selectedBusinessUnit}`} accountScope={currentUser.data.userId} developmentUserKey={developmentUserKey} />
@@ -2914,6 +2936,13 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {workspaceUnavailable ? (
+        <section className="empty-state" role="status">
+          <h2>준비중</h2>
+          <p>이 메뉴는 준비중입니다. G2 메뉴를 이용해 주세요.</p>
+          <button type="button" onClick={() => setView({ kind: 'g2-home' })}>G2 홈으로 이동</button>
+        </section>
+      ) : <>
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && view.kind === 'home' ? (
         isOsan ? <OsanPersonalHome scope={currentUser.data.effectiveUser?.userId ?? currentUser.data.userId} userKey={developmentUserKey}
           name={currentUser.data.effectiveUser.displayName} department={currentUser.data.effectiveUser.departmentName ?? ''}
@@ -3572,6 +3601,7 @@ function QmsAppShellContent({
           onBack={() => setView({ kind: 'detail', projectId: view.projectId, section: 'panels' })}
         />
       ) : null}
+      </>}
         <CompanyInformationFooter
           className="company-information-footer--app"
           onOpenPrivacyNotice={() => setView({ kind: 'privacy-notice' })}
@@ -3582,6 +3612,7 @@ function QmsAppShellContent({
 }
 
 type NavigationItem = {
+  disabled?: boolean;
   label: string;
   view: View;
   active: boolean;
@@ -3591,6 +3622,7 @@ type NavigationItem = {
 };
 
 type NavigationChild = {
+  disabled?: boolean;
   key: string;
   label: string;
   view: View;
@@ -3663,6 +3695,8 @@ function AppNavigation({
               <button
                 type="button"
                 className={`${item.active ? 'app-nav-button active' : 'app-nav-button'}`}
+                disabled={item.disabled}
+                aria-label={item.disabled ? `${item.label} 준비중` : undefined}
                 aria-current={item.active ? 'page' : undefined}
                 aria-expanded={item.children ? expanded : undefined}
                 aria-controls={item.children ? childListId : undefined}
@@ -3671,7 +3705,7 @@ function AppNavigation({
                   : () => onNavigate(item.view)}
               >
                 <span className="app-nav-label">{isOsan && <NavigationIcon label={item.label} />}<span>{item.label}</span></span>
-                {item.children
+                {item.disabled ? <small>준비중</small> : item.children
                   ? <span className="app-nav-disclosure" aria-hidden="true">{<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg>}</span>
                   : item.badge && item.badge > 0
                     ? <span className="nav-badge" aria-hidden="true">{formatBadgeCount(item.badge)}</span>
@@ -3684,10 +3718,13 @@ function AppNavigation({
                       key={child.key}
                       type="button"
                       className={child.active ? 'app-nav-child-button active' : 'app-nav-child-button'}
+                      disabled={child.disabled}
+                      aria-label={child.disabled ? `${child.label} 준비중` : undefined}
                       aria-current={child.active ? 'page' : undefined}
                       onClick={() => onNavigate(child.view)}
                     >
                       <span className="app-nav-label">{isOsan && <NavigationIcon label={child.label} />}<span>{child.label}</span></span>
+                      {child.disabled && <small>준비중</small>}
                     </button>
                   ))}
                 </div>
@@ -3708,9 +3745,9 @@ function CampusMobileNavigation({ items, onNavigate, footer }: {
 }) {
   return <SharedMobileNavigation
     items={items.map(item => ({
-      key: item.label, label: item.label, active: item.active, badge: item.badge, group: item.group,
+      key: item.label, label: item.label, active: item.active, badge: item.badge, group: item.group, disabled: item.disabled,
       onSelect: () => onNavigate(item.view),
-      children: item.children?.map(child => ({ key: child.key, label: child.label, active: child.active, onSelect: () => onNavigate(child.view) }))
+      children: item.children?.map(child => ({ key: child.key, label: child.label, active: child.active, disabled: child.disabled, onSelect: () => onNavigate(child.view) }))
     }))}
     footer={footer}
   />;

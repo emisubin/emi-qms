@@ -95,7 +95,7 @@ public sealed class G2MaterialDatabaseTests
         await Task.WhenAll(store.SaveAsync(date,Snapshot(7),actor,ct),store.SaveAsync(date,Snapshot(8),actor,ct));saved=await store.ReadAsync(date,actor,ct);Assert.Single(saved.Items.Select(x=>x.Values.Materials).Distinct());
         Assert.Equal(93L,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_material_counts",ct));
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,$"insert into g2_material_counts(count_date,item_id,updated_by_user_id) values ('2026-04-08',1,{actorSql}),('2026-04-09',1,{actorSql});",ct);
-        await using var services=new ServiceCollection().AddSingleton(provider).AddSingleton<CheongjuDatabase>().AddSingleton<TimeProvider>(clock).AddScoped<G2MaterialStore>().BuildServiceProvider();
+        await using var services=new ServiceCollection().AddSingleton(provider).AddSingleton<CheongjuDatabase>().AddSingleton<TimeProvider>(clock).AddScoped<G2MaterialStore>().AddScoped<G2NonconformanceStore>().BuildServiceProvider();
         using var worker=new G2MaterialRetentionWorker(services.GetRequiredService<IServiceScopeFactory>(),provider,db.Configuration,clock,NullLogger<G2MaterialRetentionWorker>.Instance);
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"""
             update deployment_maintenance set release_id='70000000-0000-0000-0000-000000000001',version=1,

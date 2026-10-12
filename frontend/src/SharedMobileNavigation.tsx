@@ -36,6 +36,7 @@ export function SharedMobileNavigation({ items, footer, triggerRef }: {
   function itemButton(item: MobileNavigationItem, child = false) {
     const expanded = expandedKey === item.key;
     return <Fragment key={item.key}>
+      {child && item.group && <div className="osan-mobile-admin-group"><span>{item.group}</span></div>}
       <button type="button" className={child ? 'shared-mobile-child' : undefined}
         disabled={item.disabled}
         aria-label={item.disabled ? `${item.label} 준비중` : item.badge ? `${item.label} ${item.badge}건` : item.label}

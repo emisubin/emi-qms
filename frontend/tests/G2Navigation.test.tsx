@@ -71,10 +71,16 @@ describe('G2 navigation', () => {
     expect(within(mobile).getByRole('button', {name:'프로젝트 준비중'})).toBeDisabled();
     fireEvent.click(within(mobile).getByRole('button', {name:'G2'}));
     expect(within(mobile).getByRole('button', {name:'생산/출하 관리'})).toBeEnabled();
-    expect(within(mobile).getByRole('button', {name:'수냉기구물 부적합 현황 준비중'})).toBeDisabled();
-    expect(within(mobile).getByRole('button', {name:'UPG 부적합 현황'})).toBeEnabled();
+    expect(within(mobile).queryByRole('button',{name:'UPG'})).toBeNull();
+    fireEvent.click(within(mobile).getByRole('button',{name:'품질관리'}));
+    expect(within(mobile).getByRole('button', {name:'수냉기구물 준비중'})).toBeDisabled();
+    expect(within(mobile).getByRole('button', {name:'UPG'})).toBeEnabled();
     fireEvent.click(within(nav).getByRole('button', {name:'G2'}));
-    expect(within(nav).getByRole('button', {name:'수냉기구물 부적합 현황 준비중'})).toBeDisabled();
+    fireEvent.click(within(nav).getByText('품질관리',{exact:true}));
+    expect(within(nav).getByRole('button', {name:'수냉기구물 준비중'})).toBeDisabled();
+    fireEvent.click(within(mobile).getByRole('button',{name:'품질관리'}));
+    expect(within(mobile).queryByRole('button',{name:'UPG'})).toBeNull();
+    expect(within(mobile).getByRole('button',{name:'생산/출하 관리'})).toBeVisible();
   });
   it.each(['/projects','/admin','/my-work','/sales','/notifications'])('blocks ordinary-user deep link and history: %s', async path => {
     window.history.replaceState(null, '', path);

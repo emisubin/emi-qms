@@ -44,3 +44,13 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 로그 /tmp/upg-backend-tests-final.log, /tmp/upg-backend-tests-activation.log, /tmp/upg-backend-tests-security.log. 독립review R1–R4 해소 확인. 이후 마지막 변경은 한국어 오류 용어 부적합으로 통일(동작 변화 없음).
 - 마지막 검증용DB emi_qms_e2e_20261012074537_36344_6359 및 컨테이너 emi-qms-e2e-20261012074537-36344-6359-e2e-postgres-1, 네트워크 정리 확인. 앞선 실행의 소유 임시DB/컨테이너도 자동 정리. fixture의 임시 Directory/Cheongju/Osan DB도 dispose와 tmpfs컨테이너 삭제로 정리.
 - 신규 영구DB 없음. 기존청주 DB용3테이블+view migration 작성만 완료, 영구DB에 미적용. 더 이상 사용하지 않는 DB 없음(과거실적·실사 테이블 조회용 유지).
+
+### 로컬 서버 열기 · 2026-10-12 후속 요청
+사용자 요청으로 d7d001c 소스의 실제 API+frontend를 신규 전용 검수 환경에 기동했다. Frontend http://127.0.0.1:5188/g2/quality/upg, API5087. 기본 dev-quality 계정, 외부 provider 비활성. 브라우저 heading/등록버튼 및 pageerror0 확인, health와 품질 목록 API200. 목록은 빈 DB에서 시작하며 실제 등록/수정 가능.
+- 신규 검수용 임시DB: emi_qms_e2e_upg_preview_20261012 (현재 사용자 검수용으로 실행·유지 중, 아직 정리하지 않음). 컨테이너 emi-qms-e2e-upg-preview-20261012-e2e-postgres-1, tmpfs. 기존 영구DB/운영DB 변경 없음, 미사용DB 없음.
+- 표준 e2e 안전검사와 legacy-shaped 격리 fixture 방식 사용: common migration130 + 청주0132–0135 overlay. 실제 영구3DB 배포 환경으로 취급하지 않는다.
+- 소유 실행 /tmp/upg-preview-start.sh, execsession92793; 종료trap은 소유 backend/frontend 및 전용 Compose 자원을 정리한다. 소유 로그 /tmp/upg-preview-{build,migrate,backend,frontend}.log. 영구 보관용 입력 환경이 아니므로 검수 종료 시 입력도 함께 정리된다.
+- 기존 합성 preview5187와 원래 mock8781은 유지. 사용자에게 연 주소는 실제API 연결5188이다. 원격/배포 변화 없음.
+
+### 품질관리 하위 메뉴 · 2026-10-12
+사용자 요청: 품질관리 클릭 시 펼침/접힘, 메뉴명 UPG·수냉기구물로 축약. 기존 공통 하위메뉴 스타일을 재사용하여 PC nested disclosure와 모바일 depth별 펼침 상태 적용. 페이지 제목은 유지, 수냉기구물 준비중 유지. navigation11개·typecheck·변경파일eslint 통과, 실제 localhost5188 PC/390px 모바일 펼침/접힘/비활성 동작과 화면 확인. DB 생성/미사용DB 변화 없음; 검수 임시DB는 앞 절대로 실행 유지.

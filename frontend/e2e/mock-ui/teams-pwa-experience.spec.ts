@@ -81,7 +81,7 @@ test('iPhone non-Safari browsers offer current-browser steps and a Safari copy f
   await capture(page, 'pwa-iphone-other-browser-guide-mobile-390.png');
 });
 
-test('Android receives the one-tap install guide in the same wireframe shell', async ({ page }) => {
+test('Android receives the one-tap install guide in the shared application shell', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,

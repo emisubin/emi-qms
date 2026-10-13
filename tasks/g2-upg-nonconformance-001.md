@@ -107,3 +107,14 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 ### 카메라 사진 칸 비율 · 2026-10-13
 사용자 요청에 따라 UPG 상세 및 입력/수정 미리보기의 가로로 긴 고정 높이를 4:3 사진 칸으로 변경. 사진 자체는 contain으로 원래 비율을 보존하고 세로사진도 잘리지 않게 표시. 회색 배경 유지, 다른 업무 사진 레이아웃 변경 없음.
 - 실제 로컬 PC1440 상세163×122, 모바일390 상세160×120, 수정미리보기142×107 확인. 상세가로넘침0, 원본사진 비율·범위 확인. 수정창은 취소해 실제 저장 없음. 작은CSS보정으로 직접 시각검증/diffcheck 수행. 새DB·임시DB·미사용DB없음. 기존 검수DB유지. 로컬반영, 공개배포미실행.
+
+### 실제 카메라 JPEG 거부 원인 분석·공용 보정 · 2026-10-13 진행
+사용자가 지정한 다운로드 폴더 20260824_142209.jpg를 읽기 전용으로 단계별 진단. 원본3,694,835바이트는 일반Magick디코더에서 경고없이4000×3000 JPEG로 판독됨. PMS는 OsanJpegContainer의 Unindexed MP trailer 분기에서 거부: MPF기본사진3,653,325바이트와HDR보조사진41,255바이트 이후 정상SEF255바이트 존재. (1)/(2)복사본은 원본과 동일. 메모리에서SEF구간만 분리한 대조군은 공용전체검사PASS로 인과확인. 원본변경/저장/업로드없음.
+- 수정 범위: 파일명/해시/고정255 예외가 아니라 공용JPEG컨테이너에 SEF 구조검증 추가. 헤더/푸터/길이/인덱스/레코드 범위를 검증하고 정상 카메라부가정보를 이미지와 구분; 임의후행바이트·손상·범위침범은 계속거부. 기존 metadata제거 흐름과 실제RGB/HDR/ICC/방향계약 보존. 원본을 테스트fixture나Git에 넣지 않음.
+- 형식 근거: AndroidX Media3 SefReader의 공식 공개구현(https://github.com/androidx/media/blob/release/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/SefReader.java), SEFT푸터/SEFH헤더/역방향인덱스 구조 참고. 해당구현은MP4용이며JPEG에대한적용/검증은PMS가소유.
+- 원격반영·배포 제외. 기존 사용자previewDB미접촉. 검증/완료결과추가기록 예정.
+
+- 완료: `OsanSamsungSefTrailer` 공용 구조 검사 추가 및 JPEG/MPF 연결. 범위·중복·겹침·전체 coverage를 먼저 검사하고 레코드 이름을 처리한다. 정상 SEF만 기존 정제 단계에서 제거하며 임의 후행 데이터는 계속 거부한다. 단일 JPEG 정제 입력도 검증된 이미지 경계로 제한했다.
+- 검증: Release build 경고/오류 0, 관련 회귀 23/23 통과. 독립 review GO(P0/P1/P2 없음). 담당자와 부모가 실제 원본을 자르지 않고 독립 진단하여 공용 validator PASS, 2개 프레임 및 ICC/XMP/HDR 유지 확인. 원본 SHA 대조 동일. 실제 원본은 Git/fixture/DB에 저장하지 않았다.
+- 로컬 반영: 기존 API 5087만 refresh, health/ready 200. 사용자 preview DB 초기화·시딩·migration 없음. UI 5188 유지. 사용자 실제 저장 재시도는 미실행이며 원격 push/병합/배포 없음.
+- DB: 신규 DB 없음, 검증용 임시 DB 없음(정리 대상 없음), 더 이상 사용하지 않는 DB 없음.

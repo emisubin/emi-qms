@@ -23,6 +23,7 @@ public static partial class AuditMutationRegistry
     // Any new mutation endpoint must be deliberately classified before application startup succeeds.
     internal static readonly IReadOnlySet<string> KnownMutationRouteKeys = ParseRouteKeys("""
         POST /api/g2/nonconformances/
+        POST /api/g2/nonconformances/photos/preview
         PUT /api/g2/nonconformances/{id:guid}
         DELETE /api/g2/nonconformances/{id:guid}
         PUT /api/g2/nonconformances/{id:guid}/action
@@ -297,6 +298,7 @@ public static partial class AuditMutationRegistry
     // UPG records use their own atomic, three-month history; do not retain deleted information in the general audit ledger.
     private static readonly IReadOnlySet<string> ExcludedMutationRouteKeys = ParseRouteKeys("""
         POST /api/g2/nonconformances/
+        POST /api/g2/nonconformances/photos/preview
         PUT /api/g2/nonconformances/{id:guid}
         DELETE /api/g2/nonconformances/{id:guid}
         PUT /api/g2/nonconformances/{id:guid}/action

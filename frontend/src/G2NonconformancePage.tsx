@@ -1,9 +1,12 @@
+import {UpgSavedPhoto,UpgPhotoPreview} from './UpgPhotos';
+import {OsanRecordPhoto} from './OsanRecordPhoto';
+import {validatePhotoSelection} from './photoSelection';
 import {useCallback,useEffect,useRef,useState,type ReactNode,type FormEvent} from 'react';
 import {G2PageFrame} from './G2PageFrame';
 import {useG2Mobile} from './useG2Mobile';
 import {useNativeDialog} from './useNativeDialog';
 import {todaySeoul} from './g2';
-import {deleteUpg,emptyUpgFilter,filterUpg,getUpg,getUpgPhoto,readUpgFiles,saveUpg,saveUpgAction,type UpgFilter,type UpgItem,type UpgList,type UpgPhoto,type UpgPhotoInput} from './g2Nonconformances';
+import {deleteUpg,emptyUpgFilter,filterUpg,getUpg,readUpgFiles,saveUpg,saveUpgAction,type UpgFilter,type UpgItem,type UpgList,type UpgPhoto,type UpgPhotoInput} from './g2Nonconformances';
 import './g2-nonconformance.css';
 import './g2-mobile-input.css';
 const typeName=(x:UpgItem)=>x.occurrenceType==='production'?'생산팀 불량':'협력사 불량';
@@ -14,9 +17,7 @@ function Modal({title,onClose,busy=false,children,footer,kind=''}:{title:string;
  return <dialog ref={ref} className={`dialog ${kind}`} aria-label={title} onCancel={e=>{e.preventDefault();if(!busy)onClose();}}><header className="dialoghead"><h2>{title}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={`${title} 닫기`}>×</button></header>{children}{footer&&<footer className="dialogfoot">{footer}</footer>}</dialog>;
 }
 function Photos({user,item,photos}:{user:string|undefined;item:UpgItem;photos:UpgPhoto[]}){
- const [urls,setUrls]=useState<string[]>([]),[error,setError]=useState('');
- useEffect(()=>{const controller=new AbortController();const made:string[]=[];setUrls([]);setError('');Promise.all(photos.map(p=>getUpgPhoto(user,item.id,p.id,controller.signal))).then(blobs=>{if(controller.signal.aborted)return;blobs.forEach(b=>made.push(URL.createObjectURL(b)));setUrls([...made]);}).catch(()=>{if(!controller.signal.aborted)setError('사진을 불러오지 못했습니다. 상세를 다시 열어 주세요.');});return()=>{controller.abort();made.forEach(URL.revokeObjectURL);};},[user,item.id,photos]);
- return <div className="photos">{urls.map((url,i)=><a key={url} href={url} target="_blank" rel="noreferrer" aria-label={`사진 ${i+1} 원본 보기`}><img src={url} alt={photos[i].fileName}/></a>)}{error?<p role="alert">{error}</p>:urls.length===0?<span className="quiet">사진을 불러오는 중입니다.</span>:null}</div>;
+ return <div className="photos">{photos.map(photo=><UpgSavedPhoto key={photo.id} user={user} itemId={item.id} photo={photo}/>)}</div>;
 }
 export function G2NonconformancePage({developmentUserKey,mutationEnabled}:{developmentUserKey:string|undefined;mutationEnabled:boolean}){return <Workspace key={developmentUserKey??'signed-in'} user={developmentUserKey} enabled={mutationEnabled}/>;}
 function Workspace({user,enabled}:{user:string|undefined;enabled:boolean}){
@@ -53,13 +54,21 @@ function Workspace({user,enabled}:{user:string|undefined;enabled:boolean}){
 }
 function Editor({user,mode,item,onClose,onSaved}:{user:string|undefined;mode:'new'|'initial'|'first'|'second';item:UpgItem|null;onClose:()=>void;onSaved:(item:UpgItem)=>void}){
  const second=mode==='second',editing=mode==='first';const [serial,setSerial]=useState(editing?item!.serial:''),[date,setDate]=useState(second?item?.action?.completionDate??todaySeoul():editing?item!.occurrenceDate:todaySeoul()),[type,setType]=useState(editing?item!.occurrenceType:'production'),[content,setContent]=useState(second?item?.action?.content??'':editing?item!.content:'');
- const [photos,setPhotos]=useState<UpgPhotoInput[]>(second?item?.action?.photos??[]:editing?item!.photos:[]),[busy,setBusy]=useState(false),[error,setError]=useState('');const guard=useRef(false),alive=useRef(true);useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const [photos,setPhotos]=useState<(UpgPhotoInput & {file?:File})[]>(second?item?.action?.photos??[]:editing?item!.photos:[]),[busy,setBusy]=useState(false),[error,setError]=useState('');const guard=useRef(false),alive=useRef(true);useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  const title=second?`조치 정보 ${item?.action?'수정':'등록'}`:editing?'부적합 정보 수정':mode==='initial'?'초기 재고 등록':'부적합 등록';
- async function addFiles(files:File[]){if(guard.current)return;guard.current=true;setBusy(true);setError('');try{if(photos.length+files.length>10)throw new Error("사진은 10장까지 첨부할 수 있습니다.");const added=await readUpgFiles(files);if(alive.current)setPhotos(p=>[...p,...added]);}catch(e){if(alive.current)setError(errorText(e));}finally{guard.current=false;if(alive.current)setBusy(false);}}
- async function submit(e:FormEvent){e.preventDefault();if(guard.current)return;if(!photos.length){setError('사진을 한 장 이상 첨부해 주세요.');return;}guard.current=true;setBusy(true);setError('');try{const result=second?await saveUpgAction(user,item!.id,{completionDate:date,content,photos,expectedVersion:item!.version}):await saveUpg(user,editing?item!.id:null,{serial,occurrenceDate:date,occurrenceType:type as 'production'|'supplier',content,photos,initialStock:editing?item!.initialStock:mode==='initial',expectedVersion:editing?item!.version:undefined});if(alive.current)onSaved(result);}catch(e){if(alive.current)setError(errorText(e));}finally{guard.current=false;if(alive.current)setBusy(false);}}
+ const camera=useRef<HTMLInputElement>(null),album=useRef<HTMLInputElement>(null);
+ async function addFiles(files:File[]){if(guard.current||!files.length)return;guard.current=true;setBusy(true);setError('');try{
+ const validation=validatePhotoSelection([...photos.flatMap(p=>p.file?[p.file]:[]),...files],{count:10,total:20_000_000,perFile:5_000_000,types:['image/jpeg','image/png','image/webp','image/heic','image/heif'],extensions:/\.(jpe?g|png|webp|hei[cf])$/i,formatMessage:'JPG, PNG, WEBP, HEIC 사진을 선택해 주세요.',totalMessage:'사진의 전체 용량은 20MB 이하여야 합니다.'},photos.filter(p=>!p.file));
+ if(validation)throw new Error(validation);const added=await readUpgFiles(files);if(alive.current)setPhotos(p=>[...p,...added.map((photo,i)=>({...photo,file:files[i]}))]);
+ }catch(e){if(alive.current)setError(errorText(e));}finally{guard.current=false;if(alive.current)setBusy(false);}}
+ async function submit(e:FormEvent){e.preventDefault();if(guard.current)return;if(!photos.length){setError('사진을 한 장 이상 첨부해 주세요.');return;}guard.current=true;setBusy(true);setError('');try{const payload=photos.map(({file,...photo})=>{void file;return photo;});const result=second?await saveUpgAction(user,item!.id,{completionDate:date,content,photos:payload,expectedVersion:item!.version}):await saveUpg(user,editing?item!.id:null,{serial,occurrenceDate:date,occurrenceType:type as 'production'|'supplier',content,photos:payload,initialStock:editing?item!.initialStock:mode==='initial',expectedVersion:editing?item!.version:undefined});if(alive.current)onSaved(result);}catch(e){if(alive.current)setError(errorText(e));}finally{guard.current=false;if(alive.current)setBusy(false);}}
  return <Modal title={title} busy={busy} onClose={onClose}><form onSubmit={e=>void submit(e)}><div className="dialogbody">{second?<><p className="info">{item!.serial}</p><label className="field">수리 완료일<input type="date" max={todaySeoul()} value={date} onChange={e=>setDate(e.target.value)} required/></label></>:<><div className="twocol"><label className="field">시리얼 넘버<input value={serial} maxLength={100} onChange={e=>setSerial(e.target.value)} required/></label><label className="field">발생 일자<input type="date" max={todaySeoul()} value={date} onChange={e=>setDate(e.target.value)} required/></label></div><label className="field">발생 유형<select value={type} onChange={e=>setType(e.target.value as "production"|"supplier")}><option value="production">생산팀 불량</option><option value="supplier">협력사 불량</option></select></label></>}
  <label className="field">{second?'조치 내용':'부적합 내용'}<textarea value={content} maxLength={10000} required onChange={e=>setContent(e.target.value)}/></label>
- <label className="field">{second?'조치':'부적합'} 사진 · 필수<input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={e=>{void addFiles(Array.from(e.target.files??[]));e.target.value='';}}/></label>
- {!!photos.length&&<ul className="upg-photo-files">{photos.map((p,i)=><li key={p.id??`${p.fileName}-${i}`}><span>{p.fileName}</span><button type="button" disabled={busy} aria-label={`${p.fileName} 첨부 제거`} onClick={()=>setPhotos(v=>v.filter((_,n)=>n!==i))}>×</button></li>)}</ul>}
+ <div className="upg-photo-attachment"><span className="field">{second?'조치':'부적합'} 사진 · 필수</span>
+ <input ref={camera} hidden type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" capture="environment" aria-label={`${second?'조치':'부적합'} 사진 촬영`} disabled={busy} onChange={e=>{void addFiles(Array.from(e.target.files??[]));e.target.value='';}}/>
+ <input ref={album} hidden type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple aria-label={`${second?'조치':'부적합'} 사진 · 필수`} disabled={busy} onChange={e=>{void addFiles(Array.from(e.target.files??[]));e.target.value='';}}/>
+ <div className="osan-progress-photo-inputs"><button type="button" disabled={busy} onClick={()=>camera.current?.click()}>촬영</button><button type="button" disabled={busy} onClick={()=>album.current?.click()}>사진 선택</button></div>
+ <div className="upg-photo-previews">{photos.map((p,i)=><OsanRecordPhoto key={p.id??`${p.fileName}-${i}`} name={p.fileName} action="제거" disabled={busy} onAction={()=>setPhotos(v=>v.filter((_,n)=>n!==i))}>{p.file?<UpgPhotoPreview user={user} file={p.file}/>:<UpgSavedPhoto user={user} itemId={item!.id} photo={p} preview/>}</OsanRecordPhoto>)}</div>
+ </div>
  <p className="info">{second?'저장하면 수리 완료로 처리됩니다.':'제품 한 대의 부적합 내용을 모아서 작성해 주세요.'}</p>{error&&<p role="alert" className="notice">{error}</p>}</div><footer className="dialogfoot"><button disabled={busy} type="button" onClick={onClose}>취소</button><button className="primary" disabled={busy} type="submit">{busy?'처리 중…':'저장'}</button></footer></form></Modal>;
 }

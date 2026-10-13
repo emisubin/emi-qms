@@ -84,3 +84,13 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - PC1440/mobile390 G2·공통틀 비교, 320px 계획/실적/실사/인원/품질 입력5종 넘침0. 실제 UPG사진2개 로딩성공/filter:none, 조치사진원색 확인. 1차사진은 필터해제후에도 비어보이며 별도원인 미확정. 사용자데이터 수정 없음. 합성증거 /tmp/theme-final-*, /tmp/theme-input-320-*, /tmp/theme-auth-loading-*, /tmp/theme-osan-e2e.
 - 독립review retire_theme_review 요청 gpt-6-astra/high(실제모델NOT_REPORTED), HEAD55c32fe 대비 전체WIP와 신규test 검토 GO, 남은P0/P1/P2없음. 중간 auth test 축약은 거부하고 원본복원.
 - 종료돼 있던 API5087은 기존 refresh script로 재기동(PID59076/session22743), health200. migration/seed/reset없음, 사용자case유지 확인. frontend5188 유지. 신규/미사용DB없음, 이번 임시DB 생성없음. 기존 emi_qms_e2e_upg_preview_20261012 검수용 유지·미정리. 원격push/병합/배포 없음.
+
+### 품질 사진 첨부 공용화 · 2026-10-13
+사용자 승인: 품질 사진 업로드를 파일 첨부 대신 사진 첨부로 교체. 확정된 UPG 등록·수정·상세 배치를 유지하고 오산 촬영/사진 선택, 미리보기, 개별 제거, 저장 사진 조회/확대/재시도 코드를 실제 재사용한다. 현재 사용자 검수 DB의 기존 부적합·사진은 보존하며 원격 반영·배포는 제외한다.
+- 프런트: OsanPhotoPreview/SavedPhoto의 구현을 공용 PhotoPreview/SavedPhotoView로 추출, 오산 wrapper와 UPG 모두 호출. OsanRecordPhoto 재사용. 파일명 목록 UI 및 스타일 제거. 공용 사진 선택 검증은 각 업무 기존 제한 유지(UPG 10장·장당5MB·단계20MB, 오산5장·40MiB). 기존사진과 새사진 합산. 빈 MIME은 octet-stream으로 서버 실물 판독에 전달.
+- 서버: 기존 오산 이미지 검사·메타데이터 제거·HEIC 미리보기·악성코드 검사 재사용, 처리된 바이트 저장. 기존 Id 사진 유지 경로·캠퍼스/권한/버전 계약 보존. 공개 byteSize와 인증된 UPG HEIC preview 추가. 별도 DB/schema 없음.
+- 프런트 검증: 관련38개 테스트, TypeScript, production build, 오산 mock E2E3개. 빌드 기존 bundle크기 경고 유지. PC1440·모바일390/320 사진첨부/상세/확대 합성 화면 확인, 가로넘침0, 미리보기 정상색, 모바일 상세사진2열 유지. /tmp/upg-photo-*.png. 실제 사용자 사진/데이터 저장 없음.
+- 서버 검증·독립검토·로컬 runtime 반영 결과는 아래에 기록한다.
+- 완료: 서버 Debug/Release 빌드, 비DB2개·전용Postgres 통합1개 통과. WebP 원본검사→PNG처리바이트저장, infected422/검사장애503, 유지사진재검사방지, 권한거부 및 품질/관리자, HEIC 저장·원본/미리보기 조회 실제분기 확인. 독립review upg_photo_reuse_review 요청gpt-6-astra/high(실제모델NOT_REPORTED) 최종GO, 남은P0/P1/P2없음.
+- 로컬5188 반영, API5087만 같은 환경으로 재시작 PID62985/session63343, health200. migration/seed/reset없음. 사용자는 새로고침 후 확인 가능. 기존 사용자case/사진 수정 없음. 병합·push·공개배포 미실행.
+- DB: 새 업무DB/미사용DB 없음. 검증용 emi_qms_e2e_20261013000936_62658_1841 기반 임시DB·container·network 자동정리 완료. 기존 emi_qms_e2e_upg_preview_20261012는 사용자 검수용으로 유지.

@@ -103,3 +103,7 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 서버 검증 완료: Debug/Release 빌드, G2비DB2개·공용오산 size/HDR13개·전용Postgres통합1개 통과. 처리된 결과도5MB초과인 유효PNG 저장/조회/유지편집, 유효사진 합계20MB초과시scan전거부, image/jpg JSON저장/multipartpreview 확인. 독립review upg_photo_reuse_review gpt-6-astra/high 요청(실제모델NOT_REPORTED) GO, 미해결P0/P1/P2없음.
 - 로컬5188 적용 및 API5087 재기동 PID66934/session39807, health200. 기존DB/사진 유지, migration/seed/reset없음. 원격push/병합/배포 미실행.
 - DB: 새 업무DB·미사용DB 없음. 검증용 emi_qms_e2e_20261013003111_66234_2927 및 emi_qms_e2e_20261013003247_66679_2947 기반 DB/container/network 모두 정리. 기존 emi_qms_e2e_upg_preview_20261012는 사용자 검수용 유지.
+
+### 카메라 사진 칸 비율 · 2026-10-13
+사용자 요청에 따라 UPG 상세 및 입력/수정 미리보기의 가로로 긴 고정 높이를 4:3 사진 칸으로 변경. 사진 자체는 contain으로 원래 비율을 보존하고 세로사진도 잘리지 않게 표시. 회색 배경 유지, 다른 업무 사진 레이아웃 변경 없음.
+- 실제 로컬 PC1440 상세163×122, 모바일390 상세160×120, 수정미리보기142×107 확인. 상세가로넘침0, 원본사진 비율·범위 확인. 수정창은 취소해 실제 저장 없음. 작은CSS보정으로 직접 시각검증/diffcheck 수행. 새DB·임시DB·미사용DB없음. 기존 검수DB유지. 로컬반영, 공개배포미실행.

@@ -118,3 +118,9 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 검증: Release build 경고/오류 0, 관련 회귀 23/23 통과. 독립 review GO(P0/P1/P2 없음). 담당자와 부모가 실제 원본을 자르지 않고 독립 진단하여 공용 validator PASS, 2개 프레임 및 ICC/XMP/HDR 유지 확인. 원본 SHA 대조 동일. 실제 원본은 Git/fixture/DB에 저장하지 않았다.
 - 로컬 반영: 기존 API 5087만 refresh, health/ready 200. 사용자 preview DB 초기화·시딩·migration 없음. UI 5188 유지. 사용자 실제 저장 재시도는 미실행이며 원격 push/병합/배포 없음.
 - DB: 신규 DB 없음, 검증용 임시 DB 없음(정리 대상 없음), 더 이상 사용하지 않는 DB 없음.
+
+### 사진 영역 플로우 격자형 적용 · 2026-10-13
+사용자가 선택한 1번 플로우 이미지 묶음 디자인을 UPG 상세·입력 사진 영역에 적용. PC 3열/모바일 2열, 간격 4px, 카드 외곽 padding/border 제거, 4:3 및 contain 유지, 밝은 중립 바탕과 최소 경계 적용. 공용 업로드·조회 동작과 오산 스타일은 변경 없음. 기존 flex 강제 규칙을 제거하여 격자와 충돌하지 않도록 함.
+- 레퍼런스: 플로우 공식 실제 채팅 이미지 묶음 화면 https://support.flow.team/ko/flow/4409761935513 (버전 미표기). 사진 밀집 배치를 따르고 PMS의 4:3 전체 보기·단계별 사진 구분·PC3/모바일2열로 조정. 사용성 보조: IBM Carbon https://v10.carbondesignsystem.com/components/file-uploader/usage/ 의 명시적 업로드/제거 조작 유지.
+- 검증: 실제 상세 PC1280/모바일390 화면 확인, 합성 5장·흰 배경·세로 사진 및 입력 미리보기 검증. 모바일 grid 2열, clientWidth=scrollWidth로 사진 영역 가로 넘침 없음. 임시 합성 파일 제거 완료. CSS 변경으로 별도 기능 테스트/전체회귀는 실행하지 않음. 로컬 HMR 반영, 공개배포 없음.
+- 신규 DB/임시 DB/사용 중단 DB 모두 없음. 기존 사용자 데이터 수정 없음.

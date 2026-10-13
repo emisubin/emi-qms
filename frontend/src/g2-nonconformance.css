@@ -34,7 +34,6 @@
 #g2-upg-page .meta label{display:block!important;color:#777!important;font-size:11px!important;margin-bottom:5px!important}
 #g2-upg-page .meta strong{font-size:13px!important;font-weight:500!important}
 #g2-upg-page .bodytext{line-height:1.7!important;margin:0 0 13px!important;font-size:13px!important}
-#g2-upg-page .photos{display:flex!important;gap:9px!important}
 #g2-upg-page .photo{background:#e6e8ea!important;border:1px solid #d9dcdf!important;width:154px!important;height:94px!important;display:flex!important;align-items:center!important;justify-content:center!important;flex-direction:column!important;color:#74787d!important;font-size:11px!important;gap:7px!important}
 #g2-upg-page .photo svg{width:30px!important;height:30px!important;stroke:#91979e!important;fill:none!important}
 #g2-upg-page .divider{border:0!important;border-top:1px solid #d7dadd!important;margin:22px 0 0!important}
@@ -224,7 +223,6 @@
 }
 
 #g2-upg-page *{box-sizing:border-box!important}
-#g2-upg-page .photos{flex-wrap:wrap!important}
 #g2-upg-page .record-meta strong{overflow-wrap:anywhere!important}
 #g2-upg-page .field input,#g2-upg-page .field textarea,#g2-upg-page .field select{min-width:0!important;width:100%!important}
 #g2-upg-page button:disabled{cursor:default!important;opacity:.5!important}
@@ -251,16 +249,19 @@
 /* Existing Osan photo controls, constrained to the approved UPG form. */
 #g2-upg-page .upg-photo-attachment input[hidden]{display:none!important}
 #g2-upg-page .upg-photo-attachment .osan-progress-photo-inputs{justify-content:flex-start;gap:8px;padding:0;margin:8px 0}
-#g2-upg-page .upg-photo-previews{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;min-width:0}
-#g2-upg-page .upg-photo-previews .osan-record-photo{margin:0;padding:6px;border:1px solid var(--border-color,#d8dce0);min-width:0}
+#g2-upg-page .upg-photo-previews,#g2-upg-page .photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;min-width:0;align-items:start}
+#g2-upg-page .upg-photo-previews .osan-record-photo{margin:0;padding:0;border:0;min-width:0;background:transparent}
 #g2-upg-page .upg-photo-previews .photo-preview-image{position:relative;aspect-ratio:4/3;width:100%}
 #g2-upg-page .upg-photo-previews img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-#g2-upg-page .upg-photo-previews figcaption{overflow-wrap:anywhere}
-#g2-upg-page .photos .osan-progress-saved-photo{margin:0;width:165px;min-width:0}
+#g2-upg-page .upg-photo-previews figcaption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;margin-top:4px}
+#g2-upg-page :is(.upg-photo-previews,.photos) .photo-surface{background:#e6e8eb;box-shadow:inset 0 0 0 1px #e1e4e7;border-radius:2px}
+#g2-upg-page .upg-photo-previews .osan-record-photo-action{justify-content:flex-end;margin:2px 0 4px}
+#g2-upg-page .photos .osan-photo-zoom-trigger{border:0!important;border-radius:2px!important;background:transparent!important;min-height:0!important}
+#g2-upg-page .photos .osan-progress-saved-photo{margin:0;width:100%;min-width:0}
 #g2-upg-page .photos .osan-photo-zoom-trigger{width:100%;height:auto;padding:0!important}
 #g2-upg-page .photos .photo-thumbnail{position:relative;aspect-ratio:4/3;height:auto}
 #g2-upg-page .photos .osan-photo-zoom-trigger img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 #g2-upg-page .osan-image-dialog{max-width:calc(100vw - 24px);max-height:90dvh}
 #g2-upg-page .osan-image-dialog img{max-width:100%;max-height:75dvh;object-fit:contain}
 
-@media(max-width:760px){#g2-upg-page .photos .osan-progress-saved-photo{width:calc((100% - 9px)/2)}}
+@media(max-width:760px){#g2-upg-page .upg-photo-previews,#g2-upg-page .photos{grid-template-columns:repeat(2,minmax(0,1fr))}}

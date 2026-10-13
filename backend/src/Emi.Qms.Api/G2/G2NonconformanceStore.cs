@@ -21,9 +21,9 @@ public sealed class G2PhotoScanUnavailableException : Exception;
 public static class G2QualityRules
 {
     public const int MaximumPhotoCount = 10;
-    public const int MaximumPhotoBytes = 5_000_000;
     public const int MaximumStageBytes = 20_000_000;
-    public const long MaximumPreviewMultipartBytes = 7_000_000;
+    public const long MaximumBase64Characters = ((MaximumStageBytes + 2L) / 3L) * 4L;
+    public const long MaximumPreviewMultipartBytes = MaximumStageBytes + (2 * 1024 * 1024);
 
     public static void Validate(string content, G2QualityPhoto[]? photos)
     {
@@ -43,7 +43,6 @@ public static class G2QualityRules
         {
             var (validated,error)=await InteriorBusbarPhotoValidator.ValidateAsync(photo.FileName,photo.ContentType,Convert.FromBase64String(photo.Base64!),ct);
             if(validated is null) throw new ArgumentException(error ?? "올바른 사진을 첨부해 주세요.");
-            if(validated.Content.Length > MaximumPhotoBytes) throw new ArgumentException("사진은 장당 5MB 이하 JPEG, PNG, HEIC, WebP만 가능합니다.");
             total += validated.Content.Length;
         }
         if(total > MaximumStageBytes) throw new ArgumentException("사진 합계는 20MB 이하여야 합니다.");
@@ -55,11 +54,11 @@ public static class G2QualityRules
     }
     internal static byte[] DecodeNewPhoto(G2QualityPhoto? photo)
     {
-        if (photo is null || string.IsNullOrWhiteSpace(photo.FileName) || photo.FileName.Length > 255 || string.IsNullOrWhiteSpace(photo.ContentType) || photo.Base64 is null || photo.Base64.Length > MaximumPreviewMultipartBytes) throw new ArgumentException("사진 파일을 확인해 주세요.");
-        if(photo.ContentType.Trim().ToLowerInvariant() is not ("image/png" or "image/jpeg" or "image/webp" or "image/heic" or "image/heif" or "application/octet-stream")) throw new ArgumentException("사진은 장당 5MB 이하 JPEG, PNG, HEIC, WebP만 가능합니다.");
+        if (photo is null || string.IsNullOrWhiteSpace(photo.FileName) || photo.FileName.Length > 255 || string.IsNullOrWhiteSpace(photo.ContentType) || photo.Base64 is null || photo.Base64.Length > MaximumBase64Characters) throw new ArgumentException("사진 파일을 확인해 주세요.");
+        if(photo.ContentType.Trim().ToLowerInvariant() is not ("image/png" or "image/jpeg" or "image/jpg" or "image/webp" or "image/heic" or "image/heif" or "application/octet-stream")) throw new ArgumentException("JPEG, PNG, HEIC, WebP 사진만 첨부할 수 있습니다.");
         byte[] bytes;
         try { bytes=Convert.FromBase64String(photo.Base64); } catch(FormatException) { throw new ArgumentException("사진 파일을 확인해 주세요."); }
-        if(bytes.Length is < 1 or > MaximumPhotoBytes) throw new ArgumentException("사진은 장당 5MB 이하 JPEG, PNG, HEIC, WebP만 가능합니다.");
+        if(bytes.Length<1) throw new ArgumentException("사진 파일을 확인해 주세요.");
         return bytes;
     }
     public static void ValidateDate(DateOnly date, DateOnly today) { if(date.Year < 2000 || date > today) throw new ArgumentException("오늘 또는 과거 날짜를 선택해 주세요."); }
@@ -173,7 +172,6 @@ public sealed class G2NonconformanceStore
             await ScanAsync(original,ct);
             var (validated,error)=await InteriorBusbarPhotoValidator.ValidateAsync(photo.FileName,photo.ContentType,original,ct);
             if(validated is null) throw new ArgumentException(error??"올바른 사진을 첨부해 주세요.");
-            if(validated.Content.Length>G2QualityRules.MaximumPhotoBytes) throw new ArgumentException("사진은 장당 5MB 이하 JPEG, PNG, HEIC, WebP만 가능합니다.");
             resolved.Add(new(SafeFileName(photo.FileName),validated.ContentType,Convert.ToBase64String(validated.Content),Guid.NewGuid(),validated.Content.Length));
         }
         long total=0;
@@ -182,7 +180,7 @@ public sealed class G2NonconformanceStore
             if(photo.Base64 is null) throw new ArgumentException("사진을 다시 첨부해 주세요.");
             byte[] bytes;
             try { bytes=Convert.FromBase64String(photo.Base64); } catch(FormatException) { throw new ArgumentException("사진을 다시 첨부해 주세요."); }
-            if(bytes.Length is < 1 or > G2QualityRules.MaximumPhotoBytes) throw new ArgumentException("사진은 장당 5MB 이하 JPEG, PNG, HEIC, WebP만 가능합니다.");
+            if(bytes.Length<1) throw new ArgumentException("사진을 다시 첨부해 주세요.");
             total+=bytes.Length;
         }
         if(total>G2QualityRules.MaximumStageBytes) throw new ArgumentException("사진 합계는 20MB 이하여야 합니다.");

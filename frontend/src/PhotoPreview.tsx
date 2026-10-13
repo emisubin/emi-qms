@@ -1,3 +1,4 @@
+import './photo-display.css';
 import { useEffect, useRef, useState } from 'react';
 import { isHeicPhoto } from './osanProgress';
 
@@ -25,6 +26,6 @@ export function PhotoPreview({ file, loadPreview, alt }: { file: File; loadPrevi
   return <>
     {!loaded && !error && <p role="status">사진 미리보기 준비 중…</p>}
     {error && <p role="alert">{error}</p>}
-    {url && !error && <img src={url} alt={alt ?? `${file.name} 미리보기`} onLoad={() => { window.clearTimeout(watchdog.current); setLoaded(true); }} onError={() => { window.clearTimeout(watchdog.current); setError('이 사진의 미리보기를 표시할 수 없습니다. 파일 형식을 확인하거나 다른 사진을 선택해 주세요.'); }} />}
+    {url && !error && <span className="photo-surface photo-preview-image"><img src={url} alt={alt ?? `${file.name} 미리보기`} onLoad={() => { window.clearTimeout(watchdog.current); setLoaded(true); }} onError={() => { window.clearTimeout(watchdog.current); setError('이 사진의 미리보기를 표시할 수 없습니다. 파일 형식을 확인하거나 다른 사진을 선택해 주세요.'); }} /></span>}
   </>;
 }

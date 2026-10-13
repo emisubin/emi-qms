@@ -31,3 +31,9 @@ it('blank browser MIME is normalized for the shared server decoder',async()=>{
  const [photo]=await actual.readUpgFiles([new File(['photo'],'camera.heic')]);
  expect(photo.contentType).toBe('application/octet-stream');expect(photo.base64).toBeTruthy();
 });
+
+it('sends image/jpg using the JPEG standard type',async()=>{
+ const actual=await vi.importActual<typeof import('../src/g2Nonconformances')>('../src/g2Nonconformances');
+ const [photo]=await actual.readUpgFiles([new File(['photo'],'camera.jpg',{type:'image/jpg'})]);
+ expect(photo.contentType).toBe('image/jpeg');
+});

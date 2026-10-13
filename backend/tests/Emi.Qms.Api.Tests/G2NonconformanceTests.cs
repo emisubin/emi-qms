@@ -1,4 +1,6 @@
 using System.Data;
+using System.Buffers.Binary;
+using System.IO.Compression;
 using Microsoft.AspNetCore.Http;
 using ImageMagick;
 using Emi.Qms.Api.Authorization;
@@ -20,6 +22,7 @@ namespace Emi.Qms.Api.Tests;
 public sealed class G2NonconformanceTests
 {
     private static readonly G2QualityPhoto[] Photos=CreatePhotos();
+    private static readonly Lazy<byte[]> LargePng=new(CreateLargePng);
     private static G2QualityPhoto[] CreatePhotos() { using var image=new MagickImage(MagickColors.White,2,2);return [new("test.png","image/png",Convert.ToBase64String(image.ToByteArray(MagickFormat.Png)))]; }
     private sealed class Clock:TimeProvider { public DateTimeOffset Now=new(2026,10,12,3,0,0,TimeSpan.Zero); public override DateTimeOffset GetUtcNow()=>Now; }
     private sealed class CapturingScanner(UploadMalwareScanStatus status):IUploadMalwareScanner
@@ -28,13 +31,29 @@ public sealed class G2NonconformanceTests
         public List<byte[]> Files {get;}=[];
         public async Task<UploadMalwareScanResult> ScanAsync(Stream content,CancellationToken ct) { using var copy=new MemoryStream();await content.CopyToAsync(copy,ct);Files.Add(copy.ToArray());return new(Status,Status.ToString()); }
     }
+    private static byte[] CreateLargePng()
+    {
+        const int width=1800,height=1100,rowBytes=width*3;var raw=new byte[(rowBytes+1)*height];var random=new Random(20261013);
+        for(var row=0;row<height;row++)random.NextBytes(raw.AsSpan(row*(rowBytes+1)+1,rowBytes));
+        using var compressed=new MemoryStream();using(var zlib=new ZLibStream(compressed,CompressionLevel.SmallestSize,true))zlib.Write(raw);
+        using var png=new MemoryStream();png.Write(new byte[]{137,80,78,71,13,10,26,10});var header=new byte[13];BinaryPrimitives.WriteUInt32BigEndian(header,(uint)width);BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4),(uint)height);header[8]=8;header[9]=2;
+        WritePngChunk(png,"IHDR"u8,header);WritePngChunk(png,"IDAT"u8,compressed.ToArray());WritePngChunk(png,"IEND"u8,[]);return png.ToArray();
+    }
+    private static void WritePngChunk(Stream output,ReadOnlySpan<byte> type,ReadOnlySpan<byte> data)
+    {
+        Span<byte> number=stackalloc byte[4];BinaryPrimitives.WriteUInt32BigEndian(number,(uint)data.Length);output.Write(number);output.Write(type);output.Write(data);uint crc=uint.MaxValue;
+        foreach(var value in type){crc^=value;for(var bit=0;bit<8;bit++)crc=(crc&1)!=0?0xedb88320U^(crc>>1):crc>>1;}
+        foreach(var value in data){crc^=value;for(var bit=0;bit<8;bit++)crc=(crc&1)!=0?0xedb88320U^(crc>>1):crc>>1;}
+        BinaryPrimitives.WriteUInt32BigEndian(number,crc^uint.MaxValue);output.Write(number);
+    }
     [Fact] public void PreviewEndpointUsesSharedUploadSecurityAndUpgLimits()
     {
         using var factory=new QmsWebApplicationFactory();
         var endpoint=factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().Single(e=>e.RoutePattern.RawText=="/api/g2/nonconformances/photos/preview");
         Assert.NotNull(endpoint.Metadata.GetMetadata<SanitizeImageMetadataAfterScanAttribute>());
-        Assert.Equal(G2QualityRules.MaximumPhotoBytes,endpoint.Metadata.GetRequiredMetadata<UploadTotalSizeLimitAttribute>().MaximumBytes);
+        Assert.Equal(G2QualityRules.MaximumStageBytes,endpoint.Metadata.GetRequiredMetadata<UploadTotalSizeLimitAttribute>().MaximumBytes);
         Assert.Equal(G2QualityRules.MaximumPreviewMultipartBytes,endpoint.Metadata.GetRequiredMetadata<IRequestSizeLimitMetadata>().MaxRequestBodySize);
+        Assert.True(G2QualityRules.MaximumBase64Characters>G2QualityRules.MaximumPreviewMultipartBytes);
     }
     [Fact] public async Task RejectInvalidPhotosAndVersion()
     {
@@ -43,6 +62,15 @@ public sealed class G2NonconformanceTests
         Assert.Throws<ArgumentException>(()=>G2QualityRules.Validate("",Photos));
         Assert.Throws<DBConcurrencyException>(()=>G2QualityRules.Version(1,2));
         await G2QualityRules.ValidateImagesAsync("text",Photos,TestContext.Current.CancellationToken);
+        using(var image=new MagickImage(MagickColors.CornflowerBlue,3,2))
+        {
+            var jpeg=image.ToByteArray(MagickFormat.Jpeg);var alias=new G2QualityPhoto("alias.jpg","image/jpg",Convert.ToBase64String(jpeg));
+            Assert.Equal("image/jpeg",(await Emi.Qms.Api.OsanProjects.OsanProgressPhotoValidator.ValidateAsync("alias.jpg","image/jpg",jpeg,TestContext.Current.CancellationToken)).Photo!.NormalizedMime);
+            await G2QualityRules.ValidateImagesAsync("text",[alias],TestContext.Current.CancellationToken);
+        }
+        var large=LargePng.Value;Assert.True(large.Length>5_000_000);
+        var largeBase64=Convert.ToBase64String(large);await G2QualityRules.ValidateImagesAsync("text",[new("large.png","image/png",largeBase64)],TestContext.Current.CancellationToken);
+        Assert.Throws<ArgumentException>(()=>G2QualityRules.Validate("text",Enumerable.Range(0,4).Select(i=>new G2QualityPhoto($"overflow-{i}.png","image/png",largeBase64)).ToArray()));
         await Assert.ThrowsAsync<ArgumentException>(()=>G2QualityRules.ValidateImagesAsync("text",[new("bad.png","image/png",Convert.ToBase64String(new byte[]{137,80,78,71,13,10,26,10,0}))],TestContext.Current.CancellationToken));
     }
     [Fact] public async Task LifecyclePermissionsProjectionConcurrencyAndPurge()
@@ -67,6 +95,10 @@ public sealed class G2NonconformanceTests
         var first=(await store.SaveFirstAsync(null,request,quality,ct))!;
         Assert.Null(first.Photos[0].Base64); Assert.NotNull(first.Photos[0].Id);Assert.True(first.Photos[0].ByteSize>0);
         Assert.NotNull((await store.PhotoAsync(first.Id,first.Photos[0].Id!.Value,ct))!.Base64);
+        var largePhoto=LargePng.Value;var largeRequest=request with {Serial="LARGE-PHOTO",Photos=[new("large.png","image/png",Convert.ToBase64String(largePhoto))]};var largeItem=(await store.SaveFirstAsync(null,largeRequest,quality,ct))!;
+        var storedLarge=(await store.PhotoAsync(largeItem.Id,largeItem.Photos[0].Id!.Value,ct))!;Assert.Equal(largePhoto,scanner.Files[^1]);Assert.True(largeItem.Photos[0].ByteSize>5_000_000);Assert.True(Convert.FromBase64String(storedLarge.Base64!).Length>5_000_000);
+        var scansBeforeLargeRetention=scanner.Files.Count;var retainedLarge=(await store.SaveFirstAsync(largeItem.Id,largeRequest with {Content="Retained large photo",Photos=largeItem.Photos,ExpectedVersion=largeItem.Version},quality,ct))!;Assert.Equal(scansBeforeLargeRetention,scanner.Files.Count);Assert.Equal(storedLarge.Base64,(await store.PhotoAsync(largeItem.Id,largeItem.Photos[0].Id!.Value,ct))!.Base64);await store.DeleteAsync(largeItem.Id,retainedLarge.Version,false,quality,ct);
+        var largeOverflow=largeRequest with {Serial="LARGE-OVERFLOW",Photos=Enumerable.Range(0,4).Select(i=>new G2QualityPhoto($"large-{i}.png","image/png",largeRequest.Photos[0].Base64)).ToArray()};var scansBeforeOverflow=scanner.Files.Count;await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveFirstAsync(null,largeOverflow,quality,ct));Assert.Equal(scansBeforeOverflow,scanner.Files.Count);
         using(var webpImage=new MagickImage(MagickColors.MediumSeaGreen,19,13))
         {
             var rawWebp=webpImage.ToByteArray(MagickFormat.WebP);var webpRequest=request with {Serial="WEBP",Photos=[new("photo.webp","application/octet-stream",Convert.ToBase64String(rawWebp))]};
@@ -122,10 +154,14 @@ public sealed class G2NonconformanceTests
         scanner.Status=UploadMalwareScanStatus.Clean;
         using var created=await client.PostAsJsonAsync("/api/g2/nonconformances",request with {Serial="HTTP"},ct);Assert.True(created.IsSuccessStatusCode,await created.Content.ReadAsStringAsync(ct));
         var httpItem=(await created.Content.ReadFromJsonAsync<G2QualityItem>(ct))!;
+        using var aliasImage=new MagickImage(MagickColors.CornflowerBlue,8,6);var aliasJpeg=aliasImage.ToByteArray(MagickFormat.Jpeg);var aliasRequest=request with {Serial="HTTP-JPG-ALIAS",Photos=[new("alias.jpg","image/jpg",Convert.ToBase64String(aliasJpeg))]};using var createdAlias=await client.PostAsJsonAsync("/api/g2/nonconformances",aliasRequest,ct);Assert.Equal(HttpStatusCode.OK,createdAlias.StatusCode);var aliasItem=(await createdAlias.Content.ReadFromJsonAsync<G2QualityItem>(ct))!;Assert.Equal("image/jpeg",aliasItem.Photos[0].ContentType);
+        using(var aliasDownload=await client.GetAsync($"/api/g2/nonconformances/{aliasItem.Id}/photos/{aliasItem.Photos[0].Id}",ct))Assert.Equal("image/jpeg",aliasDownload.Content.Headers.ContentType?.MediaType);
+        using(var aliasPreviewBody=new MultipartFormDataContent()){var file=new ByteArrayContent(aliasJpeg);file.Headers.ContentType=new("image/jpg");aliasPreviewBody.Add(file,"photo","alias.jpg");using var preview=await client.PostAsync("/api/g2/nonconformances/photos/preview",aliasPreviewBody,ct);Assert.Equal(HttpStatusCode.OK,preview.StatusCode);using var json=JsonDocument.Parse(await preview.Content.ReadAsStringAsync(ct));Assert.Equal("image/jpeg",json.RootElement.GetProperty("contentType").GetString());}
         var heicRequest=request with {Serial="HTTP-HEIC",Photos=[new("phone.heic","image/heic",Convert.ToBase64String(heic))]};using var createdHeic=await client.PostAsJsonAsync("/api/g2/nonconformances",heicRequest,ct);Assert.Equal(HttpStatusCode.OK,createdHeic.StatusCode);var heicItem=(await createdHeic.Content.ReadFromJsonAsync<G2QualityItem>(ct))!;
         using(var originalHeic=await client.GetAsync($"/api/g2/nonconformances/{heicItem.Id}/photos/{heicItem.Photos[0].Id}",ct)){Assert.Equal("image/heic",originalHeic.Content.Headers.ContentType?.MediaType);Assert.True((await originalHeic.Content.ReadAsByteArrayAsync(ct)).Length>0);}
         using(var renderedHeic=await client.GetAsync($"/api/g2/nonconformances/{heicItem.Id}/photos/{heicItem.Photos[0].Id}?preview=true",ct)){Assert.Equal(HttpStatusCode.OK,renderedHeic.StatusCode);Assert.Equal("image/jpeg",renderedHeic.Content.Headers.ContentType?.MediaType);Assert.True((await renderedHeic.Content.ReadAsByteArrayAsync(ct)).AsSpan().StartsWith(new byte[]{255,216}));}
         using(var previewBody=new MultipartFormDataContent()){var file=new ByteArrayContent(heic);file.Headers.ContentType=new("image/heic");previewBody.Add(file,"photo","phone.heic");using var preview=await client.PostAsync("/api/g2/nonconformances/photos/preview",previewBody,ct);Assert.Equal(HttpStatusCode.OK,preview.StatusCode);using var previewJson=JsonDocument.Parse(await preview.Content.ReadAsStringAsync(ct));Assert.Equal("image/jpeg",previewJson.RootElement.GetProperty("contentType").GetString());Assert.True(Convert.FromBase64String(previewJson.RootElement.GetProperty("base64").GetString()!).AsSpan().StartsWith(new byte[]{255,216}));}
+        using(var largePreviewBody=new MultipartFormDataContent()){var file=new ByteArrayContent(largePhoto);file.Headers.ContentType=new("image/png");largePreviewBody.Add(file,"photo","large.png");using var preview=await client.PostAsync("/api/g2/nonconformances/photos/preview",largePreviewBody,ct);Assert.Equal(HttpStatusCode.OK,preview.StatusCode);}
         using var duplicate=await client.PostAsJsonAsync("/api/g2/nonconformances",request with {Serial=" http "},ct);Assert.Equal(HttpStatusCode.Conflict,duplicate.StatusCode);
         var duplicateSaves=await Task.WhenAll(Enumerable.Range(0,2).Select(async _=>{try {await store.SaveFirstAsync(null,request with {Serial="CONCURRENT"},quality,ct);return true;}catch(G2QualityDuplicateSerialException){return false;}}));Assert.Single(duplicateSaves,x=>x);
         var context=new DefaultHttpContext();

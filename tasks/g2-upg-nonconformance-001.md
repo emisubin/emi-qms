@@ -94,3 +94,12 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 완료: 서버 Debug/Release 빌드, 비DB2개·전용Postgres 통합1개 통과. WebP 원본검사→PNG처리바이트저장, infected422/검사장애503, 유지사진재검사방지, 권한거부 및 품질/관리자, HEIC 저장·원본/미리보기 조회 실제분기 확인. 독립review upg_photo_reuse_review 요청gpt-6-astra/high(실제모델NOT_REPORTED) 최종GO, 남은P0/P1/P2없음.
 - 로컬5188 반영, API5087만 같은 환경으로 재시작 PID62985/session63343, health200. migration/seed/reset없음. 사용자는 새로고침 후 확인 가능. 기존 사용자case/사진 수정 없음. 병합·push·공개배포 미실행.
 - DB: 새 업무DB/미사용DB 없음. 검증용 emi_qms_e2e_20261013000936_62658_1841 기반 임시DB·container·network 자동정리 완료. 기존 emi_qms_e2e_upg_preview_20261012는 사용자 검수용으로 유지.
+
+### 공용 사진 장당 제한·JPG·표시 보정 · 2026-10-13
+사용자 확인 후 수정 승인: 별도 장당5MB 제한 삭제, JPG 형식 지원 보완, 흰색/투명 사진과 PC 상세 이미지 넘침 수정. UPG10장/합계20MB, 오산5장/합계40MiB 및 실제 이미지·보안 검사 계약은 유지.
+- 공용 선택검증의 perFile 제한 제거, image/jpg를 image/jpeg로 정규화, 오산/UPG 선택기에 JPG 명시. 서버 제한·preview 요청크기·Base64 상한은 단계 합계와 정합화하며 JPG 별칭을 공용 검증에서 처리.
+- 공용 사진 표면에 단색 회색 배경 적용(사진 원본 변화 없음). Osan PC height:auto!important 규칙을 실제 오산 화면에 한정하여 UPG 썸네일 침범 제거. 오산 이력 사진의 밝은 배경도 공용 배경이 보이도록 transparent 적용.
+- frontend40개, Osan mock E2E3개, 타입/lint/build 통과(기존bundle경고). 실제 사용자 사진 읽기만 하여 PC1440에서 이미지197/120px가82px 칸에 맞게82px로 표시됨 확인. 모바일390 가로넘침0, 필터none, 사진로딩정상. 공용 오산 이력 합성사진 PC160/mobile150px 칸 일치, 흰색도형 구분 확인; 임시 fixture 삭제. 기존 사용자DB/사진 수정 없음.
+- 서버 검증 완료: Debug/Release 빌드, G2비DB2개·공용오산 size/HDR13개·전용Postgres통합1개 통과. 처리된 결과도5MB초과인 유효PNG 저장/조회/유지편집, 유효사진 합계20MB초과시scan전거부, image/jpg JSON저장/multipartpreview 확인. 독립review upg_photo_reuse_review gpt-6-astra/high 요청(실제모델NOT_REPORTED) GO, 미해결P0/P1/P2없음.
+- 로컬5188 적용 및 API5087 재기동 PID66934/session39807, health200. 기존DB/사진 유지, migration/seed/reset없음. 원격push/병합/배포 미실행.
+- DB: 새 업무DB·미사용DB 없음. 검증용 emi_qms_e2e_20261013003111_66234_2927 및 emi_qms_e2e_20261013003247_66679_2947 기반 DB/container/network 모두 정리. 기존 emi_qms_e2e_upg_preview_20261012는 사용자 검수용 유지.

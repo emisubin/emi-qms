@@ -1,3 +1,4 @@
+import {normalizePhotoType} from './photoSelection';
 import { fetchBlob, fetchJson } from './api';
 export type UpgPhoto = { id:string; fileName:string; contentType:string; byteSize?:number };
 export type UpgPhotoInput = { id?:string; fileName:string; contentType:string; base64?:string; byteSize?:number };
@@ -22,5 +23,5 @@ export async function previewUpgPhoto(user:string|undefined,file:File,signal:Abo
 }
 export async function readUpgFiles(files:File[]):Promise<UpgPhotoInput[]>{return Promise.all(files.map(async file=>{
  const base64=await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=()=>reject(new Error('사진을 읽지 못했습니다.'));r.onabort=()=>reject(new Error('사진 읽기를 취소했습니다.'));r.readAsDataURL(file);});
- return{fileName:file.name,contentType:file.type||'application/octet-stream',base64};
+ return{fileName:file.name,contentType:normalizePhotoType(file.type)||'application/octet-stream',base64};
 }));}

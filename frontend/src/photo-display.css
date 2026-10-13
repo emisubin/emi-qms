@@ -1,0 +1,5 @@
+/* Shared image backdrop: keep white and transparent content distinguishable. */
+.photo-surface { display:block; min-width:0; background-color:#525a64; }
+.photo-thumbnail { width:100%; height:100%; overflow:hidden; }
+.photo-thumbnail>img { display:block; width:100%; height:100%; object-fit:contain; }
+.photo-preview-image>img { display:block; }

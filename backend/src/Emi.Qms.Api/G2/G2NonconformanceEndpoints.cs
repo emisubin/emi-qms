@@ -24,10 +24,10 @@ public static class G2NonconformanceEndpoints
             try { form=await request.ReadFormAsync(ct); }
             catch(Exception e) when(e is InvalidDataException or IOException or BadHttpRequestException) { return Results.BadRequest(new{code="invalid_request",message="사진 업로드 요청을 읽지 못했습니다. 다시 선택해 주세요."}); }
             var file=form.Files.GetFile("photo");
-            if(form.Files.Count!=1 || file is null || file.Length is < 1 or > G2QualityRules.MaximumPhotoBytes)return Results.BadRequest(new{code="invalid_request",message="5MB 이하 사진 한 장을 선택해 주세요."});
+            if(form.Files.Count!=1 || file is null || file.Length is < 1 or > G2QualityRules.MaximumStageBytes)return Results.BadRequest(new{code="invalid_request",message="합계 20MB 이하 사진 한 장을 선택해 주세요."});
             using var buffer=new MemoryStream((int)file.Length); await file.CopyToAsync(buffer,ct);
             var (photo,error)=await InteriorBusbarPhotoValidator.ValidateAsync(file.FileName,file.ContentType,buffer.ToArray(),ct);
-            if(photo is null || photo.Content.Length>G2QualityRules.MaximumPhotoBytes)return Results.BadRequest(new{code="invalid_request",message=error??"5MB 이하 사진 한 장을 선택해 주세요."});
+            if(photo is null || photo.Content.Length>G2QualityRules.MaximumStageBytes)return Results.BadRequest(new{code="invalid_request",message=error??"사진 합계는 20MB 이하여야 합니다."});
             try
             {
                 var bytes=photo.ContentType=="image/heic"?await OsanHeicImageCodec.PreviewAsync(photo.Content,ct):photo.Content;
@@ -35,7 +35,7 @@ public static class G2NonconformanceEndpoints
             }
             catch(InvalidDataException) { return Results.BadRequest(new{code="invalid_request",message="사진 미리보기를 만들 수 없습니다. 사진을 다시 선택해 주세요."}); }
         })).WithMetadata(new SanitizeImageMetadataAfterScanAttribute())
-           .WithMetadata(new UploadTotalSizeLimitAttribute(G2QualityRules.MaximumPhotoBytes))
+           .WithMetadata(new UploadTotalSizeLimitAttribute(G2QualityRules.MaximumStageBytes))
            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(G2QualityRules.MaximumPreviewMultipartBytes));
         g.MapGet("/{id:guid}/photos/{photoId:guid}",(Guid id,Guid photoId,bool? preview,HttpContext http,G2NonconformanceStore s,CancellationToken ct)=>Safe(async()=>
         {

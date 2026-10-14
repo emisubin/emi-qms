@@ -130,3 +130,13 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 
 ### 고정 칸 전체 사진 표시 확정 · 2026-10-13
 사용자가 썸네일 비율 변형을 허용하고 고정 가로·세로 칸에 전체 사진 표시를 명시 승인. UPG 상세 썸네일 및 입력 미리보기의 cover를 fill로 변경. 원본 파일과 확대보기 contain은 유지. 실제 모바일 사진2개163×122/fill, 클릭 확대 contain 및 원본 전체 표시를 시각 확인. CSS diff 검사 통과. 로컬 반영/커밋, 공개배포 없음. 신규·임시·사용중단 DB 모두 없음.
+
+### MES 사내 노트북 중계 · 연결 진단 1단계 · 2026-10-15
+- 사용자 승인: 사내망 접속 가능 노트북 상시 운영 중계 방식 진행, Windows 관리자 권한 가능 확인. 먼저 실제 연결부터 확인하며 테이블 구조 분석은 보류. 운영 배포·네트워크 변경·MES 쓰기는 이번 범위 아님.
+- 계약: MES 적합과 PMS 부적합을 연계하려는 후속 목표. 먼저 노트북용 1회 진단 도구를 준비한다. MES TCP/읽기 전용 SELECT 1 로그인, PMS HTTPS health 응답을 분리 표시. 전용 에이전트 인증·자동 실행·동기화는 후속 미구현이며 health 성공을 인증 성공으로 취급하지 않는다.
+- source: codex/unified-osan-shell HEAD1531aa2. 기존 사용자 preview DB 및 frontend/runtime 보존. scripts/mes-connection-check 추가, Npgsql10.0.3 재사용. 비밀번호는 노트북 콘솔에서 숨김 입력, 파일/원문 오류/프로세스 인자로 남기지 않음. 실제 대상 설정 파일은 Git 제외.
+- 기본 MES TLS Require(인증서 검증 없음), 명시 VerifyFull/Prefer 선택. 암호화 실패시 자동 평문 fallback 없음. Prefer는 사용자 직접 선택 시에만 사용하며 실제 암호화 협상 미확인을 표시. 운영 TLS 정책은 별도 확인.
+- 검증·독립검토·패키지 결과는 아래에 기록. 실제 Windows 노트북 실행 및 MES/PMS 연결은 사용자 확인 대기. 신규DB/임시DB/사용중단DB 없음.
+- 완료: Windows x64 self-contained 패키지 빌드, HTTP/설정 합성14개 통과. 임시 PostgreSQL17 `emi_mes_connect_synthetic`에서 정상로그인 SELECT1 성공 및 잘못된 비밀번호28P01 실패 실제 실행. 실제 공개 frontend health 응답 status=healthy 확인 후 판정 보정, backend name=live/status=ok도 허용. 인증HTML/401/302/500/일반status=ok 거부.
+- 독립검토 mes_connection_review 요청gpt-6-astra/high(실제모델NOT_REPORTED) GO, 남은P0/P1/P2없음. 패키지ZIP 무결성검사 통과. Windows 실행과 실제MES 접속은 미확인. 결과파일엔 고정진단/SQLSTATE/검사시각만 저장.
+- DB: 새 영구DB/사용중단DB 없음. 검증용 `emi_mes_connect_synthetic`은 소유컨테이너 `emi-mes-connect-check-20261015`의 tmpfs에서만 사용, --rm 종료로 정리 완료. 사용자previewDB 및 운영DB 미변경. 공개배포/원격반영 없음. 후속은 사용자 노트북에서 패키지 실행 결과 확인, 에이전트 인증 설계·자동시작·실제동기화 구현.

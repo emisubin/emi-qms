@@ -107,6 +107,7 @@ class LogicalRecoveryTests(unittest.TestCase):
             validated = module.validate_config(self.config)
         self.assertIsNone(validated.drained_at_utc)
         self.assertIsNone(validated.deadline_utc)
+        self.assertEqual(6, validated.restore_data_size_gib)
         default_config = dict(self.config)
         default_config.pop("verificationTimeoutSeconds")
         self.assertEqual(1800, module._parse_config(
@@ -119,6 +120,20 @@ class LogicalRecoveryTests(unittest.TestCase):
                         module.RecoveryError, "^VERIFICATION_TIMEOUT_INVALID$"):
                     module._parse_config(dict(
                         self.config, verificationTimeoutSeconds=value))
+
+    def test_restore_data_size_is_bounded_integer_configuration(self):
+        self.assertEqual(6, module._parse_config(
+            self.config).restore_data_size_gib)
+        self.assertEqual(10, module._parse_config(dict(
+            self.config, restoreDataSizeGiB=10)).restore_data_size_gib)
+        self.assertEqual(32, module._parse_config(dict(
+            self.config, restoreDataSizeGiB=32)).restore_data_size_gib)
+        for value in (5, 33, 10.0, "10", True, None):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                        module.RecoveryError, "^RESTORE_DATA_SIZE_INVALID$"):
+                    module._parse_config(dict(
+                        self.config, restoreDataSizeGiB=value))
 
     def test_create_requires_drain_and_deadline_but_verify_only_requires_drain(self):
         validated = module._parse_config(self.config)
@@ -158,6 +173,23 @@ class LogicalRecoveryTests(unittest.TestCase):
             ["synthetic"], "SYNTHETIC_CLEANUP_FAILURE", timeout=60)
         self.assertEqual([30, 60], observed[-2:])
 
+    def test_execute_caps_approved_command_timeout_to_remaining_operation_budget(self):
+        observed = []
+
+        def runner(arguments, **kwargs):
+            observed.append(kwargs["timeout"])
+            return self.completed()
+
+        recovery = module.PostgresLogicalRecovery(
+            module._parse_config(dict(self.config, verificationTimeoutSeconds=7200)),
+            run=runner)
+        recovery.operation_deadline = 1008.2
+        with patch.object(module.time, "monotonic", return_value=1000.0):
+            recovery._execute(
+                ["synthetic"], "SYNTHETIC_FAILURE",
+                timeout=recovery.config.verification_timeout_seconds)
+        self.assertEqual([9], observed)
+
     def test_private_key_and_immutable_image_are_fail_closed(self):
         self.private_key.chmod(0o644)
         with self.assertRaisesRegex(module.RecoveryError, "^PRIVATE_KEY_INVALID$"):
@@ -191,6 +223,48 @@ class LogicalRecoveryTests(unittest.TestCase):
         self.assertNotIn("password", contents)
         self.assertIn("synthetic password\\:'quoted'\\\\with-special-value",
                       password_file.read_text())
+
+    def test_large_database_dump_uses_approved_timeout_without_expanding_other_steps(self):
+        calls = []
+
+        class SyntheticRecovery(module.PostgresLogicalRecovery):
+            def _execute_source(self, service, password_file, program, *arguments,
+                                code, **options):
+                calls.append((program, arguments, options["timeout"]))
+                output_path = options.get("stdout_path")
+                if output_path is not None:
+                    if program == "pg_dumpall":
+                        content = b"CREATE ROLE synthetic_bootstrap;\n"
+                    elif program == "psql":
+                        content = b"bootstrapRole|synthetic_bootstrap\n"
+                    else:
+                        content = b"synthetic dump\n"
+                    with module._new_private_file(output_path) as stream:
+                        stream.write(content)
+                return b""
+
+            def _validate_identity(self, target, inventory):
+                return None
+
+            def _validate_connect_matrix(self, inventory):
+                return None
+
+        recovery = SyntheticRecovery(module._parse_config(dict(
+            self.config, verificationTimeoutSeconds=5400)))
+        work = self.root / "source-files"
+        work.mkdir()
+        recovery._source_files(work)
+
+        database_dump_timeouts = [
+            timeout for program, arguments, timeout in calls
+            if program == "pg_dump" and "--format=custom" in arguments
+        ]
+        schema_dump_timeouts = [
+            timeout for program, arguments, timeout in calls
+            if program == "pg_dump" and "--schema-only" in arguments
+        ]
+        self.assertEqual([5400, 5400, 5400], database_dump_timeouts)
+        self.assertEqual([900, 900, 900], schema_dump_timeouts)
 
     def test_certificate_binding_uses_canonical_pem_bytes(self):
         original = self.config["binding"]["evidenceCertificateSha256"]
@@ -544,12 +618,16 @@ class LogicalRecoveryTests(unittest.TestCase):
             recovery._platform_compatibility(payload)
 
     def test_restore_container_is_owned_networkless_tmpfs_and_removed(self):
-        validated = module._parse_config(self.config)
+        validated = module._parse_config(dict(
+            self.config, verificationTimeoutSeconds=5400, restoreDataSizeGiB=10))
         payload = self.root / "payload"
         payload.mkdir()
         (payload / "globals.sql").write_text(
             "CREATE ROLE synthetic_bootstrap;\n"
-            "ALTER ROLE synthetic_bootstrap WITH SUPERUSER;\n")
+            "ALTER ROLE synthetic_bootstrap WITH SUPERUSER;\n"
+            + module.AZURE_PLATFORM_GRANT + "\n"
+            "CREATE TABLESPACE temptblspace OWNER azure_pg_admin "
+            "LOCATION '/mnt/pg_tmp';\n")
         for target in validated.targets:
             folder = payload / target.code
             folder.mkdir()
@@ -559,6 +637,7 @@ class LogicalRecoveryTests(unittest.TestCase):
             (folder / "inventory.txt").write_bytes(
                 b"bootstrapRole|synthetic_bootstrap\n")
         commands = []
+        command_timeouts = []
         present = {"value": False}
         inventory_reads = {"value": 0}
         deadline_checks = {"value": 0}
@@ -566,6 +645,7 @@ class LogicalRecoveryTests(unittest.TestCase):
 
         def runner(arguments, **kwargs):
             commands.append(arguments)
+            command_timeouts.append((arguments, kwargs.get("timeout")))
             if arguments[1:3] == ["run", "--detach"]:
                 present["value"] = True
             if arguments[1:4] == ["container", "rm", "--force"]:
@@ -619,7 +699,20 @@ class LogicalRecoveryTests(unittest.TestCase):
         create = next(command for command in commands if command[1:3] == ["run", "--detach"])
         self.assertIn("none", create[create.index("--network") + 1:])
         self.assertIn("--tmpfs", create)
+        tmpfs_mounts = [
+            create[index + 1] for index, value in enumerate(create) if value == "--tmpfs"
+        ]
+        self.assertIn(
+            "/var/lib/postgresql/data:rw,nosuid,nodev,noexec,size=10g", tmpfs_mounts)
+        self.assertIn(
+            f"{module.AZURE_TEMP_TABLESPACE_PATH}:rw,nosuid,nodev,noexec,size=2g",
+            tmpfs_mounts)
         self.assertNotIn("--publish", create)
+        restore_timeouts = [
+            timeout for command, timeout in command_timeouts if "pg_restore" in command
+        ]
+        self.assertEqual(3, len(restore_timeouts))
+        self.assertTrue(all(1800 < timeout <= 5400 for timeout in restore_timeouts))
         self.assertTrue(any(command[1:4] == ["container", "rm", "--force"] for command in commands))
         self.assertFalse(present["value"])
         self.assertGreaterEqual(deadline_checks["value"], 1)

@@ -92,3 +92,6 @@
   border-radius:50%;
   background:currentColor;
 }
+
+/* Keep the shared compact navigation usable on touch-capable desktop screens. */
+.app-shell[data-shared-shell='true'][data-touch-optimized='true'] :is(.app-nav-button,.app-nav-child-button) { min-height:44px; }

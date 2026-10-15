@@ -140,3 +140,14 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 완료: Windows x64 self-contained 패키지 빌드, HTTP/설정 합성14개 통과. 임시 PostgreSQL17 `emi_mes_connect_synthetic`에서 정상로그인 SELECT1 성공 및 잘못된 비밀번호28P01 실패 실제 실행. 실제 공개 frontend health 응답 status=healthy 확인 후 판정 보정, backend name=live/status=ok도 허용. 인증HTML/401/302/500/일반status=ok 거부.
 - 독립검토 mes_connection_review 요청gpt-6-astra/high(실제모델NOT_REPORTED) GO, 남은P0/P1/P2없음. 패키지ZIP 무결성검사 통과. Windows 실행과 실제MES 접속은 미확인. 결과파일엔 고정진단/SQLSTATE/검사시각만 저장.
 - DB: 새 영구DB/사용중단DB 없음. 검증용 `emi_mes_connect_synthetic`은 소유컨테이너 `emi-mes-connect-check-20261015`의 tmpfs에서만 사용, --rm 종료로 정리 완료. 사용자previewDB 및 운영DB 미변경. 공개배포/원격반영 없음. 후속은 사용자 노트북에서 패키지 실행 결과 확인, 에이전트 인증 설계·자동시작·실제동기화 구현.
+
+### TPM 기기·회사망 인증 시험 전송 · 2026-10-15 진행
+- 승인: 사용자가 구현 시작 지시. TPM 사용준비 확인, 회사 공인IP는 대화에서 제공(실제값은 배포설정/패키지 로컬파일만). IP고정 가정, 차후 명시 관리설정으로 IP제한만 해제 가능. 자동해제 없음. 실제 운영변경/공개배포 승인은 아직 없음.
+- 범위: Windows TPM 비내보내기 machine RSA2048키 생성·서명 검증·공개키 등록파일, 서명된 고정 시험메시지 POST, 서버 장비공개키/IP/신뢰proxy/시간 검사, 청주 nonce 테이블 원자적 소비 후 해시대조 응답. 개인키 업로드/소프트웨어키 fallback/MES조회·쓰기 없음.
+- 구현: 신규 인증 scheme과 단일 /integrations/mes/probe 경로, 기본 비활성. 직원 인증/캠퍼스 경로 변경 없이 exact EasyAuth예외만 opt-in, nginx는 신뢰FrontDoor 경유확인 후 proxytoken/IP헤더 덮어쓰기. 활성화 전 별도review 및 승인된 배포 필요.
+- 등록 경계: 관리자가 지정 노트북에서 제공 프로그램을 실행하고 생성한 공개키만 승인 등록. 공개키 파일만으로 TPM 출처를 원격 attestation했다고 주장하지 않음. machine키 최초 생성은 관리자 실행, 운영서비스권한/자동실행은 후속.
+- 신규 영구DB 없음. 청주에 0136 mes_probe_receipts 테이블 추가 계획, 운영/사용자preview migration 미적용. 서버 replica간/재시작 후 재전송 방지. 유효요청 시 만료행 정리하며 idle때 남는 만료행은 다음유효요청에 정리.
+- 로컬 구현 완료: backend Release/Windows x64 self-contained 빌드 성공. 인증·권한·audit 회귀 24개 및 전용 disposable DB 검증 1개 통과(8개 병렬 요청 중 1개만 소비, 새 연결에서도 replay 거부, 오산 테이블 없음). nginx 실제 syntax 검사 통과. Azure 산출물 static/4개 Bicep compile·JSON 일치 검증 통과. 기존 복구검사는 Mac LibreSSL에서 실패하여 설치된 OpenSSL3 PATH로 검증했고 통과, 해당 업무 코드는 변경하지 않음.
+- 독립검토 mes_tpm_review 요청gpt-6-astra/high(실제모델 NOT_REPORTED) GO, 미해결 P0/P1/P2 없음. 수동 등록과 원격 TPM attestation 미제공 경계 확인. README 및 Windows ZIP(34.0MiB) 작성·무결성 확인. 실제 Windows TPM 실행/공개경로 시험은 미완료.
+- 다음: 지정 노트북에서 관리자 실행→1번→device-registration.json 전달. 공개키와 회사 IP 배포 입력 등록 및 운영 활성화는 별도 승인 후 수행. 2번 시험은 활성화 이후 진행. MES 계정·조회·쓰기·자동 서비스는 이번 단계 범위 밖. 원격반영/공개배포 없음.
+- DB 보고: 신규 영구 DB 및 사용중단 DB 없음. 청주 신규 테이블 migration만 작성, 운영/preview DB 미적용. 검증 harness DB emi_qms_e2e_20261015000516_16984_31727 및 내부 Directory/Cheongju/Osan 합성 fixture는 전용 tmpfs container emi-qms-e2e-20261015000516-16984-31727-e2e-postgres-1 종료·삭제와 함께 정리 완료.

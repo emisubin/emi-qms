@@ -1,3 +1,4 @@
+using Emi.Qms.Api.MesIntegration;
 using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.InteriorBusbar;
 using Emi.Qms.Api;
@@ -122,6 +123,7 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddMesProbe();
 builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddScoped<BusinessDatabaseScope>();
 builder.Services.AddScoped<BusinessDatabase>();
@@ -608,6 +610,7 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 .RequireAuthorization()
 .WithName("RuntimeMode");
 
+app.MapMesProbe();
 app.MapIdentityEndpoints();
 app.MapBusinessUnitAccessEndpoints();
 app.MapAuditEndpoints();

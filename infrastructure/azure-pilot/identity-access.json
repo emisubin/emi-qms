@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "3477665702815648980"
+      "templateHash": "5076949980694445889"
     }
   },
   "parameters": {
@@ -65,6 +65,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Optional existing role assignment name used to adopt a manually created Backend Web Push VAPID private-key secret assignment during redeployment."
+      }
+    },
+    "enableMesProbe": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Grant the backend proxy verification secret only for the approved MES probe rollout."
       }
     }
   },
@@ -366,6 +373,18 @@
       "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'osan-database-runtime-connection-string'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
       "properties": {
         "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('databaseBootstrapIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
+    },
+    {
+      "condition": "[parameters('enableMesProbe')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
         "principalType": "ServicePrincipal",
         "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
       }

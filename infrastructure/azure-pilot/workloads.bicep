@@ -105,6 +105,27 @@ param osanDatabaseName string = 'emi_qms_osan'
 var enabled = enableExternalNotifications ? 'true' : 'false'
 var disabled = enableExternalNotifications ? 'false' : 'true'
 var minimumReplicaCount = activateWorkloads ? 1 : 0
+@description('Enable only after the TPM public key, company IP and Cheongju migration are approved and provisioned.')
+param enableMesProbe bool = false
+param mesProbeDeviceId string = ''
+param mesProbePublicKey string = ''
+param mesProbeCompanyIp string = ''
+param mesProbeRequireCompanyIp bool = true
+
+var mesProbeSecrets = enableMesProbe ? [{
+  identity: backendIdentity.id
+  keyVaultUrl: '${keyVaultSecretBase}front-door-origin-verify-token'
+  name: 'mes-probe-proxy-token'
+}] : []
+var mesProbeEnvironment = enableMesProbe ? [
+  { name: 'MesProbe__Enabled', value: 'true' }
+  { name: 'MesProbe__DeviceId', value: mesProbeDeviceId }
+  { name: 'MesProbe__PublicKey', value: mesProbePublicKey }
+  { name: 'MesProbe__CompanyIp', value: mesProbeCompanyIp }
+  { name: 'MesProbe__RequireCompanyIp', value: string(mesProbeRequireCompanyIp) }
+  { name: 'MesProbe__ProxyToken', secretRef: 'mes-probe-proxy-token' }
+] : [{ name: 'MesProbe__Enabled', value: 'false' }]
+
 var publicOrigin = 'https://${publicHost}'
 var servingBusinessUnitsEnabled = enableBusinessUnits && configureServingBusinessUnits
 var businessUnitOperationConfigurationEnvironment = enableBusinessUnits ? [
@@ -286,7 +307,7 @@ var databaseBootstrapRegistryConfiguration = [
     server: registryServer
   }
 ]
-var backendSecrets = concat([
+var backendSecrets = concat(mesProbeSecrets, [
   {
     identity: backendIdentity.id
     keyVaultUrl: '${keyVaultSecretBase}database-runtime-connection-string'
@@ -339,7 +360,7 @@ var backendSecrets = concat([
     name: 'osan-database-runtime-connection-string'
   }
 ] : [])
-var servingBackendEnvironment = concat([
+var servingBackendEnvironment = concat(mesProbeEnvironment, [
   {
     name: 'ASPNETCORE_ENVIRONMENT'
     value: 'Production'
@@ -1223,12 +1244,12 @@ resource frontendAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
   name: 'current'
   properties: {
     globalValidation: {
-      excludedPaths: [
+      excludedPaths: concat(enableMesProbe ? ['/integrations/mes/probe'] : [], [
         '/health/live'
         '/teams-launcher.html'
         '/teams-launcher.js'
         '/icons/emi-qms-192.png'
-      ]
+      ])
       redirectToProvider: 'azureactivedirectory'
       unauthenticatedClientAction: 'RedirectToLoginPage'
     }

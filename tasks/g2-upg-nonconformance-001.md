@@ -199,3 +199,9 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 로컬 정리: 배포용 TLS relay 정상 종료. 최신 검수DB5개를 다시 암호화백업→격리 실제복원→원본 동일성 확인한 뒤 Docker MemoryMiB 임시12288을 원래 키 부재/기본8GiB로 원복. 동일한 원본5개 컨테이너의 새 빈 클러스터에 최신 데이터 복원 및 전체내용·권한 검증5/5 성공. 동적포트는 private pre-8g-cycle/restore-result.json에 기록. 사용자 검수파일/node_modules 링크 및 다른 checkout WIP 보존.
 - 근거: private /tmp/g2-quality-release-20261015-attempt4(release-exit, postdeploy-database-check, mes-activation-result, public-post-mes-check) 및 /tmp/g2-preview-preservation-20261015/pre-8g-cycle. secret/실데이터/백업은 Git에 포함하지 않음. 배포 데이터 암호화 백업은 기존 PMS-Recovery 경로에 보존하고 평문 임시 logical-recovery 디렉터리는0 확인.
 - DB 보고: 새 영구DB 없음. 기존 청주DB에 g2_nonconformances, g2_nonconformance_history, g2_quality_settings, mes_probe_receipts 추가. 소유 격리 검증DB/컨테이너는 정리, 기존5개 preview DB는 보존·복원. 더 이상 사용하지 않는 DB 없음. 남은 사용자 업무는 등록 노트북 2번 전송 시험 및 기존 미완료 제품의 개별 초기재고 등록. 로컬 검수 데이터는 운영으로 복사하지 않음.
+
+### 사용자 승인 저장물 정리 · 2026-10-15
+- 사용자 최신 운영 DB 암호화백업 외 잉여물 삭제 승인. 추가로 현재 검수DB5개 및 과거 Busbar·Change008·공급업체·LQC·UL891·패널·접근권한·오산 등 PMS 검수DB/전용볼륨 삭제를 명시 승인.
+- 이전 운영 백업4세트16.04GiB 삭제. 최신 dfd45793-e908-4b10-85e3-928b55b96e89 logical-backup.cms/manifest, 기존복호화키쌍, latest-backup-verification 근거 보존. 10월7일 오산복구자료와10월12일 배포임시4폴더4.90GiB, 이번배포/검수백업/시험전송 임시7폴더2.29GiB 삭제. G2 검증로그/스크린샷92개와브라우저/호환검증/레퍼런스/cache/Playwright폴더5개삭제.
+- 승인된 검수 컨테이너24개와 독점연결volume6개 삭제. 일반개발 emi-qms-postgres 및 Valhalla프로젝트 보존. PMS 로컬이미지62개 참조제거, PMS경로가명시된빌드cache30ID 선택정리(잔여의존성때문에전체삭제아님). 출처불명volume/공용baseimage/cache는보존. 전체prune없음. 공개health200확인,운영DB변경없음.
+- 최초 광범위패턴파일삭제와과거DB일괄삭제는자동승인검토거절. 우회하지않고정확한파일·소유목록검증으로범위축소,과거DB는사용자추가명시승인후삭제. 시안·실험스크립트는별도답변대기. 신규DB없음. 삭제DB는local검수전용이며운영DB보존.

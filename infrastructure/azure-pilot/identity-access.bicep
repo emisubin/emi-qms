@@ -418,7 +418,7 @@ resource bootstrapOsanRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAss
   }
 }
 
-output secretScopedRoleAssignmentCount int = enableBusinessUnits ? 26 : 14
+output secretScopedRoleAssignmentCount int = (enableBusinessUnits ? 26 : 14) + (enableMesProbe ? 1 : 0)
 
 @description('Grant the backend proxy verification secret only for the approved MES probe rollout.')
 param enableMesProbe bool = false

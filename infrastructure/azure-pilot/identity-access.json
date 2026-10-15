@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "5076949980694445889"
+      "templateHash": "15532647500379879635"
     }
   },
   "parameters": {
@@ -393,7 +393,7 @@
   "outputs": {
     "secretScopedRoleAssignmentCount": {
       "type": "int",
-      "value": "[if(parameters('enableBusinessUnits'), 26, 14)]"
+      "value": "[add(if(parameters('enableBusinessUnits'), 26, 14), if(parameters('enableMesProbe'), 1, 0))]"
     }
   }
 }

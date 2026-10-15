@@ -157,3 +157,7 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 등록 노트북 공개키 파일 검증 완료(RSA2048, SPKI SHA256과 DeviceId 일치), 실제값은 private 배포 입력으로만 사용. 회사 IP도 사용자 제공값을 private 설정으로 등록. 실제 공개 경로 성공은 배포 후 사용자 2번 실행으로 확인한다.
 - 최종 기준: origin/main 1443316991a97c57890e560e64b6c5aa005da988 대비 e9a36e4 및 이 승인 기록. 별도 작업 checkout WIP/로컬 검수 파일/검수 DB는 제외·보존. 최종 required CI 및 통합 독립 검토 후 정상 release runner 사용. 공지·팝업 준비 후 실제 교체 전 저장 차단·백업 검증·migration135/136, 검증 후 저장 재개.
 - 주의: 0135 도입일부터 부적합 재고는 개별 미완료 건수다. 기존 미완료품은 배포 후 초기재고로 개별 등록해야 한다. 과거 숫자 기록은 보존하며 로컬 검수 데이터를 운영으로 복사하지 않는다.
+- 운영 준비: 확정 양식 공지·별도 안내 팝업을 청주·오산에 게시, prepare-only ANNOUNCED 성공. 저장 차단/업무 DB migration/앱 교체는 아직 없음. 최종 PR172 개설.
+- 통합 독립 g2_full_release_review 요청gpt-6-astra/high(관측NOT_REPORTED) 누적1443316..e9a36e4 GO. 지정기기 공개키/IP 등록·활성화 승인 사실 확인 후 활성화 배포+사용자2번시험 순서 GO. 초기재고 등록 전0 표시 및 기존자료보존 안내 전달.
+- 최초 CI38660504897는 기존 전이 Pkcs/Xml10.0.10의 10월13일 공개 취약점으로 restore 차단. 공식GHSA-846f-f764-76mx/GHSA-r955-8q5j-3h83 수정버전10.0.13 직접참조로 최소보정. audit/WarningsAsErrors 유지, restore/build성공 및 독립GO. 보안 경고 우회 없음.
+- 신규 청주 객체의 소유권 기대목록 누락 보정: 품질3table+MES1table/view/sequence, packaged 검증에는 이전 G2workspace4table도 명시 추가. 실제 catalog를 expected로 사용하지 않음, 오산/Directory 불변. disposable 실제 BusinessSchemaSeparation_3/3 통과 및 독립GO. 최초 파일명필터는0개여서 성공으로 취급하지 않고 실제partial메서드필터로 바로잡음. 소유 임시DB emi_qms_e2e_20261015003738_61180_20993, emi_qms_e2e_20261015003842_61509_19311 및3DB fixture/컨테이너/네트워크정리완료.

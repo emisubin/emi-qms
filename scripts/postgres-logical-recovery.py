@@ -87,6 +87,7 @@ class ValidatedConfig:
     drained_at_utc: str | None
     deadline_utc: str | None
     verification_timeout_seconds: int
+    restore_data_size_gib: int
     openssl_path: str
     docker_path: str
     file_hashes: dict[str, str]
@@ -239,6 +240,9 @@ def _parse_config(config: Mapping[str, Any]) -> ValidatedConfig:
     verification_timeout = config.get("verificationTimeoutSeconds", 1800)
     _require(type(verification_timeout) is int and 1 <= verification_timeout <= 7200,
              "VERIFICATION_TIMEOUT_INVALID")
+    restore_data_size_gib = config.get("restoreDataSizeGiB", 6)
+    _require(type(restore_data_size_gib) is int and 6 <= restore_data_size_gib <= 32,
+             "RESTORE_DATA_SIZE_INVALID")
 
     openssl_path = config.get("opensslPath", "openssl")
     docker_path = config.get("dockerPath", "docker")
@@ -247,7 +251,8 @@ def _parse_config(config: Mapping[str, Any]) -> ValidatedConfig:
     return ValidatedConfig(
         archive_dir, certificate, private_key, root_cert, image, relay_port,
         tuple(targets), binding, _utc(drained) if drained else None,
-        _utc(deadline) if deadline else None, verification_timeout, openssl_path, docker_path,
+        _utc(deadline) if deadline else None, verification_timeout, restore_data_size_gib,
+        openssl_path, docker_path,
         {
             "certificate": _sha256(certificate),
             "privateKey": _sha256(private_key),
@@ -575,7 +580,8 @@ class PostgresLogicalRecovery:
                 inventory = target_dir / "inventory.txt"
                 self._execute_source(service, password_file, "pg_dump", "--create",
                                      "--format=custom", "--no-password", code="PG_DUMP_FAILED",
-                                     stdout_path=dump, timeout=1800)
+                                     stdout_path=dump,
+                                     timeout=self.config.verification_timeout_seconds)
                 self._execute_source(service, password_file, "pg_dump", "--create",
                                      "--schema-only", "--no-password", code="SCHEMA_DUMP_FAILED",
                                      stdout_path=schema, timeout=900)
@@ -1005,7 +1011,8 @@ class PostgresLogicalRecovery:
                 self.config.docker_path, "run", "--detach", "--name", name,
                 "--label", f"{OWNER_LABEL}={OWNER_VALUE}", "--label", f"{RUN_LABEL}={run_id}",
                 "--network", "none", "--tmpfs",
-                "/var/lib/postgresql/data:rw,nosuid,nodev,noexec,size=6g",
+                ("/var/lib/postgresql/data:rw,nosuid,nodev,noexec,"
+                 f"size={self.config.restore_data_size_gib}g"),
             ]
             if needs_azure_temp_tablespace:
                 run_arguments.extend([
@@ -1104,7 +1111,8 @@ class PostgresLogicalRecovery:
                     self.config.docker_path, "exec", "--interactive", name, "pg_restore",
                     "--exit-on-error", "--create", "--no-password", "--username", bootstrap_role,
                     "--dbname", "postgres"
-                ], "DATABASE_RESTORE_FAILED", stdin_path=payload / target.code / "database.dump", timeout=1800)
+                ], "DATABASE_RESTORE_FAILED", stdin_path=payload / target.code / "database.dump",
+                    timeout=self.config.verification_timeout_seconds)
             for target in self.config.targets:
                 schema = payload / target.code / "restored-schema.sql"
                 self._execute([

@@ -10,9 +10,20 @@ namespace Emi.Qms.Api.G2;
 
 public sealed record G2QualityPhoto(string FileName, string ContentType, string? Base64 = null, Guid? Id = null, int? ByteSize = null);
 public sealed record G2QualityAction(DateOnly CompletionDate, string Content, G2QualityPhoto[] Photos);
-public sealed record G2QualityItem(Guid Id, string Serial, DateOnly OccurrenceDate, string OccurrenceType, string Content, bool InitialStock, G2QualityPhoto[] Photos, G2QualityAction? Action, int Version);
-public sealed record SaveG2Quality(string Serial, DateOnly OccurrenceDate, string OccurrenceType, string Content, bool InitialStock, G2QualityPhoto[] Photos, int? ExpectedVersion);
+public sealed record G2QualityItem(Guid Id, string Serial, DateOnly OccurrenceDate, string OccurrenceType, string Content, bool InitialStock, G2QualityPhoto[] Photos, G2QualityAction? Action, int Version, string NonconformanceType = G2NonconformanceTypes.Simple);
+public sealed record SaveG2Quality(string Serial, DateOnly OccurrenceDate, string OccurrenceType, string Content, bool InitialStock, G2QualityPhoto[] Photos, int? ExpectedVersion, string? NonconformanceType = null);
 public sealed record SaveG2QualityAction(DateOnly CompletionDate, string Content, G2QualityPhoto[] Photos, int ExpectedVersion);
+
+public static class G2NonconformanceTypes
+{
+    public const string Simple = "simple";
+    public const string ComplexLong = "complexLong";
+    public static string Validate(string? value)
+    {
+        if(value is not (Simple or ComplexLong)) throw new ArgumentException("화면을 새로고침한 후 부적합 유형을 선택해 주세요.");
+        return value;
+    }
+}
 
 public sealed class G2QualityDuplicateSerialException : Exception;
 public sealed class G2UnsafePhotoException : Exception;
@@ -103,8 +114,9 @@ public sealed class G2NonconformanceStore
     public Task<G2QualityItem?> SaveFirstAsync(Guid? id,SaveG2Quality request,Guid actor,CancellationToken ct)
     {
         G2QualityRules.ValidateDate(request.OccurrenceDate,G2MaterialRules.Today(time));
+        var nonconformanceType=G2NonconformanceTypes.Validate(request.NonconformanceType);
         if(string.IsNullOrWhiteSpace(request.Serial) || request.Serial.Length>100 || request.OccurrenceType is not ("production" or "supplier")) throw new ArgumentException("시리얼과 발생 유형을 확인해 주세요.");
-        return Mutate(id,request.ExpectedVersion,actor,current=>new(id??Guid.NewGuid(),request.Serial.Trim(),request.OccurrenceDate,request.OccurrenceType,request.Content,request.InitialStock,request.Photos,current?.Action,(current?.Version??0)+1),ct);
+        return Mutate(id,request.ExpectedVersion,actor,current=>new(id??Guid.NewGuid(),request.Serial.Trim(),request.OccurrenceDate,request.OccurrenceType,request.Content,request.InitialStock,request.Photos,current?.Action,(current?.Version??0)+1,nonconformanceType),ct);
     }
     public Task<G2QualityItem?> SaveActionAsync(Guid id,SaveG2QualityAction request,Guid actor,CancellationToken ct)
     {

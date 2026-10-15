@@ -90,9 +90,15 @@ public sealed class G2NonconformanceTests
         insert into g2_daily_metrics(work_date,metric_code,quantity,created_by_user_id,updated_by_user_id) values ('2026-10-11','Defect',2,'50000000-0000-0000-0000-000000000005','50000000-0000-0000-0000-000000000005');
         """,ct);
         var clock=new Clock();var scanner=new CapturingScanner(UploadMalwareScanStatus.Clean);var security=Options.Create(new UploadSecurityOptions{Enabled=true,FailClosed=true});var store=new G2NonconformanceStore(new CheongjuDatabase(provider),clock,scanner,security);var day=new DateOnly(2026,10,11);
-        var request=new SaveG2Quality("SERIAL",day,"production","Issue",false,Photos,null);
+        var request=new SaveG2Quality("SERIAL",day,"production","Issue",false,Photos,null,G2NonconformanceTypes.ComplexLong);
+        var missingType=new SaveG2Quality("MISSING-TYPE",day,"production","Issue",false,Photos,null);
+        Assert.Null(missingType.NonconformanceType);
+        await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveFirstAsync(null,missingType,quality,ct));
+        await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveFirstAsync(null,request with {Serial="NULL-TYPE",NonconformanceType=null!},quality,ct));
+        await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveFirstAsync(null,request with {Serial="UNKNOWN-TYPE",NonconformanceType="complex"},quality,ct));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveFirstAsync(null,request,staff,ct));
         var first=(await store.SaveFirstAsync(null,request,quality,ct))!;
+        Assert.Equal(G2NonconformanceTypes.ComplexLong,first.NonconformanceType);
         Assert.Null(first.Photos[0].Base64); Assert.NotNull(first.Photos[0].Id);Assert.True(first.Photos[0].ByteSize>0);
         Assert.NotNull((await store.PhotoAsync(first.Id,first.Photos[0].Id!.Value,ct))!.Base64);
         var largePhoto=LargePng.Value;var largeRequest=request with {Serial="LARGE-PHOTO",Photos=[new("large.png","image/png",Convert.ToBase64String(largePhoto))]};var largeItem=(await store.SaveFirstAsync(null,largeRequest,quality,ct))!;
@@ -108,7 +114,8 @@ public sealed class G2NonconformanceTests
         }
         await Assert.ThrowsAsync<G2UnsafePhotoException>(()=>new G2NonconformanceStore(new CheongjuDatabase(provider),clock,new CapturingScanner(UploadMalwareScanStatus.Infected),security).SaveFirstAsync(null,request with {Serial="INFECTED"},quality,ct));
         await Assert.ThrowsAsync<G2PhotoScanUnavailableException>(()=>new G2NonconformanceStore(new CheongjuDatabase(provider),clock,new CapturingScanner(UploadMalwareScanStatus.Unavailable),security).SaveFirstAsync(null,request with {Serial="UNAVAILABLE"},quality,ct));
-        var initial=(await store.SaveFirstAsync(null,request with {Serial="BACKLOG",InitialStock=true},admin,ct))!;
+        var initial=(await store.SaveFirstAsync(null,request with {Serial="BACKLOG",InitialStock=true,NonconformanceType=G2NonconformanceTypes.Simple},admin,ct))!;
+        Assert.Equal(G2NonconformanceTypes.Simple,initial.NonconformanceType);
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"update qms_users set is_active=false where id='50000000-0000-0000-0000-000000000001'",ct);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>store.SaveFirstAsync(null,request with {Serial="Inactive"},admin,ct));
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"update qms_users set is_active=true where id='50000000-0000-0000-0000-000000000001';delete from user_roles where user_id='50000000-0000-0000-0000-000000000001'",ct);
@@ -122,22 +129,29 @@ public sealed class G2NonconformanceTests
         await Assert.ThrowsAsync<ArgumentException>(()=>operations.SaveMetricsAsync(day,[new(G2MetricCodes.Defect,3,null)],admin,ct));
         await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveActionAsync(first.Id,new(day.AddDays(-1),"Invalid date",Photos,first.Version),quality,ct));
         var action=(await store.SaveActionAsync(first.Id,new(day.AddDays(1),"Fixed",Photos,first.Version),quality,ct))!;
+        Assert.Equal(G2NonconformanceTypes.ComplexLong,action.NonconformanceType);
         await Assert.ThrowsAsync<ArgumentException>(()=>store.DeleteAsync(first.Id,action.Version,false,quality,ct));
         clock.Now=clock.Now.AddDays(1);
         await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveFirstAsync(first.Id,request with {OccurrenceDate=day.AddDays(2),ExpectedVersion=action.Version},quality,ct));
         clock.Now=clock.Now.AddDays(-1);
         await Assert.ThrowsAsync<DBConcurrencyException>(()=>store.SaveActionAsync(first.Id,new(day,"Changed",Photos,first.Version),quality,ct));
         range=await operations.GetRangeAsync(day,day.AddDays(1),ct);Assert.Equal(1,range.Days[1].RepairTotal);Assert.Equal(1,range.Days[1].DefectInventory);
-        var reopened=(await store.DeleteAsync(first.Id,action.Version,true,quality,ct))!; Assert.Null(reopened.Action);
+        var reopened=(await store.DeleteAsync(first.Id,action.Version,true,quality,ct))!; Assert.Null(reopened.Action);Assert.Equal(G2NonconformanceTypes.ComplexLong,reopened.NonconformanceType);
         range=await operations.GetRangeAsync(day,day.AddDays(1),ct);Assert.Null(range.Days[1].RepairTotal);Assert.Equal(2,range.Days[1].DefectInventory);
         var scansBeforeRetainedEdit=scanner.Files.Count;var edits=await Task.WhenAll(Enumerable.Range(0,2).Select(async i=>{try{await store.SaveFirstAsync(first.Id,request with {ExpectedVersion=reopened.Version,Content=$"Edit{i}",Photos=reopened.Photos},quality,ct);return true;}catch(DBConcurrencyException){return false;}}));Assert.Single(edits,x=>x);Assert.Equal(scansBeforeRetainedEdit,scanner.Files.Count);
         var list=JsonSerializer.SerializeToElement(await store.ReadAsync(staff,ct));Assert.False(list.GetProperty("canEdit").GetBoolean());
+        var listedItems=list.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(G2NonconformanceTypes.ComplexLong,listedItems.Single(item=>item.GetProperty("Id").GetGuid()==first.Id).GetProperty("NonconformanceType").GetString());
+        Assert.Equal(G2NonconformanceTypes.Simple,listedItems.Single(item=>item.GetProperty("Id").GetGuid()==initial.Id).GetProperty("NonconformanceType").GetString());
         await store.DeleteAsync(first.Id,reopened.Version+1,false,admin,ct);
         Assert.Null(await store.PhotoAsync(first.Id,first.Photos[0].Id!.Value,ct));
         Assert.True(await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_nonconformance_history",ct)>0);
         clock.Now=clock.Now.AddMonths(3).AddSeconds(1);await store.PruneAsync(ct);
         Assert.Equal(0,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_nonconformance_history",ct));
         Assert.NotNull(await store.PhotoAsync(initial.Id,initial.Photos[0].Id!.Value,ct));
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,$"update g2_nonconformances set data=data-'nonconformanceType' where id='{initial.Id}'",ct);
+        var legacyList=JsonSerializer.SerializeToElement(await store.ReadAsync(staff,ct));
+        Assert.Equal(G2NonconformanceTypes.Simple,legacyList.GetProperty("items").EnumerateArray().Single(item=>item.GetProperty("Id").GetGuid()==initial.Id).GetProperty("NonconformanceType").GetString());
         using var factory=QmsWebApplicationFactory.Create("Testing",new Dictionary<string,string?>{
             ["DevAuthentication:Enabled"]="true",["Database:ApplyMigrationsOnStartup"]="false",["DevelopmentData:SeedEnabled"]="false",
             ["UploadSecurity:Enabled"]="true",["UploadSecurity:FailClosed"]="true",["UploadSecurity:RejectImageMetadata"]="true",
@@ -152,8 +166,13 @@ public sealed class G2NonconformanceTests
         scanner.Status=UploadMalwareScanStatus.Infected;using(var infected=await client.PostAsJsonAsync("/api/g2/nonconformances",request with {Serial="HTTP-INFECTED"},ct))Assert.Equal(HttpStatusCode.UnprocessableEntity,infected.StatusCode);
         scanner.Status=UploadMalwareScanStatus.Unavailable;using(var unavailable=await client.PostAsJsonAsync("/api/g2/nonconformances",request with {Serial="HTTP-UNAVAILABLE"},ct))Assert.Equal(HttpStatusCode.ServiceUnavailable,unavailable.StatusCode);
         scanner.Status=UploadMalwareScanStatus.Clean;
+        using(var invalidType=await client.PostAsJsonAsync("/api/g2/nonconformances",request with {Serial="HTTP-INVALID-TYPE",NonconformanceType="legacy"},ct))Assert.Equal(HttpStatusCode.BadRequest,invalidType.StatusCode);
         using var created=await client.PostAsJsonAsync("/api/g2/nonconformances",request with {Serial="HTTP"},ct);Assert.True(created.IsSuccessStatusCode,await created.Content.ReadAsStringAsync(ct));
         var httpItem=(await created.Content.ReadFromJsonAsync<G2QualityItem>(ct))!;
+        Assert.Equal(G2NonconformanceTypes.ComplexLong,httpItem.NonconformanceType);
+        using(var omittedTypeEdit=await client.PutAsJsonAsync($"/api/g2/nonconformances/{httpItem.Id}",new {httpItem.Serial,httpItem.OccurrenceDate,httpItem.OccurrenceType,Content="Stale edit",httpItem.InitialStock,httpItem.Photos,ExpectedVersion=httpItem.Version},ct))Assert.Equal(HttpStatusCode.BadRequest,omittedTypeEdit.StatusCode);
+        var afterOmittedType=JsonSerializer.SerializeToElement(await store.ReadAsync(quality,ct)).GetProperty("items").EnumerateArray().Single(item=>item.GetProperty("Id").GetGuid()==httpItem.Id);
+        Assert.Equal(G2NonconformanceTypes.ComplexLong,afterOmittedType.GetProperty("NonconformanceType").GetString());Assert.Equal(httpItem.Version,afterOmittedType.GetProperty("Version").GetInt32());
         using var aliasImage=new MagickImage(MagickColors.CornflowerBlue,8,6);var aliasJpeg=aliasImage.ToByteArray(MagickFormat.Jpeg);var aliasRequest=request with {Serial="HTTP-JPG-ALIAS",Photos=[new("alias.jpg","image/jpg",Convert.ToBase64String(aliasJpeg))]};using var createdAlias=await client.PostAsJsonAsync("/api/g2/nonconformances",aliasRequest,ct);Assert.Equal(HttpStatusCode.OK,createdAlias.StatusCode);var aliasItem=(await createdAlias.Content.ReadFromJsonAsync<G2QualityItem>(ct))!;Assert.Equal("image/jpeg",aliasItem.Photos[0].ContentType);
         using(var aliasDownload=await client.GetAsync($"/api/g2/nonconformances/{aliasItem.Id}/photos/{aliasItem.Photos[0].Id}",ct))Assert.Equal("image/jpeg",aliasDownload.Content.Headers.ContentType?.MediaType);
         using(var aliasPreviewBody=new MultipartFormDataContent()){var file=new ByteArrayContent(aliasJpeg);file.Headers.ContentType=new("image/jpg");aliasPreviewBody.Add(file,"photo","alias.jpg");using var preview=await client.PostAsync("/api/g2/nonconformances/photos/preview",aliasPreviewBody,ct);Assert.Equal(HttpStatusCode.OK,preview.StatusCode);using var json=JsonDocument.Parse(await preview.Content.ReadAsStringAsync(ct));Assert.Equal("image/jpeg",json.RootElement.GetProperty("contentType").GetString());}

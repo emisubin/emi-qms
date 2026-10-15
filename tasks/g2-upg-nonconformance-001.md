@@ -205,3 +205,14 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 이전 운영 백업4세트16.04GiB 삭제. 최신 dfd45793-e908-4b10-85e3-928b55b96e89 logical-backup.cms/manifest, 기존복호화키쌍, latest-backup-verification 근거 보존. 10월7일 오산복구자료와10월12일 배포임시4폴더4.90GiB, 이번배포/검수백업/시험전송 임시7폴더2.29GiB 삭제. G2 검증로그/스크린샷92개와브라우저/호환검증/레퍼런스/cache/Playwright폴더5개삭제.
 - 승인된 검수 컨테이너24개와 독점연결volume6개 삭제. 일반개발 emi-qms-postgres 및 Valhalla프로젝트 보존. PMS 로컬이미지62개 참조제거, PMS경로가명시된빌드cache30ID 선택정리(잔여의존성때문에전체삭제아님). 출처불명volume/공용baseimage/cache는보존. 전체prune없음. 공개health200확인,운영DB변경없음.
 - 최초 광범위패턴파일삭제와과거DB일괄삭제는자동승인검토거절. 우회하지않고정확한파일·소유목록검증으로범위축소,과거DB는사용자추가명시승인후삭제. 시안·실험스크립트는별도답변대기. 신규DB없음. 삭제DB는local검수전용이며운영DB보존.
+
+### 단순 / 복합·장기 구분 복원 · 2026-10-15
+- 사용자 입력항목 재확인 후 구현 승인. 기존 초기재고 등록 유지(발생실적 제외), 오늘 신규건은 일반등록. 1차에 nonconformanceType(simple/complexLong)를 추가하고 조치완료/조치삭제는 그 유형을 유지. 기존 분류없는 개별건은 단순으로 읽어 초기 승계정책을 유지하며 수정 가능.
+- 기존 PC/모바일 입력·검색·목록·상세를 재사용. 유형필터가 미완료/수리완료 건수에도 적용되므로 유형별 재고·수리를 확인. 생산출하 합계와 기존 권한/이력/사진/초기재고 계약 보존. 발생책임별 비율·MES 실제연동·새 요약UI는 이번범위외.
+- 검증: 서버 입력거부·호환·조치/초기재고 계약, 프런트 두등록경로·필터·수정, PC/모바일 실제화면 및 독립review. 운영DB/공개배포 없음.
+
+- 구현완료: 저장JSON/API에 nonconformanceType 추가, simple/complexLong만 허용. 분류없는 과거 저장JSON은simple로조회. 현재쓰기요청의분류누락/null/미지원값은400으로거부(새로고침안내); 구형화면수정이complexLong을simple로덮는독립review P2를해소. 실제HTTP생략PUT거부후분류/version불변검증. 조치등록/삭제에서분류유지, 수정시초기재고표식보존.
+- 기존 PC/모바일 선택칸·필터·표·상세재사용. 초기재고등록에는발생실적제외안내추가. 기존발생책임필터와새분류필터는독립적이며검색버튼시적용,양쪽상태탭건수에동일적용. 새요약·수량직접입력없음. frontend fullstack 공유fixture에필수simple추가(이번전체fullstack재실행없음).
+- 검증: backend G2NonconformanceTests 최종3/3(격리HTTP/DB·기존권한/초기재고/사진/동시성포함), frontend10/10, typecheck/build/변경파일eslint/diffcheck통과. 기존큰chunk build경고는남아있으며오류없음. 합성UI 실제브라우저PC1440 및390/320px 등록·상세·목록·모바일검색확인,긴복합장기표시확인,입력창가로넘침0/pageerror0. 스크린샷 /tmp/g2-classification-*.png 직접확인. UI검증서버는합성메모리자료이며실제저장검수아님.
+- 독립review g2_full_release_review 기존검토자재사용,기준a7a3d13부터실제diff재검토. 구형클라이언트덮어쓰기P2보정후GO,잔여P0~P2없음. 구현위임/검토 actual모델NOT_REPORTED. 공개배포/원격병합미실행,운영DB변경없음.
+- DB: 신규영구DB/테이블/migration없음. 기존청주jsonb필드추가방식. 최종검증DB emi_qms_e2e_20261015085606_4127_25999 및소유container/network정리완료. 더이상사용하지않는DB없음.

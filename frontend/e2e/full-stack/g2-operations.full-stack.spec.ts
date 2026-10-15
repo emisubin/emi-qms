@@ -50,6 +50,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
     serial: `E2E-UPG-${today}`,
     occurrenceDate: today,
     occurrenceType: 'production',
+    nonconformanceType: 'simple',
     content: '합성 부적합 확인',
     initialStock: false,
     photos: [{ fileName: 'synthetic.png', contentType: 'image/png', base64: tinyPngBase64 }]

@@ -407,7 +407,7 @@ assert_target_schema() {
     (select count(*) from information_schema.columns where table_schema='public' and table_name='notification_deliveries')::text || ':' ||
     (select count(*) from information_schema.columns where table_schema='public' and column_name='project_profile')::text;")"
   case "${target}" in
-    CHEONGJU) expected=182:36:14:46:0 ;;
+    CHEONGJU) expected=190:36:14:46:0 ;;
     OSAN) expected=59:19:12:45:0 ;;
   esac
   [[ "${actual}" == "${expected}" ]] || { echo "Business migration schema contract failed for ${target}." >&2; return 1; }
@@ -419,7 +419,7 @@ assert_target_schema() {
     (select count(*) from departments)::text || ':' ||
     (select count(*) from role_permissions)::text;")"
   case "${target}" in
-    CHEONGJU) expected=35:11:10:111 ;;
+    CHEONGJU) expected=39:11:10:123 ;;
     OSAN) expected=7:10:10:29 ;;
   esac
   [[ "${actual}" == "${expected}" ]] || { echo "Packaged baseline permission/role contract failed for ${target}." >&2; return 1; }

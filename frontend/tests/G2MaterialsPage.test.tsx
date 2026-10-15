@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canLeaveMaterialDraft } from '../src/materialNavigationGuard';
 import { G2MaterialsPage } from '../src/G2MaterialsPage';
@@ -91,18 +91,18 @@ describe('material inventory workflows',()=>{
  });
  it('requires sheet selection and then confirms an unknown date without stacking dialogs',async()=>{
   vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),sheets:[{name:'Sheet1',date:null},{name:'Sheet2',date:null}],selectedSheet:null,items:[]});
-  await open();chooseFile();await screen.findByLabelText('대상 시트');expect(screen.getByRole('button',{name:'다음'})).toBeDisabled();
+  await open();chooseFile();const sheetInput=await screen.findByLabelText('대상 시트');const sheetDialog=within(sheetInput.closest('dialog')!);expect(sheetDialog.getByRole('button',{name:'다음'})).toBeDisabled();
   vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedSheet:'Sheet2',selectedDate:null});
-  fireEvent.change(screen.getByLabelText('대상 시트'),{target:{value:'Sheet2'}});fireEvent.click(screen.getByRole('button',{name:'다음'}));
-  await screen.findByText('엑셀에서 실사 날짜를 확인할 수 없습니다.');expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  fireEvent.change(sheetInput,{target:{value:'Sheet2'}});fireEvent.click(sheetDialog.getByRole('button',{name:'다음'}));
+  const dateWarning=await screen.findByText('엑셀에서 실사 날짜를 확인할 수 없습니다.');const dateDialog=within(dateWarning.closest('dialog')!);expect(screen.getAllByRole('dialog')).toHaveLength(1);
   expect(vi.mocked(importMaterialFile).mock.calls[1][3]).toBe('Sheet2');
-  fireEvent.click(screen.getByRole('button',{name:'선택한 실사일로 가져오기'}));expect(screen.queryByRole('dialog')).toBeNull();expect(saveMaterialDay).not.toHaveBeenCalled();
+  fireEvent.click(dateDialog.getByRole('button',{name:'선택한 실사일로 가져오기'}));expect(screen.queryByRole('dialog')).toBeNull();expect(saveMaterialDay).not.toHaveBeenCalled();
  });
  it('cancels a combined date and unsaved-value confirmation without changing the draft',async()=>{
   vi.mocked(importMaterialFile).mockResolvedValue({...importResult(),selectedDate:'2026-10-07'});
   await open();fireEvent.change(screen.getByLabelText('1번 제작중'),{target:{value:'3'}});chooseFile();
-  await screen.findByRole('dialog',{name:'가져오기 전 확인'});expect(screen.getAllByRole('dialog')).toHaveLength(1);
-  expect(screen.getByText('2026. 10. 07.')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'취소'}));
+  const confirmation=within(await screen.findByRole('dialog',{name:'가져오기 전 확인'}));expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(confirmation.getByText('2026. 10. 07.')).toBeInTheDocument();fireEvent.click(confirmation.getByRole('button',{name:'취소'}));
   expect(screen.getByLabelText('1번 제작중')).toHaveValue(3);expect(saveMaterialDay).not.toHaveBeenCalled();
  });
  it('imports blanks after replacement confirmation and saves only the latest main-page edits',async()=>{

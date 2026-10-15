@@ -151,3 +151,9 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 독립검토 mes_tpm_review 요청gpt-6-astra/high(실제모델 NOT_REPORTED) GO, 미해결 P0/P1/P2 없음. 수동 등록과 원격 TPM attestation 미제공 경계 확인. README 및 Windows ZIP(34.0MiB) 작성·무결성 확인. 실제 Windows TPM 실행/공개경로 시험은 미완료.
 - 다음: 지정 노트북에서 관리자 실행→1번→device-registration.json 전달. 공개키와 회사 IP 배포 입력 등록 및 운영 활성화는 별도 승인 후 수행. 2번 시험은 활성화 이후 진행. MES 계정·조회·쓰기·자동 서비스는 이번 단계 범위 밖. 원격반영/공개배포 없음.
 - DB 보고: 신규 영구 DB 및 사용중단 DB 없음. 청주 신규 테이블 migration만 작성, 운영/preview DB 미적용. 검증 harness DB emi_qms_e2e_20261015000516_16984_31727 및 내부 Directory/Cheongju/Osan 합성 fixture는 전용 tmpfs container emi-qms-e2e-20261015000516-16984-31727-e2e-postgres-1 종료·삭제와 함께 정리 완료.
+
+### 전체 병합·공개배포 승인 · 2026-10-15
+- 사용자: 전체 포함 범위 정리 확인 후 “좋아. 모두 확정. 전체 원격 메인에 병합하고 공개배포해.” UPG/생산연계·초기재고/사진공통/홈7일전망/모바일/자재 클릭/MES TPM+회사IP 시험전송을 함께 승인. 실제 MES 데이터 동기화·쓰기 및 상시 서비스는 제외.
+- 등록 노트북 공개키 파일 검증 완료(RSA2048, SPKI SHA256과 DeviceId 일치), 실제값은 private 배포 입력으로만 사용. 회사 IP도 사용자 제공값을 private 설정으로 등록. 실제 공개 경로 성공은 배포 후 사용자 2번 실행으로 확인한다.
+- 최종 기준: origin/main 1443316991a97c57890e560e64b6c5aa005da988 대비 e9a36e4 및 이 승인 기록. 별도 작업 checkout WIP/로컬 검수 파일/검수 DB는 제외·보존. 최종 required CI 및 통합 독립 검토 후 정상 release runner 사용. 공지·팝업 준비 후 실제 교체 전 저장 차단·백업 검증·migration135/136, 검증 후 저장 재개.
+- 주의: 0135 도입일부터 부적합 재고는 개별 미완료 건수다. 기존 미완료품은 배포 후 초기재고로 개별 등록해야 한다. 과거 숫자 기록은 보존하며 로컬 검수 데이터를 운영으로 복사하지 않는다.

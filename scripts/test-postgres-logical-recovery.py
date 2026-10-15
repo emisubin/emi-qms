@@ -224,6 +224,70 @@ class LogicalRecoveryTests(unittest.TestCase):
         self.assertIn("synthetic password\\:'quoted'\\\\with-special-value",
                       password_file.read_text())
 
+    def test_source_stream_disables_docker_log_persistence_and_preserves_stdout(self):
+        validated = module._parse_config(self.config)
+        commands = []
+
+        def runner(arguments, **kwargs):
+            commands.append(arguments)
+            if arguments[1:3] == ["container", "inspect"]:
+                return self.completed(returncode=1)
+            if arguments[1:3] == ["container", "ls"]:
+                return self.completed(stdout=b"")
+            self.assertEqual(subprocess.PIPE, kwargs["stdout"])
+            return self.completed(stdout=b"logical-stream")
+
+        recovery = module.PostgresLogicalRecovery(validated, run=runner)
+        recovery.bridge_address = "192.168.65.254"
+        service = self.root / "stream-service.conf"
+        password_file = self.root / "stream-service.pgpass"
+        recovery._write_connection_files(
+            service, password_file, validated.targets[0])
+        output = recovery._execute_source(
+            service, password_file, "pg_dump", "--format=custom",
+            code="SYNTHETIC_DUMP_FAILED", capture=True,
+            scope_run_id="a" * 24)
+
+        self.assertEqual(b"logical-stream", output)
+        source_run = commands[0]
+        self.assertEqual(["--log-driver", "none"], source_run[3:5])
+        self.assertEqual(1, source_run.count("--log-driver"))
+        self.assertLess(source_run.index("--log-driver"), source_run.index(validated.postgres_image))
+        self.assertNotIn(validated.targets[0].password, " ".join(source_run))
+
+    def test_source_stream_to_private_file_bypasses_docker_log_persistence(self):
+        validated = module._parse_config(self.config)
+        commands = []
+        payload = b"logical-archive-bytes"
+
+        def runner(arguments, **kwargs):
+            commands.append(arguments)
+            if arguments[1:3] == ["container", "inspect"]:
+                return self.completed(returncode=1)
+            if arguments[1:3] == ["container", "ls"]:
+                return self.completed(stdout=b"")
+            kwargs["stdout"].write(payload)
+            return self.completed(stdout=None)
+
+        recovery = module.PostgresLogicalRecovery(validated, run=runner)
+        recovery.bridge_address = "192.168.65.254"
+        service = self.root / "file-service.conf"
+        password_file = self.root / "file-service.pgpass"
+        destination = self.root / "database.dump"
+        recovery._write_connection_files(
+            service, password_file, validated.targets[0])
+        output = recovery._execute_source(
+            service, password_file, "pg_dump", "--format=custom",
+            code="SYNTHETIC_DUMP_FAILED", stdout_path=destination,
+            scope_run_id="b" * 24)
+
+        self.assertEqual(b"", output)
+        self.assertEqual(payload, destination.read_bytes())
+        self.assertEqual(0o600, destination.stat().st_mode & 0o777)
+        source_run = commands[0]
+        self.assertEqual(["--log-driver", "none"], source_run[3:5])
+        self.assertEqual(1, source_run.count("--log-driver"))
+
     def test_large_database_dump_uses_approved_timeout_without_expanding_other_steps(self):
         calls = []
 

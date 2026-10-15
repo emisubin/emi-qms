@@ -179,3 +179,4 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 로컬 기존5개 preview DB 모두 tmpfs이므로 Docker 재시작 시 데이터 유실 위험 확인. 공유환경 메모리 증설·재시작은 별도 사용자 승인과 검수 데이터 백업·복원 준비 전까지 실행하지 않음. 현재 preview/DB/컨테이너 보존. 첫 시도 소유 TLS 중계 종료. 근거는 private /tmp/g2-quality-release-20261015 (secret/실데이터 Git 제외).
 - 신규 영구DB 및 사용중단DB 없음. 이번 실패 시 운영 신규table 없음. 공개 배포·MES 활성화·Windows 2번 시험은 미완료.
 - 백업 보정 완료: optional restoreDataSizeGiB 기본6/정수6–32, PGDATA tmpfs에만 적용. 시간·크기·잘못된입력·networknone/소유권/cleanup 검증24통과(opt-in2skip), py_compile/diffcheck 통과. 구현과 분리된 g2_full_release_review 최종 GO(운영재시작승인과 별개). Docker/운영DB 변경 없이 보정 PR 및 CI 진행.
+- 백업 보정 PR173 required CI38678524997 성공(WorkflowValidation5m14s/CI Gate; 스크립트 범위로 backend/frontend/fullstack은 분류상 제외, 기능 전체검증은 앞선 PR172 근거 유지). PR173 원격main95ed993055570576355de66ab70acecce5f261ba로 병합 완료. 공개 재배포는 Docker 공유환경 변경 답변 대기. 기존5개tmpfs 검수DB 모두 보존 중, 기존 공개 버전health200/API401/점검Completed. 실패 백업 평문 작업디렉터리0·소유 복원컨테이너0·TLS중계종료 확인. 신규DB/사용중단DB없음.

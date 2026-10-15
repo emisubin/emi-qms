@@ -1183,13 +1183,20 @@ class PostgresLogicalRecovery:
                 ).hexdigest()
             bundle = work / "payload.tar"
             self._bundle(work, bundle)
+            bundle_hash = _sha256(bundle)
             encrypted = work / "payload.cms"
             self._encrypt(bundle, encrypted)
+            # Avoid retaining five full copies of a large database at once.
+            # The ciphertext round trip is still checked before source copies go.
+            bundle.unlink()
             decrypted = work / "payload.decrypted.tar"
             self._decrypt(encrypted, decrypted)
-            _require(_sha256(bundle) == _sha256(decrypted), "CIPHERTEXT_ROUND_TRIP_MISMATCH")
+            _require(bundle_hash == _sha256(decrypted), "CIPHERTEXT_ROUND_TRIP_MISMATCH")
+            for target in self.config.targets:
+                (work / target.code / "database.dump").unlink()
             payload = work / "payload"
             self._extract(decrypted, payload)
+            decrypted.unlink()
             proof = self._restore_payload(payload, cluster_scope)
             _require(all(proof[target.code] == artifacts[target.code]["sourceProofSha256"]
                          for target in self.config.targets), "RESTORED_SOURCE_PROOF_MISMATCH")

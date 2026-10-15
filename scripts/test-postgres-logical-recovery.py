@@ -764,10 +764,23 @@ class LogicalRecoveryTests(unittest.TestCase):
                     output.write(source.read_bytes())
 
             def _decrypt(self, source, destination):
+                if source.name == "payload.cms":
+                    assert not (source.parent / "payload.tar").exists()
+                    assert all((source.parent / code / "database.dump").exists()
+                               for code in module.TARGET_CODES)
                 with module._new_private_file(destination) as output:
                     output.write(source.read_bytes())
 
+            def _extract(self, source, destination):
+                if source.name == "payload.decrypted.tar":
+                    assert all(not (source.parent / code / "database.dump").exists()
+                               for code in module.TARGET_CODES)
+                return super()._extract(source, destination)
+
             def _restore_payload(self, payload, scope=None):
+                assert not (payload.parent / "payload.decrypted.tar").exists()
+                assert all((payload / code / "database.dump").read_bytes()
+                           == b"dump-" + code.encode() for code in module.TARGET_CODES)
                 return {
                     code: module.hashlib.sha256(
                         (self._normalized_schema_sha256(
@@ -783,6 +796,16 @@ class LogicalRecoveryTests(unittest.TestCase):
             def _verify_source_unchanged(self, work, artifacts):
                 return None
 
+        class CorruptRoundTrip(SyntheticRecovery):
+            def _decrypt(self, source, destination):
+                super()._decrypt(source, destination)
+                if source.name == "payload.cms":
+                    destination.write_bytes(destination.read_bytes() + b"tampered")
+
+        with self.assertRaisesRegex(module.RecoveryError,
+                                    "^CIPHERTEXT_ROUND_TRIP_MISMATCH$"):
+            CorruptRoundTrip(validated, now=lambda: self.now).create()
+        self.assertEqual([], list(self.archive.iterdir()))
         recovery = SyntheticRecovery(validated, now=lambda: self.now)
         manifest = recovery.create()
         self.assertEqual(self.config["binding"], manifest["binding"])

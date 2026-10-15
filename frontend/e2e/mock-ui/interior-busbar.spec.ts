@@ -1603,8 +1603,8 @@ test("weekend date colors survive today and selection on desktop and mobile", as
     const unselectedSaturday = page.getByRole("button",{name:"2026-09-05 생산계획 선택",exact:true});
     const unselectedSunday = page.getByRole("button",{name:"2026-09-06 생산계획 선택",exact:true});
     await expect(saturday.locator(".busbar-calendar-date")).toHaveCSS("color","rgb(37, 99, 235)");
-    await expect(unselectedSaturday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(40, 100, 189)" : "rgb(37, 41, 48)");
-    await expect(unselectedSunday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(200, 42, 50)" : "rgb(37, 41, 48)");
+    await expect(unselectedSaturday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(40, 100, 189)" : "rgb(37, 99, 235)");
+    await expect(unselectedSunday.locator(".busbar-calendar-date b")).toHaveCSS("color", width === 390 ? "rgb(200, 42, 50)" : "rgb(220, 38, 38)");
     await expect(saturday).toHaveCSS("background-color", width === 390 ? "rgba(0, 0, 0, 0)" : "rgb(254, 226, 226)");
     if (width === 390) {
       await expect(saturday.locator(".busbar-calendar-date b")).toHaveCSS("background-color", "rgb(40, 100, 189)");

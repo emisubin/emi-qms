@@ -5,6 +5,7 @@ import { expect, test, type APIRequestContext, type APIResponse, type Page } fro
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.E2E_BACKEND_PORT ?? '5082'}`;
 const screenshotDirectory = path.resolve(process.cwd(), 'test-results/g2-operations');
+const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 type MetricPayload = { quantity: number | null; version: number } | null;
 type G2DayPayload = {
@@ -26,6 +27,7 @@ type G2DayPayload = {
   afternoonAttendanceTotal: number | null;
   attendanceTotal: number | null;
   inventory: number | null;
+  physicalCount: MetricPayload;
   dailyProductionTarget: MetricPayload;
   deliveryTarget: MetricPayload;
   inventoryTarget: MetricPayload;
@@ -37,12 +39,27 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const consoleErrors: string[] = [];
   page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
   await fs.mkdir(screenshotDirectory, { recursive: true });
-  await provisionSyntheticG2MaterialCatalog();
+  await provisionSyntheticG2Fixture();
 
   const initialHome = await getJson<{ today: string }>(request, '/api/g2/home', 'dev-sales');
   const today = initialHome.today;
   const tomorrow = addDays(today, 1);
   const dayAfterTomorrow = addDays(today, 2);
+
+  const qualityInput = {
+    serial: `E2E-UPG-${today}`,
+    occurrenceDate: today,
+    occurrenceType: 'production',
+    content: '합성 부적합 확인',
+    initialStock: false,
+    photos: [{ fileName: 'synthetic.png', contentType: 'image/png', base64: tinyPngBase64 }]
+  };
+  await expectStatus(request.post(`${apiBaseUrl}/api/g2/nonconformances`, {
+    headers: devHeaders('dev-manufacturing'), data: qualityInput
+  }), 403);
+  const qualityCase = await expectJsonOk<{ id: string; version: number }>(request.post(`${apiBaseUrl}/api/g2/nonconformances`, {
+    headers: devHeaders('dev-quality'), data: qualityInput
+  }));
 
   await expectStatus(request.put(`${apiBaseUrl}/api/g2/operations/${today}`, {
     headers: devHeaders('dev-manufacturing'),
@@ -59,8 +76,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
     data: {
       morningProduction: { quantity: 10, expectedVersion: null },
       afternoonProduction: { quantity: 4, expectedVersion: null },
-      delivery: { quantity: 3, expectedVersion: null },
-      defect: { quantity: 1, expectedVersion: null }
+      delivery: { quantity: 3, expectedVersion: null }
     }
   }));
 
@@ -98,6 +114,13 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
     headers: devHeaders('dev-logistics'),
     data: { defect: { quantity: 99, expectedVersion: 1 } }
   }), 403);
+  await expectStatus(request.put(`${apiBaseUrl}/api/g2/operations/${today}`, {
+    headers: devHeaders('dev-manufacturing'),
+    data: {
+      morningRepair: { quantity: 1, expectedVersion: null },
+      defect: { quantity: 1, expectedVersion: null }
+    }
+  }), 400);
   await expectStatus(request.put(`${apiBaseUrl}/api/g2/operations/${today}`, {
     headers: devHeaders('dev-logistics'),
     data: { delivery: { quantity: 4, expectedVersion: 1 } }
@@ -162,6 +185,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   expect(todayData.productionTotal).toBe(18);
   expect(todayData.delivery!.quantity).toBe(4);
   expect(todayData.defect!.quantity).toBe(1);
+  expect(todayData.repairTotal).toBeNull();
+  expect(todayData.defectInventory).toBe(1);
   expect(todayData.inventory).toBe(20);
   expect(todayData.morningAttendanceTotal).toBe(8);
   expect(todayData.afternoonAttendanceTotal).toBe(6);
@@ -182,13 +207,16 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   expect((await getDay(request, dayAfterTomorrow, 'dev-viewer')).inventory).toBeNull();
 
   const homeDate = addDays(today, -1);
+  await expectOk(request.post(`${apiBaseUrl}/api/g2/nonconformances`, {
+    headers: devHeaders('dev-quality'),
+    data: { ...qualityInput, serial: `E2E-UPG-${homeDate}`, occurrenceDate: homeDate }
+  }));
   await expectOk(request.put(`${apiBaseUrl}/api/g2/operations/${homeDate}`, {
     headers: devHeaders('dev-admin'),
     data: {
       morningProduction: { quantity: 10, expectedVersion: null },
       afternoonProduction: { quantity: 8, expectedVersion: null },
-      delivery: { quantity: 4, expectedVersion: null },
-      defect: { quantity: 1, expectedVersion: null }
+      delivery: { quantity: 4, expectedVersion: null }
     }
   }));
   await expectOk(request.put(`${apiBaseUrl}/api/g2/attendance/${homeDate}`, {
@@ -232,7 +260,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(home.getByRole('button', { name: '목표 저장', exact: true })).toHaveCount(0);
   await expect(home.getByRole('heading', { name: 'EMI 생산' })).toBeVisible();
   await expect(home.getByRole('heading', { name: 'LSE 납품' })).toBeVisible();
-  await expect(home.getByRole('heading', { name: '불량률' })).toBeVisible();
+  await expect(home.getByRole('heading', { name: '부적합률' })).toBeVisible();
   await expect(home.getByRole('heading', { name: '제품 재고 · 납품 전망' })).toBeVisible();
   await expect(home.getByRole('heading', { name: /안전재고 미달 자재/ })).toBeVisible();
   await expect(home.getByRole('img', { name: /실적 18대/ })).toBeVisible();
@@ -265,11 +293,10 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   expect((await getDay(request, today, 'dev-sales')).delivery?.quantity).toBe(0);
   expect((await getDay(request, today, 'dev-sales')).inventory).toBe(20);
 
-  const inventoryBeforeCount = (await getDay(request, tomorrow, 'dev-sales')).inventory;
   await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${today}`, {
     headers: devHeaders('dev-logistics'), data: { quantity: 0, expectedVersion: null }
   }), 403);
-  await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${tomorrow}`, {
+  await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${today}`, {
     headers: devHeaders('dev-sales'), data: { quantity: 0, expectedVersion: null }
   }), 400);
   await page.getByRole('button', { name: '데이터 입력' }).first().click();
@@ -277,51 +304,45 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const countDialog = page.getByRole('dialog', { name: '실사 입력' });
   await expect(countDialog.locator('input[type="date"]')).toHaveValue(today);
   await expect(countDialog.getByLabel('납품 가능 재고 실사')).toHaveValue('20');
-  await expect(countDialog.getByLabel('불량 재고 실사')).toHaveValue('');
-  await countDialog.getByLabel('불량 재고 실사').fill('0');
+  await expect(countDialog.getByLabel('부적합 재고 실사')).toHaveCount(0);
+  await expect(countDialog.getByLabel('불량 재고 실사')).toHaveCount(0);
+  await countDialog.getByLabel('납품 가능 재고 실사').fill('0');
+  const zeroCountRequest = page.waitForRequest(candidate => candidate.url().includes(`/api/g2/workspace/${today}`) && candidate.method() === 'PUT');
   await countDialog.getByRole('button', { name: '저장' }).click();
+  expect((await zeroCountRequest).postDataJSON()).toEqual({ physicalCount: { quantity: 0, expectedVersion: 1 } });
   await expect(countDialog).toHaveCount(0);
   let countedDay = await getDay(request, today, 'dev-sales');
-  expect(countedDay.defectInventoryCount?.quantity).toBe(0);
-  expect(countedDay.defectInventoryCount?.version).toBe(1);
-  expect(countedDay.defectInventory).toBe(0);
-  expect(countedDay.defect?.quantity).toBe(1);
-  await expectStatus(request.put(`${apiBaseUrl}/api/g2/defect-inventory-counts/${today}`, {
-    headers: devHeaders('dev-sales'), data: { quantity: 9, expectedVersion: null }
-  }), 409);
+  expect(countedDay.physicalCount?.quantity).toBe(0);
+  expect(countedDay.physicalCount?.version).toBe(2);
+  expect(countedDay.inventory).toBe(0);
 
   await page.getByRole('button', { name: '데이터 입력' }).first().click();
   await page.getByRole('button', { name: '실사 입력' }).click();
-  await expect(countDialog.getByLabel('불량 재고 실사')).toHaveValue('0');
-  await countDialog.getByLabel('불량 재고 실사').fill('4');
+  await expect(countDialog.getByLabel('납품 가능 재고 실사')).toHaveValue('0');
+  await countDialog.getByLabel('납품 가능 재고 실사').fill('');
+  const blankCountRequest = page.waitForRequest(candidate => candidate.url().includes(`/api/g2/workspace/${today}`) && candidate.method() === 'PUT');
   await countDialog.getByRole('button', { name: '저장' }).click();
+  expect((await blankCountRequest).postDataJSON()).toEqual({ physicalCount: { quantity: null, expectedVersion: 2 } });
   await expect(countDialog).toHaveCount(0);
   countedDay = await getDay(request, today, 'dev-sales');
-  expect(countedDay.defectInventoryCount?.quantity).toBe(4);
-  expect(countedDay.defectInventoryCount?.version).toBe(2);
+  expect(countedDay.physicalCount?.quantity).toBeNull();
+  expect(countedDay.physicalCount?.version).toBe(3);
 
-  await page.getByRole('button', { name: '데이터 입력' }).first().click();
-  await page.getByRole('button', { name: '실사 입력' }).click();
-  await countDialog.getByLabel('불량 재고 실사').fill('');
-  await countDialog.getByRole('button', { name: '저장' }).click();
-  await expect(countDialog).toHaveCount(0);
-  countedDay = await getDay(request, today, 'dev-sales');
-  expect(countedDay.defectInventoryCount?.quantity).toBeNull();
-  expect(countedDay.defectInventoryCount?.version).toBe(3);
-
-  await page.getByRole('button', { name: '데이터 입력' }).first().click();
-  await page.getByRole('button', { name: '실사 입력' }).click();
-  await expect(countDialog.getByLabel('불량 재고 실사')).toHaveValue('');
-  await expect(countDialog.getByRole('button', { name: '실사 삭제', exact: true })).toHaveCount(0);
-  await countDialog.getByLabel('불량 재고 실사').fill('6');
-  const recountRequest = page.waitForRequest(candidate => candidate.url().includes(`/api/g2/workspace/${today}`) && candidate.method() === 'PUT');
-  await countDialog.getByRole('button', { name: '저장' }).click();
-  expect((await recountRequest).postDataJSON()).toEqual({ defectInventoryCount: { quantity: 6, expectedVersion: 3 } });
-  await expect(countDialog).toHaveCount(0);
-  countedDay = await getDay(request, today, 'dev-sales');
-  expect(countedDay.defectInventoryCount?.quantity).toBe(6);
-  expect(countedDay.defectInventoryCount?.version).toBe(4);
-  expect((await getDay(request, tomorrow, 'dev-sales')).inventory).toBe(inventoryBeforeCount);
+  const unrepairedDay = await getDay(request, today, 'dev-sales');
+  expect(unrepairedDay.defectInventory).toBe(2);
+  await expectOk(request.put(`${apiBaseUrl}/api/g2/nonconformances/${qualityCase.id}/action`, {
+    headers: devHeaders('dev-quality'),
+    data: {
+      completionDate: today,
+      content: '합성 수리 완료',
+      photos: [{ fileName: 'synthetic-action.png', contentType: 'image/png', base64: tinyPngBase64 }],
+      expectedVersion: qualityCase.version
+    }
+  }));
+  const repairedDay = await getDay(request, today, 'dev-sales');
+  expect(repairedDay.defect?.quantity).toBe(1);
+  expect(repairedDay.repairTotal).toBe(1);
+  expect(repairedDay.defectInventory).toBe(1);
 
   await selectG2OperationsMonth(page, tomorrow);
   const futureRow = productionTable.locator(`tr[data-row="${tomorrow}"]`);
@@ -345,12 +366,27 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await page.getByRole('button', { name: '실적 입력' }).click();
   const manufacturingDialog = page.getByRole('dialog', { name: '실적 입력' });
   await expect(manufacturingDialog.getByLabel('오전 생산 실적')).toBeEnabled();
-  await expect(manufacturingDialog.getByLabel('오전 수리 실적')).toBeEnabled();
+  await expect(manufacturingDialog.getByLabel('오전 수리 실적')).toHaveCount(0);
   await manufacturingDialog.getByRole('tab', { name: '오후' }).click();
-  await expect(manufacturingDialog.getByLabel('신규 불량 실적')).toBeEnabled();
+  await expect(manufacturingDialog.getByLabel('오후 생산 실적')).toBeEnabled();
+  await expect(manufacturingDialog.getByLabel('오후 수리 실적')).toHaveCount(0);
+  await expect(manufacturingDialog.getByLabel('신규 부적합 실적')).toHaveCount(0);
+  await expect(manufacturingDialog.getByLabel('신규 불량 실적')).toHaveCount(0);
   await manufacturingDialog.getByRole('tab', { name: '납품' }).click();
   await expect(manufacturingDialog.getByLabel('납품 실적')).toHaveCount(0);
   await manufacturingDialog.getByRole('button', { name: '취소' }).click();
+
+  await page.getByLabel('개발 사용자').selectOption('dev-sales');
+  await page.goto('/g2/operations');
+  await page.getByRole('button', { name: '데이터 입력' }).first().click();
+  await page.getByRole('button', { name: '실적 입력' }).click();
+  const salesDialog = page.getByRole('dialog', { name: '실적 입력' });
+  await expect(salesDialog.getByLabel('납품 실적')).toBeEnabled();
+  await salesDialog.getByRole('tab', { name: '오전' }).click();
+  await expect(salesDialog.getByLabel('오전 생산 실적')).toHaveCount(0);
+  await expect(salesDialog.getByLabel('오전 수리 실적')).toHaveCount(0);
+  await salesDialog.getByRole('button', { name: '취소' }).click();
+  await page.getByLabel('개발 사용자').selectOption('dev-manufacturing');
 
   await page.goto('/g2/attendance');
   await expect(page.getByRole('heading', { name: '제조 인원 출근 관리' })).toBeVisible();
@@ -409,10 +445,13 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(page.getByRole('heading', { name: '자재 재고 현황' })).toBeVisible();
   const materialsTable = page.getByRole('table', { name: '자재 재고 현황' });
   await expect(materialsTable).toBeVisible();
-  await expect(materialsTable.getByRole('button')).toHaveCount(92);
+  const materialRows = materialsTable.locator('tbody tr:has(.g2m-item-info-button)');
+  await expect(materialRows).toHaveCount(92);
+  await expect(materialsTable.getByRole('button', { name: /품목 정보 · NO$/ })).toHaveCount(92);
+  await expect(materialRows.first().getByRole('button')).toHaveCount(7);
   await expect(page.getByRole('navigation', { name: '자재 구분' }).getByRole('button', { name: '전체' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: '저장', exact: true })).toBeDisabled();
-  await materialsTable.getByRole('button').first().click();
+  await materialRows.first().getByRole('button', { name: '합성 자재 1', exact: true }).click();
   const itemInfo = page.getByRole('dialog', { name: '품목 정보' });
   await expect(itemInfo.getByRole('table', { name: '포장단위별 인입수량' })).toBeVisible();
   await capture(page, '06-g2-materials-current-desktop-1440.png');
@@ -482,11 +521,16 @@ async function selectG2OperationsMonth(page: Page, date: string) {
   await expect(page.getByRole('button', { name: `${date} 상세 펼치기` }).or(page.getByRole('button', { name: `${date} 상세 보기` }))).toBeVisible();
 }
 
-async function provisionSyntheticG2MaterialCatalog() {
+async function provisionSyntheticG2Fixture() {
   expect(requireEnv('DATABASE_HOST')).toBe('127.0.0.1');
   expect(requireEnv('E2E_DATABASE_NAME')).toMatch(/^emi_qms_e2e_[a-z0-9_]+$/);
   expect(requireEnv('E2E_COMPOSE_PROJECT_NAME')).toMatch(/^emi-qms-e2e-[a-z0-9-]+$/);
   expect(requireEnv('E2E_POSTGRES_SERVICE')).toBe('e2e-postgres');
+  const qualitySettings = queryDatabase("select coalesce(to_regclass('public.g2_quality_settings')::text, '')");
+  if (!qualitySettings) {
+    const migrationRoot = path.resolve(process.cwd(), '..', 'database', 'business-migrations', 'cheongju');
+    applyDatabaseSql(await fs.readFile(path.join(migrationRoot, '0135_upg_nonconformance.sql'), 'utf8'));
+  }
   const table = queryDatabase("select coalesce(to_regclass('public.g2_material_items')::text, '')");
   if (!table) {
     const migrationRoot = path.resolve(process.cwd(), '..', 'database', 'business-migrations', 'cheongju');
@@ -517,6 +561,12 @@ async function provisionSyntheticG2MaterialCatalog() {
     from generate_series(1, 92) as fixture(id);
   `);
   expect(queryDatabase('select count(*) from g2_material_items')).toBe('92');
+}
+
+async function expectJsonOk<T>(responsePromise: Promise<APIResponse>): Promise<T> {
+  const response = await responsePromise;
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return response.json() as Promise<T>;
 }
 
 function applyDatabaseSql(sql: string) {

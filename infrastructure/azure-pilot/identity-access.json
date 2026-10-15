@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "3477665702815648980"
+      "templateHash": "15532647500379879635"
     }
   },
   "parameters": {
@@ -65,6 +65,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Optional existing role assignment name used to adopt a manually created Backend Web Push VAPID private-key secret assignment during redeployment."
+      }
+    },
+    "enableMesProbe": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Grant the backend proxy verification secret only for the approved MES probe rollout."
       }
     }
   },
@@ -369,12 +376,24 @@
         "principalType": "ServicePrincipal",
         "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
       }
+    },
+    {
+      "condition": "[parameters('enableMesProbe')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), 'front-door-origin-verify-token'), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), 'KeyVaultSecretsUser')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', last(split(parameters('backendIdentityId'), '/'))), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleId')]"
+      }
     }
   ],
   "outputs": {
     "secretScopedRoleAssignmentCount": {
       "type": "int",
-      "value": "[if(parameters('enableBusinessUnits'), 26, 14)]"
+      "value": "[add(if(parameters('enableBusinessUnits'), 26, 14), if(parameters('enableMesProbe'), 1, 0))]"
     }
   }
 }

@@ -28,6 +28,7 @@ public sealed class G2MaterialRetentionWorker(IServiceScopeFactory scopes,Databa
         if(lease is null)return false;
         using var scope=scopes.CreateScope();
         await scope.ServiceProvider.GetRequiredService<G2MaterialStore>().PruneAsync(ct);
+        await scope.ServiceProvider.GetRequiredService<G2NonconformanceStore>().PruneAsync(ct);
         return true;
     }
 }

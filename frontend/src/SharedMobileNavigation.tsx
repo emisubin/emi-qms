@@ -26,16 +26,18 @@ export function SharedMobileNavigation({ items, footer, triggerRef }: {
   triggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const [open, setOpen] = useState(false);
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<Record<number,string|null>>({});
   const ownTrigger = useRef<HTMLButtonElement>(null);
   const trigger = triggerRef ?? ownTrigger;
   const menu = useRef<HTMLElement>(null);
   const menuId = useId();
   const close = () => { setOpen(false); trigger.current?.focus(); };
   useEffect(() => { if (open) menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); }, [open]);
-  function itemButton(item: MobileNavigationItem, child = false) {
-    const expanded = expandedKey === item.key;
+  function itemButton(item: MobileNavigationItem, depth = 0) {
+    const child=depth>0;
+    const expanded = expandedKeys[depth] === item.key;
     return <Fragment key={item.key}>
+      {child && item.group && <div className="osan-mobile-admin-group"><span>{item.group}</span></div>}
       <button type="button" className={child ? 'shared-mobile-child' : undefined}
         disabled={item.disabled}
         aria-label={item.disabled ? `${item.label} 준비중` : item.badge ? `${item.label} ${item.badge}건` : item.label}
@@ -43,14 +45,14 @@ export function SharedMobileNavigation({ items, footer, triggerRef }: {
         aria-expanded={item.children ? expanded : undefined}
         aria-controls={item.children ? `${menuId}-${encodeURIComponent(item.key)}` : undefined}
         onClick={() => {
-          if (item.children) setExpandedKey(expanded ? null : item.key);
+          if (item.children) setExpandedKeys(previous=>({...Object.fromEntries(Object.entries(previous).filter(([level])=>Number(level)<depth)),[depth]:expanded?null:item.key}));
           else { close(); item.onSelect?.(); }
         }}>
         {item.icon ?? <NavigationIcon label={item.label} />}<span>{item.label}</span>
         {item.disabled ? <small style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>준비중</small> : item.children ? <span className="shared-mobile-disclosure" aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
           : !!item.badge && <span className="nav-badge" aria-hidden="true">{item.badge > 99 ? '99+' : item.badge}</span>}
       </button>
-      {item.children && expanded && <div id={`${menuId}-${encodeURIComponent(item.key)}`} className="shared-mobile-children">{item.children.map(childItem => itemButton(childItem, true))}</div>}
+      {item.children && expanded && <div id={`${menuId}-${encodeURIComponent(item.key)}`} className="shared-mobile-children">{item.children.map(childItem => itemButton(childItem, depth+1))}</div>}
     </Fragment>;
   }
   return <>
@@ -71,7 +73,7 @@ export function SharedMobileNavigation({ items, footer, triggerRef }: {
         {footer && <footer className="shared-mobile-footer">{footer}</footer>}
       </nav>}
       <button ref={trigger} type="button" className="osan-menu-fab" aria-label={open ? '메뉴 닫기' : '메뉴 열기'} aria-expanded={open} aria-controls={menuId}
-        onClick={() => { if (!open) setExpandedKey(null); setOpen(value => !value); }}><MenuIcon name={open ? 'close' : 'menu'} /></button>
+        onClick={() => { if (!open) setExpandedKeys({}); setOpen(value => !value); }}><MenuIcon name={open ? 'close' : 'menu'} /></button>
     </div>
   </>;
 }

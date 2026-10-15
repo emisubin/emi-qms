@@ -36,6 +36,25 @@ server {
         return 200 '{"status":"healthy"}';
     }
 
+    # Machine endpoint: Easy Auth exception is exact and opt-in in workloads.bicep.
+    # Never trust client-provided forwarding or proxy credentials.
+    location = /integrations/mes/probe {
+        if ($trusted_edge = 0) { return 403; }
+        limit_req zone=emi_api burst=5 nodelay;
+        client_max_body_size 2k;
+        client_body_timeout 5s;
+        proxy_pass https://${BACKEND_FQDN};
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name ${BACKEND_FQDN};
+        proxy_set_header Host ${BACKEND_FQDN};
+        proxy_set_header Authorization "";
+        proxy_set_header Cookie "";
+        proxy_set_header X-Mes-Proxy-Token "${ORIGIN_VERIFY_TOKEN}";
+        proxy_set_header X-Mes-Client-IP $http_x_azure_socketip;
+        proxy_set_header X-Request-Id $request_id;
+    }
+
     location ~ ^/(api|health|cheongju/api|osan/api|access/api)(/|$) {
         if ($trusted_edge = 0) {
             return 403;

@@ -20,7 +20,33 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         ValidateYearMonth(year, month);
         var from = new DateOnly(year, month, 1);
         var range = await ReadRangeAsync(from, from.AddMonths(1).AddDays(-1), token);
-        return new(today, year, month, range.Days.Any(day => day.Inventory.HasValue), range.Days);
+        var production = await ReadProductionAverageAsync(today, token);
+        return new(today, year, month, range.Days.Any(day => day.Inventory.HasValue), range.Days, production.Average, production.Days);
+    }
+
+    private async Task<(decimal? Average, int Days)> ReadProductionAverageAsync(DateOnly today, CancellationToken token)
+    {
+        await using var source = CreateDataSource();
+        await using var connection = await source.OpenConnectionAsync(token);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            select avg(daily_quantity), count(*)::integer
+            from (
+                select sum(quantity) as daily_quantity
+                from g2_daily_metrics
+                where work_date < @today
+                  and metric_code in (@morning, @afternoon)
+                  and quantity is not null
+                  and not is_forecast
+                group by work_date
+            ) production_days;
+            """;
+        command.Parameters.AddWithValue("today", today);
+        command.Parameters.AddWithValue("morning", G2MetricCodes.MorningProduction);
+        command.Parameters.AddWithValue("afternoon", G2MetricCodes.AfternoonProduction);
+        await using var reader = await command.ExecuteReaderAsync(token);
+        await reader.ReadAsync(token);
+        return (reader.IsDBNull(0) ? null : reader.GetDecimal(0), reader.GetInt32(1));
     }
 
     public async Task<G2RangeResponse> GetRangeAsync(DateOnly from, DateOnly to, CancellationToken token)
@@ -31,9 +57,10 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
 
     internal async Task SaveMetricsAsync(DateOnly date, IReadOnlyList<G2MetricChange> changes, Guid actor, CancellationToken token)
     {
+        RejectManualQuality(changes);
         ValidateDate(date);
         var today = Today();
-        if (date > today) throw new ArgumentException("생산, 수리, 납품, 불량 및 출근 실적은 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
+        if (date > today) throw new ArgumentException("생산, 수리, 납품, 부적합 및 출근 실적은 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
         if (changes.Count == 0) throw new ArgumentException("저장할 항목을 하나 이상 입력해 주세요.", nameof(changes));
         if (changes.Select(change => change.MetricCode).Distinct(StringComparer.Ordinal).Count() != changes.Count)
             throw new ArgumentException("같은 항목을 중복해서 저장할 수 없습니다.", nameof(changes));
@@ -125,8 +152,9 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
 
     public async Task SaveDefectInventoryCountAsync(DateOnly date, SaveG2InventoryCountRequest request, Guid actor, CancellationToken token)
     {
+        RejectManualQuality([new(G2MetricCodes.Defect, 0, null)]);
         ValidateDate(date);
-        if (date > Today()) throw new ArgumentException("불량재고 실사는 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
+        if (date > Today()) throw new ArgumentException("부적합재고 실사는 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
         ValidateQuantity(request.Quantity, request.ExpectedVersion, nameof(request));
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
@@ -134,7 +162,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
         await AcquireLockAsync(connection, transaction, DefectInventoryLockKey(date), token);
         var current = await LockDefectInventoryAsync(connection, transaction, date, token);
-        EnsureVersion(current?.Version, request.ExpectedVersion, "불량재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
+        EnsureVersion(current?.Version, request.ExpectedVersion, "부적합재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
         if (current is null || current.Quantity != request.Quantity)
         {
             await using var command = connection.CreateCommand();
@@ -154,8 +182,9 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
 
     public async Task DeleteDefectInventoryCountAsync(DateOnly date, int? expectedVersion, Guid actor, CancellationToken token)
     {
+        RejectManualQuality([new(G2MetricCodes.Defect, 0, null)]);
         ValidateDate(date);
-        if (date > Today()) throw new ArgumentException("불량재고 실사는 오늘 또는 과거 날짜에만 삭제할 수 있습니다.", nameof(date));
+        if (date > Today()) throw new ArgumentException("부적합재고 실사는 오늘 또는 과거 날짜에만 삭제할 수 있습니다.", nameof(date));
         if (expectedVersion is < 1) throw new ArgumentException("현재 버전을 확인해 주세요.", nameof(expectedVersion));
         await using var source = CreateDataSource();
         await using var connection = await source.OpenConnectionAsync(token);
@@ -163,7 +192,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         await AcquireLockAsync(connection, transaction, MetricsWriteLockKey, token);
         await AcquireLockAsync(connection, transaction, DefectInventoryLockKey(date), token);
         var current = await LockDefectInventoryAsync(connection, transaction, date, token);
-        EnsureVersion(current?.Version, expectedVersion, "불량재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
+        EnsureVersion(current?.Version, expectedVersion, "부적합재고 실사값이 다른 사용자에 의해 변경되었습니다. 새로고침 후 다시 시도해 주세요.");
         if (current is not null)
         {
             await using var command = connection.CreateCommand();
@@ -209,11 +238,13 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
     {
         ValidateDate(date);
         var metricChanges = WorkspaceMetricChanges(request);
+        RejectManualQuality(metricChanges);
+        if (request.DefectInventoryCount is not null) throw new ArgumentException("부적합 재고는 품질관리에서 개별 등록해 주세요.");
         var valueChanges = WorkspaceValueChanges(request);
         var noteChanges = WorkspaceNoteChanges(request);
         var hasActualOrCount = metricChanges.Count > 0 || request.PhysicalCount is not null || request.DefectInventoryCount is not null;
         if (hasActualOrCount && date > Today())
-            throw new ArgumentException("생산, 수리, 납품, 불량 및 재고 실적은 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
+            throw new ArgumentException("생산, 수리, 납품, 부적합 및 재고 실적은 오늘 또는 과거 날짜에만 입력할 수 있습니다.", nameof(date));
         foreach (var change in metricChanges) ValidateQuantity(change.Quantity, change.ExpectedVersion, nameof(request));
         foreach (var change in valueChanges) ValidateQuantity(change.Quantity, change.ExpectedVersion, nameof(request));
         foreach (var change in noteChanges) ValidateText(change.Text, change.ExpectedVersion, nameof(request));
@@ -272,6 +303,10 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         await using var connection = await source.OpenConnectionAsync(token);
         var metricsFrom = from >= G2InventoryCalculator.AvailableInventoryStartDate ? from.AddDays(-1) : from;
         var metrics = await ReadMetricsAsync(connection, metricsFrom, to, token);
+        var legacyMetrics = await ReadMetricsAsync(connection, from, to, token, false);
+        DateOnly qualityActivation;
+        await using(var activation=new NpgsqlCommand("select activated_on from g2_quality_settings where singleton",connection))
+            qualityActivation=(DateOnly)(await activation.ExecuteScalarAsync(token))!;
         var counts = await ReadCountsAsync(connection, from, to < today ? to : today, token);
         var defectCounts = await ReadDefectCountsAsync(connection, from, to < today ? to : today, token);
         var dailyValues = await ReadDailyValuesAsync(connection, from, to, token);
@@ -291,6 +326,13 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         }
         var inventory = G2InventoryCalculator.Calculate(from, to, balanceBefore, counts.Where(row => row.Value.Quantity.HasValue).ToDictionary(row => row.Key, row => row.Value.Quantity!.Value), production, delivery, defects, repairs);
         var defectInventory = await ReadDefectInventoryBeforeAsync(connection, from, token);
+        var qualityInventory = new Dictionary<DateOnly,long>();
+        await using(var quality=new NpgsqlCommand("select d::date,count(n.id) from generate_series(@from::timestamp,@to::timestamp,interval '1 day') d left join g2_nonconformances n on (n.data->>'occurrenceDate')::date<=d::date and (n.data->'action' is null or n.data->'action'='null'::jsonb or (n.data->'action'->>'completionDate')::date>d::date) group by d",connection))
+        {
+            quality.Parameters.AddWithValue("from",from); quality.Parameters.AddWithValue("to",to);
+            await using var reader=await quality.ExecuteReaderAsync(token);
+            while(await reader.ReadAsync(token))qualityInventory[reader.GetFieldValue<DateOnly>(0)]=reader.GetInt64(1);
+        }
         var dailyTargets = ExpandTargets(from, to, targets);
         var days = new List<G2DayResponse>();
         for (var date = from; date <= to; date = date.AddDays(1))
@@ -308,9 +350,9 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
             var repairTotal = Sum(mr?.Quantity, ar?.Quantity);
             if (date <= today)
             {
-                defectInventory += (long)(Metric(metrics, date, G2MetricCodes.Defect)?.Quantity ?? 0)
-                    - (mr?.Quantity ?? 0)
-                    - (ar?.Quantity ?? 0);
+                defectInventory += (long)(Metric(legacyMetrics, date, G2MetricCodes.Defect)?.Quantity ?? 0)
+                    - (Metric(legacyMetrics,date,G2MetricCodes.MorningRepair)?.Quantity ?? 0)
+                    - (Metric(legacyMetrics,date,G2MetricCodes.AfternoonRepair)?.Quantity ?? 0);
                 if (defectCounts.TryGetValue(date, out var currentDefectCount) && currentDefectCount.Quantity.HasValue) defectInventory = currentDefectCount.Quantity.Value;
             }
             dailyTargets.TryGetValue((date, G2TargetTypes.DailyProduction), out var productionTarget);
@@ -322,7 +364,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                 date > today ? null : morningTotal, date > today ? null : afternoonTotal, date > today ? null : Sum(morningTotal, afternoonTotal), date > today ? null : inventory.GetValueOrDefault(date),
                 date <= today && counts.TryGetValue(date, out var count) ? ToResponse(count) : null,
                 productionTarget is null ? null : ToResponse(productionTarget), deliveryTarget is null ? null : ToResponse(deliveryTarget), inventoryTarget is null ? null : ToResponse(inventoryTarget),
-                date > today ? null : ToResponse(mr), date > today ? null : ToResponse(ar), date > today ? null : repairTotal, date > today ? null : defectInventory,
+                date > today ? null : ToResponse(mr), date > today ? null : ToResponse(ar), date > today ? null : repairTotal, date > today ? null : date < qualityActivation ? defectInventory : qualityInventory.GetValueOrDefault(date),
                 date <= today && defectCounts.TryGetValue(date, out var defectCount) ? ToResponse(defectCount) : null,
                 ToResponse(DailyValue(dailyValues, date, G2DailyValueCodes.ProductionPlan)),
                 ToResponse(DailyValue(dailyValues, date, G2DailyValueCodes.DeliveryPlan)),
@@ -333,17 +375,18 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         return new(today, from, to, days);
     }
 
-    private static async Task<Dictionary<(DateOnly, string), MetricRow>> ReadMetricsAsync(NpgsqlConnection connection, DateOnly from, DateOnly to, CancellationToken token)
+    private static async Task<Dictionary<(DateOnly, string), MetricRow>> ReadMetricsAsync(NpgsqlConnection connection, DateOnly from, DateOnly to, CancellationToken token, bool projected = true)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = "select m.id,m.work_date,m.metric_code,m.quantity,m.is_forecast,m.version,m.updated_at_utc,u.display_name from g2_daily_metrics m join qms_users u on u.id=m.updated_by_user_id where m.work_date between @from and @to and not m.is_forecast order by m.work_date,m.metric_code;";
+        command.CommandText = "select m.id,m.work_date,m.metric_code,m.quantity,m.is_forecast,m.version,m.updated_at_utc,u.display_name from g2_projected_metrics m join qms_users u on u.id=m.updated_by_user_id where m.work_date between @from and @to and not m.is_forecast order by m.work_date,m.metric_code;";
+        if(!projected) command.CommandText=command.CommandText.Replace("g2_projected_metrics","g2_daily_metrics",StringComparison.Ordinal);
         command.Parameters.AddWithValue("from", from); command.Parameters.AddWithValue("to", to);
         var result = new Dictionary<(DateOnly, string), MetricRow>();
         await using var reader = await command.ExecuteReaderAsync(token);
         while (await reader.ReadAsync(token))
         {
             var row = new MetricRow(reader.GetGuid(0), reader.GetFieldValue<DateOnly>(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.GetBoolean(4), reader.GetInt32(5), reader.GetFieldValue<DateTimeOffset>(6), reader.GetString(7));
-            result[(row.Date, row.Code)] = row;
+            result[(row.Date, row.Code)] = result.TryGetValue((row.Date,row.Code),out var previous) ? row with {Quantity=(previous.Quantity??0)+(row.Quantity??0)} : row;
         }
         return result;
     }
@@ -451,7 +494,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                 when 'Delivery' then -coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
-              from g2_daily_metrics
+              from g2_projected_metrics
               where work_date > @checkpoint
                 and work_date < @from
                 and work_date < @available_inventory_start
@@ -462,7 +505,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                 when 'AfternoonProduction' then coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
-              from g2_daily_metrics
+              from g2_projected_metrics
               where work_date >= @checkpoint
                 and work_date >= @available_inventory_previous
                 and work_date < @repair_inventory_previous
@@ -476,14 +519,14 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                 when 'AfternoonRepair' then coalesce(quantity,0)
                 when 'Defect' then -coalesce(quantity,0)
                 else 0 end as delta
-              from g2_daily_metrics
+              from g2_projected_metrics
               where work_date >= @checkpoint
                 and work_date >= @repair_inventory_previous
                 and work_date < @from_previous
                 and not is_forecast
               union all
               select -coalesce(quantity,0) as delta
-              from g2_daily_metrics
+              from g2_projected_metrics
               where metric_code = 'Delivery'
                 and work_date > @checkpoint
                 and work_date >= @available_inventory_start
@@ -545,7 +588,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                   when 'MorningRepair' then -coalesce(quantity,0)
                   when 'AfternoonRepair' then -coalesce(quantity,0)
                   else 0 end)::bigint as movement
-              from g2_daily_metrics
+              from g2_projected_metrics
               where metric_code in ('Defect','MorningRepair','AfternoonRepair')
                 and not is_forecast
               group by work_date
@@ -569,7 +612,7 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
             """;
         var minimum = (long)(await command.ExecuteScalarAsync(token) ?? 0L);
         if (minimum < 0)
-            throw new ArgumentException("수리 완료량은 해당 날짜까지 누적된 불량 수량을 초과할 수 없습니다.", "repairs");
+            throw new ArgumentException("수리 완료량은 해당 날짜까지 누적된 부적합 수량을 초과할 수 없습니다.", "repairs");
     }
 
     private static Dictionary<(DateOnly, string), TargetRow?> ExpandTargets(DateOnly from, DateOnly to, IReadOnlyList<TargetRow> targets)
@@ -784,6 +827,10 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
     private static MetricRow? Metric(IReadOnlyDictionary<(DateOnly, string), MetricRow> metrics, DateOnly date, string code) => metrics.GetValueOrDefault((date, code));
     private static DailyValueRow? DailyValue(IReadOnlyDictionary<(DateOnly, string), DailyValueRow> values, DateOnly date, string code) => values.GetValueOrDefault((date, code));
     private static NoteRow? Note(IReadOnlyDictionary<(DateOnly, string), NoteRow> notes, DateOnly date, string code) => notes.GetValueOrDefault((date, code));
+    private static void RejectManualQuality(IReadOnlyList<G2MetricChange> changes)
+    {
+        if(changes.Any(IsDefectInventoryChange)) throw new ArgumentException("부적합과 수리는 품질관리에서 개별 정보를 등록해 주세요.");
+    }
     private static bool IsDefectInventoryChange(G2MetricChange change) => change.MetricCode is G2MetricCodes.Defect or G2MetricCodes.MorningRepair or G2MetricCodes.AfternoonRepair;
     private static long? Sum(int? left, int? right) => left.HasValue || right.HasValue ? (long)(left ?? 0) + (right ?? 0) : null;
     private static long? Sum(long? left, long? right) => left.HasValue || right.HasValue ? (left ?? 0) + (right ?? 0) : null;

@@ -22,6 +22,13 @@ public static partial class AuditMutationRegistry
     // This closed set is populated from the runtime endpoint catalog and locked by a contract test.
     // Any new mutation endpoint must be deliberately classified before application startup succeeds.
     internal static readonly IReadOnlySet<string> KnownMutationRouteKeys = ParseRouteKeys("""
+        POST /integrations/mes/probe
+        POST /api/g2/nonconformances/
+        POST /api/g2/nonconformances/photos/preview
+        PUT /api/g2/nonconformances/{id:guid}
+        DELETE /api/g2/nonconformances/{id:guid}
+        PUT /api/g2/nonconformances/{id:guid}/action
+        DELETE /api/g2/nonconformances/{id:guid}/action
         PUT /api/g2/materials/{date}
         POST /api/g2/materials/import
         POST /api/interior-busbar/products/{id:guid}/inspection
@@ -288,8 +295,17 @@ public static partial class AuditMutationRegistry
         PUT /api/sales/targets
         """);
 
+    // MES machine probes retain only short-lived replay receipts; no employee/business mutation.
     // G2 material snapshots intentionally have no mutation history; import only prepares a draft.
+    // UPG records use their own atomic, three-month history; do not retain deleted information in the general audit ledger.
     private static readonly IReadOnlySet<string> ExcludedMutationRouteKeys = ParseRouteKeys("""
+        POST /integrations/mes/probe
+        POST /api/g2/nonconformances/
+        POST /api/g2/nonconformances/photos/preview
+        PUT /api/g2/nonconformances/{id:guid}
+        DELETE /api/g2/nonconformances/{id:guid}
+        PUT /api/g2/nonconformances/{id:guid}/action
+        DELETE /api/g2/nonconformances/{id:guid}/action
         PUT /api/g2/materials/{date}
         POST /api/g2/materials/import
         POST /api/interior-busbar/projects/import/preview

@@ -1,31 +1,9 @@
-import { useNativeDialog } from './useNativeDialog';
-import { dismissOnBackdrop } from './dialogBackdrop';
-import { useEffect, useRef, useState } from 'react';
-import { getOsanProgressPhoto, type OsanProgressPhoto } from './osanProgress';
-
-export function SavedPhoto({ projectId, photo, userKey, preview = false }: { projectId: string; photo: OsanProgressPhoto; userKey?: string; preview?: boolean }) {
-  const [url, setUrl] = useState('');
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  const [open, setOpen] = useState(false);
-  const dialog = useNativeDialog(open, setOpen);
-  useEffect(() => {
-    const controller = new AbortController(); let objectUrl = '';
-    setUrl(''); setError('');
-    getOsanProgressPhoto(projectId, photo.photoId, userKey, controller.signal, photo.contentType === 'image/heic').then(blob => {
-      if (!controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }
-    }).catch(() => { if (!controller.signal.aborted) setError('사진을 불러오지 못했습니다.'); });
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [projectId, photo.photoId, photo.contentType, userKey, attempt]);
-  const picture = <img src={url} alt={`사진 ${photo.displayOrder}`} onError={() => { setUrl(''); setError('사진을 표시하지 못했습니다. 다시 불러와 주세요.'); }} />;
-  const fallback = error ? <><p role="alert">{error}</p><button type="button" onClick={() => setAttempt(n => n + 1)}>사진 다시 불러오기</button></> : <p role="status">사진 불러오는 중…</p>;
-  if (preview) return url ? picture : fallback;
-  return <figure className="osan-progress-saved-photo">
-    {url ? <button type="button" className="osan-photo-zoom-trigger" aria-label="사진 크게 보기" onClick={() => setOpen(true)}>{picture}</button> : fallback}
-    <dialog ref={dialog} className="osan-image-dialog" aria-label="사진 크게 보기" onCancel={() => setOpen(false)} onClick={e => dismissOnBackdrop(e, () => setOpen(false))}>
-      {open && <><header><span>사진 크게 보기</span><button type="button" onClick={() => setOpen(false)}>닫기</button></header><img src={url} alt="확대된 완료 사진" /></>}
-    </dialog>
-  </figure>;
+import {useCallback,useRef,useState} from 'react';
+import {getOsanProgressPhoto,type OsanProgressPhoto} from './osanProgress';
+import {SavedPhotoView} from './SavedPhotoView';
+export function SavedPhoto({projectId,photo,userKey,preview=false}:{projectId:string;photo:OsanProgressPhoto;userKey?:string;preview?:boolean}) {
+ const loadPhoto=useCallback((signal:AbortSignal)=>getOsanProgressPhoto(projectId,photo.photoId,userKey,signal,photo.contentType==='image/heic'),[projectId,photo.photoId,photo.contentType,userKey]);
+ return <SavedPhotoView loadPhoto={loadPhoto} alt={`사진 ${photo.displayOrder}`} preview={preview}/>;
 }
 export function OsanPhotoGallery({ projectId, photos, userKey, history = false }: { projectId: string; photos: OsanProgressPhoto[]; userKey?: string; history?: boolean }) {
   const track = useRef<HTMLDivElement>(null); const [index, setIndex] = useState(0);

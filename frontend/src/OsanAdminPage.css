@@ -63,7 +63,7 @@
 .app-shell .osan-gate-table-wrap td label { display: grid; min-height: 43px; place-items: center; cursor: pointer; }
 .app-shell .osan-gate-mark { color: var(--osan-brand,#da2127); font-size: 23px; font-weight: 700; }
 .app-shell .osan-admin-page :is(button:not(.osan-button), input):focus-visible { outline: 2px solid #282828; outline-offset: 2px; }
-/* The shared wireframe loads after this page and uses important selected-button:not(.osan-button) colors. */
+/* Keep the approved compact tab and primary-action colors inside this page. */
 .app-shell .osan-admin-page .osan-admin-tabs > button:not(.osan-button):not(:disabled) { border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; background: transparent !important; color: #888 !important; box-shadow: none !important; }
 .app-shell .osan-admin-page .osan-admin-tabs > button:not(.osan-button)[aria-selected='true']:not(:disabled) { border-bottom-color: #282828 !important; background: transparent !important; color: #282828 !important; }
 .app-shell .osan-admin-page .osan-admin-tabs { border-bottom-color: #ddd !important; }

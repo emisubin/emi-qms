@@ -1,3 +1,4 @@
+import { G2NonconformancePage } from './G2NonconformancePage';
 import { canLeaveMaterialDraft } from './materialNavigationGuard';
 import { getOsanPersonalHome } from './osanPersonalHome';
 import { OsanNotificationsPage } from './OsanNotificationsPage';
@@ -383,6 +384,7 @@ type View =
   | { kind: 'g2-operations' }
   | { kind: 'g2-attendance' }
   | { kind: 'g2-materials' }
+  | { kind: 'g2-nonconformances' }
   | { kind: 'form-templates' }
   | { kind: 'deleted-detail'; projectId: string }
   | { kind: 'edit'; projectId: string }
@@ -454,6 +456,7 @@ function siteAccessMenuCodeForView(view: View): SiteAccessMenuCode {
     case 'g2-home':
     case 'g2-operations':
     case 'g2-materials':
+    case 'g2-nonconformances':
     case 'g2-attendance': return 'G2';
     case 'form-templates': return 'FormTemplates';
     case 'production-planning-edit':
@@ -803,6 +806,7 @@ function initialViewFromLocation(): View {
     return { kind: 'sales-billing' };
   }
 
+  if (window.location.pathname === '/g2/quality/upg') return { kind: 'g2-nonconformances' };
   if (window.location.pathname === '/g2/materials') return { kind: 'g2-materials' };
   if (window.location.pathname === '/g2') return { kind: 'g2-home' };
   if (window.location.pathname === '/g2/operations') return { kind: 'g2-operations' };
@@ -1426,6 +1430,8 @@ function pathForView(view: View) {
       return '/g2';
     case 'g2-operations':
       return '/g2/operations';
+    case 'g2-nonconformances':
+      return '/g2/quality/upg';
     case 'g2-materials':
       return '/g2/materials';
     case 'g2-attendance':
@@ -2640,7 +2646,11 @@ function QmsAppShellContent({
     { key: 'g2-home', label: '홈', view: { kind: 'g2-home' }, active: view.kind === 'g2-home' },
     { key: 'g2-operations', label: '생산/출하 관리', view: { kind: 'g2-operations' }, active: view.kind === 'g2-operations' },
     { key: 'g2-attendance', label: '제조 인원 출근 관리', view: { kind: 'g2-attendance' }, active: view.kind === 'g2-attendance' },
-    { key: 'g2-materials', label: '자재', view: { kind: 'g2-materials' }, active: view.kind === 'g2-materials' }
+    { key: 'g2-materials', label: '자재', view: { kind: 'g2-materials' }, active: view.kind === 'g2-materials' },
+    { key: 'g2-quality', label: '품질관리', view: { kind: 'g2-nonconformances' }, active: view.kind === 'g2-nonconformances', children: [
+      { key: 'g2-upg', label: 'UPG', view: { kind: 'g2-nonconformances' }, active: view.kind === 'g2-nonconformances' },
+      { key: 'g2-cooling', label: '수냉기구물', view: { kind: 'g2-nonconformances' }, active: false, disabled: true }
+    ] }
   ];
   const departmentNavigationItems: NavigationItem[] = [
     { label: '인테리어 부스바', view: { kind: 'interior-busbar', section: 'overview' }, active: view.kind === 'interior-busbar', children: busbarSections.filter(item => item.key !== 'masters' || canSeeBusbarMasters).map((item) => ({ key: `busbar-${item.key}`, label: item.label, view: { kind: 'interior-busbar', section: item.key }, active: view.kind === 'interior-busbar' && (view.section ?? 'overview') === item.key })) },
@@ -2698,8 +2708,8 @@ function QmsAppShellContent({
         ] : [])
       ]
     : cheongjuNavigationItems.map(item => ({
-        ...item, disabled: !isCheongjuWorkspaceAvailable(item.view, cheongjuRestricted),
-        children: item.children?.map(child => ({ ...child, disabled: !isCheongjuWorkspaceAvailable(child.view, cheongjuRestricted) }))
+        ...item, disabled: item.disabled || !isCheongjuWorkspaceAvailable(item.view, cheongjuRestricted),
+        children: item.children?.map(child => ({ ...child, disabled: child.disabled || !isCheongjuWorkspaceAvailable(child.view, cheongjuRestricted) }))
       }));
 
   const systemStatusDisclosure = (
@@ -3031,6 +3041,7 @@ function QmsAppShellContent({
         />
       ) : null}
 
+      {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-nonconformances' ? <G2NonconformancePage developmentUserKey={developmentUserKey} mutationEnabled={mutationEnabled}/> : null}
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-materials' ? (<G2MaterialsPage developmentUserKey={developmentUserKey} mutationEnabled={mutationEnabled} />) : null}
 
       {currentUser.kind === 'ready' && !currentUser.data.approvalPending && canReadG2 && view.kind === 'g2-home' ? (
@@ -3622,6 +3633,7 @@ type NavigationItem = {
 };
 
 type NavigationChild = {
+  children?: NavigationChild[];
   disabled?: boolean;
   key: string;
   label: string;
@@ -3713,20 +3725,7 @@ function AppNavigation({
               </button>
               {item.children && expanded ? (
                 <div id={childListId} className="app-nav-children">
-                  {item.children.map((child) => (
-                    <button
-                      key={child.key}
-                      type="button"
-                      className={child.active ? 'app-nav-child-button active' : 'app-nav-child-button'}
-                      disabled={child.disabled}
-                      aria-label={child.disabled ? `${child.label} 준비중` : undefined}
-                      aria-current={child.active ? 'page' : undefined}
-                      onClick={() => onNavigate(child.view)}
-                    >
-                      <span className="app-nav-label">{isOsan && <NavigationIcon label={child.label} />}<span>{child.label}</span></span>
-                      {child.disabled && <small>준비중</small>}
-                    </button>
-                  ))}
+                  {item.children.map(child => <DesktopNavigationChild key={child.key} child={child} isOsan={isOsan} onNavigate={onNavigate}/>)}
                 </div>
               ) : null}
             </Fragment>
@@ -3738,16 +3737,26 @@ function AppNavigation({
   );
 }
 
+function DesktopNavigationChild({child,isOsan,onNavigate}:{child:NavigationChild;isOsan:boolean;onNavigate:(view:View)=>void}) {
+  const label=<span className="app-nav-label">{isOsan&&<NavigationIcon label={child.label}/>}<span>{child.label}</span></span>;
+  if(child.children) return <details className="app-nav-nested">
+    <summary className="app-nav-child-button">{label}<span className="app-nav-disclosure" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+    <div className="app-nav-children">{child.children.map(item=><DesktopNavigationChild key={item.key} child={item} isOsan={isOsan} onNavigate={onNavigate}/>)}</div>
+  </details>;
+  return <button type="button" className={child.active?'app-nav-child-button active':'app-nav-child-button'} disabled={child.disabled} aria-label={child.disabled?`${child.label} 준비중`:undefined} aria-current={child.active?'page':undefined} onClick={()=>onNavigate(child.view)}>{label}{child.disabled&&<small>준비중</small>}</button>;
+}
+
 function CampusMobileNavigation({ items, onNavigate, footer }: {
   items: NavigationItem[];
   onNavigate: (view: View) => void;
   footer?: ReactNode;
 }) {
+  const mapChild=(child:NavigationChild):import('./SharedMobileNavigation').MobileNavigationItem=>({key:child.key,label:child.label,active:child.active,disabled:child.disabled,onSelect:()=>onNavigate(child.view),children:child.children?.map(mapChild)});
   return <SharedMobileNavigation
     items={items.map(item => ({
       key: item.label, label: item.label, active: item.active, badge: item.badge, group: item.group, disabled: item.disabled,
       onSelect: () => onNavigate(item.view),
-      children: item.children?.map(child => ({ key: child.key, label: child.label, active: child.active, disabled: child.disabled, onSelect: () => onNavigate(child.view) }))
+      children: item.children?.map(mapChild)
     }))}
     footer={footer}
   />;

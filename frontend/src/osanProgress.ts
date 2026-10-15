@@ -1,3 +1,4 @@
+import {validatePhotoSelection} from './photoSelection';
 import { fetchBlob, fetchJson } from './api';
 
 export const osanStageNames = ['입고검사', '배치검사', '배선검사', '8계통', '동작검사', '출하검사', '포장'] as const;
@@ -67,11 +68,7 @@ export async function previewOsanPhoto(projectId: string, file: File, userKey?: 
   return new Blob([bytes], { type: result.contentType });
 }
 export function validateOsanPhotos(files: readonly File[]): string | null {
-  if (files.length > 5) return '사진은 최대 5장까지 선택할 수 있습니다.';
-  if (files.some(file => !['image/jpeg', 'image/png', 'image/heic', 'image/heif'].includes(file.type.toLowerCase()) && !(['', 'application/octet-stream'].includes(file.type) && /\.(jpe?g|png|hei[cf])$/i.test(file.name)))) return 'JPEG·PNG·HEIC 사진을 선택해 주세요.';
-  if (files.some(file => file.size === 0)) return '빈 파일은 첨부할 수 없습니다.';
-  if (files.reduce((total, file) => total + file.size, 0) > 40 * 1024 * 1024) return '선택한 사진의 전체 용량은 40MiB 이하여야 합니다.';
-  return null;
+ return validatePhotoSelection(files,{count:5,total:40*1024*1024,types:['image/jpeg','image/png','image/heic','image/heif'],extensions:/\.(jpe?g|png|hei[cf])$/i,formatMessage:'JPEG·PNG·HEIC 사진을 선택해 주세요.',totalMessage:'선택한 사진의 전체 용량은 40MiB 이하여야 합니다.'});
 }
 export function completionUnavailable(targets: OsanProgressTarget[], stageSequence: number, mode: 'individual' | 'batch'): string | null {
   if (targets.length === 0) return '진행할 대상을 선택해 주세요.';

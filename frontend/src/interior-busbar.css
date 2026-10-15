@@ -539,7 +539,7 @@
   padding: 0;
 }
 .app-shell .busbar-page .busbar-shipment-card + .busbar-shipment-card {
-  border-top: 1px solid var(--wire-line, #e2e8f0);
+  border-top: 1px solid var(--busbar-line, #e2e8f0);
   padding-top: 20px;
 }
 .app-shell .busbar-page .ds-surface details {
@@ -660,7 +660,7 @@
   .busbar-photo-desktop-workspace { display: block; }
 }
 
-/* Evidence colors must not inherit the shared wireframe grayscale. */
+/* Evidence photos keep their source colors. */
 .app-shell .busbar-page img,
 .app-shell .busbar-plan-dialog img,
 .app-shell .busbar-mobile-photo-zoom img { filter: none !important; }

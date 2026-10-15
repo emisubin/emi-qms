@@ -310,8 +310,16 @@ public sealed class PublicDeploymentSecurityTests
         Assert.DoesNotContain("runtimeIdentity", workloads, StringComparison.Ordinal);
         Assert.DoesNotContain("scope: keyVault\n", identityAccess, StringComparison.Ordinal);
         Assert.Equal(
-            26,
+            27,
             Regex.Matches(identityAccess, @"scope: \w+Secret\r?$", RegexOptions.Multiline).Count);
+
+        Assert.Contains("param enableMesProbe bool = false", identityAccess, StringComparison.Ordinal);
+        Assert.Contains("backendMesProbeOriginSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMesProbe)", identityAccess, StringComparison.Ordinal);
+        var mesProxyRole = identityAccess[identityAccess.IndexOf("resource backendMesProbeOriginSecretRole", StringComparison.Ordinal)..];
+        Assert.Contains("scope: originVerificationSecret", mesProxyRole, StringComparison.Ordinal);
+        Assert.Contains("principalId: backendIdentity.properties.principalId", mesProxyRole, StringComparison.Ordinal);
+        Assert.Contains("roleDefinitionId: keyVaultSecretsUserRoleId", mesProxyRole, StringComparison.Ordinal);
+        Assert.Contains("(enableBusinessUnits ? 26 : 14) + (enableMesProbe ? 1 : 0)", identityAccess, StringComparison.Ordinal);
 
         Assert.Contains("database-runtime-connection-string", workloads, StringComparison.Ordinal);
         Assert.Contains("database-migration-connection-string", workloads, StringComparison.Ordinal);

@@ -303,9 +303,7 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             deliveryPlan = new { quantity = 10, expectedVersion = (int?)null },
             morningProduction = new { quantity = 5, expectedVersion = (int?)null },
             afternoonProduction = new { quantity = 3, expectedVersion = (int?)null },
-            defect = new { quantity = 2, expectedVersion = (int?)null },
             physicalCount = new { quantity = 100, expectedVersion = (int?)null },
-            defectInventoryCount = new { quantity = 2, expectedVersion = (int?)null },
             planNote = new { text = "계획", expectedVersion = (int?)null },
             actualNote = new { text = "공유 실적", expectedVersion = (int?)null },
             rowNote = new { text = "행 메모", expectedVersion = (int?)null }
@@ -315,7 +313,7 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
         var first = await client.GetFromJsonAsync<JsonElement>($"/api/g2/days?from={date}&to={date}", ct);
         var day = first.GetProperty("days")[0];
         Assert.Equal(20, day.GetProperty("productionPlan").GetProperty("quantity").GetInt32());
-        Assert.Equal(0 + 2, day.GetProperty("defectInventoryCount").GetProperty("quantity").GetInt32());
+        Assert.Equal(JsonValueKind.Null, day.GetProperty("defectInventoryCount").ValueKind);
         Assert.Equal("공유 실적", day.GetProperty("actualNote").GetProperty("text").GetString());
         Assert.Equal(8, day.GetProperty("productionTotal").GetInt64());
         Assert.True(await databases.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,
@@ -403,30 +401,25 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
 
         using var created = await client.PutAsJsonAsync($"/api/g2/workspace/{date}", new
         {
-            physicalCount = new { quantity = 20, expectedVersion = (int?)null },
-            defectInventoryCount = new { quantity = 4, expectedVersion = (int?)null }
+            physicalCount = new { quantity = 20, expectedVersion = (int?)null }
         }, ct);
         Assert.Equal(HttpStatusCode.OK, created.StatusCode);
         var initial = await client.GetFromJsonAsync<JsonElement>($"/api/g2/days?from={date}&to={date}", ct);
         var day = initial.GetProperty("days")[0];
         Assert.Equal(1, day.GetProperty("physicalCount").GetProperty("version").GetInt32());
-        Assert.Equal(1, day.GetProperty("defectInventoryCount").GetProperty("version").GetInt32());
 
         client.DefaultRequestHeaders.Remove(DevelopmentAuthenticationDefaults.UserHeader);
         client.DefaultRequestHeaders.Add(DevelopmentAuthenticationDefaults.UserHeader, "dev-sales");
         using var deletedPhysical = await client.DeleteAsync($"/api/g2/inventory-counts/{date}?expectedVersion=1", ct);
         using var deletedDefect = await client.DeleteAsync($"/api/g2/defect-inventory-counts/{date}?expectedVersion=1", ct);
         Assert.Equal(HttpStatusCode.OK, deletedPhysical.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, deletedDefect.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, deletedDefect.StatusCode);
 
         var deleted = await client.GetFromJsonAsync<JsonElement>($"/api/g2/days?from={date}&to={date}", ct);
         day = deleted.GetProperty("days")[0];
         Assert.Equal(JsonValueKind.Null, day.GetProperty("physicalCount").GetProperty("quantity").ValueKind);
         Assert.Equal(2, day.GetProperty("physicalCount").GetProperty("version").GetInt32());
         Assert.Equal("G2 Test Sales", day.GetProperty("physicalCount").GetProperty("updatedByDisplayName").GetString());
-        Assert.Equal(JsonValueKind.Null, day.GetProperty("defectInventoryCount").GetProperty("quantity").ValueKind);
-        Assert.Equal(2, day.GetProperty("defectInventoryCount").GetProperty("version").GetInt32());
-        Assert.Equal("G2 Test Sales", day.GetProperty("defectInventoryCount").GetProperty("updatedByDisplayName").GetString());
 
         using var recreatedPhysical = await client.PutAsJsonAsync($"/api/g2/inventory-counts/{date}", new
         {
@@ -439,7 +432,7 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             expectedVersion = 2
         }, ct);
         Assert.Equal(HttpStatusCode.OK, recreatedPhysical.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, recreatedDefect.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, recreatedDefect.StatusCode);
 
         using var stalePhysical = await client.PutAsJsonAsync($"/api/g2/workspace/{date}", new
         {
@@ -450,14 +443,12 @@ public sealed class G2OperationsTests(QmsWebApplicationFactory factory) : IClass
             defectInventoryCount = new { quantity = 99, expectedVersion = 1 }
         }, ct);
         Assert.Equal(HttpStatusCode.Conflict, stalePhysical.StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, staleDefect.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, staleDefect.StatusCode);
 
         var final = await client.GetFromJsonAsync<JsonElement>($"/api/g2/days?from={date}&to={date}", ct);
         day = final.GetProperty("days")[0];
         Assert.Equal(30, day.GetProperty("physicalCount").GetProperty("quantity").GetInt32());
         Assert.Equal(3, day.GetProperty("physicalCount").GetProperty("version").GetInt32());
-        Assert.Equal(5, day.GetProperty("defectInventoryCount").GetProperty("quantity").GetInt32());
-        Assert.Equal(3, day.GetProperty("defectInventoryCount").GetProperty("version").GetInt32());
     }
 
     [Fact]

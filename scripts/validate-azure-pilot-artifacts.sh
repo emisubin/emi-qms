@@ -203,7 +203,7 @@ const expectedAnonymousFrontendPaths = [
   '/teams-launcher.js',
   '/icons/emi-qms-192.png'
 ];
-const excludedPathsSource = workloads.match(/excludedPaths:\s*\[([\s\S]*?)\]/mu)?.[1] ?? '';
+const excludedPathsSource = workloads.match(/excludedPaths:\s*concat\(enableMesProbe \? \['\/integrations\/mes\/probe'\] : \[\], \[([\s\S]*?)\]\)/mu)?.[1] ?? '';
 const sourceExcludedPaths = [...excludedPathsSource.matchAll(/'([^']+)'/gu)].map((match) => match[1]);
 const workloadsTemplate = JSON.parse(read(join(azure, 'workloads.json')));
 // TCP scanner traffic uses the same-environment service name.
@@ -221,8 +221,10 @@ const frontendAuthResource = workloadsTemplate.resources.find(
   (resource) => resource.type === 'Microsoft.App/containerApps/authConfigs'
 );
 if (JSON.stringify(sourceExcludedPaths) !== JSON.stringify(expectedAnonymousFrontendPaths)
-  || JSON.stringify(frontendAuthResource?.properties?.globalValidation?.excludedPaths)
-    !== JSON.stringify(expectedAnonymousFrontendPaths)) {
+  || frontendAuthResource?.properties?.globalValidation?.excludedPaths
+    !== "[concat(if(parameters('enableMesProbe'), createArray('/integrations/mes/probe'), createArray()), createArray('/health/live', '/teams-launcher.html', '/teams-launcher.js', '/icons/emi-qms-192.png'))]"
+  || workloadsTemplate.parameters.enableMesProbe?.defaultValue !== false
+  || workloadsTemplate.parameters.mesProbeRequireCompanyIp?.defaultValue !== true) {
   process.exit(1);
 }
 
@@ -248,9 +250,16 @@ if (identityAccess.includes("scope: keyVault\n")
 }
 
 const secretScopes = identityAccess.match(/scope: \w+Secret$/gmu) ?? [];
-if (secretScopes.length !== 26) {
+if (secretScopes.length !== 27) {
   process.exit(1);
 }
+
+// The only employee-login exception is a disabled-by-default, signature-protected machine route.
+if (!identityAccess.includes("backendMesProbeOriginSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMesProbe)")
+  || !nginx.includes('location = /integrations/mes/probe {')
+  || !nginx.includes('proxy_set_header X-Mes-Client-IP $http_x_azure_socketip;')
+  || !nginx.includes('proxy_set_header X-Mes-Proxy-Token "${ORIGIN_VERIFY_TOKEN}";')
+  || !nginx.includes('client_max_body_size 2k;')) process.exit(1);
 
 const fromLines = dockerfile
   .split('\n')

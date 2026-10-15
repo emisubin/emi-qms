@@ -1,5 +1,4 @@
-/* Approved notification C surfaces. Every override is scoped to this page;
-   shared wireframe rules and other pages are intentionally untouched. */
+/* Approved notification C surfaces. Every override is scoped to this page. */
 .app-shell .osan-notification-feed .onf-tabs { display:flex; gap:8px; border-bottom:1px solid #ddd; margin-top:22px; }
 .app-shell .osan-notification-feed .onf-tabs > button { min-width:102px; min-height:44px; padding:12px 20px; border:0!important; border-bottom:2px solid transparent!important; border-radius:0!important; color:#777!important; background:transparent!important; font-size:13px; font-weight:400; }
 .app-shell .osan-notification-feed .onf-tabs > button[aria-selected='true'] { border-bottom-color:#da2127!important; color:#c5222b!important; background:transparent!important; font-weight:700; }

@@ -54,7 +54,7 @@ export type G2Day = {
 };
 
 export type G2RangeResponse = { today: string; from: string; to: string; days: G2Day[] };
-export type G2HomeResponse = { today: string; year: number; month: number; hasInventoryBaseline: boolean; days: G2Day[] };
+export type G2HomeResponse = { averageDailyProduction?: number | null; productionSampleDays?: number; today: string; year: number; month: number; hasInventoryBaseline: boolean; days: G2Day[] };
 export type G2MetricChange = { quantity: number | null; expectedVersion: number | null };
 export type SaveG2OperationsRequest = { morningProduction?: G2MetricChange; afternoonProduction?: G2MetricChange; morningRepair?: G2MetricChange; afternoonRepair?: G2MetricChange; delivery?: G2MetricChange; defect?: G2MetricChange };
 export type SaveG2AttendanceRequest = {

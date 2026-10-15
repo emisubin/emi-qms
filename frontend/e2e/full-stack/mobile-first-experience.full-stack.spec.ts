@@ -183,9 +183,9 @@ async function assertNoHorizontalOverflow(page: Page) {
 async function assertTouchTargets(buttons: Locator) {
   const targets = await buttons.evaluateAll((elements) => elements.map((element) => {
     const rect = element.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
+    return { label: element.getAttribute('aria-label') ?? element.textContent?.trim(), className: element.className, width: rect.width, height: rect.height };
   }).filter((target) => target.width > 0 && target.height > 0));
-  expect(targets.every((target) => target.width >= 44 && target.height >= 44)).toBeTruthy();
+  expect(targets.filter((target) => target.width < 44 || target.height < 44)).toEqual([]);
 }
 
 async function assertStickyActionInsideViewport(page: Page, action: Locator) {

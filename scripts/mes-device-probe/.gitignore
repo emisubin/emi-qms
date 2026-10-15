@@ -1,0 +1,4 @@
+bin/
+obj/
+device-registration.json
+pms-settings.json

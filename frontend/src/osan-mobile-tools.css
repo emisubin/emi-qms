@@ -26,7 +26,7 @@
 .osan-scan-body .osan-scan-status { margin: 16px 0 4px; font-weight: 600; }
 .osan-scan-body .osan-scan-hint { font-size: 12px; color: #737373; }
 .osan-scan-retry { min-height: 44px; padding: 0 18px; border: 0; border-radius: 7px; background: #da2127; color: #fff; font-size: 12px; margin-top: 14px; }
-/* Preserve the approved surfaces inside the shared wireframe shell reset. */
+/* Preserve the approved mobile tool surfaces inside the shared shell. */
 .app-shell .osan-mobile-tools .osan-menu-fab { border-radius: 50% !important; background: #da2127 !important; color: #fff !important; box-shadow: 0 3px 10px #00000025 !important; }
 .app-shell .osan-menu-fab :is(svg, path) { color: #fff !important; }
 .app-shell .osan-mobile-tools nav { border-radius: 10px !important; background: #fff !important; box-shadow: 0 4px 18px #00000018 !important; }

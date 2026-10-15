@@ -59,7 +59,7 @@ export function OsanStageIssueActions({ projectId, target, stage, userKey, mutat
       <div className="osan-progress-previews">{files.map((file, index) => <figure key={`${file.name}:${index}`}><OsanPhotoPreview file={file} projectId={projectId} userKey={userKey}/><button type="button" disabled={busy || submitted} onClick={() => setFiles(value => value.filter((_, i) => i !== index))}>사진 제거</button></figure>)}</div>
       <div className="osan-progress-photo-inputs"><button type="button" disabled={busy || submitted} onClick={() => camera.current?.click()}>촬영</button><button type="button" disabled={busy || submitted} onClick={() => album.current?.click()}>업로드</button></div>
       <input hidden ref={camera} type="file" accept="image/*" capture="environment" aria-label="이상 처리 카메라 사진" disabled={busy || submitted} onChange={e => { select(e.target.files, true); e.target.value = ''; }}/>
-      <input hidden ref={album} type="file" multiple accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" aria-label="이상 처리 사진 선택" disabled={busy || submitted} onChange={e => { select(e.target.files, false); e.target.value = ''; }}/>
+      <input hidden ref={album} type="file" multiple accept="image/jpeg,image/jpg,.jpg,.jpeg,image/png,image/heic,image/heif,.heic,.heif" aria-label="이상 처리 사진 선택" disabled={busy || submitted} onChange={e => { select(e.target.files, false); e.target.value = ''; }}/>
       <p>{action === 'resolve' ? (canManage ? '관리자는 사진 없이 코멘트만으로 저장할 수 있습니다.' : '완료 사진을 1장 이상 첨부해 주세요.') : '이상 사진은 선택 첨부입니다.'}</p>
       <p>JPEG·PNG·HEIC 최대 5장, 전체 40MiB. 원본을 저장합니다.</p>
       <p>{action === 'resolve' ? '저장하면 이상 조치와 해당 Gate 완료가 함께 처리됩니다.' : '다음 단계는 진행할 수 있습니다. 포장 전에는 이상 조치를 완료해야 합니다.'}</p>

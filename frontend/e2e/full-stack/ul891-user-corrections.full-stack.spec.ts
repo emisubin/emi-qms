@@ -55,10 +55,10 @@ test('TASK-UL891-CORRECTIONS: current design and all-set planning fit the existi
   await expect(gantt).toBeVisible();
   await expect(gantt.locator('[data-bar="plan"]')).not.toHaveCount(0);
   await expect(gantt.locator('.production-control-gantt-gridline')).not.toHaveCount(0);
-  await expect(gantt.locator('.production-control-gantt-gridline[data-major="true"]').first()).toHaveCSS('background-color', 'rgb(143, 143, 143)');
+  await expect(gantt.locator('.production-control-gantt-gridline[data-major="true"]').first()).toHaveCSS('background-color', 'rgb(119, 119, 119)');
   await expect(gantt.locator('.production-control-gantt-gridline[data-major="true"]').first()).toHaveCSS('background-image', 'none');
-  await expect(gantt.locator('.production-control-gantt-gridline:not([data-major="true"])').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(gantt.locator('.production-control-gantt-gridline:not([data-major="true"])').first()).toHaveCSS('background-image', /repeating-linear-gradient/);
+  await expect(gantt.locator('.production-control-gantt-gridline:not([data-major="true"])').first()).toHaveCSS('background-color', 'rgb(199, 199, 199)');
+  await expect(gantt.locator('.production-control-gantt-gridline:not([data-major="true"])').first()).toHaveCSS('background-image', 'none');
   await expect(gantt.locator('.production-control-gantt-axis > div > span').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   const ganttAxis = gantt.locator('.production-control-gantt-axis');
   const ganttBody = gantt.locator('.production-control-gantt-body');

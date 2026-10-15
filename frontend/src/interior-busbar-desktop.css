@@ -8,9 +8,6 @@
     --busbar-line: #e3e6ea;
     --busbar-subtle: #f6f7f9;
     --busbar-brand: #c91e28;
-    --wire-ink: var(--busbar-ink);
-    --wire-muted: var(--busbar-muted);
-    --wire-line: var(--busbar-line);
   }
   .app-shell[data-osan-project-theme='true'] .busbar-page.page-surface {
     gap: 22px;

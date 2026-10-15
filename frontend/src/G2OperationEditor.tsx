@@ -6,7 +6,7 @@ import type { G2Day, G2WorkspaceRequest, G2WriteAccess } from './g2';
 
 export type G2EditorKind = 'plan' | 'actual' | 'count' | 'note';
 const g2EditorTitles = { plan:'계획 입력', actual:'실적 입력', count:'실사 입력', note:'행 비고' };
-const labels = { productionPlan:'생산 계획',deliveryPlan:'납품 계획',morningProduction:'오전 생산 실적',afternoonProduction:'오후 생산 실적',morningRepair:'오전 수리 실적',afternoonRepair:'오후 수리 실적',defect:'신규 불량 실적',delivery:'납품 실적',physicalCount:'납품 가능 재고 실사',defectInventoryCount:'불량 재고 실사' };
+const labels = { productionPlan:'생산 계획',deliveryPlan:'납품 계획',morningProduction:'오전 생산 실적',afternoonProduction:'오후 생산 실적',morningRepair:'오전 수리 실적',afternoonRepair:'오후 수리 실적',defect:'신규 부적합 실적',delivery:'납품 실적',physicalCount:'납품 가능 재고 실사',defectInventoryCount:'부적합 재고 실사' };
 type QuantityField = keyof typeof labels;
 type NoteField = 'planNote' | 'actualNote' | 'rowNote';
 type Values = Record<QuantityField | NoteField,string>;
@@ -62,7 +62,7 @@ export function G2OperationEditor({ kind, initialDate, today, user, access, enab
         setBusy(true);await saveG2Plans(user,request);
       }else{
         const request:G2WorkspaceRequest={};
-        const fields:QuantityField[]=kind==='plan'?[...(access.productionPlan?['productionPlan' as const]:[]),...(access.deliveryPlan?['deliveryPlan' as const]:[])]:kind==='count'&&access.inventory?['physicalCount','defectInventoryCount']:kind==='actual'&&date<=today?[...(access.production?['morningProduction','afternoonProduction','morningRepair','afternoonRepair','defect'] as const:[]),...(access.delivery?['delivery' as const]:[])]:[];
+        const fields:QuantityField[]=kind==='plan'?[...(access.productionPlan?['productionPlan' as const]:[]),...(access.deliveryPlan?['deliveryPlan' as const]:[])]:kind==='count'&&access.inventory?['physicalCount']:kind==='actual'&&date<=today?[...(access.production?['morningProduction','afternoonProduction'] as const:[]),...(access.delivery?['delivery' as const]:[])]:[];
         for(const field of fields)if(values[field]!==valuesFor(source)[field])request[field]={quantity:quantity(values[field],labels[field]),expectedVersion:source[field]?.version??null};
         if(kind!=='count'&&canNote&&values[noteField]!==valuesFor(source)[noteField])request[noteField]={text:values[noteField]||null,expectedVersion:source[noteField]?.version??null};
         if(!Object.keys(request).length)throw new Error('변경한 값이 없습니다.');
@@ -82,8 +82,8 @@ export function G2OperationEditor({ kind, initialDate, today, user, access, enab
       {kind==='actual'&&<G2InputTabs id={formId} label="실적 입력 구분" tabs={[{value:'morning',label:'오전'},{value:'afternoon',label:'오후'},{value:'delivery',label:'납품'}]} value={tab} onChange={value=>setTab(value as 'morning'|'afternoon'|'delivery')}/>}
       <div className="tab-panel" role={kind==='actual'?'tabpanel':undefined} id={`${formId}-panel`} aria-labelledby={kind==='actual'?`${formId}-${tab}`:undefined}>
         {kind==='plan'&&<>{access.productionPlan&&numeric('productionPlan')}{access.deliveryPlan&&numeric('deliveryPlan')}</>}
-        {kind==='count'&&access.inventory&&<>{numeric('physicalCount')}{numeric('defectInventoryCount')}</>}
-        {kind==='actual'&&date<=today&&<>{tab==='morning'&&access.production&&<>{numeric('morningProduction')}{numeric('morningRepair')}</>}{tab==='afternoon'&&access.production&&<>{numeric('afternoonProduction')}{numeric('afternoonRepair')}{numeric('defect')}</>}{tab==='delivery'&&access.delivery&&numeric('delivery')}</>}
+        {kind==='count'&&access.inventory&&<>{numeric('physicalCount')}</>}
+        {kind==='actual'&&date<=today&&<>{tab==='morning'&&access.production&&<>{numeric('morningProduction')}</>}{tab==='afternoon'&&access.production&&<>{numeric('afternoonProduction')}</>}{tab==='delivery'&&access.delivery&&numeric('delivery')}</>}
         {kind!=='count'&&canNote&&<label className="form-row"><span className="fieldlabel">{kind==='plan'?'계획 비고':kind==='note'?'행 비고':'비고'}</span><textarea maxLength={2000} aria-label={kind==='actual'?'공유 실적 비고':kind==='plan'?'계획 비고':'행 비고'} value={values?.[noteField]??''} disabled={!source||busy||!enabled} onChange={e=>write(noteField,e.target.value)}/></label>}
       </div>
       {kind==='actual'&&date>today&&<p className="hint">미래 날짜에는 비고만 입력할 수 있습니다.</p>}{kind==='actual'&&<p className="hint">비고는 오전·오후·납품이 함께 사용합니다. 기존 내용 뒤에 이어서 작성해 주세요.</p>}

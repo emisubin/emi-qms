@@ -3,7 +3,7 @@
 @media(max-width:700px){.osan-notice-popup footer{flex-wrap:wrap}}
 .app-nav-button:not(.osan-button).osan-notice-nav{margin-top:32px;border-top:1px solid #eee;padding-top:18px}.osan-excel-dialog .osan-customer-match .customer-picker-button:not(.osan-button){position:static;justify-self:start}.osan-excel-dialog .osan-customer-match input{min-width:140px}
 
-/* Keep the approved compact board colors when global wireframe rules load later. */
+/* Keep the approved compact board colors inside the shared application shell. */
 .app-shell .osan-board button:not(.osan-button).primary,.app-shell .osan-notice-popup button:not(.osan-button).primary{background:#da2127!important;color:#fff!important;border-color:#da2127!important;border-radius:4px!important}
 .app-shell .osan-board .board-table td,.app-shell .osan-board .board-table th{border-color:#eee!important}
 .app-shell .osan-board .board-table tr.pinned{background:#fff8f8!important}

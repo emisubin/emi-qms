@@ -58,6 +58,7 @@ public static class OsanProgressPhotoValidator
 
         var normalizedDeclaredType = declaredContentType?.Trim().ToLowerInvariant();
         if (normalizedDeclaredType == "image/heif") normalizedDeclaredType = "image/heic";
+        if (normalizedDeclaredType == "image/jpg") normalizedDeclaredType = "image/jpeg";
         if (!string.IsNullOrEmpty(normalizedDeclaredType)
             && normalizedDeclaredType != "application/octet-stream"
             && !string.Equals(normalizedDeclaredType, normalizedMime, StringComparison.Ordinal))

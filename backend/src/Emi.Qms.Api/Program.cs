@@ -1,3 +1,4 @@
+using Emi.Qms.Api.MesIntegration;
 using Emi.Qms.Api.DeploymentMaintenance;
 using Emi.Qms.Api.InteriorBusbar;
 using Emi.Qms.Api;
@@ -122,6 +123,7 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddMesProbe();
 builder.Services.AddSingleton<DatabaseConnectionStringProvider>();
 builder.Services.AddScoped<BusinessDatabaseScope>();
 builder.Services.AddScoped<BusinessDatabase>();
@@ -146,6 +148,7 @@ builder.Services.AddScoped<UserProfilePhotoStore>();
 builder.Services.AddScoped<HomeMetricsStore>();
 builder.Services.AddScoped<G2OperationsStore>();
 builder.Services.AddScoped<G2MaterialStore>();
+builder.Services.AddScoped<G2NonconformanceStore>();
 if (mutationWorkerActivation.G2MaterialRetentionWorkerEnabled) builder.Services.AddHostedService<G2MaterialRetentionWorker>();
 builder.Services.AddScoped<NoticeStore>();
 builder.Services.AddScoped<DeploymentMaintenanceStore>();
@@ -607,12 +610,14 @@ app.MapGet("/api/runtime-mode", async (ReviewSafeStatusService statusService, Ca
 .RequireAuthorization()
 .WithName("RuntimeMode");
 
+app.MapMesProbe();
 app.MapIdentityEndpoints();
 app.MapBusinessUnitAccessEndpoints();
 app.MapAuditEndpoints();
 app.MapHomeMetricsEndpoints();
 app.MapG2OperationsEndpoints();
 app.MapG2MaterialEndpoints();
+app.MapG2NonconformanceEndpoints();
 app.MapNoticeEndpoints();
 app.MapOsanNoticeEndpoints();
 app.MapDeploymentMaintenanceEndpoints();

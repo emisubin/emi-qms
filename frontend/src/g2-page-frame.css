@@ -12,3 +12,11 @@
 }
 .app-shell .g2-page-frame>.osan-menu-heading.osan-menu-heading{grid-template-rows:minmax(44px,auto) auto!important}
 .app-shell .g2-page-frame .osan-menu-heading-actions>label{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;font-size:12px}
+
+/* Reuse the shared submenu appearance for G2 quality's expandable group. */
+.app-nav-nested>summary{list-style:none!important;cursor:pointer;display:flex!important;align-items:center;justify-content:space-between;width:100%!important}
+.app-nav-nested>summary::-webkit-details-marker{display:none}
+.app-nav-nested[open]>summary .app-nav-disclosure{transform:rotate(180deg)}
+.app-nav-nested>.app-nav-children{margin-left:12px}
+
+.app-nav-nested>summary .app-nav-disclosure{margin-left:auto;display:flex}

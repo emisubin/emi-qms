@@ -15,8 +15,8 @@ internal static class OsanJpegContainer
             content.AsSpan(p.PayloadStart, p.End - p.PayloadStart).StartsWith("MPF\0"u8)).ToArray();
         if (mpf.Length == 0)
         {
-            if (primaryEnd != content.Length) throw new InvalidDataException("Unindexed JPEG trailer.");
-            return [new(content, 0x30000, 0, 0)];
+            if (primaryEnd != content.Length) OsanSamsungSefTrailer.Validate(content, primaryEnd);
+            return [new(primaryEnd == content.Length ? content : content.AsSpan(0, primaryEnd).ToArray(), 0x30000, 0, 0)];
         }
         if (mpf.Length != 1) throw new InvalidDataException("Duplicate MP index.");
         var tiffStart = mpf[0].PayloadStart + 4;
@@ -65,14 +65,14 @@ internal static class OsanJpegContainer
             OsanProgressPhotoMetadataSanitizer.ParseJpeg(frame);
             result.Add(new(frame, attributes, d1, d2)); next = start + size;
         }
-        if (next != content.Length) throw new InvalidDataException("Unindexed MP trailer.");
+        if (next != content.Length) OsanSamsungSefTrailer.Validate(content, checked((int)next));
         return result;
     }
 
     internal static byte[] Sanitize(byte[] content)
     {
         var images = Read(content);
-        if (images.Count == 1) return OsanProgressPhotoMetadataSanitizer.SanitizeJpegFrame(content);
+        if (images.Count == 1) return OsanProgressPhotoMetadataSanitizer.SanitizeJpegFrame(images[0].Content);
         var frames = images.Select(i => OsanProgressPhotoMetadataSanitizer.SanitizeJpegFrame(i.Content, preserveHdr: true)).ToArray();
         frames[0] = OsanProgressPhotoMetadataSanitizer.SanitizeJpegFrame(images[0].Content, preserveHdr: true, gainMapLength: frames[1].Length);
         var mpf = CreateIndex(images, frames);

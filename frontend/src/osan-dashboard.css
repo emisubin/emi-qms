@@ -121,7 +121,7 @@
   .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-dday { font-size: 9px; line-height: 12px; }
   .app-shell .osan-dashboard:not(.osan-home-dashboard) .osan-dashboard-project-meta { display: flex; gap: 4px 10px; font-size: 9px; margin: 6px 10px; }
 }
-/* The shared wireframe reset clears span backgrounds and text colors. */
+/* Approved progress colors and readable stage labels. */
 .app-shell .osan-dashboard-dday, .app-shell .osan-project-dday { color: var(--osan-brand,#da2127) !important; }
 .app-shell .osan-dashboard-stage-circle { background: #eee !important; color: #777 !important; }
 .app-shell .osan-dashboard-stage.done .osan-dashboard-stage-circle { background: var(--osan-brand,#da2127) !important; color: #fff !important; }

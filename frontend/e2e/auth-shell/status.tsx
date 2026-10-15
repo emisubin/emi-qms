@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { AuthInitializationScreen, AuthStatusScreen, ServerSessionRecovery } from '../../src/App';
 import '../../src/styles.css';
 import '../../src/design-system/tokens.css';
-import '../../src/design-system/wireframe.css';
+import '../../src/shared-shell.css';
 import '../../src/auth-figma.css';
 const state = new URLSearchParams(location.search).get('state');
 createRoot(document.getElementById('root')!).render(state === 'server-recovery' ? <ServerSessionRecovery onReauthenticate={() => undefined} /> : state === 'loading' ? <AuthInitializationScreen /> :

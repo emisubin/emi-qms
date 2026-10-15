@@ -75,7 +75,7 @@ public sealed record G2DayResponse(
     G2TextValueResponse? ActualNote = null,
     G2TextValueResponse? RowNote = null);
 public sealed record G2RangeResponse(DateOnly Today, DateOnly From, DateOnly To, IReadOnlyList<G2DayResponse> Days);
-public sealed record G2HomeResponse(DateOnly Today, int Year, int Month, bool HasInventoryBaseline, IReadOnlyList<G2DayResponse> Days);
+public sealed record G2HomeResponse(DateOnly Today, int Year, int Month, bool HasInventoryBaseline, IReadOnlyList<G2DayResponse> Days, decimal? AverageDailyProduction = null, int ProductionSampleDays = 0);
 public sealed record G2MetricChangeRequest(int? Quantity, int? ExpectedVersion);
 public sealed record SaveG2OperationsRequest(
     G2MetricChangeRequest? MorningProduction,

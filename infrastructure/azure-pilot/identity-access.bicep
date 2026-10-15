@@ -418,4 +418,16 @@ resource bootstrapOsanRuntimeDatabaseSecretRole 'Microsoft.Authorization/roleAss
   }
 }
 
-output secretScopedRoleAssignmentCount int = enableBusinessUnits ? 26 : 14
+output secretScopedRoleAssignmentCount int = (enableBusinessUnits ? 26 : 14) + (enableMesProbe ? 1 : 0)
+
+@description('Grant the backend proxy verification secret only for the approved MES probe rollout.')
+param enableMesProbe bool = false
+resource backendMesProbeOriginSecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableMesProbe) {
+  name: guid(originVerificationSecret.id, backendIdentity.id, 'KeyVaultSecretsUser')
+  scope: originVerificationSecret
+  properties: {
+    principalId: backendIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: keyVaultSecretsUserRoleId
+  }
+}

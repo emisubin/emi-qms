@@ -26,14 +26,22 @@ export function materialShortages(items: MaterialItem[]) {
   }).sort((a,b)=>a.capacity-b.capacity||a.item.id-b.item.id);
   return {rows,incomplete};
 }
-export function deliveryForecast(day: G2Day | undefined, days: G2Day[]) {
-  if(!day || day.inventory==null)return [];
-  let remaining=day.inventory;
-  const points=[{date:day.date,quantity:remaining,delivery:0}];
-  for(const next of [...days].sort((a,b)=>a.date.localeCompare(b.date))) {
-    if(next.date<=day.date || !next.deliveryPlan?.quantity)continue;
-    remaining-=next.deliveryPlan.quantity;
-    points.push({date:next.date,quantity:remaining,delivery:next.deliveryPlan.quantity});
+// Tomorrow receives today's expected production, as in the inventory ledger.
+export function deliveryForecast(day: G2Day | undefined, days: G2Day[], through: string, average: number | null, holidays: ReadonlySet<string> = new Set()) {
+  if (!day || day.inventory == null) return [];
+  const byDate = new Map(days.map(d => [d.date, d]));
+  const produces = (date: string) => {
+    const plan = byDate.get(date)?.productionPlan?.quantity;
+    if (plan != null) return plan > 0;
+    return new Date(`${date}T00:00:00Z`).getUTCDay() !== 0 && !holidays.has(date);
+  };
+  let remaining = day.inventory;
+  const points = [{date: day.date, quantity: remaining, delivery: 0, production: 0}];
+  for (let date = shiftDate(day.date, 1); date <= through; date = shiftDate(date, 1)) {
+    const production = produces(shiftDate(date, -1)) ? average ?? 0 : 0;
+    const delivery = byDate.get(date)?.deliveryPlan?.quantity ?? 0;
+    remaining += production - delivery;
+    points.push({date, quantity: Math.round(remaining * 100) / 100, delivery, production});
   }
   return points;
 }

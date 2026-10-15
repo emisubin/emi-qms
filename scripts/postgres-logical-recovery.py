@@ -360,7 +360,8 @@ class PostgresLogicalRecovery:
                  "OWNED_CONTAINER_SCOPE_INVALID")
         name = f"emi-qms-logical-{purpose}-{run_id}"
         command = [
-            self.config.docker_path, "run", "--rm", "--name", name,
+            self.config.docker_path, "run", "--rm", "--log-driver", "none",
+            "--name", name,
             "--label", f"{OWNER_LABEL}={OWNER_VALUE}",
             "--label", f"{RUN_LABEL}={run_id}",
             *run_arguments,

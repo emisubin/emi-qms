@@ -216,3 +216,12 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 검증: backend G2NonconformanceTests 최종3/3(격리HTTP/DB·기존권한/초기재고/사진/동시성포함), frontend10/10, typecheck/build/변경파일eslint/diffcheck통과. 기존큰chunk build경고는남아있으며오류없음. 합성UI 실제브라우저PC1440 및390/320px 등록·상세·목록·모바일검색확인,긴복합장기표시확인,입력창가로넘침0/pageerror0. 스크린샷 /tmp/g2-classification-*.png 직접확인. UI검증서버는합성메모리자료이며실제저장검수아님.
 - 독립review g2_full_release_review 기존검토자재사용,기준a7a3d13부터실제diff재검토. 구형클라이언트덮어쓰기P2보정후GO,잔여P0~P2없음. 구현위임/검토 actual모델NOT_REPORTED. 공개배포/원격병합미실행,운영DB변경없음.
 - DB: 신규영구DB/테이블/migration없음. 기존청주jsonb필드추가방식. 최종검증DB emi_qms_e2e_20261015085606_4127_25999 및소유container/network정리완료. 더이상사용하지않는DB없음.
+
+
+### 단순 / 복합·장기 구분 공개배포 완료 · 2026-10-16
+- 사용자 로컬 확인 후 이번 변경의 병합·공개배포 승인, 공지사항 게시 제외 명시. 기존 저장제한·정상검증 절차는 유지하고 MAINTENANCE_PUBLISH_NOTICE=false 적용. DB migration/백업·복원 gate는 코드전용 범위라 실행하지 않음.
+- PR176 d644f95의 CI38826190177 성공: backend1169/1169, frontend677/677, mockUI73/73, fullstack64+사업부2+오산1, workflow/CI gate. 원격main092e4946c6b09349e2fea521d64699bfef94b028 병합 및 main CI38832173582 성공(검증된 PR 재사용, 전체 중복실행 없음).
+- 정확한 main archive의 Linuxamd64 이미지 생성. 앞서 검사한 후보와 최종 이미지 RootFS·실행설정 동일성 확인(소스 revision label만 변경), backend packaged fresh/upgrade·사업부DB경계 통과, frontend 비관리자101에서34개 파일/22asset HTTP 통과. 로컬 초기검사는 DOCKER_DEFAULT_PLATFORM이 Mac용postgres이미지와 충돌해 실패; 전역플랫폼 강제만 제거 후 통과. 제품 변경·검증 완화 없음.
+- 정상 release runner 2026-10-16 09:55:37~10:02:21 KST exit0(6분44초). backend0000075/frontend0000065 Healthy·정확digest 확인, 공개health200/root401/api401. 청주·오산 prepare/activate/complete 6개job 모두성공, 저장제한해제. 공지 게시 없음. 120회 약3초간격 외부3경로 점검에서 비정상응답0(샘플 사이 순간중단·인증후 업무화면 전부를 무중단으로 보장하는 증거는 아님).
+- 기존 MES 기기+회사IP제한, backend 내부ingress 및 startup migration=false 보존 확인. 실제 운영 데이터 등록·수정 테스트 없음. 근거 /tmp/g2-classification-release-20261016 의 CI·image·release·postdeploy·availability 기록(실데이터/secret Git제외), 임시registry로그인정리.
+- DB 보고: 신규 영구DB/테이블/migration없음. 이번 로컬이미지검증의 전용 임시DB·컨테이너·네트워크·볼륨 모두 자동정리 확인. 기존 DB 사용중단없음. 사용자 preview·시안파일 보존. 이번 원격 기능반영·공개배포 완료; 이 완료기록은 후속 local commit으로 보존.

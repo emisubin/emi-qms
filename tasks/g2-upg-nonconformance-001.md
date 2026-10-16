@@ -216,3 +216,74 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 검증: backend G2NonconformanceTests 최종3/3(격리HTTP/DB·기존권한/초기재고/사진/동시성포함), frontend10/10, typecheck/build/변경파일eslint/diffcheck통과. 기존큰chunk build경고는남아있으며오류없음. 합성UI 실제브라우저PC1440 및390/320px 등록·상세·목록·모바일검색확인,긴복합장기표시확인,입력창가로넘침0/pageerror0. 스크린샷 /tmp/g2-classification-*.png 직접확인. UI검증서버는합성메모리자료이며실제저장검수아님.
 - 독립review g2_full_release_review 기존검토자재사용,기준a7a3d13부터실제diff재검토. 구형클라이언트덮어쓰기P2보정후GO,잔여P0~P2없음. 구현위임/검토 actual모델NOT_REPORTED. 공개배포/원격병합미실행,운영DB변경없음.
 - DB: 신규영구DB/테이블/migration없음. 기존청주jsonb필드추가방식. 최종검증DB emi_qms_e2e_20261015085606_4127_25999 및소유container/network정리완료. 더이상사용하지않는DB없음.
+
+
+### 단순 / 복합·장기 구분 공개배포 완료 · 2026-10-16
+- 사용자 로컬 확인 후 이번 변경의 병합·공개배포 승인, 공지사항 게시 제외 명시. 기존 저장제한·정상검증 절차는 유지하고 MAINTENANCE_PUBLISH_NOTICE=false 적용. DB migration/백업·복원 gate는 코드전용 범위라 실행하지 않음.
+- PR176 d644f95의 CI38826190177 성공: backend1169/1169, frontend677/677, mockUI73/73, fullstack64+사업부2+오산1, workflow/CI gate. 원격main092e4946c6b09349e2fea521d64699bfef94b028 병합 및 main CI38832173582 성공(검증된 PR 재사용, 전체 중복실행 없음).
+- 정확한 main archive의 Linuxamd64 이미지 생성. 앞서 검사한 후보와 최종 이미지 RootFS·실행설정 동일성 확인(소스 revision label만 변경), backend packaged fresh/upgrade·사업부DB경계 통과, frontend 비관리자101에서34개 파일/22asset HTTP 통과. 로컬 초기검사는 DOCKER_DEFAULT_PLATFORM이 Mac용postgres이미지와 충돌해 실패; 전역플랫폼 강제만 제거 후 통과. 제품 변경·검증 완화 없음.
+- 정상 release runner 2026-10-16 09:55:37~10:02:21 KST exit0(6분44초). backend0000075/frontend0000065 Healthy·정확digest 확인, 공개health200/root401/api401. 청주·오산 prepare/activate/complete 6개job 모두성공, 저장제한해제. 공지 게시 없음. 120회 약3초간격 외부3경로 점검에서 비정상응답0(샘플 사이 순간중단·인증후 업무화면 전부를 무중단으로 보장하는 증거는 아님).
+- 기존 MES 기기+회사IP제한, backend 내부ingress 및 startup migration=false 보존 확인. 실제 운영 데이터 등록·수정 테스트 없음. 근거 /tmp/g2-classification-release-20261016 의 CI·image·release·postdeploy·availability 기록(실데이터/secret Git제외), 임시registry로그인정리.
+- DB 보고: 신규 영구DB/테이블/migration없음. 이번 로컬이미지검증의 전용 임시DB·컨테이너·네트워크·볼륨 모두 자동정리 확인. 기존 DB 사용중단없음. 사용자 preview·시안파일 보존. 이번 원격 기능반영·공개배포 완료; 이 완료기록은 후속 local commit으로 보존.
+
+
+### 부적합 재고 유형별 표시 · 2026-10-16
+- 사용자 분류 후 재고도 둘로 표시 요청/수정 승인. 기존 생산출하 PC 상단/일자 상세·모바일 재고표와 UPG 탭 인접 안내영역 재사용. 신규 시안·쓰기·권한·실적 합계 변경 없음.
+- 일별 API에 nullable simpleDefectInventory/complexLongDefectInventory 추가. 품질 활성화 이후 발생일 이하·완료일 초과/미완료 조건으로 각각 집계, 기존 합계는 둘의 합 유지. 분류없는 과거 개별건은 단순, 활성화전 숫자재고는 단순/복합0, 미래는 모두null. 초기재고 포함·발생실적 제외 계약 유지.
+- 생산출하 재고표는 두 유형을 각각 표시. 과거 합계 실사값은 임의 분할하지 않고 보존하며 모바일 병합칸에 과거 합계라고 명시. UPG 현재 전체 재고는 합계/단순/복합·장기를 함께 표시하고 검색 필터와 독립. 탭 숫자는 기존 검색조건 기준이며 loading/error때 재고0으로 오표시하지 않음.
+- 검증: isolated G2NonconformanceTests3/3(발생일/완료일·초기재고·조치삭제·legacy·합계·미래), frontend 관련23/23, typecheck/eslint/build/diffcheck 통과. 기존chunk크기 경고만 유지. PC1440와 모바일390/320 합성 브라우저 실제 화면 직접확인, 입력 아닌 목록·일자상세 재고표 가로넘침없음/pageerror0. 증거 /tmp/g2-split-*; local preview는 합성 메모리자료이며 운영 실데이터 검수 아님.
+- 독립 split_inventory_review 코드/테스트diff GO, P0~P2없음. 로컬 구현·검증 완료, 이번 표시 변경의 원격병합/공개배포는 미실행. 기존 5188 검수서버 소스 /tmp/g2-classification-validation/frontend에 반영.
+- DB: 신규영구DB/테이블/migration없음. 임시DB emi_qms_e2e_20261016011225_36553_549 및 소유container/network 삭제확인. 사용중단DB없음. 사용자파일·다른runtime 보존.
+
+
+### 생산출하 상세 표 재배치 · 2026-10-16
+- 사용자 확정: 왼쪽 생산·수리 실적 유지, 가운데 G2 재고 실사/신규 부적합 수량, 오른쪽 단순/복합·장기 부적합 재고. 폐지된 부적합 실사 표시 제거.
+- 기존 표/스타일 재사용, 모바일에서도 부적합 실사칸 제거하고 납품가능 재고·실사와 부적합 재고를 구분. PC/모바일 부적합재고 rows 공용화. API·DB·집계·과거 저장값은 변경하지 않음.
+- 관련 프런트12/12 및 typecheck/eslint/diffcheck 통과. 최초 테스트는 기존 표 접근성 제목 기대값 불일치로1실패하여 변경제목으로 정합화 후통과. PC1440·모바일390/320 높이844 직접시각확인, popup 가로넘침없음/pageerror0. 로컬5188 합성검수 반영, 원격병합/공개배포없음. 신규DB/임시DB/사용중단DB없음.
+
+- 상세 재고표 색 채우기(2026-10-16): 사용자 요청으로 오른쪽 부적합재고 데이터셀을 #f3f4f5로 채움, 모바일 동일 적용. 기존 헤더·테두리·타표 보존. 실제PC computed rgb(243,244,245) 및 PC/390/320 화면 확인/pageerror0. 단순스타일변경으로 새테스트없음. 로컬만 반영, 신규/임시/사용중단DB없음.
+
+- 모바일 부적합재고 라벨 한줄 보정(2026-10-16): 사용자 요청으로 해당 표 첫열65%/nowrap 적용. 390·320px 실제 화면에서 복합·장기 부적합 재고 한줄·잘림없음 확인. PC·데이터 불변, 로컬만 반영. 신규/임시/사용중단DB없음.
+
+- 재고 영역 연노랑 통일(2026-10-16): 사용자 요청으로 PC상단 재고현황·일별재고열·상세G2실사행·부적합재고와 모바일재고/실사 데이터셀을 공통 #fff9e6으로 변경. 기존회색채우기대체, 신규부적합실적/헤더/집계불변. PC computed색4영역 및 PC/390/320 실제화면/pageerror0 확인. 로컬만반영, 신규/임시/사용중단DB없음.
+
+
+### 배포 규칙 교체 · 2026-10-16
+- 사용자 승인: 앞으로 매 배포의 검증 방법을 인터넷에서 조사하여 필요한 테스트를 먼저 보고하고 사용자 확인 후 실행. 기존 고정 배포 규칙 폐기. 이번 요청은 규칙 설정만이며 배포 금지.
+- Root에 단일 현행 배포 절차를 정의하고 공지/팝업 우선 및 최종 전체 회귀 기본 규칙 제거. 검증표·환경 안내의 참조 정합화. 기존 배포 SOP는 실행 규칙 효력을 폐기하고 과거 사실 참고로만 유지.
+- 문서만 수정. CI/배포 스크립트/원격 보호 설정은 변경하지 않았으며 계획과 자동화 제약의 차이는 향후 사전 보고 대상으로 명시. 링크·diff·충돌 문구 확인. push/병합/배포 미실행. 신규DB·임시DB·사용중단DB 없음.
+
+
+### 홈 7일 전망 보정 · 2026-10-16
+- 사용자 확인 후 로컬 수정 승인. 7일 유지, 그래프 마지막 점을 눈금선 오른쪽 끝650에 맞춤. 일요일 예상 생산은 명시 계획과 무관하게0; 토요일 생산의 일요일 재고 반영·납품 차감·기존 공휴일 계획 처리는 유지. 하단은 “일 평균 N대 생산 반영”만 표시(평균 미산출은 별도 한줄 안내).
+- 관련 홈 테스트13/13, typecheck·변경파일eslint 통과. 합성 로컬PC1440/모바일390/320에서7점·마지막x650·한줄설명·페이지overflow0·pageerror0 확인, PC/390 스크린샷 직접 확인. 자재 조회 오류는 해당 합성 fixture에 미구현된 자재 API이며 홈 그래프 검증과 별개. 실제 운영 데이터 검증 아님.
+- local preview /tmp/g2-classification-validation/frontend에 반영. 원격push/병합/배포 없음. 신규DB·임시DB·사용중단DB 없음.
+
+
+### Real local G2 review runtime - 2026-10-16
+- User authorized replacing the synthetic preview with a real local API and isolated review DB. Created emi_qms_e2e_g2_live_review_20261016; container emi-qms-e2e-g2-live-review-20261016-e2e-postgres-1. Existing production/general-development DBs untouched. This tmpfs review DB survives browser reloads but not container stop/restart; retained running for user review, not cleaned up.
+- Latest worktree backend Release build passed; legacy migrations 1-130 and Cheongju overlays 0132-0136 applied to the new DB. API5087 Testing/Dev with external notification providers disabled. Replaced verified synthetic Vite PID8041 with actual app entry on5188, source /tmp/g2-classification-validation/frontend, API5087. Use /g2, not local-home-review.html.
+- Real API verified stocktake321 -> days/home inventory321; update456 -> days/home inventory456. Cleared verification quantity through API afterwards. Actual /g2 browser loaded empty real data with zero page errors; screenshot directly viewed. No production data copied, no deployment/push/merge. No obsolete DB.
+- Setup script /tmp/g2-live-review-20261016.sh contains initial createdb; inspect existing runtime before restarting. Backend session60655 and frontend session20929 retained for review.
+
+
+### Plan-gated home forecast - 2026-10-16
+- User requested no expected production on dates without production plans. Home forecast now adds the historical daily average on the forecast date only when that date has a positive production plan and is not Sunday. No default weekday production. Today remains the actual inventory anchor. Delivery subtraction and actual backend inventory ledger unchanged.
+- Updated existing home tests: positive Saturday, Sunday with positive plan, missing/zero plans, missing day, zero/null average, same-day delivery. Home tests13/13, changed-file eslint and typecheck passed. Actual local read-only browser PC1440/mobile390: Sunday10/18 remains53 instead of76; all seven points53 for current23production/23delivery plans. No page errors/overflow, both chart screenshots viewed.
+- Local source and live frontend updated; no writes to user review data, no DB schema changes or new DB, no obsolete DB. Existing review DB retained. No push/merge/deployment.
+
+
+### Materials vendor column removal - 2026-10-16
+- User requested removing the vendor column and giving its width to specification. Removed C from desktop visible columns, increased F weight14 to20 using former C weight6, adjusted item header split8 to7. Excel format, stored vendor, search and detail info unchanged.
+- Existing material tests26/26 passed. Real review DB has no material catalog; browser-only synthetic fixture verified17 aligned columns and no vendor header, desktop screenshot directly viewed. No DB writes/creation or schema changes; review DB retained. Local only, no deployment.
+
+- 2026-10-16 user requested real local materials data: populated empty review catalog with92 approved items extracted from committed Excel template using existing extractor. Insert transaction restricted to exact emi_qms_e2e_g2_live_review_20261016 and empty catalog. Saved synthetic stock values for2026-10-16 through actual API; capacities120/160/180/240/320 cycle for visual comparison. Verified latest returns92 items and browser460 editable quantity inputs, screenshot viewed. No production access/new DB; existing review DB retained. Stock values are test data, not actual inventory.
+
+- 2026-10-16: removed vendor display from mobile material info tab per user request; metadata/Excel unchanged. Actual local390px detail dialog verified and screenshot viewed. No DB change/new/obsolete DB, no deployment.
+
+
+### PR177 final CI correction - 2026-10-16
+- User approved researched deployment plan: mandatory CI once plus focused checks, no announcement, existing maintenance write restriction and completion flow; no schema/data migration or backup restore exercise. PR177 initial CI38853602573 frontend mockUI72/73; failure was an existing administrator table assertion reading headers before loading completed. Artifact error-context explicitly showed loading status.
+- Changed only assertion API from immediate allTextContents().resolves.toEqual to locator.toHaveText with identical expected headers. Local affected business-unit-access spec6/6 passed. Product code unchanged; final candidate CI must reflect corrected test commit. Build images remain product-equivalent and will be checked by filesystem/runtime configuration equality against merged source.
+
+- PR177 CI38854271675: frontend passed; full-stack63/64 failed because old mobile stock table assertion expected4 cells before approved split. Corrected to exact G2 stock2 and NCstock2 blank cells for futuredate. Also updated item buttons7->6 and added desktop/mobile vendor absence assertions for approved removal. Product code unchanged. Independent reviewer GO/no P0-P2; isolated actual API G2 scenario1/1 passed20.2s, fresh Release build0 warnings/errors. Local setup attempts (pnpm symlink dependency check, missing archived build) failed before tests; setup corrected without product changes. All3 disposable DBs emi_qms_e2e_20261016053237_64754_31281, emi_qms_e2e_20261016053312_65032_26023, emi_qms_e2e_20261016053343_65229_31300 and containers/networks cleaned. Existing user review DB retained. Final CI rerun required for corrected commit; deployment pending.

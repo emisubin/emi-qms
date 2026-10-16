@@ -50,3 +50,12 @@ it('new and initial registration both submit classification with distinct initia
   await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
  }
 });
+
+it('keeps current typed inventory independent of search results and includes initial stock',async()=>{
+ const complex:UpgItem={...item,id:'complex',serial:'G2-C',nonconformanceType:'complexLong',initialStock:true};
+ vi.mocked(getUpg).mockResolvedValue({canEdit:true,items:[item,complex,done]});page();await screen.findByRole('button',{name:item.serial});
+ const stock=screen.getByLabelText('현재 전체 부적합 재고');
+ expect(stock).toHaveTextContent('합계 2대');expect(stock).toHaveTextContent('단순 부적합 1대');expect(stock).toHaveTextContent('복합·장기 부적합 1대');
+ fireEvent.change(screen.getByLabelText('검색어'),{target:{value:'없는 내용'}});fireEvent.click(screen.getByRole('button',{name:'검색'}));
+ expect(screen.getByRole('tab',{name:/미완료/})).toHaveTextContent('0');expect(stock).toHaveTextContent('합계 2대');
+});

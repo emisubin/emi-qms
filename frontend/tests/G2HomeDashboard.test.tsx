@@ -43,19 +43,20 @@ describe('approved G2 home',()=>{
   const result=materialShortages([withHiddenBlank,missing,item(3,{values:{working:360,kitting:0,rack:0,materials:0,erp:0,transit:0}})]);
   expect(result.rows.map(r=>[r.item.id,r.capacity,r.shortage])).toEqual([[1,120,120]]);expect(result.incomplete).toBe(1);
  });
- it('starts at today, adds previous working day production and stops at month end',()=>{
+ it('starts at today, adds only same-day planned production and stops at month end',()=>{
   const today=day('2026-10-29',{inventory:88,productionPlan:metric(50),deliveryPlan:metric(999)});
   const result=deliveryForecast(today,[today,day('2026-10-30',{deliveryPlan:metric(48),productionPlan:metric(0)}),day('2026-10-31',{deliveryPlan:metric(30)}),day('2026-11-01',{deliveryPlan:metric(900)})],'2026-10-31',40);
-  expect(result.map(p=>[p.date,p.quantity])).toEqual([['2026-10-29',88],['2026-10-30',80],['2026-10-31',50]]);
+  expect(result.map(p=>[p.date,p.quantity])).toEqual([['2026-10-29',88],['2026-10-30',40],['2026-10-31',10]]);
   expect(deliveryForecast(day('2026-10-29'),[],'2026-10-31',40)).toEqual([]);
  });
- it('includes all dates and distinguishes zero/missing averages with Sunday and holiday schedules',()=>{
-  const start=day('2026-10-10',{inventory:100});
-  const result=deliveryForecast(start,[],'2026-10-14',10,new Set(['2026-10-12']));
-  expect(result.map(p=>p.quantity)).toEqual([100,110,110,110,120]);
-  expect(deliveryForecast(start,[day('2026-10-11',{productionPlan:metric(5)})],'2026-10-12',10).map(p=>p.quantity)).toEqual([100,110,120]);
-  expect(deliveryForecast(start,[],'2026-10-11',0).map(p=>p.quantity)).toEqual([100,100]);
-  expect(deliveryForecast(start,[],'2026-10-11',null).map(p=>p.quantity)).toEqual([100,100]);
+ it('adds production only on non-Sunday dates with a positive plan',()=>{
+  const start=day('2026-10-16',{inventory:100,productionPlan:metric(50)});
+  const schedule=[start,day('2026-10-17',{productionPlan:metric(5)}),day('2026-10-18',{productionPlan:metric(5)}),day('2026-10-19'),day('2026-10-20',{productionPlan:metric(0)}),day('2026-10-21',{productionPlan:metric(5),deliveryPlan:metric(3)})];
+  const result=deliveryForecast(start,schedule,'2026-10-22',10);
+  expect(result.map(p=>p.production)).toEqual([0,10,0,0,0,10,0]);
+  expect(result.map(p=>p.quantity)).toEqual([100,110,110,110,110,117,117]);
+  expect(deliveryForecast(start,schedule,'2026-10-17',0).map(p=>p.quantity)).toEqual([100,100]);
+  expect(deliveryForecast(start,schedule,'2026-10-17',null).map(p=>p.quantity)).toEqual([100,100]);
  });
  it('uses today stock independently of the latest workday and labels the average forecast',async()=>{
   mocks([actual,day('2026-10-11',{inventory:88}),day('2026-10-12',{deliveryPlan:metric(30)})]);
@@ -65,7 +66,7 @@ describe('approved G2 home',()=>{
   expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-11 88대, 2026-10-12 58대'));
   expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-17'));
   expect(graph.getAttribute('aria-label')).not.toContain('2026-10-18');
-  expect(screen.getByText(/과거 20일 실적 · 일평균 40대/)).toBeInTheDocument();
+  expect(screen.getByText('일 평균 40대 생산 반영')).toBeInTheDocument();
   expect(api.getG2Days).toHaveBeenCalledWith('dev-sales','2026-09-10','2026-10-17');
  });
  it('keeps seven calendar dates when the forecast crosses a month boundary',async()=>{

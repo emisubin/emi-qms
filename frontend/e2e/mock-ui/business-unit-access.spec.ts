@@ -91,7 +91,7 @@ test('overall administrator switches units and designates another overall admini
   await expect(businessUnitSelector).toHaveValue('CHEONGJU');
   await expect(page.getByRole('heading', { name: '사용자 관리' })).toBeVisible();
   await expect(navigation.getByRole('button', { name: '사업부 소속 관리' })).toHaveCount(0);
-  await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
+  await expect(page.getByRole('columnheader')).toHaveText([
     '', '활성 상태', '사업부', '부서', '역할', '부서장', '총괄 관리자', ''
   ]);
   const adminRow = page.getByRole('row').filter({ hasText: 'Synthetic Overall Admin' });

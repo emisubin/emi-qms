@@ -326,12 +326,23 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
         }
         var inventory = G2InventoryCalculator.Calculate(from, to, balanceBefore, counts.Where(row => row.Value.Quantity.HasValue).ToDictionary(row => row.Key, row => row.Value.Quantity!.Value), production, delivery, defects, repairs);
         var defectInventory = await ReadDefectInventoryBeforeAsync(connection, from, token);
-        var qualityInventory = new Dictionary<DateOnly,long>();
-        await using(var quality=new NpgsqlCommand("select d::date,count(n.id) from generate_series(@from::timestamp,@to::timestamp,interval '1 day') d left join g2_nonconformances n on (n.data->>'occurrenceDate')::date<=d::date and (n.data->'action' is null or n.data->'action'='null'::jsonb or (n.data->'action'->>'completionDate')::date>d::date) group by d",connection))
+        var qualityInventory = new Dictionary<DateOnly, (long Simple, long ComplexLong)>();
+        await using (var quality = new NpgsqlCommand("""
+            select d::date,
+                count(n.id) filter (where coalesce(n.data->>'nonconformanceType', 'simple') <> 'complexLong'),
+                count(n.id) filter (where n.data->>'nonconformanceType' = 'complexLong')
+            from generate_series(@from::timestamp, @to::timestamp, interval '1 day') d
+            left join g2_nonconformances n on (n.data->>'occurrenceDate')::date <= d::date
+                and (n.data->'action' is null or n.data->'action' = 'null'::jsonb
+                    or (n.data->'action'->>'completionDate')::date > d::date)
+            group by d
+            """, connection))
         {
-            quality.Parameters.AddWithValue("from",from); quality.Parameters.AddWithValue("to",to);
-            await using var reader=await quality.ExecuteReaderAsync(token);
-            while(await reader.ReadAsync(token))qualityInventory[reader.GetFieldValue<DateOnly>(0)]=reader.GetInt64(1);
+            quality.Parameters.AddWithValue("from", from);
+            quality.Parameters.AddWithValue("to", to);
+            await using var reader = await quality.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token))
+                qualityInventory[reader.GetFieldValue<DateOnly>(0)] = (reader.GetInt64(1), reader.GetInt64(2));
         }
         var dailyTargets = ExpandTargets(from, to, targets);
         var days = new List<G2DayResponse>();
@@ -355,6 +366,9 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                     - (Metric(legacyMetrics,date,G2MetricCodes.AfternoonRepair)?.Quantity ?? 0);
                 if (defectCounts.TryGetValue(date, out var currentDefectCount) && currentDefectCount.Quantity.HasValue) defectInventory = currentDefectCount.Quantity.Value;
             }
+            var classifiedInventory = date < qualityActivation
+                ? (Simple: defectInventory, ComplexLong: 0L)
+                : qualityInventory.GetValueOrDefault(date);
             dailyTargets.TryGetValue((date, G2TargetTypes.DailyProduction), out var productionTarget);
             dailyTargets.TryGetValue((date, G2TargetTypes.Delivery), out var deliveryTarget);
             dailyTargets.TryGetValue((date, G2TargetTypes.Inventory), out var inventoryTarget);
@@ -364,13 +378,15 @@ public sealed class G2OperationsStore(CheongjuDatabase connectionStringProvider,
                 date > today ? null : morningTotal, date > today ? null : afternoonTotal, date > today ? null : Sum(morningTotal, afternoonTotal), date > today ? null : inventory.GetValueOrDefault(date),
                 date <= today && counts.TryGetValue(date, out var count) ? ToResponse(count) : null,
                 productionTarget is null ? null : ToResponse(productionTarget), deliveryTarget is null ? null : ToResponse(deliveryTarget), inventoryTarget is null ? null : ToResponse(inventoryTarget),
-                date > today ? null : ToResponse(mr), date > today ? null : ToResponse(ar), date > today ? null : repairTotal, date > today ? null : date < qualityActivation ? defectInventory : qualityInventory.GetValueOrDefault(date),
+                date > today ? null : ToResponse(mr), date > today ? null : ToResponse(ar), date > today ? null : repairTotal, date > today ? null : classifiedInventory.Simple + classifiedInventory.ComplexLong,
                 date <= today && defectCounts.TryGetValue(date, out var defectCount) ? ToResponse(defectCount) : null,
                 ToResponse(DailyValue(dailyValues, date, G2DailyValueCodes.ProductionPlan)),
                 ToResponse(DailyValue(dailyValues, date, G2DailyValueCodes.DeliveryPlan)),
                 ToResponse(Note(notes, date, G2NoteCodes.Plan)),
                 ToResponse(Note(notes, date, G2NoteCodes.Actual)),
-                ToResponse(Note(notes, date, G2NoteCodes.Row))));
+                ToResponse(Note(notes, date, G2NoteCodes.Row)),
+                date > today ? null : classifiedInventory.Simple,
+                date > today ? null : classifiedInventory.ComplexLong));
         }
         return new(today, from, to, days);
     }

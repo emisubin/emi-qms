@@ -70,7 +70,7 @@ function Detail({ item, onClose, ...props }: G2MaterialsMobileProps & { item: Ma
       <section id="detailbody"><table className="kv"><tbody>{tab === 'stock' ? <>
         <Pair label="제작중" value={values.working} /><Pair label="키팅대차" value={values.kitting} /><Pair label="적재 랙" value={values.rack} /><Pair label="제조실 합계" value={result.Q} group /><Pair label="자재실 합계" value={values.materials} /><Pair label="이동중" value={values.transit} /><Pair label="생산가능대수 합계" value={result.Z} group />
       </> : <>
-        <Pair label="구분" value={item.category.trim()} /><Pair label="업체명" value={item.vendor} /><Pair label="품목코드" value={item.code} /><Pair label="1SET 수량" value={item.setQuantity} /><Pair label="BOX" value={item.packBox} /><Pair label="PT(EA)" value={item.packPalletEa} /><Pair label="PT(BOX)" value={item.packPalletBox} /><Pair label="포장 비고" value={item.packNote} />
+        <Pair label="구분" value={item.category.trim()} /><Pair label="품목코드" value={item.code} /><Pair label="1SET 수량" value={item.setQuantity} /><Pair label="BOX" value={item.packBox} /><Pair label="PT(EA)" value={item.packPalletEa} /><Pair label="PT(BOX)" value={item.packPalletBox} /><Pair label="포장 비고" value={item.packNote} />
       </>}</tbody></table></section>
       <div className="modalfoot"><span id="total">총재고 합계<b>{fmt(result.Y)} <small>{item.unit}</small></b></span>{props.canEdit && <button id="edit" type="button" className="primary" onClick={() => setEditing(true)}>실사 입력</button>}</div>
     </dialog>

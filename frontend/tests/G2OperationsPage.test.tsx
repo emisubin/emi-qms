@@ -8,7 +8,7 @@ vi.mock('../src/api', async original => ({ ...await original<typeof import('../s
 const today=todaySeoul();
 const metric=(quantity:number|null)=>({quantity,version:2,updatedAtUtc:'2026-10-08T00:00:00Z',updatedByDisplayName:'검수'});
 const note=(text:string|null)=>({text,version:3,updatedAtUtc:'2026-10-08T00:00:00Z',updatedByDisplayName:'검수'});
-const day=(date=today):G2Day=>({date,isForecast:date>today,morningProduction:metric(100),afternoonProduction:metric(90),morningRepair:metric(2),afternoonRepair:metric(3),productionTotal:190,repairTotal:5,delivery:metric(180),defect:metric(4),inventory:2000,defectInventory:9,physicalCount:metric(2000),defectInventoryCount:metric(9),productionPlan:metric(200),deliveryPlan:metric(180),planNote:note('계획 확인'),actualNote:note('오전 기록'),rowNote:note('행 기록'),morningEmiAttendance:null,morningContractorAttendance:null,afternoonEmiAttendance:null,afternoonContractorAttendance:null,morningAttendanceTotal:null,afternoonAttendanceTotal:null,attendanceTotal:null,dailyProductionTarget:null,deliveryTarget:null,inventoryTarget:null});
+const day=(date=today):G2Day=>({date,isForecast:date>today,morningProduction:metric(100),afternoonProduction:metric(90),morningRepair:metric(2),afternoonRepair:metric(3),productionTotal:190,repairTotal:5,delivery:metric(180),defect:metric(4),inventory:2000,defectInventory:9,simpleDefectInventory:6,complexLongDefectInventory:3,physicalCount:metric(2000),defectInventoryCount:metric(9),productionPlan:metric(200),deliveryPlan:metric(180),planNote:note('계획 확인'),actualNote:note('오전 기록'),rowNote:note('행 기록'),morningEmiAttendance:null,morningContractorAttendance:null,afternoonEmiAttendance:null,afternoonContractorAttendance:null,morningAttendanceTotal:null,afternoonAttendanceTotal:null,attendanceTotal:null,dailyProductionTarget:null,deliveryTarget:null,inventoryTarget:null});
 const all:G2WriteAccess={production:true,delivery:true,productionPlan:true,deliveryPlan:true,planNote:true,note:true,inventory:true};
 const none:G2WriteAccess={production:false,delivery:false,productionPlan:false,deliveryPlan:false,planNote:false,note:false,inventory:false};
 function mockDays(rows=[day()]) { vi.mocked(getG2Days).mockImplementation(async(_user,from,to)=>({today,from,to,days:rows.filter(d=>d.date>=from&&d.date<=to)})); }
@@ -37,7 +37,7 @@ it('keeps future plans and notes but blanks actuals and inventories',async()=>{
  const date='2099-10-08';mockDays([day(date)]);page();await screen.findByRole('table',{name:'월간 생산·출하 현황'});fireEvent.click(screen.getByRole('button',{name:'조회 연월 선택'}));fireEvent.change(screen.getByLabelText('조회 연도'),{target:{value:'2099'}});fireEvent.change(screen.getByLabelText('조회 월'),{target:{value:'10'}});fireEvent.click(screen.getByRole('button',{name:'조회'}));const toggle=await screen.findByRole('button',{name:`${date} 상세 펼치기`});const cells=within(toggle.closest('tr')!).getAllByRole('cell');expect(cells[2]).toHaveTextContent('180');expect(cells[3]).toBeEmptyDOMElement();expect(cells[6]).toBeEmptyDOMElement();expect(cells[8]).toBeEmptyDOMElement();expect(cells[9]).toHaveTextContent('행 기록');fireEvent.click(toggle);expect(screen.getByText('계획 확인')).toBeInTheDocument();expect(screen.getByText('오전 기록')).toBeInTheDocument();
 });
 it('uses a floating mobile detail then shared bottom menu and input form',async()=>{
- vi.stubGlobal('matchMedia',()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));page();fireEvent.click(await screen.findByRole('button',{name:`${today} 상세 보기`}));const detail=screen.getByRole('dialog');expect(detail).toHaveAttribute('id','day-popup');expect(within(detail).getByRole('table',{name:'생산·수리·부적합 실적'})).toBeInTheDocument();expect(within(detail).getByRole('table',{name:'재고·실사'})).toBeInTheDocument();fireEvent.click(within(detail).getByRole('button',{name:'데이터 입력'}));expect(screen.getByRole('dialog')).toHaveAttribute('id','input-sheet');fireEvent.click(screen.getByRole('button',{name:'실적 입력'}));expect(screen.getByRole('dialog')).toHaveAttribute('id','layer');await waitFor(()=>expect(screen.getByLabelText('오전 생산 실적')).toHaveValue(100));
+ vi.stubGlobal('matchMedia',()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()}));page();fireEvent.click(await screen.findByRole('button',{name:`${today} 상세 보기`}));const detail=screen.getByRole('dialog');expect(detail).toHaveAttribute('id','day-popup');expect(within(detail).getByRole('table',{name:'생산·수리·부적합 실적'})).toBeInTheDocument();expect(within(detail).getByRole('table',{name:'G2 재고·실사'})).toBeInTheDocument();fireEvent.click(within(detail).getByRole('button',{name:'데이터 입력'}));expect(screen.getByRole('dialog')).toHaveAttribute('id','input-sheet');fireEvent.click(screen.getByRole('button',{name:'실적 입력'}));expect(screen.getByRole('dialog')).toHaveAttribute('id','layer');await waitFor(()=>expect(screen.getByLabelText('오전 생산 실적')).toHaveValue(100));
 });
 
 it('allows future actual notes without sending actual quantities',async()=>{
@@ -52,4 +52,13 @@ it('ignores a previous user response after the workspace identity changes',async
  await screen.findByText('현재 사용자 자료');
  await act(async()=>resolve({today,from:today,to:today,days:[{...day(),rowNote:note('이전 사용자 자료')}]}));
  expect(screen.queryByText('이전 사용자 자료')).toBeNull();
+});
+
+it('shows separate inventory quantities in the PC summary and expanded date',async()=>{
+ page();const summary=await screen.findByRole('table',{name:'월 조회 및 요약'});
+ expect(within(summary).getByText('단순 부적합')).toHaveTextContent('6');
+ expect(within(summary).getByText('복합·장기 부적합')).toHaveTextContent('3');
+ fireEvent.click(screen.getByRole('button',{name:`${today} 상세 펼치기`}));
+ expect(screen.getByText('단순 부적합 재고').closest('tr')).toHaveTextContent('6');
+ expect(screen.getByText('복합·장기 부적합 재고').closest('tr')).toHaveTextContent('3');
 });

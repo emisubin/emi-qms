@@ -52,6 +52,6 @@
 | HTTPS Development | [HTTPS 안정화 기록](../../tasks/uat-001-https-dev-stability.md). 5174 branch 전환은 HMR/reload 확인, 설정·dependency·기동 조건 변경 또는 실제 갱신 실패 때만 재시작 판단 |
 | 격리 E2E | [격리 SOP](../../tasks/e2e-isolation-001-sop.md), [검증표](validation-matrix.md), 실행할 script의 실제 DB guard |
 | 과거 실험 검수 | [실험 원장](../27-experiment-task-ledger.md). 과거 주소의 상시 재시작 지시로 해석하지 않음 |
-| Azure 공개·복구 | [배포 SOP](../../tasks/azure-deploy-001-sop.md)와 최신 AZURE-DEPLOY change의 source·migration·승인·rollback |
+| Azure 공개·복구 | 절차는 [Root 배포 규칙](../../AGENTS.md#배포-규칙--조사보고-후-사용자-확인)만 따른다. [과거 환경 참고](../../tasks/azure-deploy-001-sop.md)와 최신 Task는 source·migration·실행 이력 확인에만 사용한다. |
 
 Node/pnpm/.NET 버전은 `.node-version`, root/frontend package, backend 설정을 확인한다. 이미 있는 계정/DB/서버를 새 bootstrap로 초기화하지 않는다. 실행 중 Backend의 binary·worker가 branch 전환을 따라간다고 가정하지 않는다. 사용자가 나중에 삭제할 컨테이너와 소유 불명 자원은 자동 정리하지 않는다.

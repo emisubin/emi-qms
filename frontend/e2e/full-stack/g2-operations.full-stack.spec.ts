@@ -427,7 +427,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const deliveryProduction = mobileDetail.getByRole('heading', { name: '납품·생산 현황' }).locator('..').getByRole('table');
   await expect(deliveryProduction).toContainText('8');
   await expect(deliveryProduction).toContainText('5');
-  await expect(mobileDetail.getByRole('table', { name: '재고·실사' }).locator('td')).toHaveText(['', '', '', '']);
+  await expect(mobileDetail.getByRole('table', { name: 'G2 재고·실사', exact: true }).locator('td')).toHaveText(['', '']);
+  await expect(mobileDetail.getByRole('table', { name: '부적합 재고', exact: true }).locator('td')).toHaveText(['', '']);
   await expect(mobileDetail.getByText('다음 출하 계획')).toBeVisible();
   await capture(page, '04-g2-operations-current-mobile-390.png');
   await mobileDetail.getByRole('button', { name: '닫기' }).click();
@@ -449,7 +450,8 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   const materialRows = materialsTable.locator('tbody tr:has(.g2m-item-info-button)');
   await expect(materialRows).toHaveCount(92);
   await expect(materialsTable.getByRole('button', { name: /품목 정보 · NO$/ })).toHaveCount(92);
-  await expect(materialRows.first().getByRole('button')).toHaveCount(7);
+  await expect(materialRows.first().getByRole('button')).toHaveCount(6);
+  await expect(materialsTable.getByRole('columnheader', { name: '업체명', exact: true })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: '자재 구분' }).getByRole('button', { name: '전체' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: '저장', exact: true })).toBeDisabled();
   await materialRows.first().getByRole('button', { name: '합성 자재 1', exact: true }).click();
@@ -469,6 +471,7 @@ test('G2 permissions, concurrent inputs, inventory calculation, and responsive U
   await expect(materialDetail.getByRole('button', { name: '재고 현황' })).toHaveAttribute('aria-pressed', 'true');
   await materialDetail.getByRole('button', { name: '품목 정보' }).click();
   await expect(materialDetail.getByRole('rowheader', { name: '1SET 수량' })).toBeVisible();
+  await expect(materialDetail.getByRole('rowheader', { name: '업체명', exact: true })).toHaveCount(0);
   await materialDetail.getByRole('button', { name: '실사 입력' }).click();
   const materialEditor = page.getByRole('dialog', { name: '실사 입력' });
   await expect(materialEditor.getByRole('group', { name: '제조 Part' })).toBeVisible();

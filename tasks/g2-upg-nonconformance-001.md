@@ -234,3 +234,9 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 검증: isolated G2NonconformanceTests3/3(발생일/완료일·초기재고·조치삭제·legacy·합계·미래), frontend 관련23/23, typecheck/eslint/build/diffcheck 통과. 기존chunk크기 경고만 유지. PC1440와 모바일390/320 합성 브라우저 실제 화면 직접확인, 입력 아닌 목록·일자상세 재고표 가로넘침없음/pageerror0. 증거 /tmp/g2-split-*; local preview는 합성 메모리자료이며 운영 실데이터 검수 아님.
 - 독립 split_inventory_review 코드/테스트diff GO, P0~P2없음. 로컬 구현·검증 완료, 이번 표시 변경의 원격병합/공개배포는 미실행. 기존 5188 검수서버 소스 /tmp/g2-classification-validation/frontend에 반영.
 - DB: 신규영구DB/테이블/migration없음. 임시DB emi_qms_e2e_20261016011225_36553_549 및 소유container/network 삭제확인. 사용중단DB없음. 사용자파일·다른runtime 보존.
+
+
+### 생산출하 상세 표 재배치 · 2026-10-16
+- 사용자 확정: 왼쪽 생산·수리 실적 유지, 가운데 G2 재고 실사/신규 부적합 수량, 오른쪽 단순/복합·장기 부적합 재고. 폐지된 부적합 실사 표시 제거.
+- 기존 표/스타일 재사용, 모바일에서도 부적합 실사칸 제거하고 납품가능 재고·실사와 부적합 재고를 구분. PC/모바일 부적합재고 rows 공용화. API·DB·집계·과거 저장값은 변경하지 않음.
+- 관련 프런트12/12 및 typecheck/eslint/diffcheck 통과. 최초 테스트는 기존 표 접근성 제목 기대값 불일치로1실패하여 변경제목으로 정합화 후통과. PC1440·모바일390/320 높이844 직접시각확인, popup 가로넘침없음/pageerror0. 로컬5188 합성검수 반영, 원격병합/공개배포없음. 신규DB/임시DB/사용중단DB없음.

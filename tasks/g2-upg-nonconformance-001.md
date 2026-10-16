@@ -265,3 +265,9 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - Latest worktree backend Release build passed; legacy migrations 1-130 and Cheongju overlays 0132-0136 applied to the new DB. API5087 Testing/Dev with external notification providers disabled. Replaced verified synthetic Vite PID8041 with actual app entry on5188, source /tmp/g2-classification-validation/frontend, API5087. Use /g2, not local-home-review.html.
 - Real API verified stocktake321 -> days/home inventory321; update456 -> days/home inventory456. Cleared verification quantity through API afterwards. Actual /g2 browser loaded empty real data with zero page errors; screenshot directly viewed. No production data copied, no deployment/push/merge. No obsolete DB.
 - Setup script /tmp/g2-live-review-20261016.sh contains initial createdb; inspect existing runtime before restarting. Backend session60655 and frontend session20929 retained for review.
+
+
+### Plan-gated home forecast - 2026-10-16
+- User requested no expected production on dates without production plans. Home forecast now adds the historical daily average on the forecast date only when that date has a positive production plan and is not Sunday. No default weekday production. Today remains the actual inventory anchor. Delivery subtraction and actual backend inventory ledger unchanged.
+- Updated existing home tests: positive Saturday, Sunday with positive plan, missing/zero plans, missing day, zero/null average, same-day delivery. Home tests13/13, changed-file eslint and typecheck passed. Actual local read-only browser PC1440/mobile390: Sunday10/18 remains53 instead of76; all seven points53 for current23production/23delivery plans. No page errors/overflow, both chart screenshots viewed.
+- Local source and live frontend updated; no writes to user review data, no DB schema changes or new DB, no obsolete DB. Existing review DB retained. No push/merge/deployment.

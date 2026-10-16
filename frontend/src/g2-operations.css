@@ -34,3 +34,6 @@
 @media(max-width:860px) and (max-height:450px){
  #g2-approved-scope #layer .dialogbody,#g2-approved-scope #day-popup-body{overflow:auto!important}
 }
+
+#g2-approved-scope .nonconformance-stock tbody th,
+#g2-approved-scope .nonconformance-stock tbody td { background: #f3f4f5 !important; }

@@ -280,3 +280,8 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 2026-10-16 user requested real local materials data: populated empty review catalog with92 approved items extracted from committed Excel template using existing extractor. Insert transaction restricted to exact emi_qms_e2e_g2_live_review_20261016 and empty catalog. Saved synthetic stock values for2026-10-16 through actual API; capacities120/160/180/240/320 cycle for visual comparison. Verified latest returns92 items and browser460 editable quantity inputs, screenshot viewed. No production access/new DB; existing review DB retained. Stock values are test data, not actual inventory.
 
 - 2026-10-16: removed vendor display from mobile material info tab per user request; metadata/Excel unchanged. Actual local390px detail dialog verified and screenshot viewed. No DB change/new/obsolete DB, no deployment.
+
+
+### PR177 final CI correction - 2026-10-16
+- User approved researched deployment plan: mandatory CI once plus focused checks, no announcement, existing maintenance write restriction and completion flow; no schema/data migration or backup restore exercise. PR177 initial CI38853602573 frontend mockUI72/73; failure was an existing administrator table assertion reading headers before loading completed. Artifact error-context explicitly showed loading status.
+- Changed only assertion API from immediate allTextContents().resolves.toEqual to locator.toHaveText with identical expected headers. Local affected business-unit-access spec6/6 passed. Product code unchanged; final candidate CI must reflect corrected test commit. Build images remain product-equivalent and will be checked by filesystem/runtime configuration equality against merged source.

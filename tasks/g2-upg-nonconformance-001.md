@@ -278,3 +278,5 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - Existing material tests26/26 passed. Real review DB has no material catalog; browser-only synthetic fixture verified17 aligned columns and no vendor header, desktop screenshot directly viewed. No DB writes/creation or schema changes; review DB retained. Local only, no deployment.
 
 - 2026-10-16 user requested real local materials data: populated empty review catalog with92 approved items extracted from committed Excel template using existing extractor. Insert transaction restricted to exact emi_qms_e2e_g2_live_review_20261016 and empty catalog. Saved synthetic stock values for2026-10-16 through actual API; capacities120/160/180/240/320 cycle for visual comparison. Verified latest returns92 items and browser460 editable quantity inputs, screenshot viewed. No production access/new DB; existing review DB retained. Stock values are test data, not actual inventory.
+
+- 2026-10-16: removed vendor display from mobile material info tab per user request; metadata/Excel unchanged. Actual local390px detail dialog verified and screenshot viewed. No DB change/new/obsolete DB, no deployment.

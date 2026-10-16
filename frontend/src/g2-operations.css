@@ -37,3 +37,7 @@
 
 #g2-approved-scope .nonconformance-stock tbody th,
 #g2-approved-scope .nonconformance-stock tbody td { background: #f3f4f5 !important; }
+
+@media (max-width:860px) {
+ #g2-approved-scope .nonconformance-stock th:first-child { width:65% !important; white-space:nowrap !important; }
+}

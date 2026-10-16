@@ -258,3 +258,10 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 사용자 확인 후 로컬 수정 승인. 7일 유지, 그래프 마지막 점을 눈금선 오른쪽 끝650에 맞춤. 일요일 예상 생산은 명시 계획과 무관하게0; 토요일 생산의 일요일 재고 반영·납품 차감·기존 공휴일 계획 처리는 유지. 하단은 “일 평균 N대 생산 반영”만 표시(평균 미산출은 별도 한줄 안내).
 - 관련 홈 테스트13/13, typecheck·변경파일eslint 통과. 합성 로컬PC1440/모바일390/320에서7점·마지막x650·한줄설명·페이지overflow0·pageerror0 확인, PC/390 스크린샷 직접 확인. 자재 조회 오류는 해당 합성 fixture에 미구현된 자재 API이며 홈 그래프 검증과 별개. 실제 운영 데이터 검증 아님.
 - local preview /tmp/g2-classification-validation/frontend에 반영. 원격push/병합/배포 없음. 신규DB·임시DB·사용중단DB 없음.
+
+
+### Real local G2 review runtime - 2026-10-16
+- User authorized replacing the synthetic preview with a real local API and isolated review DB. Created emi_qms_e2e_g2_live_review_20261016; container emi-qms-e2e-g2-live-review-20261016-e2e-postgres-1. Existing production/general-development DBs untouched. This tmpfs review DB survives browser reloads but not container stop/restart; retained running for user review, not cleaned up.
+- Latest worktree backend Release build passed; legacy migrations 1-130 and Cheongju overlays 0132-0136 applied to the new DB. API5087 Testing/Dev with external notification providers disabled. Replaced verified synthetic Vite PID8041 with actual app entry on5188, source /tmp/g2-classification-validation/frontend, API5087. Use /g2, not local-home-review.html.
+- Real API verified stocktake321 -> days/home inventory321; update456 -> days/home inventory456. Cleared verification quantity through API afterwards. Actual /g2 browser loaded empty real data with zero page errors; screenshot directly viewed. No production data copied, no deployment/push/merge. No obsolete DB.
+- Setup script /tmp/g2-live-review-20261016.sh contains initial createdb; inspect existing runtime before restarting. Backend session60655 and frontend session20929 retained for review.

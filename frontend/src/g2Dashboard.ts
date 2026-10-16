@@ -31,6 +31,7 @@ export function deliveryForecast(day: G2Day | undefined, days: G2Day[], through:
   if (!day || day.inventory == null) return [];
   const byDate = new Map(days.map(d => [d.date, d]));
   const produces = (date: string) => {
+    if (new Date(`${date}T00:00:00Z`).getUTCDay() === 0) return false;
     const plan = byDate.get(date)?.productionPlan?.quantity;
     if (plan != null) return plan > 0;
     return new Date(`${date}T00:00:00Z`).getUTCDay() !== 0 && !holidays.has(date);

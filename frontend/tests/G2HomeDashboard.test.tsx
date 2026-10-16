@@ -53,7 +53,7 @@ describe('approved G2 home',()=>{
   const start=day('2026-10-10',{inventory:100});
   const result=deliveryForecast(start,[],'2026-10-14',10,new Set(['2026-10-12']));
   expect(result.map(p=>p.quantity)).toEqual([100,110,110,110,120]);
-  expect(deliveryForecast(start,[day('2026-10-11',{productionPlan:metric(5)})],'2026-10-12',10).map(p=>p.quantity)).toEqual([100,110,120]);
+  expect(deliveryForecast(start,[day('2026-10-11',{productionPlan:metric(5)})],'2026-10-12',10).map(p=>p.quantity)).toEqual([100,110,110]);
   expect(deliveryForecast(start,[],'2026-10-11',0).map(p=>p.quantity)).toEqual([100,100]);
   expect(deliveryForecast(start,[],'2026-10-11',null).map(p=>p.quantity)).toEqual([100,100]);
  });
@@ -65,7 +65,7 @@ describe('approved G2 home',()=>{
   expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-11 88대, 2026-10-12 58대'));
   expect(graph).toHaveAttribute('aria-label',expect.stringContaining('2026-10-17'));
   expect(graph.getAttribute('aria-label')).not.toContain('2026-10-18');
-  expect(screen.getByText(/과거 20일 실적 · 일평균 40대/)).toBeInTheDocument();
+  expect(screen.getByText('일 평균 40대 생산 반영')).toBeInTheDocument();
   expect(api.getG2Days).toHaveBeenCalledWith('dev-sales','2026-09-10','2026-10-17');
  });
  it('keeps seven calendar dates when the forecast crosses a month boundary',async()=>{

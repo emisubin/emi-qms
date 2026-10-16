@@ -271,3 +271,8 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - User requested no expected production on dates without production plans. Home forecast now adds the historical daily average on the forecast date only when that date has a positive production plan and is not Sunday. No default weekday production. Today remains the actual inventory anchor. Delivery subtraction and actual backend inventory ledger unchanged.
 - Updated existing home tests: positive Saturday, Sunday with positive plan, missing/zero plans, missing day, zero/null average, same-day delivery. Home tests13/13, changed-file eslint and typecheck passed. Actual local read-only browser PC1440/mobile390: Sunday10/18 remains53 instead of76; all seven points53 for current23production/23delivery plans. No page errors/overflow, both chart screenshots viewed.
 - Local source and live frontend updated; no writes to user review data, no DB schema changes or new DB, no obsolete DB. Existing review DB retained. No push/merge/deployment.
+
+
+### Materials vendor column removal - 2026-10-16
+- User requested removing the vendor column and giving its width to specification. Removed C from desktop visible columns, increased F weight14 to20 using former C weight6, adjusted item header split8 to7. Excel format, stored vendor, search and detail info unchanged.
+- Existing material tests26/26 passed. Real review DB has no material catalog; browser-only synthetic fixture verified17 aligned columns and no vendor header, desktop screenshot directly viewed. No DB writes/creation or schema changes; review DB retained. Local only, no deployment.

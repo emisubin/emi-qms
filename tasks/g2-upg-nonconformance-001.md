@@ -225,3 +225,12 @@ DB운영변경/공유runtime교체/실제provider사용/배포는 없음. 신규
 - 정상 release runner 2026-10-16 09:55:37~10:02:21 KST exit0(6분44초). backend0000075/frontend0000065 Healthy·정확digest 확인, 공개health200/root401/api401. 청주·오산 prepare/activate/complete 6개job 모두성공, 저장제한해제. 공지 게시 없음. 120회 약3초간격 외부3경로 점검에서 비정상응답0(샘플 사이 순간중단·인증후 업무화면 전부를 무중단으로 보장하는 증거는 아님).
 - 기존 MES 기기+회사IP제한, backend 내부ingress 및 startup migration=false 보존 확인. 실제 운영 데이터 등록·수정 테스트 없음. 근거 /tmp/g2-classification-release-20261016 의 CI·image·release·postdeploy·availability 기록(실데이터/secret Git제외), 임시registry로그인정리.
 - DB 보고: 신규 영구DB/테이블/migration없음. 이번 로컬이미지검증의 전용 임시DB·컨테이너·네트워크·볼륨 모두 자동정리 확인. 기존 DB 사용중단없음. 사용자 preview·시안파일 보존. 이번 원격 기능반영·공개배포 완료; 이 완료기록은 후속 local commit으로 보존.
+
+
+### 부적합 재고 유형별 표시 · 2026-10-16
+- 사용자 분류 후 재고도 둘로 표시 요청/수정 승인. 기존 생산출하 PC 상단/일자 상세·모바일 재고표와 UPG 탭 인접 안내영역 재사용. 신규 시안·쓰기·권한·실적 합계 변경 없음.
+- 일별 API에 nullable simpleDefectInventory/complexLongDefectInventory 추가. 품질 활성화 이후 발생일 이하·완료일 초과/미완료 조건으로 각각 집계, 기존 합계는 둘의 합 유지. 분류없는 과거 개별건은 단순, 활성화전 숫자재고는 단순/복합0, 미래는 모두null. 초기재고 포함·발생실적 제외 계약 유지.
+- 생산출하 재고표는 두 유형을 각각 표시. 과거 합계 실사값은 임의 분할하지 않고 보존하며 모바일 병합칸에 과거 합계라고 명시. UPG 현재 전체 재고는 합계/단순/복합·장기를 함께 표시하고 검색 필터와 독립. 탭 숫자는 기존 검색조건 기준이며 loading/error때 재고0으로 오표시하지 않음.
+- 검증: isolated G2NonconformanceTests3/3(발생일/완료일·초기재고·조치삭제·legacy·합계·미래), frontend 관련23/23, typecheck/eslint/build/diffcheck 통과. 기존chunk크기 경고만 유지. PC1440와 모바일390/320 합성 브라우저 실제 화면 직접확인, 입력 아닌 목록·일자상세 재고표 가로넘침없음/pageerror0. 증거 /tmp/g2-split-*; local preview는 합성 메모리자료이며 운영 실데이터 검수 아님.
+- 독립 split_inventory_review 코드/테스트diff GO, P0~P2없음. 로컬 구현·검증 완료, 이번 표시 변경의 원격병합/공개배포는 미실행. 기존 5188 검수서버 소스 /tmp/g2-classification-validation/frontend에 반영.
+- DB: 신규영구DB/테이블/migration없음. 임시DB emi_qms_e2e_20261016011225_36553_549 및 소유container/network 삭제확인. 사용중단DB없음. 사용자파일·다른runtime 보존.

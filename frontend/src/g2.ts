@@ -42,6 +42,8 @@ export type G2Day = {
   productionTotal: number | null;
   repairTotal: number | null;
   defectInventory: number | null;
+  simpleDefectInventory?: number | null;
+  complexLongDefectInventory?: number | null;
   morningAttendanceTotal: number | null;
   afternoonAttendanceTotal: number | null;
   attendanceTotal: number | null;

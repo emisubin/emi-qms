@@ -275,3 +275,6 @@
 #g2-upg-page .record-top{flex-wrap:wrap!important}
 #g2-upg-page .record-type{min-width:0!important;overflow-wrap:anywhere!important}
 }
+
+#g2-upg-page .inventory-counts{display:flex;flex-wrap:wrap;gap:6px 14px}
+#g2-upg-page .inventory-counts span{white-space:nowrap}

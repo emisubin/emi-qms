@@ -46,6 +46,12 @@ public sealed class G2NonconformanceTests
         foreach(var value in data){crc^=value;for(var bit=0;bit<8;bit++)crc=(crc&1)!=0?0xedb88320U^(crc>>1):crc>>1;}
         BinaryPrimitives.WriteUInt32BigEndian(number,crc^uint.MaxValue);output.Write(number);
     }
+    private static void AssertInventorySplit(G2DayResponse day, long simple, long complexLong)
+    {
+        Assert.Equal(simple, day.SimpleDefectInventory);
+        Assert.Equal(complexLong, day.ComplexLongDefectInventory);
+        Assert.Equal(simple + complexLong, day.DefectInventory);
+    }
     [Fact] public void PreviewEndpointUsesSharedUploadSecurityAndUpgLimits()
     {
         using var factory=new QmsWebApplicationFactory();
@@ -124,20 +130,37 @@ public sealed class G2NonconformanceTests
         var operations=new G2OperationsStore(new CheongjuDatabase(provider),clock);
         var range=await operations.GetRangeAsync(day,day.AddDays(1),ct);
         Assert.Equal(3,range.Days[0].Defect!.Quantity); Assert.Equal(9,range.Days[0].DefectInventory);
-        var historical=await operations.GetRangeAsync(day.AddDays(-1),day.AddDays(-1),ct);Assert.Equal(7,historical.Days[0].DefectInventoryCount!.Quantity);Assert.Equal(7,historical.Days[0].DefectInventory);
+        AssertInventorySplit(range.Days[0], 9, 0);
+        AssertInventorySplit(range.Days[1], 1, 1);
+        var future=await operations.GetRangeAsync(day.AddDays(2),day.AddDays(2),ct);
+        Assert.Null(future.Days[0].DefectInventory);
+        Assert.Null(future.Days[0].SimpleDefectInventory);
+        Assert.Null(future.Days[0].ComplexLongDefectInventory);
+        var historical=await operations.GetRangeAsync(day.AddDays(-1),day.AddDays(-1),ct);Assert.Equal(7,historical.Days[0].DefectInventoryCount!.Quantity);Assert.Equal(7,historical.Days[0].DefectInventory);AssertInventorySplit(historical.Days[0],7,0);
         await Assert.ThrowsAsync<ArgumentException>(()=>operations.SaveDefectInventoryCountAsync(day,new(10,null),admin,ct));
         await Assert.ThrowsAsync<ArgumentException>(()=>operations.SaveMetricsAsync(day,[new(G2MetricCodes.Defect,3,null)],admin,ct));
         await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveActionAsync(first.Id,new(day.AddDays(-1),"Invalid date",Photos,first.Version),quality,ct));
         var action=(await store.SaveActionAsync(first.Id,new(day.AddDays(1),"Fixed",Photos,first.Version),quality,ct))!;
         Assert.Equal(G2NonconformanceTypes.ComplexLong,action.NonconformanceType);
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"update g2_quality_settings set activated_on='2026-10-11'",ct);
+        var completionBoundary=await operations.GetRangeAsync(day,day.AddDays(1),ct);
+        AssertInventorySplit(completionBoundary.Days[0],1,1);
+        AssertInventorySplit(completionBoundary.Days[1],1,0);
+        var laterInitial=(await store.SaveFirstAsync(null,request with {Serial="LATER-BACKLOG",OccurrenceDate=day.AddDays(1),InitialStock=true},quality,ct))!;
+        var occurrenceBoundary=await operations.GetRangeAsync(day,day.AddDays(1),ct);
+        AssertInventorySplit(occurrenceBoundary.Days[0],1,1);
+        AssertInventorySplit(occurrenceBoundary.Days[1],1,1);
+        Assert.Null(occurrenceBoundary.Days[1].Defect);
+        await store.DeleteAsync(laterInitial.Id,laterInitial.Version,false,quality,ct);
+        await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"update g2_quality_settings set activated_on='2026-10-12'",ct);
         await Assert.ThrowsAsync<ArgumentException>(()=>store.DeleteAsync(first.Id,action.Version,false,quality,ct));
         clock.Now=clock.Now.AddDays(1);
         await Assert.ThrowsAsync<ArgumentException>(()=>store.SaveFirstAsync(first.Id,request with {OccurrenceDate=day.AddDays(2),ExpectedVersion=action.Version},quality,ct));
         clock.Now=clock.Now.AddDays(-1);
         await Assert.ThrowsAsync<DBConcurrencyException>(()=>store.SaveActionAsync(first.Id,new(day,"Changed",Photos,first.Version),quality,ct));
-        range=await operations.GetRangeAsync(day,day.AddDays(1),ct);Assert.Equal(1,range.Days[1].RepairTotal);Assert.Equal(1,range.Days[1].DefectInventory);
+        range=await operations.GetRangeAsync(day,day.AddDays(1),ct);Assert.Equal(1,range.Days[1].RepairTotal);Assert.Equal(1,range.Days[1].DefectInventory);AssertInventorySplit(range.Days[1],1,0);
         var reopened=(await store.DeleteAsync(first.Id,action.Version,true,quality,ct))!; Assert.Null(reopened.Action);Assert.Equal(G2NonconformanceTypes.ComplexLong,reopened.NonconformanceType);
-        range=await operations.GetRangeAsync(day,day.AddDays(1),ct);Assert.Null(range.Days[1].RepairTotal);Assert.Equal(2,range.Days[1].DefectInventory);
+        range=await operations.GetRangeAsync(day,day.AddDays(1),ct);Assert.Null(range.Days[1].RepairTotal);Assert.Equal(2,range.Days[1].DefectInventory);AssertInventorySplit(range.Days[1],1,1);
         var scansBeforeRetainedEdit=scanner.Files.Count;var edits=await Task.WhenAll(Enumerable.Range(0,2).Select(async i=>{try{await store.SaveFirstAsync(first.Id,request with {ExpectedVersion=reopened.Version,Content=$"Edit{i}",Photos=reopened.Photos},quality,ct);return true;}catch(DBConcurrencyException){return false;}}));Assert.Single(edits,x=>x);Assert.Equal(scansBeforeRetainedEdit,scanner.Files.Count);
         var list=JsonSerializer.SerializeToElement(await store.ReadAsync(staff,ct));Assert.False(list.GetProperty("canEdit").GetBoolean());
         var listedItems=list.GetProperty("items").EnumerateArray().ToArray();
@@ -150,6 +173,8 @@ public sealed class G2NonconformanceTests
         Assert.Equal(0,await db.ReadScalarAsync<long>(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,"select count(*) from g2_nonconformance_history",ct));
         Assert.NotNull(await store.PhotoAsync(initial.Id,initial.Photos[0].Id!.Value,ct));
         await db.ExecuteAsync(BusinessUnitCodes.Cheongju,BusinessUnitConnectionPurpose.Administrator,$"update g2_nonconformances set data=data-'nonconformanceType' where id='{initial.Id}'",ct);
+        var legacyRange=await operations.GetRangeAsync(day.AddDays(1),day.AddDays(1),ct);
+        AssertInventorySplit(legacyRange.Days[0],1,0);
         var legacyList=JsonSerializer.SerializeToElement(await store.ReadAsync(staff,ct));
         Assert.Equal(G2NonconformanceTypes.Simple,legacyList.GetProperty("items").EnumerateArray().Single(item=>item.GetProperty("Id").GetGuid()==initial.Id).GetProperty("NonconformanceType").GetString());
         using var factory=QmsWebApplicationFactory.Create("Testing",new Dictionary<string,string?>{

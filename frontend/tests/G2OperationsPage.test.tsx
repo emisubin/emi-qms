@@ -8,7 +8,7 @@ vi.mock('../src/api', async original => ({ ...await original<typeof import('../s
 const today=todaySeoul();
 const metric=(quantity:number|null)=>({quantity,version:2,updatedAtUtc:'2026-10-08T00:00:00Z',updatedByDisplayName:'검수'});
 const note=(text:string|null)=>({text,version:3,updatedAtUtc:'2026-10-08T00:00:00Z',updatedByDisplayName:'검수'});
-const day=(date=today):G2Day=>({date,isForecast:date>today,morningProduction:metric(100),afternoonProduction:metric(90),morningRepair:metric(2),afternoonRepair:metric(3),productionTotal:190,repairTotal:5,delivery:metric(180),defect:metric(4),inventory:2000,defectInventory:9,physicalCount:metric(2000),defectInventoryCount:metric(9),productionPlan:metric(200),deliveryPlan:metric(180),planNote:note('계획 확인'),actualNote:note('오전 기록'),rowNote:note('행 기록'),morningEmiAttendance:null,morningContractorAttendance:null,afternoonEmiAttendance:null,afternoonContractorAttendance:null,morningAttendanceTotal:null,afternoonAttendanceTotal:null,attendanceTotal:null,dailyProductionTarget:null,deliveryTarget:null,inventoryTarget:null});
+const day=(date=today):G2Day=>({date,isForecast:date>today,morningProduction:metric(100),afternoonProduction:metric(90),morningRepair:metric(2),afternoonRepair:metric(3),productionTotal:190,repairTotal:5,delivery:metric(180),defect:metric(4),inventory:2000,defectInventory:9,simpleDefectInventory:6,complexLongDefectInventory:3,physicalCount:metric(2000),defectInventoryCount:metric(9),productionPlan:metric(200),deliveryPlan:metric(180),planNote:note('계획 확인'),actualNote:note('오전 기록'),rowNote:note('행 기록'),morningEmiAttendance:null,morningContractorAttendance:null,afternoonEmiAttendance:null,afternoonContractorAttendance:null,morningAttendanceTotal:null,afternoonAttendanceTotal:null,attendanceTotal:null,dailyProductionTarget:null,deliveryTarget:null,inventoryTarget:null});
 const all:G2WriteAccess={production:true,delivery:true,productionPlan:true,deliveryPlan:true,planNote:true,note:true,inventory:true};
 const none:G2WriteAccess={production:false,delivery:false,productionPlan:false,deliveryPlan:false,planNote:false,note:false,inventory:false};
 function mockDays(rows=[day()]) { vi.mocked(getG2Days).mockImplementation(async(_user,from,to)=>({today,from,to,days:rows.filter(d=>d.date>=from&&d.date<=to)})); }
@@ -52,4 +52,13 @@ it('ignores a previous user response after the workspace identity changes',async
  await screen.findByText('현재 사용자 자료');
  await act(async()=>resolve({today,from:today,to:today,days:[{...day(),rowNote:note('이전 사용자 자료')}]}));
  expect(screen.queryByText('이전 사용자 자료')).toBeNull();
+});
+
+it('shows separate inventory quantities in the PC summary and expanded date',async()=>{
+ page();const summary=await screen.findByRole('table',{name:'월 조회 및 요약'});
+ expect(within(summary).getByText('단순 부적합')).toHaveTextContent('6');
+ expect(within(summary).getByText('복합·장기 부적합')).toHaveTextContent('3');
+ fireEvent.click(screen.getByRole('button',{name:`${today} 상세 펼치기`}));
+ expect(screen.getByText('단순 부적합 재고').closest('tr')).toHaveTextContent('6');
+ expect(screen.getByText('복합·장기 부적합 재고').closest('tr')).toHaveTextContent('3');
 });

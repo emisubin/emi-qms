@@ -228,7 +228,7 @@
 #g2-approved-scope .entry-options button{text-align:center !important;padding:8px 2px !important;white-space:nowrap !important}
 #g2-approved-scope summary::after{content:none !important}
 #g2-approved-scope summary::-webkit-details-marker{display:none !important}
-#g2-approved-scope .stock-values{grid-template-columns:1fr 1fr !important}
+#g2-approved-scope .stock-values{grid-template-columns:repeat(3,minmax(0,1fr)) !important}
 #g2-approved-scope .query-bar .query-action{text-align:center !important}
 #g2-approved-scope .month-title-row{display:flex !important;align-items:center !important;justify-content:center !important;gap:10px !important;min-height:32px !important}
 #g2-approved-scope .month-title-row strong{font-size:17px !important;font-weight:600 !important;white-space:nowrap !important}
